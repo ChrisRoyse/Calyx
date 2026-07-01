@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use calyx_aster::cf::ColumnFamily;
 use calyx_aster::vault::{AsterVault, VaultOptions};
@@ -16,10 +16,7 @@ use crate::query::{AskSpec, CrossModelPlan, PlanStep, ask, execute};
 #[test]
 #[ignore = "manual FSV for issue #466"]
 fn issue466_ask_fsv_writes_readback_artifacts() {
-    let root = std::env::var_os("CALYX_FSV_ROOT")
-        .map(PathBuf::from)
-        .expect("set CALYX_FSV_ROOT to the FSV directory")
-        .join("issue466-ask");
+    let root = calyx_fsv::required_fsv_root("CALYX_FSV_ROOT").join("issue466-ask");
     fs::remove_dir_all(&root).ok();
     fs::create_dir_all(&root).unwrap();
     let vault_dir = root.join("vault");

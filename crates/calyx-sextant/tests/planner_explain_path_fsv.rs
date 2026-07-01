@@ -39,9 +39,9 @@ fn planned_explain_search_carries_plan_and_hit_explain() {
 #[test]
 #[ignore = "manual FSV writes PH26 planned explain source-of-truth artifacts"]
 fn planned_explain_search_manual_fsv() {
-    let root = std::env::var("CALYX_FSV_ROOT")
-        .map(std::path::PathBuf::from)
-        .unwrap_or_else(|_| std::env::temp_dir().join("calyx-planner-explain-path-fsv"));
+    let root = calyx_fsv::fsv_root_or_else("CALYX_FSV_ROOT", || {
+        std::env::temp_dir().join("calyx-planner-explain-path-fsv")
+    });
     fs::create_dir_all(&root).unwrap();
 
     let engine = sample_engine();

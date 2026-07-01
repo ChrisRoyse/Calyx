@@ -478,9 +478,9 @@ fn rss_kib() -> u64 {
 }
 
 fn fsv_root() -> PathBuf {
-    std::env::var("CALYX_FSV_ROOT")
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| std::env::temp_dir().join("calyx-query-admission-fsv"))
+    calyx_fsv::fsv_root_or_else("CALYX_FSV_ROOT", || {
+        std::env::temp_dir().join("calyx-query-admission-fsv")
+    })
 }
 
 const fn slot() -> SlotId {

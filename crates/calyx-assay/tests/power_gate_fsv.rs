@@ -75,10 +75,9 @@ fn estimate_without_calibration() -> MiEstimate {
 }
 
 fn write_fsv_artifact(value: serde_json::Value) {
-    let Ok(root) = std::env::var("CALYX_FSV_ROOT") else {
+    let Some(root) = calyx_fsv::fsv_root("CALYX_FSV_ROOT") else {
         return;
     };
-    let root = std::path::PathBuf::from(root);
     fs::create_dir_all(&root).unwrap();
     let path = root.join("issue874_power_gate_readback.json");
     fs::write(&path, serde_json::to_vec_pretty(&value).unwrap()).unwrap();

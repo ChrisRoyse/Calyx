@@ -433,7 +433,7 @@ fn search_accepts_batch_ingest_ledger_ref_when_payload_names_hit_cx() {
             "ledger_entries": decoded_ledger_entries(&vault_dir),
         }),
     );
-    if std::env::var_os("CALYX_FSV_ROOT").is_none() {
+    if calyx_fsv::fsv_root("CALYX_FSV_ROOT").is_none() {
         let _ = fs::remove_dir_all(root);
     }
 }

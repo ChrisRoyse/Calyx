@@ -230,9 +230,9 @@ fn ci_contains(estimate: &MiEstimate, value: f32) -> bool {
 }
 
 fn fsv_root() -> PathBuf {
-    std::env::var("CALYX_FSV_ROOT")
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| std::env::temp_dir().join("calyx-bootstrap-ci-fsv"))
+    calyx_fsv::fsv_root_or_else("CALYX_FSV_ROOT", || {
+        std::env::temp_dir().join("calyx-bootstrap-ci-fsv")
+    })
 }
 
 fn hex(bytes: &[u8]) -> String {

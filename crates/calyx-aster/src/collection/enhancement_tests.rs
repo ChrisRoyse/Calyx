@@ -199,7 +199,7 @@ fn add_lens_wal_failure_keeps_old_mode_and_no_marker() {
 
 #[test]
 fn progressive_enhancement_fsv_writes_durable_readback() {
-    let fsv_root = std::env::var_os("CALYX_FSV_ROOT").map(PathBuf::from);
+    let fsv_root = calyx_fsv::fsv_root("CALYX_FSV_ROOT");
     let dir = fsv_root
         .as_ref()
         .map(|root| root.join("vault"))

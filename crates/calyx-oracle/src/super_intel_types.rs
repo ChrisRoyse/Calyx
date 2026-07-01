@@ -306,9 +306,7 @@ mod tests {
     #[test]
     #[ignore = "manual FSV for issue #435 PH50 T01 type readbacks"]
     fn issue435_super_intel_types_fsv_writes_readbacks() {
-        let root = std::env::var_os("CALYX_FSV_ROOT")
-            .map(std::path::PathBuf::from)
-            .expect("set CALYX_FSV_ROOT");
+        let root = calyx_fsv::required_fsv_root("CALYX_FSV_ROOT");
         fs::create_dir_all(&root).expect("create PH50 T01 FSV root");
 
         let tier_four_fails = SuperIntelReport::new(

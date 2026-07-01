@@ -144,9 +144,9 @@ fn expected_gpu_readback() -> &'static str {
 }
 
 fn fsv_root() -> PathBuf {
-    std::env::var("CALYX_FSV_ROOT")
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| std::env::temp_dir().join("calyx-loom-cross-term-fsv"))
+    calyx_fsv::fsv_root_or_else("CALYX_FSV_ROOT", || {
+        std::env::temp_dir().join("calyx-loom-cross-term-fsv")
+    })
 }
 
 fn digest_hex(bytes: &[u8]) -> String {

@@ -25,6 +25,7 @@ thiserror.workspace = true
 
 [dev-dependencies]
 calyx-forge = { path = "../calyx-forge" }
+calyx-fsv = { path = "../calyx-fsv" }
 calyx-ward = { path = "../calyx-ward" }
 proptest.workspace = true
 serde_json.workspace = true

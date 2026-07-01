@@ -479,6 +479,7 @@ dependencies = [
  "calyx-aster",
  "calyx-core",
  "calyx-forge",
+ "calyx-fsv",
  "calyx-ledger",
  "calyx-registry",
  "ciborium",
@@ -501,6 +502,7 @@ dependencies = [
  "calyx-anneal",
  "calyx-aster",
  "calyx-core",
+ "calyx-fsv",
  "calyx-ledger",
  "calyx-lodestar",
  "calyx-loom",
@@ -525,6 +527,7 @@ dependencies = [
  "blake3",
  "calyx-core",
  "calyx-forge",
+ "calyx-fsv",
  "calyx-ledger",
  "calyx-paths",
  "crc32fast",
@@ -555,6 +558,7 @@ dependencies = [
  "calyx-aster",
  "calyx-core",
  "calyx-forge",
+ "calyx-fsv",
  "calyx-ledger",
  "calyx-lodestar",
  "calyx-loom",
@@ -597,6 +601,7 @@ name = "calyx-forge"
 version = "0.1.0"
 dependencies = [
  "calyx-core",
+ "calyx-fsv",
  "criterion",
  "cudarc 0.19.7",
  "nvml-wrapper",
@@ -611,6 +616,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "calyx-fsv"
+version = "0.1.0"
+
+[[package]]
 name = "calyx-hazard-soak"
 version = "0.1.0"
 dependencies = [
@@ -619,6 +628,7 @@ dependencies = [
  "calyx-aster",
  "calyx-core",
  "calyx-forge",
+ "calyx-fsv",
  "calyx-ledger",
  "calyx-registry",
  "calyx-sextant",
@@ -636,6 +646,7 @@ dependencies = [
  "bincode_reloaded",
  "blake3",
  "calyx-core",
+ "calyx-fsv",
  "ed25519-dalek",
  "proptest",
  "serde",
@@ -651,6 +662,7 @@ dependencies = [
  "calyx-aster",
  "calyx-core",
  "calyx-forge",
+ "calyx-fsv",
  "calyx-ledger",
  "calyx-loom",
  "calyx-mincut",
@@ -672,6 +684,7 @@ dependencies = [
  "calyx-aster",
  "calyx-core",
  "calyx-forge",
+ "calyx-fsv",
  "calyx-ledger",
  "calyx-ward",
  "proptest",
@@ -689,6 +702,7 @@ dependencies = [
  "calyx-assay",
  "calyx-aster",
  "calyx-core",
+ "calyx-fsv",
  "calyx-ledger",
  "calyx-loom",
  "calyx-paths",
@@ -706,6 +720,7 @@ name = "calyx-mincut"
 version = "0.1.0"
 dependencies = [
  "calyx-core",
+ "calyx-fsv",
  "calyx-paths",
  "proptest",
  "rayon",
@@ -724,6 +739,7 @@ dependencies = [
  "calyx-aster",
  "calyx-core",
  "calyx-forge",
+ "calyx-fsv",
  "calyx-ledger",
  "calyx-lodestar",
  "calyx-loom",
@@ -740,6 +756,7 @@ name = "calyx-paths"
 version = "0.1.0"
 dependencies = [
  "calyx-core",
+ "calyx-fsv",
  "proptest",
  "serde",
  "serde_json",
@@ -755,6 +772,7 @@ dependencies = [
  "calyx-aster",
  "calyx-core",
  "calyx-forge",
+ "calyx-fsv",
  "calyx-ledger",
  "calyx-loom",
  "calyx-sextant",
@@ -780,6 +798,7 @@ dependencies = [
  "bincode_reloaded",
  "calyx-aster",
  "calyx-core",
+ "calyx-fsv",
  "calyx-ledger",
  "calyx-registry",
  "calyx-sextant",
@@ -798,6 +817,7 @@ dependencies = [
  "calyx-anneal",
  "calyx-aster",
  "calyx-core",
+ "calyx-fsv",
  "calyx-loom",
  "calyx-oracle",
  "calyx-paths",
@@ -880,6 +900,7 @@ dependencies = [
  "calyx-aster",
  "calyx-core",
  "calyx-forge",
+ "calyx-fsv",
  "calyx-ledger",
  "calyx-lodestar",
  "calyx-loom",

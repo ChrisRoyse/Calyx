@@ -12,9 +12,9 @@ fn beir_scifact_rrf_beats_single_lens_qrels() {
     let dataset = std::env::var("CALYX_QRELS_ROOT")
         .map(PathBuf::from)
         .unwrap_or_else(|_| PathBuf::from("/var/lib/calyx/data/datasets/beir-scifact/scifact"));
-    let fsv_root = std::env::var("CALYX_FSV_ROOT")
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| std::env::temp_dir().join("calyx-stage4-real-qrels"));
+    let fsv_root = calyx_fsv::fsv_root_or_else("CALYX_FSV_ROOT", || {
+        std::env::temp_dir().join("calyx-stage4-real-qrels")
+    });
     fs::create_dir_all(&fsv_root).unwrap();
 
     let corpus = load_corpus(dataset.join("corpus.jsonl"));

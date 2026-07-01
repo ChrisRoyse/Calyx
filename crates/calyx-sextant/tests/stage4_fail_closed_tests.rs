@@ -20,9 +20,9 @@ use calyx_sextant::{
 use serde_json::json;
 
 fn fsv_root() -> PathBuf {
-    std::env::var("CALYX_FSV_ROOT")
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| std::env::temp_dir().join("calyx-stage4-fail-closed"))
+    calyx_fsv::fsv_root_or_else("CALYX_FSV_ROOT", || {
+        std::env::temp_dir().join("calyx-stage4-fail-closed")
+    })
 }
 
 fn write_readback(name: &str, value: serde_json::Value) {

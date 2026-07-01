@@ -455,11 +455,9 @@ fn durable_vault(path: &Path) -> AsterVault<SystemClock> {
 }
 
 fn prepare_fsv_root() -> PathBuf {
-    let root = std::env::var_os("CALYX_FSV_ROOT")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| {
-            std::env::temp_dir().join(format!("calyx-issue434-{}", std::process::id()))
-        });
+    let root = calyx_fsv::fsv_root_or_else("CALYX_FSV_ROOT", || {
+        std::env::temp_dir().join(format!("calyx-issue434-{}", std::process::id()))
+    });
     let _ = fs::remove_dir_all(&root);
     fs::create_dir_all(&root).expect("create fsv root");
     root

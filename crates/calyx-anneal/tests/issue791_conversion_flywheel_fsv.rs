@@ -340,9 +340,9 @@ fn ledger_rows(vault: &AsterVault) -> Vec<Value> {
 }
 
 fn fsv_root() -> PathBuf {
-    env::var("CALYX_FSV_ROOT")
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| env::temp_dir().join(format!("issue791-fsv-{}", std::process::id())))
+    calyx_fsv::fsv_root_or_else("CALYX_FSV_ROOT", || {
+        env::temp_dir().join(format!("issue791-fsv-{}", std::process::id()))
+    })
 }
 
 fn hex(bytes: &[u8]) -> String {

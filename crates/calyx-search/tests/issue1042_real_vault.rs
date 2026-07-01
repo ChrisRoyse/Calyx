@@ -119,10 +119,9 @@ fn estimated_segment_bytes(token_dim: u32, row_count: u64, token_count: u64) -> 
 }
 
 fn maybe_write_fsv_json(value: &Value) {
-    let Some(root) = std::env::var_os("CALYX_FSV_ROOT") else {
+    let Some(root) = calyx_fsv::fsv_root("CALYX_FSV_ROOT") else {
         return;
     };
-    let root = PathBuf::from(root);
     fs::create_dir_all(&root).expect("create FSV root");
     fs::write(
         root.join("issue1042-real-vault-segment-boundedness.json"),

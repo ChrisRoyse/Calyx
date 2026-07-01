@@ -309,14 +309,14 @@ fn raw_f32_payload(values: &[f32]) -> Vec<u8> {
 
 fn fsv_case_root(label: &str) -> PathBuf {
     let serial = NEXT_DIR.fetch_add(1, Ordering::SeqCst);
-    if let Ok(root) = std::env::var("CALYX_FSV_ROOT") {
-        return PathBuf::from(root).join(format!("{label}-{}-{serial}", std::process::id()));
+    if let Some(root) = calyx_fsv::fsv_root("CALYX_FSV_ROOT") {
+        return root.join(format!("{label}-{}-{serial}", std::process::id()));
     }
     std::env::temp_dir().join(format!("calyx-{label}-{}-{serial}", std::process::id()))
 }
 
 fn keep_fsv_root() -> bool {
-    std::env::var_os("CALYX_FSV_ROOT").is_some()
+    calyx_fsv::fsv_root("CALYX_FSV_ROOT").is_some()
 }
 
 fn file_state(path: &Path) -> Value {

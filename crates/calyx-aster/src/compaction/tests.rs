@@ -114,7 +114,7 @@ fn compaction_report_tracks_debt_and_write_amplification() {
     assert!(report.write_amp_milli > 0);
     assert!(report.write_amp_milli <= CompactionSchedulerOptions::default().max_write_amp_milli);
     assert_eq!(report.staging_parent, dir);
-    if let Some(root) = std::env::var_os("CALYX_FSV_ROOT").map(PathBuf::from) {
+    if let Some(root) = calyx_fsv::fsv_root("CALYX_FSV_ROOT") {
         fs::write(
             root.join("compaction-write-amp-readback.json"),
             serde_json::to_vec_pretty(&serde_json::json!({

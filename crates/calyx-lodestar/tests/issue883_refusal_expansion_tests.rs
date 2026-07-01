@@ -85,7 +85,7 @@ fn invalid_params_fail_closed() {
 
 #[test]
 fn writes_fsv_readback_when_root_is_set() {
-    let Ok(root) = std::env::var("CALYX_FSV_ROOT") else {
+    let Some(root) = calyx_fsv::fsv_root("CALYX_FSV_ROOT") else {
         return;
     };
     let before = before_log();
@@ -106,7 +106,7 @@ fn writes_fsv_readback_when_root_is_set() {
         "verification": verification,
     });
     fs::create_dir_all(&root).unwrap();
-    let path = std::path::Path::new(&root).join("issue883_refusal_expansion_readback.json");
+    let path = root.join("issue883_refusal_expansion_readback.json");
     fs::write(&path, serde_json::to_vec_pretty(&value).unwrap()).unwrap();
     let bytes = fs::read(&path).unwrap();
     let readback: serde_json::Value = serde_json::from_slice(&bytes).unwrap();

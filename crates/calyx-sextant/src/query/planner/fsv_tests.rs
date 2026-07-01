@@ -1,5 +1,5 @@
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use calyx_aster::cf::ColumnFamily;
 use calyx_aster::collection::{
@@ -17,9 +17,7 @@ use super::plan;
 #[test]
 #[ignore = "manual FSV for issue #464"]
 fn issue464_query_planner_fsv_writes_readback_artifacts() {
-    let root = std::env::var_os("CALYX_FSV_ROOT")
-        .map(PathBuf::from)
-        .expect("set CALYX_FSV_ROOT to the issue #464 FSV directory");
+    let root = calyx_fsv::required_fsv_root("CALYX_FSV_ROOT");
     fs::remove_dir_all(&root).ok();
     fs::create_dir_all(&root).unwrap();
     let vault_dir = root.join("vault");

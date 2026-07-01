@@ -48,14 +48,12 @@ fn janitor(root: &Path, log_max_bytes: u64) -> Janitor {
 }
 
 fn fsv_root() -> PathBuf {
-    std::env::var_os("CALYX_FSV_ROOT")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| {
-            PathBuf::from(format!(
-                "/var/lib/calyx/data/fsv-issue486-{}",
-                std::process::id()
-            ))
-        })
+    calyx_fsv::fsv_root_or_else("CALYX_FSV_ROOT", || {
+        PathBuf::from(format!(
+            "/var/lib/calyx/data/fsv-issue486-{}",
+            std::process::id()
+        ))
+    })
 }
 
 fn write_file(path: &Path, len: usize, age_secs: u64) {

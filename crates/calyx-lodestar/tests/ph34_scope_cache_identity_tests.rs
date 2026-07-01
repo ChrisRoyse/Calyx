@@ -264,8 +264,8 @@ fn write_readback(value: serde_json::Value) {
 }
 
 fn fsv_root() -> PathBuf {
-    let base = std::env::var("CALYX_FSV_ROOT")
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| std::env::temp_dir().join("calyx-issue328-scope-cache-identity"));
+    let base = calyx_fsv::fsv_root_or_else("CALYX_FSV_ROOT", || {
+        std::env::temp_dir().join("calyx-issue328-scope-cache-identity")
+    });
     base.join("scope-cache-identity")
 }

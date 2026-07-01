@@ -281,9 +281,9 @@ fn manifest_path() -> PathBuf {
 }
 
 fn fsv_root() -> PathBuf {
-    std::env::var("CALYX_FSV_ROOT")
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| PathBuf::from("/var/lib/calyx/tmp/issue787-capability-gate-fsv"))
+    calyx_fsv::fsv_root_or_else("CALYX_FSV_ROOT", || {
+        PathBuf::from("/var/lib/calyx/tmp/issue787-capability-gate-fsv")
+    })
 }
 
 fn vault_id() -> VaultId {

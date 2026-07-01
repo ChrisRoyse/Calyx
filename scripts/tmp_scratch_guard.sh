@@ -116,10 +116,15 @@ cleanup_all_owned() {
 }
 
 cleanup_new_owned() {
-  local removed=0
+  # Snapshot the baseline into memory first: the baseline file itself lives
+  # under $tmp_root and matches the owned patterns, so removing entries while
+  # re-reading it from disk can delete the reference mid-sweep and make every
+  # remaining entry look "new".
+  local removed=0 baseline_content
+  baseline_content="$(cat -- "$baseline_file")"
   while IFS= read -r path; do
     [[ -n "$path" ]] || continue
-    if ! grep -Fxq "$path" "$baseline_file"; then
+    if ! grep -Fxq "$path" <<<"$baseline_content"; then
       remove_owned_path "$path"
       removed=$((removed + 1))
     fi

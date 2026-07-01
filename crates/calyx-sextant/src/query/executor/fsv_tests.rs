@@ -1,5 +1,5 @@
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use calyx_aster::cf::ColumnFamily;
 use calyx_aster::collection::{
@@ -24,10 +24,7 @@ use super::execute_at_snapshot;
 #[test]
 #[ignore = "manual FSV for issue #465"]
 fn issue465_query_executor_fsv_writes_readback_artifacts() {
-    let root = std::env::var_os("CALYX_FSV_ROOT")
-        .map(PathBuf::from)
-        .expect("set CALYX_FSV_ROOT to the FSV directory")
-        .join("issue465-query-executor");
+    let root = calyx_fsv::required_fsv_root("CALYX_FSV_ROOT").join("issue465-query-executor");
     fs::remove_dir_all(&root).ok();
     fs::create_dir_all(&root).unwrap();
     let vault_dir = root.join("vault");
@@ -202,10 +199,7 @@ fn issue465_query_executor_fsv_writes_readback_artifacts() {
 #[test]
 #[ignore = "manual FSV for issue #910"]
 fn issue910_graph_hop_fsv_writes_readback_artifacts() {
-    let root = std::env::var_os("CALYX_FSV_ROOT")
-        .map(PathBuf::from)
-        .expect("set CALYX_FSV_ROOT to the FSV directory")
-        .join("issue910-graph-hop");
+    let root = calyx_fsv::required_fsv_root("CALYX_FSV_ROOT").join("issue910-graph-hop");
     fs::remove_dir_all(&root).ok();
     fs::create_dir_all(&root).unwrap();
     let vault_dir = root.join("vault");

@@ -255,10 +255,10 @@ fn add_undirected(builder: &mut calyx_paths::AssocGraphBuilder, left: u8, right:
 }
 
 fn write_readback(name: &str, value: serde_json::Value) {
-    let Ok(root) = std::env::var("CALYX_FSV_ROOT") else {
+    let Some(root) = calyx_fsv::fsv_root("CALYX_FSV_ROOT") else {
         return;
     };
-    write_path(&PathBuf::from(root).join(name), &value);
+    write_path(&root.join(name), &value);
 }
 
 fn write_path(path: &Path, value: &serde_json::Value) {
@@ -268,9 +268,9 @@ fn write_path(path: &Path, value: &serde_json::Value) {
 }
 
 fn fsv_root() -> PathBuf {
-    std::env::var("CALYX_FSV_ROOT")
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| std::env::temp_dir().join("calyx-ph52-label-propagation"))
+    calyx_fsv::fsv_root_or_else("CALYX_FSV_ROOT", || {
+        std::env::temp_dir().join("calyx-ph52-label-propagation")
+    })
 }
 
 fn reset_dir(path: &Path) {

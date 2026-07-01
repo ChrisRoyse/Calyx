@@ -288,10 +288,9 @@ pub(super) fn write_calibrated_default_guard(vault: &Path, vault_id: &str, name:
 }
 
 pub(super) fn maybe_write_fsv_json(name: &str, value: &Value) {
-    let Ok(root) = std::env::var("CALYX_FSV_ROOT") else {
+    let Some(root) = calyx_fsv::fsv_root("CALYX_FSV_ROOT") else {
         return;
     };
-    let root = PathBuf::from(root);
     fs::create_dir_all(&root).expect("create fsv root");
     fs::write(
         root.join(name),

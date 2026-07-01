@@ -388,9 +388,9 @@ fn lens(byte: u8) -> LensId {
 }
 
 fn fsv_root() -> PathBuf {
-    std::env::var_os("CALYX_FSV_ROOT")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| std::env::temp_dir().join("calyx-issue400-degrade-fsv"))
+    calyx_fsv::fsv_root_or_else("CALYX_FSV_ROOT", || {
+        std::env::temp_dir().join("calyx-issue400-degrade-fsv")
+    })
 }
 
 fn reset_dir(path: &Path) -> PathBuf {

@@ -23,6 +23,7 @@ tracing.workspace = true
 wide.workspace = true
 
 [dev-dependencies]
+calyx-fsv = { path = "../calyx-fsv" }
 criterion.workspace = true
 proptest.workspace = true
 

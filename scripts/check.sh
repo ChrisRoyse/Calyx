@@ -6,6 +6,22 @@ repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source "$HOME/.cargo/env"
 cd "$repo_root"
 
+if [[ -f "$repo_root/env.sh" ]]; then
+  source "$repo_root/env.sh"
+fi
+
+# A suite-wide CALYX_FSV_ROOT points every FSV test at one shared evidence
+# root, so independent tests collide on the same directories (issue #1014,
+# observed as 11 spurious failures during the #1078 gate). Gate tests own
+# their FSV roots; refuse the inherited value instead of silently unsetting.
+# This refusal runs before the tmp-guard baseline/trap so an aborted gate
+# never triggers the post sweep against a baseline that `pre` never wrote.
+if [[ -n "${CALYX_FSV_ROOT:-}" ]]; then
+  echo "ERROR: CALYX_FSV_ROOT is set ('${CALYX_FSV_ROOT}'); the full gate refuses a suite-wide FSV root." >&2
+  echo "ERROR: unset CALYX_FSV_ROOT and rerun; give individual manual FSV runs their own absolute root instead (issue #1014)." >&2
+  exit 1
+fi
+
 tmp_guard_baseline="$(mktemp -t calyx-check-tmp-baseline.XXXXXX)"
 cleanup_tmp_guard() {
   local status=$?
@@ -14,10 +30,6 @@ cleanup_tmp_guard() {
   exit "$status"
 }
 trap cleanup_tmp_guard EXIT
-
-if [[ -f "$repo_root/env.sh" ]]; then
-  source "$repo_root/env.sh"
-fi
 
 # The gate is a one-shot build (no edit-rebuild loop), so incremental
 # compilation only adds overhead and disk churn (its cache grew to ~61 GB on the

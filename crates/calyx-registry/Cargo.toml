@@ -39,6 +39,7 @@ windows-sys = { version = "0.61.2", features = [
 ] }
 
 [dev-dependencies]
+calyx-fsv = { path = "../calyx-fsv" }
 calyx-loom = { path = "../calyx-loom" }
 calyx-sextant = { path = "../calyx-sextant" }
 proptest.workspace = true

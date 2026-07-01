@@ -2,7 +2,7 @@ use super::*;
 use calyx_core::{FixedClock, LensId, SlotId, VaultId};
 use proptest::prelude::*;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use crate::vault::{AsterVault, VaultOptions};
@@ -68,7 +68,7 @@ fn create_collection_roundtrips_and_reads_after_reopen() {
 
 #[test]
 fn collection_fsv_writes_durable_cf_readback() {
-    let fsv_root = std::env::var_os("CALYX_FSV_ROOT").map(PathBuf::from);
+    let fsv_root = calyx_fsv::fsv_root("CALYX_FSV_ROOT");
     let dir = fsv_root
         .as_ref()
         .map(|root| root.join("vault"))

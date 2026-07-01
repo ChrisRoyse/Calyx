@@ -1,6 +1,5 @@
 use std::collections::BTreeMap;
 use std::fs;
-use std::path::PathBuf;
 
 use calyx_core::SlotId;
 use calyx_sextant::fusion::profiles::lookup;
@@ -178,9 +177,9 @@ fn summarize_inputs(results: &BTreeMap<SlotId, Vec<IndexSearchHit>>) -> Vec<serd
 }
 
 fn write_readback(value: serde_json::Value) {
-    let root = std::env::var("CALYX_FSV_ROOT")
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| std::env::temp_dir().join("calyx-issue723-multimodal-rrf"));
+    let root = calyx_fsv::fsv_root_or_else("CALYX_FSV_ROOT", || {
+        std::env::temp_dir().join("calyx-issue723-multimodal-rrf")
+    });
     fs::create_dir_all(&root).expect("create FSV root");
     let path = root.join("issue723-multimodal-rrf-readback.json");
     fs::write(&path, serde_json::to_vec_pretty(&value).expect("json")).expect("write readback");

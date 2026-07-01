@@ -7,9 +7,9 @@ use calyx_loom::agreement_batch_gpu;
 use serde_json::json;
 
 pub(crate) fn fsv_root() -> PathBuf {
-    std::env::var("CALYX_FSV_ROOT")
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| std::env::temp_dir().join("calyx-stage5-fsv"))
+    calyx_fsv::fsv_root_or_else("CALYX_FSV_ROOT", || {
+        std::env::temp_dir().join("calyx-stage5-fsv")
+    })
 }
 
 pub(crate) fn cx(value: u8) -> CxId {

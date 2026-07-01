@@ -33,9 +33,9 @@ fn kernel(seed: u8, panel_version: u64) -> Kernel {
 }
 
 fn fsv_root(case: &str) -> PathBuf {
-    let base = std::env::var("CALYX_FSV_ROOT")
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| std::env::temp_dir().join("calyx-ph34-t02"));
+    let base = calyx_fsv::fsv_root_or_else("CALYX_FSV_ROOT", || {
+        std::env::temp_dir().join("calyx-ph34-t02")
+    });
     base.join(case)
 }
 

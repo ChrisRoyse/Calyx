@@ -238,8 +238,8 @@ pub(super) struct FsvPaths {
 
 impl FsvPaths {
     pub fn new() -> Self {
-        let (root, keep) = match std::env::var_os("CALYX_FSV_ROOT") {
-            Some(value) => (PathBuf::from(value), true),
+        let (root, keep) = match calyx_fsv::fsv_root("CALYX_FSV_ROOT") {
+            Some(value) => (value, true),
             None => (
                 std::env::temp_dir().join(format!(
                     "calyx-issue873-calibration-fsv-{}",

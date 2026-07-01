@@ -255,8 +255,7 @@ proptest! {
 #[test]
 #[ignore = "manual FSV for issue #442 completion primitive"]
 fn issue442_complete_fsv_writes_readbacks() {
-    let root = std::env::var("CALYX_FSV_ROOT").expect("CALYX_FSV_ROOT required");
-    let root = std::path::PathBuf::from(root);
+    let root = calyx_fsv::required_fsv_root("CALYX_FSV_ROOT");
     std::fs::create_dir_all(&root).expect("create fsv root");
     let fixture = Fixture::new(7).with_dense_slots();
     let vault_dir = root.join("aster-vault");

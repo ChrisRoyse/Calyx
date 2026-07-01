@@ -26,7 +26,7 @@ fn required_env(name: &str) -> String {
 #[ignore = "manual FSV: requires resident TEI :8089 and an on-disk sentinel byte-scan"]
 fn reranker_candidate_text_never_persists_real_tei() {
     let sentinel = required_env("CALYX_FSV_SENTINEL");
-    let root = std::path::PathBuf::from(required_env("CALYX_FSV_ROOT"));
+    let root = calyx_fsv::required_fsv_root("CALYX_FSV_ROOT");
     let endpoint = std::env::var("CALYX_RERANKER_ENDPOINT")
         .unwrap_or_else(|_| "http://127.0.0.1:8089".to_string());
     assert!(

@@ -18,6 +18,7 @@ serde_json.workspace = true
 
 [dev-dependencies]
 calyx-anneal = { path = "../calyx-anneal" }
+calyx-fsv = { path = "../calyx-fsv" }
 calyx-ledger = { path = "../calyx-ledger" }
 calyx-lodestar = { path = "../calyx-lodestar" }
 calyx-mincut = { path = "../calyx-mincut" }

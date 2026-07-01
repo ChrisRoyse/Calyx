@@ -88,8 +88,8 @@ fn issue788_multimodal_lens_pack_fsv_readback() {
 }
 
 fn fsv_root() -> (PathBuf, bool) {
-    if let Some(root) = std::env::var_os("CALYX_FSV_ROOT") {
-        return (PathBuf::from(root), true);
+    if let Some(root) = calyx_fsv::fsv_root("CALYX_FSV_ROOT") {
+        return (root, true);
     }
     let nanos = SystemTime::now()
         .duration_since(UNIX_EPOCH)

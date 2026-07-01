@@ -277,7 +277,7 @@ proptest! {
 
 #[test]
 fn durable_blob_fsv_writes_readback_artifacts() {
-    let fsv_root = std::env::var_os("CALYX_FSV_ROOT").map(PathBuf::from);
+    let fsv_root = calyx_fsv::fsv_root("CALYX_FSV_ROOT");
     let dir = fsv_root
         .as_ref()
         .map(|root| root.join("blob-vault"))

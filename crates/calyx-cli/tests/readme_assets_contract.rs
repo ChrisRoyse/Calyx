@@ -457,13 +457,11 @@ fn workspace_root() -> PathBuf {
 }
 
 fn fsv_root(root: &Path) -> PathBuf {
-    std::env::var_os("CALYX_FSV_ROOT")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| {
-            root.join("target")
-                .join("fsv")
-                .join("readme-assets-contract")
-        })
+    calyx_fsv::fsv_root_or_else("CALYX_FSV_ROOT", || {
+        root.join("target")
+            .join("fsv")
+            .join("readme-assets-contract")
+    })
 }
 
 fn copy_contract_state(root: &Path, case_name: &str) -> PathBuf {

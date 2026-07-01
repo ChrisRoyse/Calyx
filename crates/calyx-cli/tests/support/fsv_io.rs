@@ -7,14 +7,12 @@ use serde_json::Value;
 static TEMP_ROOT_SEQ: AtomicU64 = AtomicU64::new(0);
 
 pub fn fsv_root(env_key: &str, fallback: &str) -> PathBuf {
-    std::env::var(env_key)
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| std::env::temp_dir().join(fallback))
+    calyx_fsv::fsv_root_or_else(env_key, || std::env::temp_dir().join(fallback))
 }
 
 pub fn preserved_fsv_root(env_key: &str, fallback_prefix: &str) -> (PathBuf, bool) {
-    if let Ok(root) = std::env::var(env_key) {
-        return (PathBuf::from(root), true);
+    if let Some(root) = calyx_fsv::fsv_root(env_key) {
+        return (root, true);
     }
     (
         std::env::temp_dir().join(format!("{fallback_prefix}-{}", std::process::id())),
@@ -23,8 +21,8 @@ pub fn preserved_fsv_root(env_key: &str, fallback_prefix: &str) -> (PathBuf, boo
 }
 
 pub fn case_fsv_root(env_key: &str, fallback_prefix: &str, name: &str) -> (PathBuf, bool) {
-    if let Ok(root) = std::env::var(env_key) {
-        return (PathBuf::from(root).join(name), true);
+    if let Some(root) = calyx_fsv::fsv_root(env_key) {
+        return (root.join(name), true);
     }
     let seq = TEMP_ROOT_SEQ.fetch_add(1, Ordering::SeqCst);
     (

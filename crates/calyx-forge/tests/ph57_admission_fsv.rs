@@ -54,9 +54,9 @@ fn controller<'b>(
 }
 
 fn fsv_root() -> PathBuf {
-    std::env::var_os("CALYX_FSV_ROOT")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from("target/ph57-admission-fsv"))
+    calyx_fsv::fsv_root_or_else("CALYX_FSV_ROOT", || {
+        PathBuf::from("target/ph57-admission-fsv")
+    })
 }
 
 #[test]

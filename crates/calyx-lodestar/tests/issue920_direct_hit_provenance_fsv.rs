@@ -65,9 +65,9 @@ fn embeddings(kernel: &Kernel, anchor: CxId) -> BTreeMap<CxId, Vec<f32>> {
 }
 
 fn fsv_root() -> PathBuf {
-    std::env::var("CALYX_FSV_ROOT")
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| PathBuf::from("target/fsv/issue920-direct-hit-provenance"))
+    calyx_fsv::fsv_root_or_else("CALYX_FSV_ROOT", || {
+        PathBuf::from("target/fsv/issue920-direct-hit-provenance")
+    })
 }
 
 fn reset_dir(dir: &Path) {

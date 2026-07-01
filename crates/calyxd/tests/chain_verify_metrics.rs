@@ -198,9 +198,7 @@ fn http_scrape_serves_gauge_on_loopback() {
 #[test]
 #[ignore = "manual FSV for issue #602: builds synthetic ledgers under CALYX_FSV_ROOT"]
 fn issue602_fsv_build_synthetic_ledgers() {
-    let root = std::env::var("CALYX_FSV_ROOT")
-        .map(PathBuf::from)
-        .expect("CALYX_FSV_ROOT must point at the FSV evidence dir");
+    let root = calyx_fsv::required_fsv_root("CALYX_FSV_ROOT");
     for name in ["ledger-intact", "ledger-tampered", "ledger-truncated"] {
         let _ = fs::remove_dir_all(root.join(name));
     }

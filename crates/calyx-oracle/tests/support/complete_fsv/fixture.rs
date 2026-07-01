@@ -1,6 +1,6 @@
 use std::cell::{Cell, RefCell};
 use std::collections::{BTreeMap, BTreeSet};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use calyx_assay::{DeficitSuggestedAction, PanelSufficiency, SufficiencyDeficit, TrustTag};
 use calyx_core::{
@@ -441,8 +441,7 @@ fn tag_name(tag: SlotTag) -> &'static str {
 
 pub(super) fn write_outputs(outputs: &[FsvCase]) {
     write_json(Path::new(OUTPUT_PATH), outputs);
-    if let Ok(root) = std::env::var("CALYX_FSV_ROOT") {
-        let root = PathBuf::from(root);
+    if let Some(root) = calyx_fsv::fsv_root("CALYX_FSV_ROOT") {
         std::fs::create_dir_all(&root).expect("create fsv root");
         write_json(&root.join("ph51_complete_fsv.json"), outputs);
     }

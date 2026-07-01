@@ -133,9 +133,9 @@ fn vault_id() -> VaultId {
 }
 
 fn fsv_root() -> PathBuf {
-    std::env::var("CALYX_FSV_ROOT")
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| std::env::temp_dir().join("calyx-ph35-actor-ts-fsv"))
+    calyx_fsv::fsv_root_or_else("CALYX_FSV_ROOT", || {
+        std::env::temp_dir().join("calyx-ph35-actor-ts-fsv")
+    })
 }
 
 fn reset_dir(dir: &Path) {

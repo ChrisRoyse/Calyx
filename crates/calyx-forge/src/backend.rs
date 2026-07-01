@@ -176,8 +176,7 @@ pub mod tests {
             "cuda_exact_topk_max_k": CUDA_EXACT_TOPK_MAX_K,
             "deferred_ops_issue": "https://github.com/ChrisRoyse/Calyx/issues/338"
         });
-        if let Ok(root) = std::env::var("CALYX_FSV_ROOT") {
-            let root = std::path::PathBuf::from(root);
+        if let Some(root) = calyx_fsv::fsv_root("CALYX_FSV_ROOT") {
             std::fs::create_dir_all(&root).expect("create CALYX_FSV_ROOT");
             let path = root.join("forge-backend-contract-readback.json");
             let bytes = serde_json::to_vec_pretty(&payload).expect("serialize backend contract");

@@ -147,7 +147,7 @@ fn persisted_civic_default_reopens_with_registered_active_slots() {
         }),
     );
 
-    if std::env::var_os("CALYX_FSV_ROOT").is_none() {
+    if calyx_fsv::fsv_root("CALYX_FSV_ROOT").is_none() {
         fs::remove_dir_all(root).ok();
     }
 }
@@ -162,10 +162,10 @@ fn active_slot_names(panel: &calyx_core::Panel) -> Vec<&str> {
 }
 
 fn write_fsv_evidence(vault_dir: &Path, value: &serde_json::Value) {
-    let Some(root) = std::env::var_os("CALYX_FSV_ROOT") else {
+    let Some(root) = calyx_fsv::fsv_root("CALYX_FSV_ROOT") else {
         return;
     };
-    let root = PathBuf::from(root).join("issue990-builtin-template-registry");
+    let root = root.join("issue990-builtin-template-registry");
     fs::create_dir_all(&root).unwrap();
     fs::write(
         root.join("persisted-civic-default-readback.json"),
