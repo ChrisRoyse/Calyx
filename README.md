@@ -19,6 +19,23 @@
 
 ---
 
+<div align="center">
+
+### 📄 Start here — the Calyx white paper
+
+**[Calyx: An Association-Native Database & Its Path to Planetary-Scale Grounded Intelligence](https://calyxaimemory.com/research/association-native-grounded-intelligence)**
+<br/><sub>*A Technical White Paper — Illustrated Formal Edition · Chris Royse, 2026*</sub>
+
+The whole vision, end to end: the **calculus of association**, the grounding **kernel**, the fail-closed **guard**, and Calyx's path from a single workstation to a **neuromorphic, planetary-scale substrate for grounded intelligence** — where every answer is measured, grounded, and traceable to its sources.
+
+[**📖 Read on the web**](https://calyxaimemory.com/research/association-native-grounded-intelligence) · [**⬇️ Download the PDF**](https://calyxaimemory.com/papers/CALYX_WHITEPAPER.pdf) · [**🔬 ResearchGate**](https://www.researchgate.net/publication/408248277_Calyx_An_Association-Native_Database_and_Its_Path_to_Planetary-Scale_Grounded_Intelligence_A_Technical_White_Paper_-Illustrated_Formal_Edition)
+
+**🎥 Watch:** [*Calyx is AGI* — the intelligent database, demoed](https://youtu.be/Oix_PMsRrNM) · [*I Solved the Math Behind AGI* — the theory](https://youtu.be/8XisEf_uaZ8)
+
+</div>
+
+---
+
 > **Calyx** is a database whose native record is the *association-constellation*: one input measured through many frozen embedders ("lenses"), fused, differentiated by the information each one adds, and anchored to real outcomes. It finds the small grounding **kernel** that explains a whole dataset, **guards** generated content against drift and out-of-distribution answers, keeps a tamper-evident **ledger** of how every answer was produced, and gets faster the more you use it.
 
 A *calyx* is the whorl of sepals that holds a flower together at its base — the grounded structure from which a constellation of petals opens. That is exactly what this database is: a grounded base (kernel + provenance) that holds a constellation of vectors and lets it bloom into search, naming, and answers.
@@ -211,7 +228,7 @@ Actively expanding toward 1.0:
 - **Broader validation** of the oracle and guard against public benchmark corpora.
 
 > [!NOTE]
-> Calyx's vision extends to a *grounded substrate for general intelligence* — measuring whether a domain has the signal to be predicted at all, and refusing to pretend when it doesn't. That north star is aspirational; the honesty gate that underpins it is already built.
+> **The dream.** Calyx's north star is a *grounded substrate for planetary-scale intelligence*: hold the world's data un-flattened, measure it through many diverse lenses, derive the associations between distant domains, and surface **ranked, provenance-backed, validatable hypotheses** — never ungrounded answers. Two levers maximize what it can discover: **corpus breadth** and **lens diversity**. In a world where any answer is cheap to generate, the scarce resource is *grounded verification* — knowing what is true and being able to trace it to its sources — and that is exactly what Calyx is built to provide. The [white paper](https://calyxaimemory.com/research/association-native-grounded-intelligence) lays out the full path, including why this workload's natural long-term home is **neuromorphic, in-memory hardware**. That vision is aspirational and Calyx is pre-1.0; the honesty gate that underpins it is already built.
 
 ---
 
@@ -235,6 +252,8 @@ Each released version automatically converts to the open-source **Apache License
 <img src="assets/logo.png" alt="Calyx mark" width="84" />
 
 **Calyx** — *Intelligence is the calculus of association. Calyx is its engine.*
+
+[White paper](https://calyxaimemory.com/research/association-native-grounded-intelligence) · [calyxaimemory.com](https://calyxaimemory.com) · [Watch the demo](https://youtu.be/Oix_PMsRrNM) · [The theory](https://youtu.be/8XisEf_uaZ8)
 
 <sub>Built in Rust 🦀 · GPU math baked in · Grounded by design</sub>
 
