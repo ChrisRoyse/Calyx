@@ -44,6 +44,7 @@ ulid.workspace = true
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61.2", features = [
     "Win32_Foundation",
+    "Win32_Storage_FileSystem",
     "Win32_System_JobObjects",
 ] }
 

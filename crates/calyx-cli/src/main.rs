@@ -45,6 +45,10 @@ mod entry;
 mod error;
 mod fsv;
 mod fsv_corpus;
+mod fsv_vault_health;
+mod fsv_vault_health_quarantine;
+#[cfg(test)]
+mod fsv_vault_health_tests;
 mod healthcheck;
 mod healthcheck_daemon;
 #[cfg(test)]
