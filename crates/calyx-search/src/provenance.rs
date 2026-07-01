@@ -26,7 +26,12 @@ pub(crate) fn hit_docs_at(
     for hit in hits {
         let cx_id = hit.cx_id;
         let read = if hydrate_slots {
-            vault.get_at_snapshot(cx_id, snapshot)
+            let required_slots = hit
+                .per_lens
+                .iter()
+                .map(|lens_hit| lens_hit.slot)
+                .collect::<BTreeSet<_>>();
+            vault.get_selected_slots_at_snapshot(cx_id, snapshot, required_slots)
         } else {
             vault.get_base_at_snapshot(cx_id, snapshot)
         };

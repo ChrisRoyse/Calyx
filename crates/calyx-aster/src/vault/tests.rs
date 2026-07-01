@@ -88,6 +88,36 @@ fn put_get_roundtrips_base_and_slot_cfs() {
 }
 
 #[test]
+fn selected_snapshot_read_hydrates_only_requested_slots_and_fails_closed() {
+    let vault = AsterVault::with_clock(vault_id(), b"salt".to_vec(), FixedClock::new(123));
+    let cx = sample_constellation(&vault);
+    let id = cx.cx_id;
+    vault.put(cx.clone()).expect("put");
+
+    let snapshot = vault.snapshot_handle(vault.snapshot());
+    let selected = vault
+        .get_selected_slots_at_snapshot(id, snapshot, [SlotId::new(0)])
+        .expect("selected slot read");
+
+    assert_eq!(selected.cx_id, id);
+    assert_eq!(selected.metadata, cx.metadata);
+    assert_eq!(selected.slots.len(), 1);
+    assert_eq!(
+        selected.slots.get(&SlotId::new(0)),
+        cx.slots.get(&SlotId::new(0))
+    );
+    assert!(
+        !selected.slots.contains_key(&SlotId::new(1)),
+        "selected-slot read must not hydrate unrelated slots"
+    );
+
+    let error = vault
+        .get_selected_slots_at_snapshot(id, snapshot, [SlotId::new(999)])
+        .expect_err("missing selected slot must fail closed");
+    assert_eq!(error.code, "CALYX_STALE_DERIVED");
+}
+
+#[test]
 fn duplicate_put_is_idempotent_noop() {
     let vault = AsterVault::with_clock(vault_id(), b"salt".to_vec(), FixedClock::new(123));
     let cx = sample_constellation(&vault);
