@@ -32,6 +32,7 @@ pub(crate) fn usage() -> &'static str {
        calyx add-lens <vault> --name <n> --runtime <algorithmic|tei-http|external-cmd|candle-local|onnx|multimodal-adapter> [--endpoint <url-or-runtime-id>] [--weights <path>] [--shape Dense(<dim>)|Sparse(<dim>)|Multi(<token_dim>)] [--modality <text|code|image|audio|video|structured|mixed>]
        calyx retire-lens <vault> --slot <u16>
        calyx park-lens <vault> --slot <u16>
+       calyx retire-vault <vault> --reason <text>
        calyx list-panel <vault>
        calyx profile-lens [--name <n>] [--runtime <r>] [--endpoint <url-or-runtime-id>] [--weights <path>] [--shape Dense(<dim>)|Sparse(<dim>)] [--modality <m>] [--probe <path>]
        calyx ingest <vault> (--text <s> | --batch <jsonl-path> | --file <path> --modality <image|audio|video>) [--idempotent] [--output <summary|rows>] [--resident-addr <127.0.0.1:port>]

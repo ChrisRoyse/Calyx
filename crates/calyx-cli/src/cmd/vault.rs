@@ -16,6 +16,7 @@ use ulid::Ulid;
 use super::lens::{build_lens, built_modality, profile_probes};
 use super::{
     AddLensArgs, CreateVaultArgs, ProfileLensArgs, SlotCommandArgs, Subcommand, VaultRefArgs,
+    vault_retire,
 };
 use crate::error::{CliError, CliResult};
 use crate::output::{print_json, print_table};
@@ -29,6 +30,7 @@ pub(crate) fn run(command: Subcommand) -> CliResult {
         Subcommand::AddLens(args) => add_lens(args),
         Subcommand::RetireLens(args) => set_lens_state(args, LensStateAction::Retire),
         Subcommand::ParkLens(args) => set_lens_state(args, LensStateAction::Park),
+        Subcommand::RetireVault(args) => vault_retire::run(args),
         Subcommand::ListPanel(args) => list_panel_command(args),
         Subcommand::ProfileLens(args) => profile_lens_command(args),
         _ => unreachable!("non-vault command routed to vault module"),
@@ -63,8 +65,11 @@ struct LifecycleReport {
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[serde(default)]
 struct VaultIndex {
     vaults: Vec<VaultIndexEntry>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    retired_vaults: Vec<serde_json::Value>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -379,8 +384,8 @@ fn write_index(home: &Path, index: &VaultIndex) -> CliResult {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;
     }
-    fs::write(path, serde_json::to_vec_pretty(index)?)?;
-    Ok(())
+    let value = serde_json::to_value(index)?;
+    crate::durable_write::write_json_value_atomic(&path, &value, "vault index")
 }
 
 fn index_path(home: &Path) -> PathBuf {

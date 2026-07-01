@@ -32,6 +32,12 @@ pub(super) fn subcommand_tokens(command: &Subcommand) -> Vec<String> {
         }
         Subcommand::RetireLens(args) => slot_tokens("retire-lens", args),
         Subcommand::ParkLens(args) => slot_tokens("park-lens", args),
+        Subcommand::RetireVault(args) => vec![
+            "retire-vault".to_string(),
+            args.vault.clone(),
+            "--reason".to_string(),
+            args.reason.clone(),
+        ],
         Subcommand::ListPanel(args) => vec!["list-panel".to_string(), args.vault.clone()],
         Subcommand::Ingest(args) => ingest_tokens(args),
         Subcommand::Anchor(args) => anchor_tokens(args),

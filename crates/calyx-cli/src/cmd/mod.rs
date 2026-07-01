@@ -12,6 +12,7 @@ mod readback;
 mod search;
 mod spectral_communities;
 pub(crate) mod vault;
+mod vault_retire;
 mod weave;
 
 use ingest::IngestOutput;
@@ -47,6 +48,7 @@ pub(crate) enum Subcommand {
     AddLens(AddLensArgs),
     RetireLens(SlotCommandArgs),
     ParkLens(SlotCommandArgs),
+    RetireVault(vault_retire::RetireVaultArgs),
     ListPanel(VaultRefArgs),
     ProfileLens(ProfileLensArgs),
     Ingest(IngestArgs),
@@ -175,6 +177,7 @@ fn run(command: Subcommand) -> CliResult {
         | Subcommand::AddLens(_)
         | Subcommand::RetireLens(_)
         | Subcommand::ParkLens(_)
+        | Subcommand::RetireVault(_)
         | Subcommand::ListPanel(_)
         | Subcommand::ProfileLens(_) => vault::run(command),
         Subcommand::Ingest(_) | Subcommand::Anchor(_) | Subcommand::Measure(_) => {
@@ -211,6 +214,7 @@ pub(crate) fn parse(args: &[String]) -> CliResult<Subcommand> {
         "add-lens" => parse_add_lens(rest),
         "retire-lens" => parse_slot_command(rest).map(Subcommand::RetireLens),
         "park-lens" => parse_slot_command(rest).map(Subcommand::ParkLens),
+        "retire-vault" => vault_retire::parse_retire_vault(rest),
         "list-panel" => parse_vault_ref(rest).map(Subcommand::ListPanel),
         "profile-lens" => parse_profile_lens(rest),
         "ingest" => ingest::parse_ingest(rest),
@@ -246,6 +250,7 @@ fn is_cmd(command: &str) -> bool {
             | "add-lens"
             | "retire-lens"
             | "park-lens"
+            | "retire-vault"
             | "list-panel"
             | "profile-lens"
             | "ingest"
