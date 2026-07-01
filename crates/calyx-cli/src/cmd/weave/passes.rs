@@ -61,6 +61,22 @@ pub(super) struct WithinDocResult {
     pub knn_vectors: Vec<(CxId, Vec<f32>)>,
 }
 
+#[derive(Clone, Debug, Serialize)]
+pub(super) struct DenseSlotCoverage {
+    pub slot_id: u16,
+    pub dense_rows: usize,
+    pub missing_rows: usize,
+    pub example_missing_cx_ids: Vec<String>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub(super) struct DenseSlotCoverageReport {
+    pub total_base_rows: usize,
+    pub candidate_base_rows: usize,
+    pub limit: usize,
+    pub slots: Vec<DenseSlotCoverage>,
+}
+
 #[derive(Serialize)]
 struct EdgeValue {
     cosine: f32,
@@ -69,6 +85,56 @@ struct EdgeValue {
 
 fn data_error<T>(detail: String) -> CliResult<T> {
     Err(LodestarError::KernelInvalidParams { detail }.into())
+}
+
+pub(super) fn dense_slot_coverage<C: Clock>(
+    vault: &AsterVault<C>,
+    snapshot: u64,
+    content_slots: &[SlotId],
+    limit: usize,
+) -> CliResult<DenseSlotCoverageReport> {
+    let mut candidates: Vec<CxId> = Vec::new();
+    for (_, value) in vault.scan_cf_at(snapshot, ColumnFamily::Base)? {
+        candidates.push(encode::decode_constellation_base(&value)?.cx_id);
+    }
+    let total_base_rows = candidates.len();
+    if limit > 0 && limit < candidates.len() {
+        candidates.truncate(limit);
+    }
+    let candidate_base_rows = candidates.len();
+    let candidate_set: HashSet<CxId> = candidates.iter().copied().collect();
+
+    let mut slots = Vec::with_capacity(content_slots.len());
+    for &slot in content_slots {
+        let mut covered: HashSet<CxId> = HashSet::new();
+        for (key, value) in vault.scan_cf_at(snapshot, ColumnFamily::slot(slot))? {
+            let cx_id = cx_from_key(&key)?;
+            if !candidate_set.contains(&cx_id) {
+                continue;
+            }
+            if decode_dense(slot, cx_id, &value)?.is_some() {
+                covered.insert(cx_id);
+            }
+        }
+        let example_missing_cx_ids = candidates
+            .iter()
+            .filter(|cx_id| !covered.contains(cx_id))
+            .take(8)
+            .map(ToString::to_string)
+            .collect::<Vec<_>>();
+        slots.push(DenseSlotCoverage {
+            slot_id: slot.get(),
+            dense_rows: covered.len(),
+            missing_rows: candidate_base_rows.saturating_sub(covered.len()),
+            example_missing_cx_ids,
+        });
+    }
+    Ok(DenseSlotCoverageReport {
+        total_base_rows,
+        candidate_base_rows,
+        limit,
+        slots,
+    })
 }
 
 /// Pass A: bulk-scan Base + content-slot CFs, weave within-doc agreement into the
