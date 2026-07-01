@@ -1,0 +1,186 @@
+use std::collections::BTreeMap;
+
+use calyx_aster::vault::AsterVault;
+use calyx_core::{Constellation, CxId};
+use calyx_sextant::{FreshnessTag, Hit};
+
+use crate::engine_trace::SearchTracer;
+use crate::error::CliResult;
+use crate::persisted::PersistedSearchIndexes;
+use crate::provenance::hit_docs_at;
+
+use super::SearchFreshness;
+use super::support::{SearchReadSnapshot, index_freshness_tag};
+
+pub(super) fn hydrate_hit_docs_with_bounded_readbacks(
+    vault: &AsterVault,
+    indexes: &PersistedSearchIndexes,
+    hits: &[Hit],
+    freshness: SearchFreshness,
+    hydrate_hit_slots: bool,
+    trace: &mut SearchTracer<'_>,
+) -> CliResult<(BTreeMap<CxId, Constellation>, FreshnessTag)> {
+    if hits.is_empty() {
+        let read = pin_search_readback(vault, trace, "empty_hit_set", None, 0);
+        let freshness_tag = verify_index_freshness(indexes, read.seq(), freshness, trace)?;
+        return Ok((BTreeMap::new(), freshness_tag));
+    }
+
+    let mut docs = BTreeMap::new();
+    let mut expected_seq = None;
+    let mut freshness_tag = None;
+    for (hit_index, hit) in hits.iter().enumerate() {
+        let read = pin_search_readback(
+            vault,
+            trace,
+            "hit_doc_hydration",
+            Some(hit.cx_id),
+            hit_index + 1,
+        );
+        if let Some(seq) = expected_seq {
+            if read.seq() != seq {
+                return Err(calyx_core::CalyxError::stale_derived(format!(
+                    "vault advanced during search hit hydration: initial pinned seq {seq}, \
+                     hit_index={hit_index}, cx_id={}, new pinned seq {}, search index base seq {}; \
+                     refusing to mix index hits with a newer Base snapshot",
+                    hit.cx_id,
+                    read.seq(),
+                    indexes.base_seq()
+                ))
+                .into());
+            }
+        } else {
+            expected_seq = Some(read.seq());
+        }
+        let tag = verify_index_freshness(indexes, read.seq(), freshness, trace)?;
+        if freshness_tag.is_none() {
+            freshness_tag = Some(tag);
+        }
+        trace.emit_detail(
+            "hit_doc.hydrate.start",
+            None,
+            Some(hit_index + 1),
+            Some(format!(
+                "cx_id={} snapshot_seq={} hydrate_slots={hydrate_hit_slots}",
+                hit.cx_id,
+                read.seq()
+            )),
+        );
+        let one = hit_docs_at(
+            vault,
+            std::slice::from_ref(hit),
+            read.snapshot(),
+            hydrate_hit_slots,
+        )
+        .map_err(|error| contextualize_hit_hydration_error(error, hit, hit_index, &read))?;
+        docs.extend(one);
+        trace.emit_detail(
+            "hit_doc.hydrate.done",
+            None,
+            Some(hit_index + 1),
+            Some(format!("cx_id={} snapshot_seq={}", hit.cx_id, read.seq())),
+        );
+    }
+
+    let tag = freshness_tag.ok_or_else(|| {
+        calyx_core::CalyxError::stale_derived(
+            "search hydration produced hits but no verified freshness tag",
+        )
+    })?;
+    Ok((docs, tag))
+}
+
+fn pin_search_readback<'a>(
+    vault: &'a AsterVault,
+    trace: &mut SearchTracer<'_>,
+    phase: &'static str,
+    cx_id: Option<CxId>,
+    hit_ordinal: usize,
+) -> SearchReadSnapshot<'a> {
+    trace.emit_detail(
+        "snapshot.pin.start",
+        None,
+        if hit_ordinal == 0 {
+            None
+        } else {
+            Some(hit_ordinal)
+        },
+        Some(snapshot_detail(phase, cx_id, None)),
+    );
+    let read = SearchReadSnapshot::pin(vault);
+    trace.emit_detail(
+        "snapshot.pin.done",
+        None,
+        Some(read.seq() as usize),
+        Some(snapshot_detail(
+            phase,
+            cx_id,
+            Some(format!(
+                "lease_id={} max_age_ms={} expires_at={}",
+                read.lease_id(),
+                read.lease_max_age_ms(),
+                read.lease_expires_at()
+            )),
+        )),
+    );
+    read
+}
+
+fn verify_index_freshness(
+    indexes: &PersistedSearchIndexes,
+    pinned_seq: u64,
+    freshness: SearchFreshness,
+    trace: &mut SearchTracer<'_>,
+) -> CliResult<FreshnessTag> {
+    trace.emit_detail(
+        "indexes.freshness.start",
+        None,
+        None,
+        Some(format!(
+            "pinned_seq={pinned_seq} index_base_seq={}",
+            indexes.base_seq()
+        )),
+    );
+    let freshness_tag = index_freshness_tag(indexes, pinned_seq, freshness)?;
+    trace.emit_detail(
+        "indexes.freshness.done",
+        None,
+        None,
+        Some(format!(
+            "{} pinned_seq={pinned_seq} index_base_seq={}",
+            freshness_tag.policy,
+            indexes.base_seq()
+        )),
+    );
+    Ok(freshness_tag)
+}
+
+fn contextualize_hit_hydration_error(
+    error: crate::error::SearchError,
+    hit: &Hit,
+    hit_index: usize,
+    read: &SearchReadSnapshot<'_>,
+) -> crate::error::SearchError {
+    if error.code() != "CALYX_READER_LEASE_EXPIRED" {
+        return error;
+    }
+    calyx_core::CalyxError::reader_lease_expired(format!(
+        "reader lease expired while hydrating search hit: hit_index={hit_index}, cx_id={}, \
+         snapshot_seq={}, lease_id={}, max_age_ms={}, expires_at={}",
+        hit.cx_id,
+        read.seq(),
+        read.lease_id(),
+        read.lease_max_age_ms(),
+        read.lease_expires_at()
+    ))
+    .into()
+}
+
+fn snapshot_detail(phase: &str, cx_id: Option<CxId>, extra: Option<String>) -> String {
+    match (cx_id, extra) {
+        (Some(cx_id), Some(extra)) => format!("phase={phase} cx_id={cx_id} {extra}"),
+        (Some(cx_id), None) => format!("phase={phase} cx_id={cx_id}"),
+        (None, Some(extra)) => format!("phase={phase} {extra}"),
+        (None, None) => format!("phase={phase}"),
+    }
+}

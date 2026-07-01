@@ -1,3 +1,4 @@
+use super::support::SearchReadSnapshot;
 use super::*;
 use calyx_core::{
     Constellation, CxFlags, CxId, InputRef, LedgerRef, Modality, SlotId, SlotVector, VaultId,

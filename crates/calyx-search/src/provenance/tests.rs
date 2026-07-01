@@ -26,6 +26,7 @@ use crate::engine::{
 use crate::persisted::{PersistedSearchIndexes, rebuild_for_vault};
 
 mod cases;
+mod edge_cases;
 
 struct Fixture {
     root: PathBuf,
