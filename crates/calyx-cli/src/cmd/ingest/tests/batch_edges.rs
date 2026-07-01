@@ -1,4 +1,5 @@
 use super::*;
+use calyx_ledger::EntryKind;
 
 #[test]
 fn microbatch_rejects_mixed_modalities_before_measurement() {
@@ -147,6 +148,62 @@ fn ingest_open_uses_latest_only_router_readback_for_checkpointed_rows() {
         .scan_cf_at(after_snapshot, ColumnFamily::Base)
         .unwrap();
     assert_eq!(rows.len(), 2);
+
+    fs::remove_dir_all(root).ok();
+}
+
+#[test]
+fn batch_ingest_rebuilds_stale_base_page_index_for_physical_readback() {
+    let (root, resolved) = test_vault_with_registered_dense_lens("ingest-stale-base-page-index");
+    let first_text = "first stale base page index row";
+    let first = resolved.path.join("first.jsonl");
+    fs::write(&first, format!("{{\"text\":\"{first_text}\"}}\n")).unwrap();
+    ingest_batch_streaming(&resolved, &first).unwrap();
+
+    let built =
+        calyx_aster::base_page_index::build_base_page_index(&resolved.path, 2, |_| Ok(())).unwrap();
+    assert_eq!(built.live_entries, 1);
+
+    let state = load_vault_panel_state(&resolved.path).unwrap();
+    let ledger_only_head = {
+        let vault = open_vault(&resolved).unwrap();
+        let first_id = vault.cx_id_for_input(first_text.as_bytes(), state.panel.version);
+        super::super::ledger::append_cli_ledger(
+            &vault,
+            EntryKind::Ingest,
+            first_id,
+            "test-ledger-only-stale-base-page-index",
+        )
+        .unwrap();
+        vault.flush().unwrap();
+        vault.snapshot()
+    };
+    assert!(
+        ledger_only_head > built.ledger_head_height,
+        "ledger-only write must make the Base page index head stale"
+    );
+
+    let second_text = "second stale base page index row";
+    let second = resolved.path.join("second.jsonl");
+    fs::write(&second, format!("{{\"text\":\"{second_text}\"}}\n")).unwrap();
+    let summary = ingest_batch_streaming(&resolved, &second).unwrap();
+    assert_eq!(summary.new_count, 1);
+    assert_eq!(summary.verified_base_rows, 1);
+
+    let after = open_vault(&resolved).unwrap();
+    let after_snapshot = after.snapshot();
+    let rows = after
+        .scan_cf_at(after_snapshot, ColumnFamily::Base)
+        .unwrap();
+    assert_eq!(rows.len(), 2);
+
+    let rebuilt =
+        calyx_aster::base_page_index::read_base_page_index_manifest(&resolved.path).unwrap();
+    assert_eq!(
+        rebuilt.ledger_head_height, after_snapshot,
+        "rebuilt index must be sealed to the post-ingest ledger head"
+    );
+    assert_eq!(rebuilt.live_entries, 2);
 
     fs::remove_dir_all(root).ok();
 }
