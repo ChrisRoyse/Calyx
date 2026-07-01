@@ -26,15 +26,16 @@ use crate::error::CliResult;
 use crate::persisted::PersistedSearchIndexes;
 use crate::provenance::attach_verified_provenance;
 
+mod budget;
+mod guard;
 mod hydration;
 mod support;
+pub use budget::SearchBudget;
+use guard::apply_in_region_guard_traced;
 use hydration::hydrate_hit_docs_with_bounded_readbacks;
+use support::{SearchReadSnapshot, is_stale_derived, renumber_and_truncate, vault_base_count_at};
 #[cfg(test)]
-use support::cosine;
-use support::{
-    SearchReadSnapshot, apply_in_region_guard, is_stale_derived, renumber_and_truncate,
-    vault_base_count_at,
-};
+use support::{apply_in_region_guard, cosine};
 
 /// In-region guard cosine threshold (mirrors the CLI default).
 const GUARD_TAU: f32 = 0.999;
@@ -235,6 +236,7 @@ pub fn search_outcome_with_slots_traced(
         explain,
         allowed_slots,
         freshness,
+        SearchBudget::disabled(),
         Some(&mut trace),
     )
 }
@@ -264,6 +266,7 @@ pub fn search_outcome_with_query_vectors(
         filter,
         explain,
         SearchFreshness::Fresh,
+        SearchBudget::disabled(),
         trace_sink,
     )
 }
@@ -279,6 +282,7 @@ pub fn search_outcome_with_query_vectors_freshness(
     filter: Option<&str>,
     explain: bool,
     freshness: SearchFreshness,
+    budget: SearchBudget<'_>,
     trace_sink: Option<&mut dyn FnMut(SearchTraceEvent)>,
 ) -> CliResult<SearchOutcome> {
     let allowed_slots = query_vectors
@@ -297,6 +301,7 @@ pub fn search_outcome_with_query_vectors_freshness(
         explain,
         Some(&allowed_slots),
         freshness,
+        budget,
         Some(&mut trace),
     )
 }
@@ -313,6 +318,7 @@ fn search_outcome_with_measured_slots(
     explain: bool,
     allowed_slots: Option<&BTreeSet<SlotId>>,
     freshness: SearchFreshness,
+    mut budget: SearchBudget<'_>,
     trace: Option<&mut SearchTracer<'_>>,
 ) -> CliResult<SearchOutcome> {
     let mut noop_trace;
@@ -323,6 +329,7 @@ fn search_outcome_with_measured_slots(
             &mut noop_trace
         }
     };
+    budget.check("search_start", 0)?;
     trace.emit("filters.parse.start", None, None);
     let filters = crate::filters::parse(filter)?;
     trace.emit("filters.parse.done", None, None);
@@ -380,6 +387,7 @@ fn search_outcome_with_measured_slots(
         Some(query_vectors.len()),
         Some(format!("search_k={search_k}")),
     );
+    budget.check("before_search_slots", query_vectors.len())?;
     let per_slot = search_slots(
         &indexes,
         query_vectors,
@@ -387,6 +395,8 @@ fn search_outcome_with_measured_slots(
         filter_candidates.as_ref(),
         trace,
     )?;
+    let searched_hits = per_slot.values().map(Vec::len).sum();
+    budget.check("after_search_slots", searched_hits)?;
     trace.emit("search_slots.done", None, Some(per_slot.len()));
     let slots = per_slot.keys().copied().collect::<Vec<_>>();
     if slots.is_empty() {
@@ -421,6 +431,7 @@ fn search_outcome_with_measured_slots(
         Some(hits.len()),
         Some(format!("hydrate_slots={hydrate_hit_slots}")),
     );
+    budget.check("before_hit_hydration", hits.len())?;
     let (hit_docs, freshness_tag) = hydrate_hit_docs_with_bounded_readbacks(
         vault,
         &indexes,
@@ -428,14 +439,18 @@ fn search_outcome_with_measured_slots(
         freshness,
         hydrate_hit_slots,
         trace,
+        &mut budget,
     )?;
+    budget.check("after_hit_hydration", hit_docs.len())?;
     trace.emit("hit_docs.hydrate.done", None, Some(hit_docs.len()));
     trace.emit("provenance.attach.start", None, Some(hits.len()));
     attach_verified_provenance(&mut hits, &hit_docs, vault_dir, freshness_tag)?;
     trace.emit("provenance.attach.done", None, Some(hits.len()));
     let guard_tau = if guard == GuardChoice::InRegion {
         trace.emit("guard.in_region.start", None, Some(hits.len()));
-        hits = apply_in_region_guard(hits, &hit_docs, query_vectors);
+        budget.check("before_in_region_guard", hits.len())?;
+        hits = apply_in_region_guard_traced(hits, &hit_docs, query_vectors, trace);
+        budget.check("after_in_region_guard", hits.len())?;
         trace.emit("guard.in_region.done", None, Some(hits.len()));
         renumber_and_truncate(&mut hits, k);
         Some(GUARD_TAU)

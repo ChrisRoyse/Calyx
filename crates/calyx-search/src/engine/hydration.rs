@@ -9,8 +9,8 @@ use crate::error::CliResult;
 use crate::persisted::PersistedSearchIndexes;
 use crate::provenance::hit_docs_at;
 
-use super::SearchFreshness;
 use super::support::{SearchReadSnapshot, index_freshness_tag};
+use super::{SearchBudget, SearchFreshness};
 
 pub(super) fn hydrate_hit_docs_with_bounded_readbacks(
     vault: &AsterVault,
@@ -19,8 +19,10 @@ pub(super) fn hydrate_hit_docs_with_bounded_readbacks(
     freshness: SearchFreshness,
     hydrate_hit_slots: bool,
     trace: &mut SearchTracer<'_>,
+    budget: &mut SearchBudget<'_>,
 ) -> CliResult<(BTreeMap<CxId, Constellation>, FreshnessTag)> {
     if hits.is_empty() {
+        budget.check("empty_hit_set", 0)?;
         let read = pin_search_readback(vault, trace, "empty_hit_set", None, 0);
         let freshness_tag = verify_index_freshness(indexes, read.seq(), freshness, trace)?;
         return Ok((BTreeMap::new(), freshness_tag));
@@ -30,6 +32,7 @@ pub(super) fn hydrate_hit_docs_with_bounded_readbacks(
     let mut expected_seq = None;
     let mut freshness_tag = None;
     for (hit_index, hit) in hits.iter().enumerate() {
+        budget.check("before_hit_doc_hydration", hit_index)?;
         let read = pin_search_readback(
             vault,
             trace,
@@ -74,6 +77,7 @@ pub(super) fn hydrate_hit_docs_with_bounded_readbacks(
         )
         .map_err(|error| contextualize_hit_hydration_error(error, hit, hit_index, &read))?;
         docs.extend(one);
+        budget.check("after_hit_doc_hydration", hit_index + 1)?;
         trace.emit_detail(
             "hit_doc.hydrate.done",
             None,

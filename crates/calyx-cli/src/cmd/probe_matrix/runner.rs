@@ -318,9 +318,29 @@ pub(crate) fn run_probe_matrix_with_home(home: &Path, args: ProbeMatrixArgs) -> 
             query_cache: &mut query_cache,
             guard_diagnostics: &mut guard_diagnostics,
             resident_addr: args.resident_addr,
+            deadline: &deadline,
         };
         let response = match probe_variant(&vault, variant, &mut variant_ctx) {
             Ok(response) => response,
+            Err(error) if error.code() == "CALYX_CLI_TIMEOUT" => {
+                artifacts.persist_incomplete(
+                    &records,
+                    &query_cache,
+                    &guard_diagnostics,
+                    started.elapsed().as_millis(),
+                    "time_budget_exceeded",
+                )?;
+                progress.write(
+                    "incomplete",
+                    "time_budget_exceeded",
+                    json!({ "variant_id": variant.id, "error": error_details(&error) }),
+                )?;
+                return Err(timeout_with_artifacts(
+                    &error,
+                    &matrix_path,
+                    progress.path(),
+                ));
+            }
             Err(error) => {
                 artifacts.persist_incomplete(
                     &records,

@@ -269,6 +269,55 @@ fn search_fails_closed_when_vault_advances_between_hit_hydration_snapshots() {
 }
 
 #[test]
+fn search_budget_fails_closed_during_hit_hydration() {
+    let fixture = Fixture::new_with_inputs(
+        "hydration-budget",
+        &[b"alpha" as &[u8], b"alphabet" as &[u8]],
+    );
+    let vault = fixture.open_vault();
+    let state = load_vault_panel_state(&fixture.vault_dir).unwrap();
+    let query_vectors = measure_query_vectors(&state, "alpha").expect("measure query");
+    let mut phases = Vec::new();
+    let mut budget = |phase: &'static str, processed: usize| {
+        phases.push((phase, processed));
+        if phase == "before_hit_doc_hydration" {
+            return Err(calyx_core::CalyxError {
+                code: "CALYX_CLI_TIMEOUT",
+                message: format!("test budget exceeded during {phase} after {processed}"),
+                remediation: "inspect the emitted progress phase",
+            }
+            .into());
+        }
+        Ok(())
+    };
+
+    let error = match search_outcome_with_query_vectors_freshness(
+        &vault,
+        &fixture.vault_dir,
+        &query_vectors,
+        2,
+        FusionChoice::Rrf,
+        GuardChoice::Off,
+        None,
+        false,
+        SearchFreshness::Fresh,
+        SearchBudget::new(&mut budget),
+        None,
+    ) {
+        Ok(_) => panic!("budgeted search must fail closed during hit hydration"),
+        Err(error) => error,
+    };
+
+    assert_eq!(error.code(), "CALYX_CLI_TIMEOUT");
+    assert!(
+        phases
+            .iter()
+            .any(|(phase, _)| *phase == "before_hit_doc_hydration")
+    );
+    fixture.cleanup();
+}
+
+#[test]
 fn search_accepts_batch_ingest_ledger_ref_when_payload_names_hit_cx() {
     let root = temp_root("batch-ledger-ref");
     let vault_id = VaultId::from_ulid(Ulid::new());

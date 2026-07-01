@@ -14,7 +14,7 @@ pub mod persisted;
 mod provenance;
 
 pub use engine::{
-    FusionChoice, GuardChoice, SearchFreshness, SearchOutcome, SearchTraceEvent,
+    FusionChoice, GuardChoice, SearchBudget, SearchFreshness, SearchOutcome, SearchTraceEvent,
     measure_query_vectors, search_outcome, search_outcome_with_freshness,
     search_outcome_with_query_vectors, search_outcome_with_query_vectors_freshness,
     search_outcome_with_slots, search_outcome_with_slots_traced,

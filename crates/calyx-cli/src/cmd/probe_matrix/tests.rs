@@ -161,7 +161,7 @@ fn run_persists_matrix_then_reads_back_source_of_truth() {
     let readback_bytes = fs::read(&matrix_path).unwrap();
     let artifact: ProbeMatrixArtifact = serde_json::from_slice(&readback_bytes).unwrap();
 
-    assert_eq!(artifact.schema_version, 3);
+    assert_eq!(artifact.schema_version, 4);
     assert_eq!(artifact.status, ProbeMatrixArtifactStatus::Ok);
     assert!(artifact.run.complete);
     assert_eq!(artifact.run.completed_variant_count, 6);

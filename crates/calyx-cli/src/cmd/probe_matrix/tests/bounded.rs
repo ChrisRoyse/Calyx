@@ -27,7 +27,7 @@ fn max_variants_persists_incomplete_matrix_and_progress_source_of_truth() {
     assert_eq!(err.code(), "CALYX_PROBE_MATRIX_INCOMPLETE");
     assert!(out.exists());
     let artifact: ProbeMatrixArtifact = serde_json::from_slice(&fs::read(&out).unwrap()).unwrap();
-    assert_eq!(artifact.schema_version, 3);
+    assert_eq!(artifact.schema_version, 4);
     assert_eq!(artifact.status, ProbeMatrixArtifactStatus::Incomplete);
     assert!(!artifact.run.complete);
     assert_eq!(

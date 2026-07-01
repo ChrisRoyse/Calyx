@@ -15,7 +15,7 @@ use calyx_core::{
 };
 use calyx_registry::{VaultPanelState, load_vault_panel_state, require_vault_registry_contracts};
 use calyx_search::{
-    FusionChoice, GuardChoice, SearchFreshness, SearchTraceEvent, load_docs,
+    FusionChoice, GuardChoice, SearchBudget, SearchFreshness, SearchTraceEvent, load_docs,
     search_outcome_with_freshness, search_outcome_with_query_vectors_freshness,
 };
 use calyx_sextant::Hit;
@@ -64,6 +64,7 @@ fn search_command(args: SearchArgs) -> CliResult {
                 args.filter.as_deref(),
                 args.explain,
                 freshness,
+                SearchBudget::disabled(),
                 Some(&mut trace_sink),
             )?
         }

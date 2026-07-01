@@ -10,13 +10,15 @@ use calyx_lodestar::{
     ProbePhrasing, ProbeRefusal, ProbeResponse, ProbeVariant,
 };
 use calyx_search::{
-    FusionChoice, GuardChoice, SearchFreshness, search_outcome_with_query_vectors_freshness,
+    FusionChoice, GuardChoice, SearchBudget, SearchFreshness,
+    search_outcome_with_query_vectors_freshness,
 };
 use calyx_sextant::{Hit, RrfProfile};
 
 use super::Subcommand;
 use super::vault::home_dir;
-use crate::error::CliResult;
+use crate::bounded_progress::Deadline;
+use crate::error::{CliError, CliResult};
 
 mod artifact;
 mod diagnostics;
@@ -102,6 +104,7 @@ struct ProbeVariantContext<'a> {
     query_cache: &'a mut QueryVectorCache,
     guard_diagnostics: &'a mut Vec<diagnostics::ProbeMatrixVariantDiagnostic>,
     resident_addr: Option<SocketAddr>,
+    deadline: &'a Deadline,
 }
 
 fn probe_variant(
@@ -109,16 +112,28 @@ fn probe_variant(
     variant: &ProbeVariant,
     ctx: &mut ProbeVariantContext<'_>,
 ) -> CliResult<ProbeResponse> {
+    ctx.deadline.check(
+        "probe-matrix",
+        "before_query_measurement",
+        variant.id as u64,
+    )?;
     let (query_text_sha256, query_vectors) = ctx.query_cache.query_vectors(
         ctx.state,
         ctx.vault_dir,
         &variant.query_text,
         ctx.resident_addr,
     )?;
+    ctx.deadline
+        .check("probe-matrix", "after_query_measurement", variant.id as u64)?;
     let mut events = Vec::new();
     let mut trace_sink = |event: calyx_search::SearchTraceEvent| {
         events.push(event.clone());
         trace::emit_search_trace_event(event);
+    };
+    let mut budget_check = |phase: &'static str, processed: usize| {
+        ctx.deadline
+            .check("probe-matrix", phase, processed as u64)
+            .map_err(search_budget_error)
     };
     let outcome = search_outcome_with_query_vectors_freshness(
         vault,
@@ -130,6 +145,7 @@ fn probe_variant(
         None,
         false,
         SearchFreshness::Fresh,
+        SearchBudget::new(&mut budget_check),
         Some(&mut trace_sink),
     )?;
     ctx.guard_diagnostics.push(variant_guard_diagnostic(
@@ -154,6 +170,15 @@ fn probe_variant(
     }
     let refusals = probe_refusals(variant, &hits);
     Ok(ProbeResponse { hits, refusals })
+}
+
+fn search_budget_error(error: CliError) -> calyx_search::SearchError {
+    calyx_core::CalyxError {
+        code: error.code(),
+        message: error.message().to_string(),
+        remediation: error.remediation(),
+    }
+    .into()
 }
 
 fn validate_response(response: &ProbeResponse) -> CliResult {

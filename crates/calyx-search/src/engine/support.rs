@@ -5,7 +5,9 @@ use calyx_aster::vault::AsterVault;
 use calyx_core::{Constellation, CxId, SlotVector};
 use calyx_sextant::{FreshnessTag, Hit};
 
-use super::{GUARD_TAU, SEARCH_READER_LEASE_MS, SearchFreshness};
+#[cfg(test)]
+use super::GUARD_TAU;
+use super::{SEARCH_READER_LEASE_MS, SearchFreshness};
 use crate::error::CliResult;
 use crate::persisted::{PersistedSearchIndexes, load_docs_at};
 
@@ -77,6 +79,7 @@ pub(super) fn is_stale_derived(error: &crate::error::SearchError) -> bool {
 }
 
 /// Keep only hits whose best per-lens cosine to the query meets the guard tau.
+#[cfg(test)]
 pub(super) fn apply_in_region_guard(
     hits: Vec<Hit>,
     docs: &BTreeMap<CxId, Constellation>,
@@ -113,7 +116,7 @@ pub(super) fn cosine(left: &[f32], right: &[f32]) -> Option<f32> {
     (l2 > 0.0 && r2 > 0.0).then(|| dot / (l2.sqrt() * r2.sqrt()))
 }
 
-fn guard_cosine(
+pub(super) fn guard_cosine(
     hit: &Hit,
     docs: &BTreeMap<CxId, Constellation>,
     query_vectors: &[(calyx_core::SlotId, SlotVector)],

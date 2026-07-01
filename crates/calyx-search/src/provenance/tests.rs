@@ -20,8 +20,9 @@ use ulid::Ulid;
 
 use super::*;
 use crate::engine::{
-    FusionChoice, GuardChoice, SearchFreshness, measure_query_vectors, search_outcome,
-    search_outcome_with_freshness, search_outcome_with_slots_traced,
+    FusionChoice, GuardChoice, SearchBudget, SearchFreshness, measure_query_vectors,
+    search_outcome, search_outcome_with_freshness, search_outcome_with_query_vectors_freshness,
+    search_outcome_with_slots_traced,
 };
 use crate::persisted::{PersistedSearchIndexes, rebuild_for_vault};
 

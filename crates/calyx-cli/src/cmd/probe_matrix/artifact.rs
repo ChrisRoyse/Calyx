@@ -17,7 +17,7 @@ use super::persist::{self, persist_probe_matrix_at_path};
 use crate::cmd::vault::ResolvedVault;
 use crate::error::{CliError, CliResult};
 
-const PROBE_MATRIX_ARTIFACT_SCHEMA_VERSION: u32 = 3;
+const PROBE_MATRIX_ARTIFACT_SCHEMA_VERSION: u32 = 4;
 const PROBE_MATRIX_INCOMPLETE: &str = "CALYX_PROBE_MATRIX_INCOMPLETE";
 const PROBE_MATRIX_INCOMPLETE_REMEDIATION: &str = "inspect the persisted matrix/progress artifacts, then increase the budget or narrow explicit axes";
 const PROBE_MATRIX_TIMEOUT_REMEDIATION: &str = "inspect the persisted matrix/progress artifacts, then increase --time-budget-ms or narrow explicit axes";

@@ -54,6 +54,10 @@ pub(super) struct ProbeMatrixVariantDiagnostic {
     pub pre_guard_hit_count: Option<usize>,
     pub post_guard_hit_count: Option<usize>,
     pub guard_filtered_hit_count: Option<usize>,
+    pub guard_tau: Option<String>,
+    pub guard_best_cosine_min: Option<String>,
+    pub guard_best_cosine_max: Option<String>,
+    pub guard_missing_cosine_count: Option<usize>,
 }
 
 pub(super) struct QueryVectorCache {
@@ -158,6 +162,7 @@ pub(super) fn variant_guard_diagnostic(
 ) -> ProbeMatrixVariantDiagnostic {
     let pre = count_for_phase(events, "guard.in_region.start");
     let post = count_for_phase(events, "guard.in_region.done");
+    let summary = guard_candidate_summary(events);
     ProbeMatrixVariantDiagnostic {
         variant_id,
         query_text_sha256,
@@ -167,6 +172,10 @@ pub(super) fn variant_guard_diagnostic(
             (Some(before), Some(after)) => Some(before.saturating_sub(after)),
             _ => None,
         },
+        guard_tau: summary.tau,
+        guard_best_cosine_min: summary.min,
+        guard_best_cosine_max: summary.max,
+        guard_missing_cosine_count: summary.missing,
     }
 }
 
@@ -180,4 +189,48 @@ fn count_for_phase(events: &[SearchTraceEvent], phase: &str) -> Option<usize> {
 
 fn sha256_text(query: &str) -> String {
     hex_lower(&Sha256::digest(query.as_bytes()))
+}
+
+#[derive(Default)]
+struct GuardCandidateSummary {
+    tau: Option<String>,
+    min: Option<String>,
+    max: Option<String>,
+    missing: Option<usize>,
+}
+
+fn guard_candidate_summary(events: &[SearchTraceEvent]) -> GuardCandidateSummary {
+    let mut scores = Vec::new();
+    let mut missing = 0usize;
+    let mut tau = None;
+    for detail in events
+        .iter()
+        .filter(|event| event.phase == "guard.in_region.candidate")
+        .filter_map(|event| event.detail.as_deref())
+    {
+        if tau.is_none() {
+            tau = detail_field(detail, "tau").map(str::to_string);
+        }
+        match detail_field(detail, "best_cosine") {
+            Some("missing") | None => missing += 1,
+            Some(value) => {
+                if let Ok(score) = value.parse::<f32>() {
+                    scores.push(score);
+                }
+            }
+        }
+    }
+    scores.sort_by(f32::total_cmp);
+    GuardCandidateSummary {
+        tau,
+        min: scores.first().map(|value| format!("{value:.6}")),
+        max: scores.last().map(|value| format!("{value:.6}")),
+        missing: (!scores.is_empty() || missing > 0).then_some(missing),
+    }
+}
+
+fn detail_field<'a>(detail: &'a str, field: &str) -> Option<&'a str> {
+    detail
+        .split_whitespace()
+        .find_map(|part| part.strip_prefix(field)?.strip_prefix('='))
 }
