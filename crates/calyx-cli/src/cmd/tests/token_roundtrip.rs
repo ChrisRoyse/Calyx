@@ -40,6 +40,12 @@ pub(super) fn subcommand_tokens(command: &Subcommand) -> Vec<String> {
         ],
         Subcommand::ListPanel(args) => vec!["list-panel".to_string(), args.vault.clone()],
         Subcommand::Ingest(args) => ingest_tokens(args),
+        Subcommand::IngestStatus(args) => vec![
+            "ingest-status".to_string(),
+            args.vault.clone(),
+            "--session".to_string(),
+            args.session_id.clone(),
+        ],
         Subcommand::Anchor(args) => anchor_tokens(args),
         Subcommand::Measure(args) => vec![
             "measure".to_string(),
@@ -300,6 +306,7 @@ fn ingest_tokens(args: &IngestArgs) -> Vec<String> {
     if let Some(addr) = args.resident_addr {
         out.extend(["--resident-addr".to_string(), addr.to_string()]);
     }
+    push_opt(&mut out, "--session-id", args.session_id.as_deref());
     out
 }
 

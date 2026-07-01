@@ -5,6 +5,7 @@ mod constellation;
 mod ledger;
 mod oracle_event;
 mod parse;
+mod session;
 mod store;
 mod types;
 mod verify;
@@ -13,7 +14,8 @@ mod worker;
 pub(crate) use anchor::parse_anchor_kind;
 pub(crate) use command::run;
 pub(crate) use constellation::{measure_constellation, text_input};
-pub(crate) use parse::{parse_anchor, parse_ingest, parse_measure};
+pub(crate) use parse::{parse_anchor, parse_ingest, parse_ingest_status, parse_measure};
+pub(crate) use session::IngestStatusArgs;
 pub(crate) use types::IngestOutput;
 pub(crate) use worker::run_lens_worker;
 

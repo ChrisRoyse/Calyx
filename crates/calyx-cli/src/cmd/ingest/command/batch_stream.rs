@@ -1,3 +1,4 @@
+use super::super::session::BatchIngestSession;
 use super::batch_physical::{
     collect_batch_cx_ids, physical_batch_base_state, reconcile_summary_with_physical_base,
     reject_tombstoned_batch_ids,
@@ -40,6 +41,7 @@ pub(crate) fn ingest_batch_streaming_with_output(
         validation.row_count,
         None,
         None,
+        None,
     )
 }
 
@@ -60,22 +62,27 @@ pub(crate) fn ingest_batch_streaming_with_summary_emitter(
         validation.row_count,
         None,
         Some(summary_emitter),
+        None,
     )
 }
 
-pub(super) fn ingest_validated_batch_streaming_with_output(
+pub(crate) fn ingest_validated_batch_streaming_with_output(
     resolved: &ResolvedVault,
     path: &std::path::Path,
     output: IngestOutput,
     validated_row_count: usize,
     resident_addr: Option<std::net::SocketAddr>,
     mut summary_emitter: Option<BatchSummaryEmitter<'_>>,
+    mut session: Option<&mut BatchIngestSession>,
 ) -> CliResult<BatchIngestSummary> {
     use std::io::BufRead;
     let file = std::fs::File::open(path)
         .map_err(|err| CliError::io(format!("open batch {}: {err}", path.display())))?;
     let reader = std::io::BufReader::new(file);
     let open_started = std::time::Instant::now();
+    if let Some(session) = session.as_deref_mut() {
+        session.record_phase("open_vault_start")?;
+    }
     ingest_runtime_log(format_args!(
         "phase=open_vault_start vault={} rows={validated_row_count}",
         resolved.path.display()
@@ -90,6 +97,9 @@ pub(super) fn ingest_validated_batch_streaming_with_output(
                 recovery.torn_tail.is_some(),
                 open_started.elapsed().as_millis()
             ));
+            if let Some(session) = session.as_deref_mut() {
+                session.record_phase("open_vault_ok")?;
+            }
             vault
         }
         Err(error) => {
@@ -114,6 +124,9 @@ pub(super) fn ingest_validated_batch_streaming_with_output(
         state.panel.version,
         state.panel.slots.len()
     ));
+    if let Some(session) = session.as_deref_mut() {
+        session.record_phase("load_vault_panel_state_ok")?;
+    }
     let mut seen = BTreeSet::new();
     let runtime_batch_limit = measure_batch_size();
     let measure_window = measure_window_size(runtime_batch_limit);
@@ -136,6 +149,9 @@ pub(super) fn ingest_validated_batch_streaming_with_output(
         physical_before.visible.len(),
         physical_before.tombstoned.len()
     ));
+    if let Some(session) = session.as_deref_mut() {
+        session.record_phase("batch_physical_base_readback_before")?;
+    }
     let mut chunk: Vec<BatchRow> = Vec::with_capacity(measure_window);
     let mut summary = BatchIngestSummary::empty();
     for (index, line) in reader.lines().enumerate() {
@@ -144,6 +160,12 @@ pub(super) fn ingest_validated_batch_streaming_with_output(
         if let Some(row) = parse_batch_line(index, &line)? {
             chunk.push(row);
             if chunk.len() >= measure_window {
+                if let Some(session) = session.as_deref_mut() {
+                    session.record_rows_started(
+                        summary.row_count + chunk.len(),
+                        "batch_flush_start",
+                    )?;
+                }
                 flush_measure_batch(
                     &vault,
                     &state,
@@ -153,10 +175,16 @@ pub(super) fn ingest_validated_batch_streaming_with_output(
                     &mut summary,
                     flush_options,
                 )?;
+                if let Some(session) = session.as_deref_mut() {
+                    session.record_summary_progress(&summary, "batch_flush_committed")?;
+                }
             }
         }
     }
     if !chunk.is_empty() {
+        if let Some(session) = session.as_deref_mut() {
+            session.record_rows_started(summary.row_count + chunk.len(), "batch_flush_start")?;
+        }
         flush_measure_batch(
             &vault,
             &state,
@@ -166,11 +194,20 @@ pub(super) fn ingest_validated_batch_streaming_with_output(
             &mut summary,
             flush_options,
         )?;
+        if let Some(session) = session.as_deref_mut() {
+            session.record_summary_progress(&summary, "batch_flush_committed")?;
+        }
     }
     let physical_after = physical_batch_base_state(&resolved.path, &batch_cx_ids)?;
     reconcile_summary_with_physical_base(&mut summary, &physical_before, &physical_after)?;
+    if let Some(session) = session.as_deref_mut() {
+        session.record_summary_progress(&summary, "batch_physical_base_readback_after")?;
+    }
     let summary_emit_error = emit_batch_summary_if_requested(&mut summary_emitter, &summary)?;
     if summary.new_count > 0 {
+        if let Some(session) = session.as_deref_mut() {
+            session.record_index_phase("running")?;
+        }
         ingest_runtime_log(format_args!(
             "phase=batch_index_rebuild_start new_count={} already_count={}",
             summary.new_count, summary.already_count
@@ -187,11 +224,20 @@ pub(super) fn ingest_validated_batch_streaming_with_output(
             "phase=batch_index_rebuild_ok new_count={} already_count={}",
             summary.new_count, summary.already_count
         ));
+        if let Some(session) = session.as_deref_mut() {
+            session.record_index_phase("complete")?;
+        }
     } else {
         ingest_runtime_log(format_args!(
             "phase=batch_index_rebuild_skip reason=no_new_constellations already_count={}",
             summary.already_count
         ));
+        if let Some(session) = session.as_deref_mut() {
+            session.record_index_phase("skipped")?;
+        }
+    }
+    if let Some(session) = session {
+        session.complete(&summary, vault.snapshot())?;
     }
     if let Some(error) = summary_emit_error {
         return Err(error);

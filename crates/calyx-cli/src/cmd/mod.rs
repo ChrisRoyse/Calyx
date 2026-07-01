@@ -15,8 +15,8 @@ pub(crate) mod vault;
 mod vault_retire;
 mod weave;
 
-use ingest::IngestOutput;
 pub(crate) use ingest::run_lens_worker as run_ingest_lens_worker;
+use ingest::{IngestOutput, IngestStatusArgs};
 pub(crate) use ingest::{
     measure_constellation as measure_ingest_constellation, text_input as ingest_text_input,
 };
@@ -52,6 +52,7 @@ pub(crate) enum Subcommand {
     ListPanel(VaultRefArgs),
     ProfileLens(ProfileLensArgs),
     Ingest(IngestArgs),
+    IngestStatus(IngestStatusArgs),
     Anchor(AnchorArgs),
     Measure(MeasureArgs),
     Erase(erase::EraseArgs),
@@ -113,6 +114,7 @@ pub(crate) struct IngestArgs {
     pub idempotent: bool,
     pub output: IngestOutput,
     pub resident_addr: Option<SocketAddr>,
+    pub session_id: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -180,9 +182,10 @@ fn run(command: Subcommand) -> CliResult {
         | Subcommand::RetireVault(_)
         | Subcommand::ListPanel(_)
         | Subcommand::ProfileLens(_) => vault::run(command),
-        Subcommand::Ingest(_) | Subcommand::Anchor(_) | Subcommand::Measure(_) => {
-            ingest::run(command)
-        }
+        Subcommand::Ingest(_)
+        | Subcommand::IngestStatus(_)
+        | Subcommand::Anchor(_)
+        | Subcommand::Measure(_) => ingest::run(command),
         Subcommand::Erase(_) => erase::run(command),
         Subcommand::Search(_) | Subcommand::KernelAnswer(_) | Subcommand::RebuildSearchIndex(_) => {
             search::run(command)
@@ -218,6 +221,7 @@ pub(crate) fn parse(args: &[String]) -> CliResult<Subcommand> {
         "list-panel" => parse_vault_ref(rest).map(Subcommand::ListPanel),
         "profile-lens" => parse_profile_lens(rest),
         "ingest" => ingest::parse_ingest(rest),
+        "ingest-status" => ingest::parse_ingest_status(rest),
         "anchor" => ingest::parse_anchor(rest),
         "measure" => ingest::parse_measure(rest),
         "erase" => erase::parse_erase(rest),
@@ -254,6 +258,7 @@ fn is_cmd(command: &str) -> bool {
             | "list-panel"
             | "profile-lens"
             | "ingest"
+            | "ingest-status"
             | "anchor"
             | "measure"
             | "erase"

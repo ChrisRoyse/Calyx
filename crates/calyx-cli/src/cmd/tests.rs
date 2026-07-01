@@ -4,6 +4,7 @@ use calyx_core::Modality;
 
 use super::*;
 
+mod ingest_session_parse;
 mod token_roundtrip;
 
 #[test]
@@ -67,6 +68,7 @@ fn parse_ingest_text_command() {
             idempotent: true,
             output: IngestOutput::Summary,
             resident_addr: None,
+            session_id: None,
         })
     );
 }
@@ -93,6 +95,7 @@ fn parse_ingest_video_file_command() {
             idempotent: true,
             output: IngestOutput::Summary,
             resident_addr: None,
+            session_id: None,
         })
     );
 }
@@ -119,6 +122,7 @@ fn parse_ingest_rows_output_command() {
             idempotent: true,
             output: IngestOutput::Rows,
             resident_addr: None,
+            session_id: None,
         })
     );
 }
@@ -145,6 +149,7 @@ fn parse_ingest_resident_addr_command() {
             idempotent: true,
             output: IngestOutput::Summary,
             resident_addr: Some("127.0.0.1:8787".parse().unwrap()),
+            session_id: None,
         })
     );
 }
@@ -353,6 +358,7 @@ fn arb_subcommand() -> impl Strategy<Value = Subcommand> {
             idempotent: true,
             output: IngestOutput::Summary,
             resident_addr: None,
+            session_id: None,
         })),
         safe_name().prop_map(|vault| Subcommand::Measure(MeasureArgs {
             vault,

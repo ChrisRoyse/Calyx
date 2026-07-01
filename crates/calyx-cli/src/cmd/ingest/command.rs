@@ -23,6 +23,7 @@ use super::ledger::{
     append_anchor_ledger, append_anchor_marker_ledger, append_cli_batch_ledger, append_cli_ledger,
 };
 use super::oracle_event::{OracleEvent, append_recurrence_if_absent};
+use super::session::BatchIngestSession;
 use super::store::{base_exists, ensure_base_exists, open_vault, resolve_cli_vault};
 use super::types::{AnchorReport, BatchIngestSummary, IngestOutput, IngestReport};
 use super::verify::verify_base_readback;
@@ -92,6 +93,7 @@ fn positive_env_usize(name: &str) -> Option<usize> {
 pub(crate) fn run(command: Subcommand) -> CliResult {
     match command {
         Subcommand::Ingest(args) => ingest_command(args),
+        Subcommand::IngestStatus(args) => super::session::run_status(args),
         Subcommand::Anchor(args) => anchor_command(args),
         Subcommand::Measure(args) => measure_command(args),
         _ => unreachable!("non-ingest command routed to ingest module"),
@@ -102,9 +104,30 @@ fn ingest_command(args: IngestArgs) -> CliResult {
     if let Some(batch_path) = args.batch.as_deref() {
         let validation = validate_batch_file(batch_path)?;
         let resolved = resolve_cli_vault(&args.vault)?;
+        let mut session = BatchIngestSession::start(
+            &resolved,
+            batch_path,
+            &validation,
+            args.session_id.as_deref(),
+        )?;
+        ingest_runtime_log(format_args!(
+            "phase=batch_session_created session_id={} status_path={}",
+            session.session_id(),
+            session.status_path().display()
+        ));
+        eprintln!(
+            "CALYX_INGEST_SESSION id={} path={}",
+            session.session_id(),
+            session.status_path().display()
+        );
         let mut emitted_summary = false;
-        let summary = if validation.row_count == 0 {
-            BatchIngestSummary::empty()
+        let result = if validation.row_count == 0 {
+            (|| {
+                let summary = BatchIngestSummary::empty();
+                let vault = open_vault(&resolved)?;
+                session.complete(&summary, vault.snapshot())?;
+                Ok(summary)
+            })()
         } else if args.output == IngestOutput::Summary {
             let mut emit_summary = |summary: &BatchIngestSummary| {
                 emitted_summary = true;
@@ -117,7 +140,8 @@ fn ingest_command(args: IngestArgs) -> CliResult {
                 validation.row_count,
                 args.resident_addr,
                 Some(&mut emit_summary),
-            )?
+                Some(&mut session),
+            )
         } else {
             batch_stream::ingest_validated_batch_streaming_with_output(
                 &resolved,
@@ -126,7 +150,15 @@ fn ingest_command(args: IngestArgs) -> CliResult {
                 validation.row_count,
                 args.resident_addr,
                 None,
-            )?
+                Some(&mut session),
+            )
+        };
+        let summary = match result {
+            Ok(summary) => summary,
+            Err(error) => {
+                session.fail_with_error(&error)?;
+                return Err(error);
+            }
         };
         if args.output == IngestOutput::Summary && !emitted_summary {
             print_json(&summary)?;
@@ -311,6 +343,7 @@ mod replay;
 #[cfg(test)]
 pub(super) use batch_stream::{
     ingest_batch_streaming, ingest_batch_streaming_with_summary_emitter,
+    ingest_validated_batch_streaming_with_output,
 };
 #[cfg(test)]
 pub(crate) use batch_support::should_stage_batch_constellation;

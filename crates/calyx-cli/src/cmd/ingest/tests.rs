@@ -17,7 +17,7 @@ use super::anchor::parse_anchor_kind;
 use super::batch::{parse_batch_line, read_batch_texts, validate_batch_file};
 use super::command::{
     ingest_batch_streaming, ingest_batch_streaming_with_summary_emitter, ingest_texts,
-    should_stage_batch_constellation,
+    ingest_validated_batch_streaming_with_output, should_stage_batch_constellation,
 };
 use super::constellation::{measure_constellation, measure_constellation_microbatch, text_input};
 use super::parse::{parse_anchor, validate_text};
@@ -30,6 +30,7 @@ use support::*;
 mod anchor_replay;
 mod basic;
 mod batch_edges;
+mod session_status;
 
 fn ingest_cf_state(resolved: &ResolvedVault) -> serde_json::Value {
     let vault = open_vault(resolved).unwrap();

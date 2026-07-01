@@ -35,7 +35,8 @@ pub(crate) fn usage() -> &'static str {
        calyx retire-vault <vault> --reason <text>
        calyx list-panel <vault>
        calyx profile-lens [--name <n>] [--runtime <r>] [--endpoint <url-or-runtime-id>] [--weights <path>] [--shape Dense(<dim>)|Sparse(<dim>)] [--modality <m>] [--probe <path>]
-       calyx ingest <vault> (--text <s> | --batch <jsonl-path> | --file <path> --modality <image|audio|video>) [--idempotent] [--output <summary|rows>] [--resident-addr <127.0.0.1:port>]
+       calyx ingest <vault> (--text <s> | --batch <jsonl-path> | --file <path> --modality <image|audio|video>) [--idempotent] [--output <summary|rows>] [--resident-addr <127.0.0.1:port>] [--session-id <id>]
+       calyx ingest-status <vault> --session <id>
        calyx anchor <vault> <cx_id> --kind <test-pass|thumbs-up|thumbs-down|label:<s>|speaker-match|style-hold> --value <v> [--confidence <0..1>] [--source <s>]
        calyx measure <vault> --text <s>
        calyx erase <vault> --cx-id <cx_id> [--fsv-out <json>]

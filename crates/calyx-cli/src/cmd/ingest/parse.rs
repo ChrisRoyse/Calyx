@@ -1,4 +1,5 @@
 use super::super::{AnchorArgs, IngestArgs, MeasureArgs, Subcommand, value};
+use super::session::{IngestStatusArgs, validate_session_id};
 use super::types::IngestOutput;
 use crate::error::{CliError, CliResult};
 use std::net::{IpAddr, SocketAddr};
@@ -15,6 +16,7 @@ pub(crate) fn parse_ingest(rest: &[String]) -> CliResult<Subcommand> {
     let mut idempotent = true;
     let mut output = IngestOutput::Summary;
     let mut resident_addr = None;
+    let mut session_id = None;
     let mut idx = 1;
     while idx < rest.len() {
         match rest[idx].as_str() {
@@ -57,6 +59,12 @@ pub(crate) fn parse_ingest(rest: &[String]) -> CliResult<Subcommand> {
                 idx += 1;
                 resident_addr = Some(parse_resident_addr(value(rest, idx, "--resident-addr")?)?);
             }
+            "--session-id" => {
+                idx += 1;
+                let value = value(rest, idx, "--session-id")?;
+                validate_session_id(value)?;
+                session_id = Some(value.to_string());
+            }
             other => return Err(CliError::usage(format!("unexpected ingest flag {other}"))),
         }
         idx += 1;
@@ -76,6 +84,9 @@ pub(crate) fn parse_ingest(rest: &[String]) -> CliResult<Subcommand> {
     if file.is_none() && modality.is_some() {
         return Err(CliError::usage("--modality is only valid with --file"));
     }
+    if session_id.is_some() && batch.is_none() {
+        return Err(CliError::usage("--session-id is only valid with --batch"));
+    }
     if !idempotent {
         return Err(CliError::usage(
             "non-idempotent ingest is not supported by Calyx",
@@ -90,6 +101,37 @@ pub(crate) fn parse_ingest(rest: &[String]) -> CliResult<Subcommand> {
         idempotent,
         output,
         resident_addr,
+        session_id,
+    }))
+}
+
+pub(crate) fn parse_ingest_status(rest: &[String]) -> CliResult<Subcommand> {
+    let vault = rest
+        .first()
+        .ok_or_else(|| CliError::usage("ingest-status requires <vault>"))?
+        .clone();
+    let mut session_id = None;
+    let mut idx = 1;
+    while idx < rest.len() {
+        match rest[idx].as_str() {
+            "--session" => {
+                idx += 1;
+                let value = value(rest, idx, "--session")?;
+                validate_session_id(value)?;
+                session_id = Some(value.to_string());
+            }
+            other => {
+                return Err(CliError::usage(format!(
+                    "unexpected ingest-status flag {other}"
+                )));
+            }
+        }
+        idx += 1;
+    }
+    Ok(Subcommand::IngestStatus(IngestStatusArgs {
+        vault,
+        session_id: session_id
+            .ok_or_else(|| CliError::usage("ingest-status requires --session <id>"))?,
     }))
 }
 
