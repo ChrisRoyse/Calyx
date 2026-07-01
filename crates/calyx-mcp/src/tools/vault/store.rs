@@ -61,7 +61,19 @@ pub(super) fn resolve_vault(home: &Path, vault: &str) -> ToolResult<PathBuf> {
 pub(in crate::tools) fn resolve_vault_info(home: &Path, vault: &str) -> ToolResult<ResolvedVault> {
     let index = read_index(home)?;
     let direct = PathBuf::from(vault);
-    if direct.exists() {
+    // A bare argument (one path component) is a logical vault reference —
+    // vault id or index name — and must never be captured by an incidental
+    // same-named entry in the process cwd (#1082). Filesystem paths must be
+    // explicit: absolute, or multi-component like ./name.
+    let explicit_path = direct.is_absolute() || direct.components().count() > 1;
+    if explicit_path {
+        if !direct.exists() {
+            return Err(CalyxError::vault_access_denied(format!(
+                "direct vault path {} does not exist; pass an existing vault directory, a vault id, or an index name",
+                direct.display()
+            ))
+            .into());
+        }
         if let Some(resolved) = resolve_direct_indexed(home, &index, &direct)? {
             return Ok(resolved);
         }
@@ -103,7 +115,10 @@ pub(in crate::tools) fn resolve_vault_info(home: &Path, vault: &str) -> ToolResu
             return Ok(resolved);
         }
     }
-    Err(CalyxError::vault_access_denied(format!("vault {vault} does not exist")).into())
+    Err(CalyxError::vault_access_denied(format!(
+        "vault {vault} does not exist; checked vault ids and index names; pass an absolute or ./-prefixed path for a direct vault directory"
+    ))
+    .into())
 }
 
 pub(in crate::tools) fn vault_salt(vault_id: VaultId, name: &str) -> Vec<u8> {

@@ -28,8 +28,20 @@ pub fn verify_vault(vault: &Path, range: Range<u64>) -> crate::error::CliResult 
 
 pub fn verify_vault_ref(vault: &str, range: Range<u64>) -> crate::error::CliResult {
     let direct = Path::new(vault);
-    if direct.exists() {
-        return verify_vault(direct, range);
+    // A bare ref (one path component) is a vault id or CLI-index name and
+    // must never be captured by an incidental same-named cwd entry (#1082).
+    // Explicit filesystem paths (absolute or multi-component like ./dir)
+    // keep direct verification semantics for unregistered vault dirs.
+    let explicit_path = direct.is_absolute() || direct.components().count() > 1;
+    if explicit_path {
+        if direct.exists() {
+            return verify_vault(direct, range);
+        }
+        return Err(CalyxError::vault_access_denied(format!(
+            "direct vault path {} does not exist; pass an existing vault directory, a vault id, or a CLI-index name",
+            direct.display()
+        ))
+        .into());
     }
     let resolved = resolve_vault_info(&home_dir()?, vault)?;
     verify_vault(&resolved.path, range)
