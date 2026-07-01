@@ -129,6 +129,9 @@ fn probe_matrix_tokens(args: &probe_matrix::ProbeMatrixArgs) -> Vec<String> {
     }
     out.extend(["--top-k".to_string(), args.top_k.to_string()]);
     out.extend(["--guard".to_string(), guard_name(args.guard).to_string()]);
+    if let Some(guard_tau) = args.guard_tau {
+        out.extend(["--guard-tau".to_string(), guard_tau.to_string()]);
+    }
     push_opt(
         &mut out,
         "--out",

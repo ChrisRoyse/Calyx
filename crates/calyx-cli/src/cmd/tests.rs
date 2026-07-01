@@ -451,7 +451,7 @@ fn arb_subcommand() -> impl Strategy<Value = Subcommand> {
                 min_recall: 0.95,
             })
         }),
-        (safe_name(), 1usize..16).prop_map(|(vault, top_k)| {
+        (safe_name(), 1usize..16, proptest::bool::ANY).prop_map(|(vault, top_k, in_region)| {
             Subcommand::ProbeMatrix(probe_matrix::ProbeMatrixArgs {
                 vault,
                 frontier: "roundtrip frontier".to_string(),
@@ -460,8 +460,12 @@ fn arb_subcommand() -> impl Strategy<Value = Subcommand> {
                 phrasings: vec![calyx_lodestar::ProbePhrasing::Clinical],
                 lengths: vec![calyx_lodestar::ProbeLength::Phrase],
                 top_k,
-                guard: calyx_search::GuardChoice::Off,
-                guard_tau: None,
+                guard: if in_region {
+                    calyx_search::GuardChoice::InRegion
+                } else {
+                    calyx_search::GuardChoice::Off
+                },
+                guard_tau: in_region.then_some(0.72),
                 out: None,
                 resident_addr: None,
                 max_variants: None,
