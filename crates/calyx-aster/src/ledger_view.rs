@@ -19,7 +19,7 @@ use crate::compaction::TieringPolicy;
 use crate::manifest::ManifestStore;
 use crate::sst::SstEntry;
 use crate::vault::encode::decode_write_batch;
-use crate::wal::replay_dir_after;
+use crate::wal::{replay_dir_after, stream_records};
 use point_read::{read_sst_ledger_rows, unresolved_seqs};
 
 /// Read-only snapshot of a vault's Ledger column family (SSTs + WAL).
@@ -154,6 +154,19 @@ fn read_wal_ledger_rows(
     wanted: &BTreeSet<u64>,
     rows: &mut BTreeMap<u64, Vec<u8>>,
 ) -> CalyxResult<()> {
+    read_wal_ledger_rows_after_floor(vault, wanted, rows)?;
+    let unresolved = unresolved_seqs(wanted, rows);
+    if !unresolved.is_empty() {
+        read_retained_wal_ledger_rows(vault, &unresolved, rows)?;
+    }
+    Ok(())
+}
+
+fn read_wal_ledger_rows_after_floor(
+    vault: &Path,
+    wanted: &BTreeSet<u64>,
+    rows: &mut BTreeMap<u64, Vec<u8>>,
+) -> CalyxResult<()> {
     let replay = replay_dir_after(vault.join("wal"), wal_replay_floor_seq(vault)?)?;
     if let Some(torn) = replay.torn_tail {
         return Err(torn.error());
@@ -169,6 +182,26 @@ fn read_wal_ledger_rows(
             }
         }
     }
+    Ok(())
+}
+
+fn read_retained_wal_ledger_rows(
+    vault: &Path,
+    wanted: &BTreeSet<u64>,
+    rows: &mut BTreeMap<u64, Vec<u8>>,
+) -> CalyxResult<()> {
+    stream_records(vault.join("wal"), |record| {
+        for write in decode_write_batch(&record.payload)? {
+            if write.cf != ColumnFamily::Ledger {
+                continue;
+            }
+            let seq = parse_aster_ledger_seq(&write.key)?;
+            if wanted.contains(&seq) {
+                insert_ledger_bytes(rows, seq, write.value)?;
+            }
+        }
+        Ok(())
+    })?;
     Ok(())
 }
 

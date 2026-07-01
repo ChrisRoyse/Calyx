@@ -5,10 +5,11 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use super::*;
 use crate::cf::ledger_key;
+use crate::manifest::ManifestStore;
 use crate::vault::encode::WriteRow;
 use crate::vault::{AsterVault, VaultOptions};
 use calyx_core::{
-    Constellation, CxFlags, CxId, InputRef, LedgerRef, Modality, VaultId, VaultStore,
+    Constellation, CxFlags, CxId, InputRef, LedgerRef, Modality, Panel, VaultId, VaultStore,
 };
 use calyx_ledger::{ActorId, EntryKind, SubjectId};
 
@@ -111,6 +112,55 @@ fn targeted_reader_replays_wal_for_uncheckpointed_ledger_row() {
         .expect("physical WAL-backed row exists");
     let targeted =
         read_ledger_seqs(&root, &BTreeSet::from([seq])).expect("targeted WAL-backed read");
+    assert_eq!(targeted.get(&seq), Some(&physical));
+
+    fs::remove_dir_all(root).ok();
+}
+
+#[test]
+fn targeted_reader_scans_retained_wal_when_manifest_floor_skips_uncheckpointed_row() {
+    let root = test_vault_dir("issue1059-retained-wal-ledger");
+    let vault_id = vault_id();
+    let vault = AsterVault::new_durable(
+        &root,
+        vault_id,
+        b"issue1059-retained-wal-ledger-salt",
+        manifested_options(),
+    )
+    .expect("open durable vault");
+    let cx_id = vault
+        .put(sample_constellation(vault_id, 13))
+        .expect("put uncheckpointed row");
+    let stored = vault
+        .get(cx_id, vault.snapshot())
+        .expect("read uncheckpointed constellation");
+    let seq = stored.provenance.seq;
+    let ledger_dir = root.join("cf").join(ColumnFamily::Ledger.name());
+    let sst_files = ledger_dir
+        .read_dir()
+        .map(|entries| entries.count())
+        .unwrap_or(0);
+    assert_eq!(sst_files, 0, "ledger row should still be WAL-only");
+
+    let physical = AsterLedgerCfStore::open(&root)
+        .expect("open full ledger view")
+        .read_seq(seq)
+        .expect("read physical WAL-backed seq")
+        .expect("physical WAL-backed row exists");
+    drop(vault);
+
+    let manifest_store = ManifestStore::open(&root);
+    let mut manifest = manifest_store
+        .load_current()
+        .expect("load current manifest");
+    manifest.manifest_seq = manifest.manifest_seq.saturating_add(1);
+    manifest.durable_seq = seq.saturating_add(100);
+    manifest_store
+        .write_current(&manifest)
+        .expect("raise manifest replay floor above WAL record");
+
+    let targeted =
+        read_ledger_seqs(&root, &BTreeSet::from([seq])).expect("targeted retained-WAL read");
     assert_eq!(targeted.get(&seq), Some(&physical));
 
     fs::remove_dir_all(root).ok();
@@ -274,5 +324,19 @@ fn sample_constellation(vault_id: VaultId, seed: u8) -> Constellation {
             hash: [0; 32],
         },
         flags: CxFlags::default(),
+    }
+}
+
+fn manifested_options() -> VaultOptions {
+    VaultOptions {
+        panel: Some(Panel {
+            version: 1,
+            slots: Vec::new(),
+            created_at: 0,
+            kernel_ref: None,
+            guard_ref: None,
+        }),
+        dedup_policy: None,
+        ..VaultOptions::default()
     }
 }
