@@ -228,8 +228,21 @@ const PROBE_MATRIX_GUARD_FILTERED_ALL: &str = "CALYX_PROBE_MATRIX_GUARD_FILTERED
 /// tau applied, whether it was the uncalibrated default, the observed in-region
 /// cosine range, and the calibration path — so the run never looks like a
 /// silently empty benchmark and is never auto-switched to `--guard off`.
-pub(super) fn guard_filtered_all_error(
-    summary: &super::diagnostics::GuardFilteredAllSummary,
+/// If the collected per-variant diagnostics show the in-region guard filtered
+/// every retrieved candidate, build the specific fail-closed error; otherwise
+/// `None` so the caller keeps its own terminal error (#1088).
+pub(super) fn guard_filtered_all_cli_error(
+    guards: &[super::diagnostics::ProbeMatrixVariantDiagnostic],
+    guard_tau: Option<f32>,
+    matrix_path: &Path,
+    progress_path: &Path,
+) -> Option<CliError> {
+    super::guard_summary::guard_filtered_all_summary(guards)
+        .map(|summary| guard_filtered_all_error(&summary, guard_tau, matrix_path, progress_path))
+}
+
+fn guard_filtered_all_error(
+    summary: &super::guard_summary::GuardFilteredAllSummary,
     guard_tau: Option<f32>,
     matrix_path: &Path,
     progress_path: &Path,
@@ -285,6 +298,34 @@ pub(super) fn timeout_with_artifacts(
         remediation: PROBE_MATRIX_TIMEOUT_REMEDIATION,
     }
     .into()
+}
+
+pub(super) fn probe_matrix_success_json(
+    resolved: &ResolvedVault,
+    artifact: &ProbeMatrixArtifact,
+    persisted: &persist::PersistedProbeMatrix,
+    matrix_path: &Path,
+    progress_path: &Path,
+) -> serde_json::Value {
+    json!({
+        "status": "ok",
+        "vault": resolved.name,
+        "vault_dir": resolved.path.display().to_string(),
+        "artifact": artifact,
+        "artifacts": {
+            "matrix_json": persisted.path,
+            "run_matrix_json": matrix_path,
+            "progress_json": progress_path,
+            "matrix_json_bytes": persisted.bytes,
+            "matrix_json_sha256": persisted.sha256,
+            "readback": {
+                "record_count": persisted.readback_record_count,
+                "productive_count": persisted.readback_productive_count,
+                "accepted_hit_count": persisted.readback_accepted_hit_count,
+                "refusal_count": persisted.readback_refusal_count,
+            }
+        }
+    })
 }
 
 pub(super) fn error_details(error: &CliError) -> serde_json::Value {

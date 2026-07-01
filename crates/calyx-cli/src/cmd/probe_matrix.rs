@@ -24,6 +24,7 @@ use crate::error::{CliError, CliResult};
 mod artifact;
 mod diagnostics;
 mod grounding;
+mod guard_summary;
 mod parse;
 mod persist;
 mod progress;

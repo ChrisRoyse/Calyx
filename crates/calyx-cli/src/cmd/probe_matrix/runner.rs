@@ -289,13 +289,13 @@ pub(crate) fn run_probe_matrix_with_home(home: &Path, args: ProbeMatrixArgs) -> 
                     "matrix_artifact": matrix_path.display().to_string(),
                 }),
             )?;
-            if let Some(summary) = super::diagnostics::guard_filtered_all_summary(&guards) {
-                return Err(super::artifact::guard_filtered_all_error(
-                    &summary,
-                    args.guard_tau,
-                    &matrix_path,
-                    progress.path(),
-                ));
+            if let Some(error) = super::artifact::guard_filtered_all_cli_error(
+                &guards,
+                args.guard_tau,
+                &matrix_path,
+                progress.path(),
+            ) {
+                return Err(error);
             }
             return Err(incomplete_error(
                 "variant_budget_exhausted",
@@ -456,13 +456,8 @@ pub(crate) fn run_probe_matrix_with_home(home: &Path, args: ProbeMatrixArgs) -> 
     } else {
         persist_probe_matrix(&resolved.path, None, &artifact)?
     };
-    eprintln!(
-        "probe-matrix: persisted matrix={} bytes={} sha256={} elapsed_ms={}",
-        persisted.path.display(),
-        persisted.bytes,
-        persisted.sha256,
-        started.elapsed().as_millis()
-    );
+    // Persisted path/bytes/sha256 are emitted in the "complete" progress event
+    // and the final result JSON below; no separate stderr line needed here.
     progress.write(
         if status == ProbeMatrixArtifactStatus::Ok {
             "ok"
@@ -482,36 +477,20 @@ pub(crate) fn run_probe_matrix_with_home(home: &Path, args: ProbeMatrixArgs) -> 
         }),
     )?;
     if let Err(error) = ensure_useful_log(&artifact.log) {
-        if let Some(summary) = super::diagnostics::guard_filtered_all_summary(&guards) {
-            return Err(with_persisted_artifact_error(
-                super::artifact::guard_filtered_all_error(
-                    &summary,
-                    args.guard_tau,
-                    &matrix_path,
-                    progress.path(),
-                ),
-                &persisted,
-            ));
-        }
+        let error = super::artifact::guard_filtered_all_cli_error(
+            &guards,
+            args.guard_tau,
+            &matrix_path,
+            progress.path(),
+        )
+        .unwrap_or(error);
         return Err(with_persisted_artifact_error(error, &persisted));
     }
-    print_json(&json!({
-        "status": "ok",
-        "vault": resolved.name,
-        "vault_dir": resolved.path.display().to_string(),
-        "artifact": artifact,
-        "artifacts": {
-            "matrix_json": persisted.path,
-            "run_matrix_json": matrix_path,
-            "progress_json": progress.path(),
-            "matrix_json_bytes": persisted.bytes,
-            "matrix_json_sha256": persisted.sha256,
-            "readback": {
-                "record_count": persisted.readback_record_count,
-                "productive_count": persisted.readback_productive_count,
-                "accepted_hit_count": persisted.readback_accepted_hit_count,
-                "refusal_count": persisted.readback_refusal_count,
-            }
-        }
-    }))
+    print_json(&super::artifact::probe_matrix_success_json(
+        &resolved,
+        &artifact,
+        &persisted,
+        &matrix_path,
+        progress.path(),
+    ))
 }

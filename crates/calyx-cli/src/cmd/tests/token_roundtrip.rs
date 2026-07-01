@@ -160,7 +160,10 @@ fn probe_matrix_guard_tau_round_trips_through_tokens() {
     });
     let tokens = subcommand_tokens(&command);
     let tau_flag = tokens.iter().position(|token| token == "--guard-tau");
-    assert!(tau_flag.is_some(), "tokens must carry --guard-tau: {tokens:?}");
+    assert!(
+        tau_flag.is_some(),
+        "tokens must carry --guard-tau: {tokens:?}"
+    );
     assert_eq!(tokens[tau_flag.unwrap() + 1], "0.72");
     assert_eq!(parse(&tokens).unwrap(), command);
 }
