@@ -117,6 +117,158 @@ fn stale_ok_search_tags_hits_with_manifest_lag() {
 }
 
 #[test]
+fn search_hydrates_each_hit_with_bounded_reader_lease_readback() {
+    let fixture = Fixture::new_with_inputs(
+        "bounded-hit-hydration",
+        &[b"alpha" as &[u8], b"alphabet" as &[u8]],
+    );
+    let vault = fixture.open_vault();
+    let state = load_vault_panel_state(&fixture.vault_dir).unwrap();
+    let before = fixture.readback();
+    let mut events = Vec::new();
+    let mut trace_sink = |event: crate::engine::SearchTraceEvent| {
+        events.push(event);
+    };
+
+    let outcome = search_outcome_with_slots_traced(
+        &vault,
+        &state,
+        &fixture.vault_dir,
+        "alpha",
+        2,
+        FusionChoice::Rrf,
+        GuardChoice::Off,
+        None,
+        false,
+        None,
+        SearchFreshness::Fresh,
+        Some(&mut trace_sink),
+    )
+    .expect("search succeeds");
+
+    assert!(
+        outcome.hits.len() >= 2,
+        "fixture should produce at least two physical hits"
+    );
+    let hit_hydrate_starts = events
+        .iter()
+        .filter(|event| event.phase == "hit_doc.hydrate.start")
+        .count();
+    let snapshot_pin_details = events
+        .iter()
+        .filter(|event| {
+            event.phase == "snapshot.pin.done"
+                && event
+                    .detail
+                    .as_deref()
+                    .is_some_and(|detail| detail.contains("phase=hit_doc_hydration"))
+        })
+        .count();
+
+    assert_eq!(hit_hydrate_starts, outcome.hits.len());
+    assert_eq!(snapshot_pin_details, outcome.hits.len());
+    maybe_write_fsv_json(
+        "issue1070-bounded-hit-hydration-happy-path.json",
+        &json!({
+            "source_of_truth": "Aster Base/Ledger CF rows plus persisted search index manifest and emitted search trace",
+            "trigger": "search a two-row physical vault and hydrate every hit with a separate reader lease",
+            "before": before,
+            "fixture_cx_ids": fixture
+                .all_cx_ids
+                .iter()
+                .map(ToString::to_string)
+                .collect::<Vec<_>>(),
+            "hit_count": outcome.hits.len(),
+            "hit_hydrate_start_count": hit_hydrate_starts,
+            "snapshot_pin_done_count": snapshot_pin_details,
+            "events": events
+                .iter()
+                .map(trace_event_json)
+                .collect::<Vec<_>>(),
+        }),
+    );
+    fixture.cleanup();
+}
+
+#[test]
+fn search_fails_closed_when_vault_advances_between_hit_hydration_snapshots() {
+    let fixture = Fixture::new_with_inputs(
+        "hydration-seq-advance",
+        &[b"alpha" as &[u8], b"alphabet" as &[u8]],
+    );
+    let vault = fixture.open_vault();
+    let state = load_vault_panel_state(&fixture.vault_dir).unwrap();
+    let before = fixture.readback();
+    let mut events = Vec::new();
+    let mut advanced = false;
+    let mut trace_sink = |event: crate::engine::SearchTraceEvent| {
+        if event.phase == "hit_doc.hydrate.done" && !advanced {
+            let extra = measure_constellation(
+                &vault,
+                &state,
+                Input::new(Modality::Text, b"row inserted during hydration".to_vec()),
+                1,
+            )
+            .expect("measure hydration-advance row");
+            vault.put(extra).expect("advance vault during hydration");
+            vault.flush().expect("flush hydration-advance row");
+            advanced = true;
+        }
+        events.push(event);
+    };
+
+    let error = match search_outcome_with_slots_traced(
+        &vault,
+        &state,
+        &fixture.vault_dir,
+        "alpha",
+        2,
+        FusionChoice::Rrf,
+        GuardChoice::Off,
+        None,
+        false,
+        None,
+        SearchFreshness::Fresh,
+        Some(&mut trace_sink),
+    ) {
+        Ok(_) => panic!("search must fail closed when Base advances during hydration"),
+        Err(error) => error,
+    };
+    let after = fixture.readback();
+
+    assert!(
+        advanced,
+        "test must advance the real vault during hydration"
+    );
+    assert_eq!(error.code(), "CALYX_STALE_DERIVED");
+    assert!(
+        error
+            .message()
+            .contains("vault advanced during search hit hydration"),
+        "error should name the hydration snapshot consistency failure: {error}"
+    );
+    assert!(
+        after["vault_manifest"]["durable_seq"].as_u64().unwrap()
+            > before["vault_manifest"]["durable_seq"].as_u64().unwrap()
+    );
+    maybe_write_fsv_json(
+        "issue1070-hydration-seq-advance-fail-closed.json",
+        &json!({
+            "source_of_truth": "Aster MANIFEST durable_seq and persisted search index manifest base_seq after a real write during hydration",
+            "trigger": "insert and flush a real measured constellation after the first hydrated hit but before the second hydration snapshot",
+            "before": before,
+            "after": after,
+            "error": error_json(&error),
+            "events": events
+                .iter()
+                .map(trace_event_json)
+                .collect::<Vec<_>>(),
+        }),
+    );
+    fixture.cleanup();
+}
+
+#[test]
 fn search_accepts_batch_ingest_ledger_ref_when_payload_names_hit_cx() {
     let root = temp_root("batch-ledger-ref");
     let vault_id = VaultId::from_ulid(Ulid::new());

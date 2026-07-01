@@ -21,7 +21,7 @@ use ulid::Ulid;
 use super::*;
 use crate::engine::{
     FusionChoice, GuardChoice, SearchFreshness, measure_query_vectors, search_outcome,
-    search_outcome_with_freshness,
+    search_outcome_with_freshness, search_outcome_with_slots_traced,
 };
 use crate::persisted::{PersistedSearchIndexes, rebuild_for_vault};
 
@@ -32,11 +32,20 @@ struct Fixture {
     vault_dir: PathBuf,
     vault_id: VaultId,
     cx_id: calyx_core::CxId,
+    all_cx_ids: Vec<calyx_core::CxId>,
     ledger_ref: calyx_core::LedgerRef,
 }
 
 impl Fixture {
     fn new(name: &str) -> Self {
+        Self::new_with_inputs(name, &[b"alpha" as &[u8]])
+    }
+
+    fn new_with_inputs(name: &str, inputs: &[&[u8]]) -> Self {
+        assert!(
+            !inputs.is_empty(),
+            "provenance search fixture needs at least one input"
+        );
         let root = temp_root(name);
         let vault_id = VaultId::from_ulid(Ulid::new());
         let vault_dir = root.join("vault");
@@ -83,17 +92,22 @@ impl Fixture {
             registry,
             registry_snapshot: None,
         };
-        let measured = measure_constellation(
-            &vault,
-            &state,
-            Input::new(Modality::Text, b"alpha".to_vec()),
-            1,
-        )
-        .expect("measure");
-        let cx_id = measured.cx_id;
-        vault.put(measured).expect("put constellation");
+        let mut all_cx_ids = Vec::new();
+        for input in inputs {
+            let measured = measure_constellation(
+                &vault,
+                &state,
+                Input::new(Modality::Text, input.to_vec()),
+                1,
+            )
+            .expect("measure");
+            let cx_id = measured.cx_id;
+            vault.put(measured).expect("put constellation");
+            all_cx_ids.push(cx_id);
+        }
         vault.flush().expect("flush vault");
         rebuild_for_vault(&vault_dir, &vault).expect("rebuild search index");
+        let cx_id = all_cx_ids[0];
         let stored = vault.get(cx_id, vault.snapshot()).expect("read stored");
         let ledger_ref = stored.provenance;
         drop(vault);
@@ -102,6 +116,7 @@ impl Fixture {
             vault_dir,
             vault_id,
             cx_id,
+            all_cx_ids,
             ledger_ref,
         }
     }
@@ -311,6 +326,16 @@ fn error_json(error: &crate::error::SearchError) -> Value {
     json!({
         "code": error.code(),
         "message": error.message(),
+    })
+}
+
+fn trace_event_json(event: &crate::engine::SearchTraceEvent) -> Value {
+    json!({
+        "phase": event.phase,
+        "slot": event.slot.map(|slot| slot.get()),
+        "elapsed_ms": event.elapsed_ms,
+        "count": event.count,
+        "detail": event.detail,
     })
 }
 
