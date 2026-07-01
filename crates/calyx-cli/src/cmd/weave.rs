@@ -79,7 +79,7 @@ fn run_weave_loom(args: WeaveLoomArgs) -> CliResult {
             incompatible_content_slots
         )));
     }
-    let knn_slot = resolve_knn_slot(
+    let requested_knn_slot = validate_requested_knn_slot(
         args.content_slot,
         &content_slots,
         &incompatible_content_slots,
@@ -93,6 +93,8 @@ fn run_weave_loom(args: WeaveLoomArgs) -> CliResult {
     let indexes = super::PersistedSearchIndexes::open(&resolved.path)?;
 
     let snapshot = vault.latest_seq();
+    let coverage = passes::dense_slot_coverage(&vault, snapshot, &content_slots, args.limit)?;
+    let knn_slot = resolve_covered_knn_slot(requested_knn_slot, &content_slots, &coverage)?;
     let graph = PlainGraph::new(&vault, DEFAULT_ASTER_ASSOC_COLLECTION)?;
     let within = passes::weave_within_doc(
         &vault,
@@ -131,6 +133,7 @@ fn run_weave_loom(args: WeaveLoomArgs) -> CliResult {
         "vault_dir": resolved.path.display().to_string(),
         "content_slots": content_slots.iter().map(|s| s.get()).collect::<Vec<_>>(),
         "skipped_incompatible_content_slots": incompatible_content_slots,
+        "dense_slot_coverage": coverage,
         "knn_slot": knn_slot.get(),
         "knn": args.knn,
         "edge_cos_threshold": args.edge_cos_threshold,
@@ -202,17 +205,17 @@ fn slot_shape_label(shape: SlotShape) -> String {
     }
 }
 
-fn resolve_knn_slot(
+fn validate_requested_knn_slot(
     requested: Option<u16>,
     content_slots: &[SlotId],
     incompatible_content_slots: &[IncompatibleContentSlot],
-) -> CliResult<SlotId> {
+) -> CliResult<Option<SlotId>> {
     match requested {
-        None => Ok(content_slots[0]),
+        None => Ok(None),
         Some(raw) => {
             let slot = SlotId::new(raw);
             if content_slots.contains(&slot) {
-                Ok(slot)
+                Ok(Some(slot))
             } else {
                 Err(CliError::usage(format!(
                     "--content-slot {raw} is not an active dense content lens; choose one of {:?}; incompatible active content slots={:?}",
@@ -222,6 +225,70 @@ fn resolve_knn_slot(
             }
         }
     }
+}
+
+fn resolve_covered_knn_slot(
+    requested: Option<SlotId>,
+    content_slots: &[SlotId],
+    coverage: &passes::DenseSlotCoverageReport,
+) -> CliResult<SlotId> {
+    if coverage.candidate_base_rows < 2 {
+        return coverage_error(format!(
+            "weave-loom needs >=2 candidate constellations; candidate_base_rows={} limit={} total_base_rows={}",
+            coverage.candidate_base_rows, coverage.limit, coverage.total_base_rows
+        ));
+    }
+
+    if let Some(slot) = requested {
+        let Some(slot_coverage) = coverage
+            .slots
+            .iter()
+            .find(|entry| entry.slot_id == slot.get())
+        else {
+            return coverage_error(format!(
+                "content slot {} was not present in dense-slot coverage report: {}",
+                slot.get(),
+                coverage_json(coverage)
+            ));
+        };
+        if slot_coverage.missing_rows == 0 {
+            return Ok(slot);
+        }
+        return coverage_error(format!(
+            "--content-slot {} covers {} of {} candidate rows; missing_rows={} example_missing_cx_ids={:?}; coverage={}",
+            slot.get(),
+            slot_coverage.dense_rows,
+            coverage.candidate_base_rows,
+            slot_coverage.missing_rows,
+            slot_coverage.example_missing_cx_ids,
+            coverage_json(coverage)
+        ));
+    }
+
+    for slot in content_slots {
+        if coverage
+            .slots
+            .iter()
+            .any(|entry| entry.slot_id == slot.get() && entry.missing_rows == 0)
+        {
+            return Ok(*slot);
+        }
+    }
+
+    coverage_error(format!(
+        "no active dense content slot covers all {} candidate rows; coverage={}",
+        coverage.candidate_base_rows,
+        coverage_json(coverage)
+    ))
+}
+
+fn coverage_error<T>(detail: String) -> CliResult<T> {
+    Err(calyx_lodestar::LodestarError::KernelInvalidParams { detail }.into())
+}
+
+fn coverage_json(coverage: &passes::DenseSlotCoverageReport) -> String {
+    serde_json::to_string(coverage)
+        .unwrap_or_else(|_| "<coverage-serialization-failed>".to_string())
 }
 
 fn write_fsv_readback(output: &serde_json::Value) -> CliResult {
