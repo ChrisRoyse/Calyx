@@ -4,7 +4,7 @@
 
 This directory exists to make the contract explicit for operators and agents that
 look under `docs/readme/` for README context after compaction. Do not mirror the
-PNG assets here. Duplicating the README images would add another binary source
+image assets here. Duplicating the README images would add another binary source
 of truth and let the rendered README drift from the files that GitHub and local
 clones actually load.
 
@@ -14,7 +14,8 @@ or regenerate image files here.
 
 The source of truth is the repository root `README.md` plus the exact bytes of
 the image files it references. Every relative local image referenced there must
-resolve to a real file under `assets/`. The verifier is:
+resolve to a real file under `assets/`, and its extension must match the
+physical file signature. The verifier is:
 
 ```bash
 bash scripts/check_readme_assets.sh

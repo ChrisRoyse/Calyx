@@ -14,41 +14,16 @@ fn readme_image_contract_uses_assets_as_the_single_source_of_truth() {
     assert_contract(&after);
 
     let readback = json!({
-        "issues": [966, 1045],
+        "issues": [966, 1045, 1073],
         "source_of_truth": {
             "readme": "README.md",
             "canonical_image_dir": "assets/",
             "contract": "docs/readme/README.md",
             "gate": "scripts/check_readme_assets.sh",
+            "magic_policy": "local README image extensions must match physical file signatures",
         },
         "before": before,
         "after": after,
-        "edge_case_audit": {
-            "empty_local_image_set": {
-                "observed_count": after["local_image_refs"].as_array().unwrap().len(),
-                "expected": "non-empty; otherwise README would carry no local visual contract",
-                "passed": !after["local_image_refs"].as_array().unwrap().is_empty(),
-            },
-            "maximum_current_asset_set": {
-                "observed_count": after["resolved_assets"].as_array().unwrap().len(),
-                "expected": "every current README local image is resolved and hashed",
-                "passed": after["missing_assets"].as_array().unwrap().is_empty(),
-            },
-            "invalid_mirror_location": {
-                "observed_docs_readme_images": after["docs_readme_image_files"],
-                "observed_docs_readme_refs": after["docs_readme_refs"],
-                "expected": "no README images are stored in or referenced from docs/readme/",
-                "passed": after["docs_readme_image_files"].as_array().unwrap().is_empty()
-                    && after["docs_readme_refs"].as_array().unwrap().is_empty(),
-            },
-            "operator_docs_readme_objective": {
-                "observed_context_only_contract": after["contract_declares_docs_readme_context_only"],
-                "observed_gate": after["contract_declares_gate"],
-                "expected": "docs/readme is README-image context only; assets/ remains the byte source of truth and the verifier is explicit",
-                "passed": after["contract_declares_docs_readme_context_only"].as_bool().unwrap()
-                    && after["contract_declares_gate"].as_bool().unwrap(),
-            },
-        },
     });
 
     let fsv_root = fsv_root(&root);
@@ -70,12 +45,47 @@ fn readme_image_contract_edges_fail_closed_on_physical_state() {
     let missing_asset = copy_contract_state(&root, "missing-asset");
     let before = inspect_source_of_truth(&missing_asset);
     assert_contract(&before);
-    fs::remove_file(missing_asset.join("assets").join("logo.png")).expect("remove copied logo");
+    fs::remove_file(missing_asset.join("assets").join("logo.jpg")).expect("remove copied logo");
     let after = inspect_source_of_truth(&missing_asset);
-    assert_eq!(after["missing_assets"][0]["path"], "assets/logo.png");
+    assert_eq!(after["missing_assets"][0]["path"], "assets/logo.jpg");
     cases.push(json!({
         "case": "missing_asset",
         "action": "removed a real README-referenced asset from the copied source-of-truth tree",
+        "before": before,
+        "after": after,
+    }));
+
+    let mismatched_magic = copy_contract_state(&root, "extension-magic-mismatch");
+    let before = inspect_source_of_truth(&mismatched_magic);
+    assert_contract(&before);
+    fs::copy(
+        mismatched_magic.join("assets").join("logo.jpg"),
+        mismatched_magic.join("assets").join("logo.png"),
+    )
+    .expect("copy real jpeg logo bytes under png extension");
+    let readme_path = mismatched_magic.join("README.md");
+    let readme = fs::read_to_string(&readme_path).expect("read copied README");
+    fs::write(
+        &readme_path,
+        readme.replace("assets/logo.jpg", "assets/logo.png"),
+    )
+    .expect("write README with mismatched image extension");
+    let after = inspect_source_of_truth(&mismatched_magic);
+    assert_eq!(
+        after["asset_magic_mismatches"][0]["path"],
+        "assets/logo.png"
+    );
+    assert_eq!(
+        after["asset_magic_mismatches"][0]["expected_mime"],
+        "image/png"
+    );
+    assert_eq!(
+        after["asset_magic_mismatches"][0]["detected_mime"],
+        "image/jpeg"
+    );
+    cases.push(json!({
+        "case": "extension_magic_mismatch",
+        "action": "copied real JPEG logo bytes to a .png path and pointed README at that path",
         "before": before,
         "after": after,
     }));
@@ -84,12 +94,12 @@ fn readme_image_contract_edges_fail_closed_on_physical_state() {
     let before = inspect_source_of_truth(&mirror_file);
     assert_contract(&before);
     fs::copy(
-        mirror_file.join("assets").join("logo.png"),
-        mirror_file.join("docs").join("readme").join("logo.png"),
+        mirror_file.join("assets").join("logo.jpg"),
+        mirror_file.join("docs").join("readme").join("logo.jpg"),
     )
     .expect("copy real logo into invalid mirror location");
     let after = inspect_source_of_truth(&mirror_file);
-    assert_eq!(after["docs_readme_image_files"], json!(["logo.png"]));
+    assert_eq!(after["docs_readme_image_files"], json!(["logo.jpg"]));
     cases.push(json!({
         "case": "docs_readme_mirror_file",
         "action": "copied a real asset byte-for-byte into docs/readme",
@@ -101,22 +111,22 @@ fn readme_image_contract_edges_fail_closed_on_physical_state() {
     let before = inspect_source_of_truth(&invalid_ref);
     assert_contract(&before);
     fs::copy(
-        invalid_ref.join("assets").join("logo.png"),
-        invalid_ref.join("docs").join("readme").join("logo.png"),
+        invalid_ref.join("assets").join("logo.jpg"),
+        invalid_ref.join("docs").join("readme").join("logo.jpg"),
     )
     .expect("copy real logo beside invalid README reference");
     let readme_path = invalid_ref.join("README.md");
     let readme = fs::read_to_string(&readme_path).expect("read copied README");
     fs::write(
         &readme_path,
-        readme.replace("assets/logo.png", "docs/readme/logo.png"),
+        readme.replace("assets/logo.jpg", "docs/readme/logo.jpg"),
     )
     .expect("write invalid README reference");
     let after = inspect_source_of_truth(&invalid_ref);
-    assert_eq!(after["docs_readme_refs"][0]["path"], "docs/readme/logo.png");
+    assert_eq!(after["docs_readme_refs"][0]["path"], "docs/readme/logo.jpg");
     assert_eq!(
         after["invalid_local_refs"][0]["path"],
-        "docs/readme/logo.png"
+        "docs/readme/logo.jpg"
     );
     cases.push(json!({
         "case": "invalid_docs_readme_reference",
@@ -146,7 +156,7 @@ fn readme_image_contract_edges_fail_closed_on_physical_state() {
     }));
 
     let readback = json!({
-        "issues": [966, 1045],
+        "issues": [966, 1045, 1073],
         "source_of_truth": "temporary copied repo states under CALYX_FSV_ROOT/readme-assets-edge-states using real README, contract, and asset bytes",
         "cases": cases,
     });
@@ -172,6 +182,18 @@ fn inspect_source_of_truth(root: &Path) -> Value {
     let mut docs_readme_refs = Vec::new();
     let mut missing_assets = Vec::new();
     let mut resolved_assets = Vec::new();
+    let mut all_asset_images = Vec::new();
+    let mut asset_magic_mismatches = Vec::new();
+
+    for asset in collect_image_files(&root.join("assets")) {
+        let path = format!("assets/{asset}");
+        let bytes = fs::read(root.join(&path)).expect("read asset image for magic readback");
+        let magic = image_magic_readback(&path, &bytes);
+        if !magic["extension_matches_magic"].as_bool().unwrap() {
+            asset_magic_mismatches.push(magic.clone());
+        }
+        all_asset_images.push(magic);
+    }
 
     for image in &local_refs {
         if has_path_escape(&image.path) || !image.path.starts_with("assets/") {
@@ -193,6 +215,7 @@ fn inspect_source_of_truth(root: &Path) -> Value {
             "path": image.path,
             "bytes": bytes.len(),
             "blake3": blake3::hash(&bytes).to_hex().to_string(),
+            "magic": image_magic_readback(&image.path, &bytes),
         }));
     }
 
@@ -205,7 +228,7 @@ fn inspect_source_of_truth(root: &Path) -> Value {
         "docs_readme_exists": docs_readme.is_dir(),
         "contract_exists": contract_path.is_file(),
         "contract_declares_assets_canonical": contract.contains("`assets/` is the canonical directory"),
-        "contract_rejects_png_mirror": contract.contains("Do not mirror") && contract.contains("PNG assets"),
+        "contract_rejects_image_mirror": contract.contains("Do not mirror") && contract.contains("image assets"),
         "contract_declares_docs_readme_context_only": contract.contains("interpret that as a request to inspect this contract")
             && contract.contains("not as permission to copy"),
         "contract_declares_gate": contract.contains("bash scripts/check_readme_assets.sh"),
@@ -215,6 +238,8 @@ fn inspect_source_of_truth(root: &Path) -> Value {
         "docs_readme_refs": docs_readme_refs,
         "missing_assets": missing_assets,
         "resolved_assets": resolved_assets,
+        "all_asset_images": all_asset_images,
+        "asset_magic_mismatches": asset_magic_mismatches,
         "docs_readme_image_files": collect_image_files(&docs_readme),
     })
 }
@@ -224,7 +249,7 @@ fn assert_contract(state: &Value) {
     assert_eq!(state["docs_readme_exists"], true);
     assert_eq!(state["contract_exists"], true);
     assert_eq!(state["contract_declares_assets_canonical"], true);
-    assert_eq!(state["contract_rejects_png_mirror"], true);
+    assert_eq!(state["contract_rejects_image_mirror"], true);
     assert_eq!(state["contract_declares_docs_readme_context_only"], true);
     assert_eq!(state["contract_declares_gate"], true);
     assert!(
@@ -234,6 +259,7 @@ fn assert_contract(state: &Value) {
     assert_eq!(state["invalid_local_refs"], json!([]));
     assert_eq!(state["docs_readme_refs"], json!([]));
     assert_eq!(state["missing_assets"], json!([]));
+    assert_eq!(state["asset_magic_mismatches"], json!([]));
     assert_eq!(state["docs_readme_image_files"], json!([]));
 }
 
@@ -359,6 +385,67 @@ fn is_image_file(path: &Path) -> bool {
             )
         })
         .unwrap_or(false)
+}
+
+fn image_magic_readback(path: &str, bytes: &[u8]) -> Value {
+    let extension = Path::new(path)
+        .extension()
+        .and_then(|extension| extension.to_str())
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    let expected_mime = expected_image_mime(&extension).unwrap_or("unsupported-image-extension");
+    let detected_mime = detect_image_mime(bytes).unwrap_or("unknown");
+    json!({
+        "path": path,
+        "extension": extension,
+        "expected_mime": expected_mime,
+        "detected_mime": detected_mime,
+        "extension_matches_magic": expected_mime == detected_mime,
+        "first_bytes_hex": first_bytes_hex(bytes, 12),
+    })
+}
+
+fn expected_image_mime(extension: &str) -> Option<&'static str> {
+    match extension {
+        "gif" => Some("image/gif"),
+        "jpg" | "jpeg" => Some("image/jpeg"),
+        "png" => Some("image/png"),
+        "svg" => Some("image/svg+xml"),
+        "webp" => Some("image/webp"),
+        _ => None,
+    }
+}
+
+fn detect_image_mime(bytes: &[u8]) -> Option<&'static str> {
+    if bytes.len() >= 8 && bytes.starts_with(&[0x89, b'P', b'N', b'G', 0x0d, 0x0a, 0x1a, 0x0a]) {
+        return Some("image/png");
+    }
+    if bytes.len() >= 3 && bytes.starts_with(&[0xff, 0xd8, 0xff]) {
+        return Some("image/jpeg");
+    }
+    if bytes.starts_with(b"GIF87a") || bytes.starts_with(b"GIF89a") {
+        return Some("image/gif");
+    }
+    if bytes.len() >= 12 && bytes.starts_with(b"RIFF") && &bytes[8..12] == b"WEBP" {
+        return Some("image/webp");
+    }
+    let Ok(text) = std::str::from_utf8(bytes) else {
+        return None;
+    };
+    let trimmed = text.trim_start_matches('\u{feff}').trim_start();
+    if trimmed.starts_with("<svg") || (trimmed.starts_with("<?xml") && trimmed.contains("<svg")) {
+        return Some("image/svg+xml");
+    }
+    None
+}
+
+fn first_bytes_hex(bytes: &[u8], limit: usize) -> String {
+    bytes
+        .iter()
+        .take(limit)
+        .map(|byte| format!("{byte:02x}"))
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 fn workspace_root() -> PathBuf {
