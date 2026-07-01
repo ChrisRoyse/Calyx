@@ -476,10 +476,10 @@ fn tmp_file(file_name: &str) -> PathBuf {
 }
 
 fn mirror_to_root(file_name: &str, bytes: &[u8]) {
-    let Ok(root) = std::env::var("CALYX_FSV_ROOT") else {
+    let Some(root) = calyx_fsv::fsv_root("CALYX_FSV_ROOT") else {
         return;
     };
-    let path = PathBuf::from(root).join(file_name);
+    let path = root.join(file_name);
     fs::create_dir_all(path.parent().unwrap()).unwrap();
     fs::write(path, bytes).unwrap();
 }

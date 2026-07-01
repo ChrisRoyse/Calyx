@@ -251,11 +251,9 @@ fn put_base<C: Clock>(vault: &AsterVault<C>, input: &[u8]) -> CxId {
 }
 
 fn fsv_root() -> PathBuf {
-    std::env::var_os("CALYX_FSV_ROOT")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| {
-            std::env::temp_dir().join(format!("calyx-issue636-fsv-{}", std::process::id()))
-        })
+    calyx_fsv::fsv_root_or_else("CALYX_FSV_ROOT", || {
+        std::env::temp_dir().join(format!("calyx-issue636-fsv-{}", std::process::id()))
+    })
 }
 
 fn vault_id() -> VaultId {

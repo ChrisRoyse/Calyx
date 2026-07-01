@@ -83,7 +83,7 @@ fn vault_compaction_scheduler_compacts_flushed_cf_catalog() {
 
 #[test]
 fn compacted_ssts_recover_after_original_shards_are_absent() {
-    let fsv_root = std::env::var_os("CALYX_FSV_ROOT").map(PathBuf::from);
+    let fsv_root = calyx_fsv::fsv_root("CALYX_FSV_ROOT");
     let dir = fsv_root.as_ref().map_or_else(
         || test_dir("compacted-recovery"),
         |root| {
@@ -135,7 +135,7 @@ fn compacted_ssts_recover_after_original_shards_are_absent() {
 
 #[test]
 fn tiered_vault_flush_recovery_and_compaction_use_hot_archive_roots() {
-    let fsv_root = std::env::var_os("CALYX_FSV_ROOT").map(PathBuf::from);
+    let fsv_root = calyx_fsv::fsv_root("CALYX_FSV_ROOT");
     let dir = fsv_root.as_ref().map_or_else(
         || test_dir("tiered-vault"),
         |root| {

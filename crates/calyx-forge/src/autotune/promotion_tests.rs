@@ -88,10 +88,9 @@ fn write_promotion_fsv_readbacks(
     demoted: Option<&BestConfig>,
     cache_config: Option<&BestConfig>,
 ) -> Result<()> {
-    let Ok(root) = std::env::var("CALYX_FSV_ROOT") else {
+    let Some(root) = calyx_fsv::fsv_root("CALYX_FSV_ROOT") else {
         return Ok(());
     };
-    let root = PathBuf::from(root);
     fs::create_dir_all(&root).map_err(|err| fsv_error("fsv_mkdir", &root, err))?;
 
     let log_dest = root.join("promotion-log-readback.jsonl");

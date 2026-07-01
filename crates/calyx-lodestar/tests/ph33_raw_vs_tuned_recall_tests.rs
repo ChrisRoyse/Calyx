@@ -26,9 +26,9 @@ fn recall(ratio: f32) -> RecallReport {
 }
 
 fn fsv_root(case: &str) -> PathBuf {
-    let base = std::env::var("CALYX_FSV_ROOT")
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| std::env::temp_dir().join("calyx-raw-vs-tuned-recall"));
+    let base = calyx_fsv::fsv_root_or_else("CALYX_FSV_ROOT", || {
+        std::env::temp_dir().join("calyx-raw-vs-tuned-recall")
+    });
     base.join(case)
 }
 

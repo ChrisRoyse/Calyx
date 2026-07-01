@@ -220,7 +220,7 @@ fn write_issue866_artifact(
     manifest_only_error_code: &'static str,
     recovered_next_seq: u64,
 ) {
-    let Some(root) = std::env::var_os("CALYX_FSV_ROOT").map(PathBuf::from) else {
+    let Some(root) = calyx_fsv::fsv_root("CALYX_FSV_ROOT") else {
         return;
     };
     fs::create_dir_all(&root).unwrap();

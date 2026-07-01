@@ -322,8 +322,8 @@ fn vault_id() -> VaultId {
 }
 
 fn fsv_root() -> (PathBuf, bool) {
-    if let Ok(root) = std::env::var("CALYX_FSV_ROOT") {
-        return (PathBuf::from(root), true);
+    if let Some(root) = calyx_fsv::fsv_root("CALYX_FSV_ROOT") {
+        return (root, true);
     }
     let id = NEXT_DIR.fetch_add(1, Ordering::Relaxed);
     (

@@ -1,4 +1,3 @@
-use std::env;
 use std::fs;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -216,9 +215,9 @@ fn measured_lengths(readout: &IngestPanelReadout, good_id: LensId) -> Vec<f32> {
 }
 
 fn fsv_root() -> PathBuf {
-    env::var_os("CALYX_FSV_ROOT")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from("target/fsv-issue590-ingest-microbatch"))
+    calyx_fsv::fsv_root_or_else("CALYX_FSV_ROOT", || {
+        PathBuf::from("target/fsv-issue590-ingest-microbatch")
+    })
 }
 
 #[derive(Serialize)]

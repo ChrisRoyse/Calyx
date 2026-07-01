@@ -28,9 +28,7 @@ const DOMAIN: &str = "ph50_t02_fsv";
 #[test]
 #[ignore = "manual FSV for issue #436 PH50 T02 tier 1-3 readbacks"]
 fn issue436_super_intel_tiers_1_to_3_fsv_writes_readbacks() {
-    let root = std::env::var_os("CALYX_FSV_ROOT")
-        .map(std::path::PathBuf::from)
-        .expect("set CALYX_FSV_ROOT");
+    let root = calyx_fsv::required_fsv_root("CALYX_FSV_ROOT");
     assert!(!root.exists(), "fresh FSV root required");
     fs::create_dir_all(&root).expect("create FSV root");
     let vault_dir = root.join("vault");

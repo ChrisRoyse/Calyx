@@ -32,9 +32,9 @@ fn test_graph() -> AssocGraph {
 }
 
 fn readback_path() -> PathBuf {
-    let root = std::env::var("CALYX_FSV_ROOT")
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| PathBuf::from("target/fsv/issue921-lp-solution-validation"));
+    let root = calyx_fsv::fsv_root_or_else("CALYX_FSV_ROOT", || {
+        PathBuf::from("target/fsv/issue921-lp-solution-validation")
+    });
     root.join("issue921-lp-solution-validation-readback.json")
 }
 

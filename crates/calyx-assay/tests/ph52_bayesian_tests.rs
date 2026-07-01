@@ -1,5 +1,4 @@
 use std::fs;
-use std::path::Path;
 
 use calyx_assay::{
     BetaBernoulli, CALYX_BAYES_INVALID_INTERVAL, GammaPoisson, bayesian_posterior_for_domain,
@@ -238,13 +237,13 @@ fn unreliable_low_success() -> bool {
 }
 
 fn vault() -> (AsterVault, String) {
-    let Ok(root) = std::env::var("CALYX_FSV_ROOT") else {
+    let Some(root) = calyx_fsv::fsv_root("CALYX_FSV_ROOT") else {
         return (
             AsterVault::new(vault_id(), b"bayesian"),
             "in-memory".to_string(),
         );
     };
-    let dir = Path::new(&root).join("bayesian-vault");
+    let dir = root.join("bayesian-vault");
     let _ = fs::remove_dir_all(&dir);
     let vault =
         AsterVault::new_durable(&dir, vault_id(), b"bayesian", VaultOptions::default()).unwrap();

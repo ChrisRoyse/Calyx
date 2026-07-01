@@ -152,15 +152,15 @@ pub(super) fn constellation_multi(
 }
 
 pub(super) fn temp_root(label: &str) -> PathBuf {
-    if let Ok(root) = std::env::var("CALYX_FSV_ROOT") {
-        return PathBuf::from(root);
+    if let Some(root) = calyx_fsv::fsv_root("CALYX_FSV_ROOT") {
+        return root;
     }
     let serial = NEXT_DIR.fetch_add(1, Ordering::SeqCst);
     std::env::temp_dir().join(format!("calyx-{label}-{}-{serial}", std::process::id()))
 }
 
 pub(super) fn keep_fsv_root() -> bool {
-    std::env::var_os("CALYX_FSV_ROOT").is_some()
+    calyx_fsv::fsv_root("CALYX_FSV_ROOT").is_some()
 }
 
 pub(super) fn vault_id() -> VaultId {
@@ -168,8 +168,7 @@ pub(super) fn vault_id() -> VaultId {
 }
 
 pub(super) fn maybe_write_json(name: &str, value: &serde_json::Value) {
-    if let Ok(root) = std::env::var("CALYX_FSV_ROOT") {
-        let root = PathBuf::from(root);
+    if let Some(root) = calyx_fsv::fsv_root("CALYX_FSV_ROOT") {
         fs::create_dir_all(&root).unwrap();
         write_json(&root.join(name), value);
     }

@@ -7,8 +7,8 @@ use std::sync::atomic::{AtomicU64, Ordering};
 static TEMP_ROOT_SEQ: AtomicU64 = AtomicU64::new(0);
 
 pub(crate) fn fsv_root(env_key: &str, fallback_prefix: &str) -> (PathBuf, bool) {
-    if let Ok(root) = std::env::var(env_key) {
-        return (PathBuf::from(root), true);
+    if let Some(root) = calyx_fsv::fsv_root(env_key) {
+        return (root, true);
     }
     (
         std::env::temp_dir().join(format!("{fallback_prefix}-{}", std::process::id())),
@@ -17,11 +17,9 @@ pub(crate) fn fsv_root(env_key: &str, fallback_prefix: &str) -> (PathBuf, bool) 
 }
 
 pub(crate) fn fsv_root_os(env_key: &str, fallback_prefix: &str) -> PathBuf {
-    std::env::var_os(env_key)
-        .map(PathBuf::from)
-        .unwrap_or_else(|| {
-            std::env::temp_dir().join(format!("{fallback_prefix}-{}", std::process::id()))
-        })
+    calyx_fsv::fsv_root_or_else(env_key, || {
+        std::env::temp_dir().join(format!("{fallback_prefix}-{}", std::process::id()))
+    })
 }
 
 pub(crate) fn fsv_root_env_subdir(
@@ -29,8 +27,8 @@ pub(crate) fn fsv_root_env_subdir(
     env_subdir: &str,
     fallback_prefix: &str,
 ) -> (PathBuf, bool) {
-    if let Ok(root) = std::env::var(env_key) {
-        return (PathBuf::from(root).join(env_subdir), true);
+    if let Some(root) = calyx_fsv::fsv_root(env_key) {
+        return (root.join(env_subdir), true);
     }
     (
         std::env::temp_dir().join(format!("{fallback_prefix}-{}", std::process::id())),
@@ -39,15 +37,15 @@ pub(crate) fn fsv_root_env_subdir(
 }
 
 pub(crate) fn named_fsv_root(env_key: &str, name: &str) -> (PathBuf, bool) {
-    if let Ok(root) = std::env::var(env_key) {
-        return (PathBuf::from(root), true);
+    if let Some(root) = calyx_fsv::fsv_root(env_key) {
+        return (root, true);
     }
     (named_temp_root(name), false)
 }
 
 pub(crate) fn named_fsv_root_os(env_key: &str, name: &str) -> (PathBuf, bool) {
-    if let Some(root) = std::env::var_os(env_key) {
-        return (PathBuf::from(root), true);
+    if let Some(root) = calyx_fsv::fsv_root(env_key) {
+        return (root, true);
     }
     (named_temp_root(name), false)
 }
@@ -72,9 +70,7 @@ pub(crate) fn env_or_temp_root(
     fallback_prefix: &str,
     fallback_name: &str,
 ) -> PathBuf {
-    std::env::var_os(env_key)
-        .map(PathBuf::from)
-        .unwrap_or_else(|| temp_root(fallback_prefix, fallback_name))
+    calyx_fsv::fsv_root_or_else(env_key, || temp_root(fallback_prefix, fallback_name))
 }
 
 pub(crate) fn env_or_prepared_temp_root(
@@ -82,9 +78,9 @@ pub(crate) fn env_or_prepared_temp_root(
     fallback_prefix: &str,
     fallback_name: &str,
 ) -> PathBuf {
-    std::env::var_os(env_key)
-        .map(PathBuf::from)
-        .unwrap_or_else(|| prepared_temp_root(fallback_prefix, fallback_name))
+    calyx_fsv::fsv_root_or_else(env_key, || {
+        prepared_temp_root(fallback_prefix, fallback_name)
+    })
 }
 
 pub(crate) fn reset_dir(dir: &Path) {

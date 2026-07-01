@@ -62,9 +62,9 @@ fn inverted_index_replacement_drops_stale_postings() {
 #[test]
 #[ignore = "manual FSV writes PH25 sparse vector readback source-of-truth artifacts"]
 fn sparse_vector_readback_manual_fsv() {
-    let root = std::env::var("CALYX_FSV_ROOT")
-        .map(std::path::PathBuf::from)
-        .unwrap_or_else(|_| std::env::temp_dir().join("calyx-sparse-vector-readback-fsv"));
+    let root = calyx_fsv::fsv_root_or_else("CALYX_FSV_ROOT", || {
+        std::env::temp_dir().join("calyx-sparse-vector-readback-fsv")
+    });
     fs::create_dir_all(&root).unwrap();
 
     let mut index = InvertedIndex::new(SlotId::new(1));

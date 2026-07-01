@@ -142,8 +142,8 @@ fn ph22_panels_temporal_manual_fsv() {
 }
 
 fn fsv_root() -> PathBuf {
-    if let Ok(root) = std::env::var("CALYX_FSV_ROOT") {
-        return PathBuf::from(root);
+    if let Some(root) = calyx_fsv::fsv_root("CALYX_FSV_ROOT") {
+        return root;
     }
     let home = std::env::var("CALYX_HOME").unwrap_or_else(|_| ".".to_string());
     PathBuf::from(home)

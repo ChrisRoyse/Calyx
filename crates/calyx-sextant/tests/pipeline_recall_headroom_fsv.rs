@@ -36,9 +36,9 @@ fn pipeline_recall_k_headroom_recovers_dense_candidate() {
 #[test]
 #[ignore = "manual FSV writes PH25 Pipeline recall headroom source-of-truth artifacts"]
 fn pipeline_recall_headroom_manual_fsv() {
-    let root = std::env::var("CALYX_FSV_ROOT")
-        .map(std::path::PathBuf::from)
-        .unwrap_or_else(|_| std::env::temp_dir().join("calyx-pipeline-recall-headroom-fsv"));
+    let root = calyx_fsv::fsv_root_or_else("CALYX_FSV_ROOT", || {
+        std::env::temp_dir().join("calyx-pipeline-recall-headroom-fsv")
+    });
     fs::create_dir_all(&root).unwrap();
 
     let engine = sample_engine();

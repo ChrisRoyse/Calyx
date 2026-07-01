@@ -30,6 +30,7 @@ zeroize = "1"
 zstd.workspace = true
 
 [dev-dependencies]
+calyx-fsv = { path = "../calyx-fsv" }
 calyx-loom = { path = "../calyx-loom" }
 calyx-oracle = { path = "../calyx-oracle" }
 criterion.workspace = true

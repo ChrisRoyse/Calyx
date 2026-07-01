@@ -55,10 +55,10 @@ pub fn l2_norm(values: &[f32]) -> f32 {
 
 #[cfg(feature = "cuda")]
 pub fn write_cuda_fsv_readback(file_name: &str, value: &serde_json::Value) {
-    let Ok(root) = std::env::var("CALYX_FSV_ROOT") else {
+    let Some(root) = calyx_fsv::fsv_root("CALYX_FSV_ROOT") else {
         return;
     };
-    let path = PathBuf::from(root).join(file_name);
+    let path = root.join(file_name);
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).unwrap_or_else(|err| panic!("{}: {err}", parent.display()));
     }

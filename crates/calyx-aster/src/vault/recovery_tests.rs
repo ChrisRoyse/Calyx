@@ -94,7 +94,7 @@ fn stale_durable_handle_refreshes_before_commit_sequence_allocation() {
 
 #[test]
 fn open_reports_torn_tail_through_recovery_report() {
-    let fsv_root = std::env::var_os("CALYX_FSV_ROOT").map(PathBuf::from);
+    let fsv_root = calyx_fsv::fsv_root("CALYX_FSV_ROOT");
     let dir = fsv_root.as_ref().map_or_else(
         || test_dir("open-torn-tail-report"),
         |root| {

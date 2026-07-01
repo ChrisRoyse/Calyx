@@ -24,5 +24,6 @@ toml.workspace = true
 zstd.workspace = true
 
 [dev-dependencies]
+calyx-fsv = { path = "../calyx-fsv" }
 filetime.workspace = true
 proptest.workspace = true

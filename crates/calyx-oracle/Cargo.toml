@@ -21,6 +21,7 @@ serde_json.workspace = true
 
 [dev-dependencies]
 blake3.workspace = true
+calyx-fsv = { path = "../calyx-fsv" }
 calyx-loom = { path = "../calyx-loom" }
 calyx-testkit = { path = "../calyx-testkit" }
 proptest.workspace = true

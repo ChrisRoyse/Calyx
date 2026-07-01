@@ -1,6 +1,6 @@
 use std::ffi::OsString;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::Mutex;
 
 use calyx_core::Lens;
@@ -158,10 +158,9 @@ fn model_file_state(spec: &OnnxFileSpec) -> Value {
 }
 
 fn maybe_write_fsv_json(name: &str, value: &Value) {
-    let Ok(root) = std::env::var("CALYX_FSV_ROOT") else {
+    let Some(root) = calyx_fsv::fsv_root("CALYX_FSV_ROOT") else {
         return;
     };
-    let root = PathBuf::from(root);
     fs::create_dir_all(&root).expect("create custom ONNX FSV root");
     fs::write(
         root.join(name),

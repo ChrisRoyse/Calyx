@@ -460,9 +460,7 @@ fn measure_admission_overhead_ns() -> f64 {
 }
 
 fn fsv_root() -> PathBuf {
-    std::env::var_os("CALYX_FSV_ROOT")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from("target/ph57-soak-fsv"))
+    calyx_fsv::fsv_root_or_else("CALYX_FSV_ROOT", || PathBuf::from("target/ph57-soak-fsv"))
 }
 
 fn io_error(err: std::io::Error) -> ForgeError {

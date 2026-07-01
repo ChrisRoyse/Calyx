@@ -189,7 +189,7 @@ impl Fixture {
     }
 
     fn cleanup(self) {
-        if std::env::var_os("CALYX_FSV_ROOT").is_none() {
+        if calyx_fsv::fsv_root("CALYX_FSV_ROOT").is_none() {
             let _ = fs::remove_dir_all(self.root);
         }
     }
@@ -342,10 +342,9 @@ fn trace_event_json(event: &crate::engine::SearchTraceEvent) -> Value {
 }
 
 fn maybe_write_fsv_json(name: &str, value: &Value) {
-    let Some(root) = std::env::var_os("CALYX_FSV_ROOT") else {
+    let Some(root) = calyx_fsv::fsv_root("CALYX_FSV_ROOT") else {
         return;
     };
-    let root = PathBuf::from(root);
     fs::create_dir_all(&root).expect("create FSV root");
     fs::write(
         root.join(name),

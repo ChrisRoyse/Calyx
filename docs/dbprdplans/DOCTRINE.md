@@ -153,6 +153,7 @@ Key coding protocols pulled from `AICodingAgentSuperPrompt.md` (embedded, not ju
 - **Mental models, installed:** first-principles decomposition · symptom vs cause vs root cause · fail-closed not fail-open · defense in depth · asymmetry of risk · 80/20 · abductive hypothesis generation · contradiction engine · Linear Sequential Unmasking.
 - **GitHub Issues are the coordination + memory surface:** read issue-state at the start of every turn; claim atomically before work; comment at every milestone; pause/blocked/done protocol; **dedupe before every create**; record decisions (ADR) and discoveries as issues. The §8 modularization rule files issues here.
 - **FSV rigor:** ≥3 edge audits per code path (more for security); synthetic test data with known inputs/known expected outputs; aim for verification maturity L3+; **when a test fails, STOP** and root-cause.
+- **FSV roots are absolute-only:** every reader of `CALYX_FSV_ROOT` resolves it through the `calyx-fsv` crate; a set-but-relative or empty value fails closed (`CALYX_FSV_ROOT_NOT_ABSOLUTE` / `CALYX_FSV_ROOT_EMPTY` with value + cwd + remediation) because cargo runs each test from its crate dir, not the workspace root, scattering evidence (#1014). `scripts/check.sh` refuses an inherited suite-wide `CALYX_FSV_ROOT` — gate tests own their roots.
 - **RCA:** 5 Whys to a *structural* root cause, never "someone forgot."
 - **Hypothesis-driven debugging:** scientific method — hypothesize, predict, test against the SoT.
 - **No workarounds:** fail fast, fail loud; no fallback that hides failure (A16).

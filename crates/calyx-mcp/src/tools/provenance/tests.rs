@@ -401,10 +401,9 @@ fn write_anchor_fsv(
     error_code: &str,
     error_message: &str,
 ) {
-    let Some(root) = std::env::var_os("CALYX_FSV_ROOT") else {
+    let Some(root) = calyx_fsv::fsv_root("CALYX_FSV_ROOT") else {
         return;
     };
-    let root = std::path::PathBuf::from(root);
     fs::create_dir_all(&root).unwrap();
     let payload = json!({
         "source_of_truth": "Aster durable Base anchor list plus Ledger CF rows read through AsterLedgerCfStore",

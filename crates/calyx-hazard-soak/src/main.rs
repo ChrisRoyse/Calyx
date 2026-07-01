@@ -400,9 +400,8 @@ fn metrics_text(results: &[HazardResult], suite: Suite, soak: Option<&SoakReport
 }
 
 fn fsv_root(suite: Suite) -> PathBuf {
-    env::var_os(suite.root_env_name())
-        .or_else(|| env::var_os("CALYX_FSV_ROOT"))
-        .map(PathBuf::from)
+    calyx_fsv::fsv_root(suite.root_env_name())
+        .or_else(|| calyx_fsv::fsv_root("CALYX_FSV_ROOT"))
         .unwrap_or_else(|| {
             env::temp_dir().join(format!(
                 "calyx-ph59-{}-{}",

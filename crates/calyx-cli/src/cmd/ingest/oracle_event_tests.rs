@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use calyx_aster::cf::ColumnFamily;
 use calyx_aster::recurrence::read_series;
@@ -76,7 +76,7 @@ fn batch_ingest_structures_oracle_recurrence_for_reverse_query() {
     assert_eq!(causes.len(), 1);
     assert_eq!(causes[0].action_or_event, "What treats type 2 diabetes?");
     assert!(!causes[0].provisional);
-    if let Ok(fsv_root) = std::env::var("CALYX_FSV_ROOT") {
+    if let Some(fsv_root) = calyx_fsv::fsv_root("CALYX_FSV_ROOT") {
         let recurrence_rows = vault
             .scan_cf_at(snapshot, ColumnFamily::Recurrence)
             .unwrap()
@@ -108,7 +108,7 @@ fn batch_ingest_structures_oracle_recurrence_for_reverse_query() {
                 "ledger_seq": causes[0].provenance.seq,
             }
         });
-        let fsv_path = Path::new(&fsv_root);
+        let fsv_path = &fsv_root;
         fs::create_dir_all(fsv_path).unwrap();
         fs::write(
             fsv_path.join("issue885_oracle_event_readback.json"),
@@ -228,15 +228,13 @@ fn panel_with_text_slot(lens_id: LensId, shape: SlotShape) -> Panel {
 }
 
 fn cleanup_root(root: PathBuf) {
-    if std::env::var_os("CALYX_FSV_ROOT").is_none() {
+    if calyx_fsv::fsv_root("CALYX_FSV_ROOT").is_none() {
         fs::remove_dir_all(root).ok();
     }
 }
 
 fn temp_root(name: &str) -> PathBuf {
-    let parent = std::env::var_os("CALYX_FSV_ROOT")
-        .map(PathBuf::from)
-        .unwrap_or_else(std::env::temp_dir);
+    let parent = calyx_fsv::fsv_root_or_else("CALYX_FSV_ROOT", std::env::temp_dir);
     parent.join(format!(
         "calyx-cli-ingest-oracle-{name}-{}-{}",
         std::process::id(),

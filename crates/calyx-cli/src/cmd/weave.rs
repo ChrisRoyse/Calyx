@@ -13,7 +13,6 @@ mod passes;
 mod progress;
 
 use std::fs;
-use std::path::PathBuf;
 
 use calyx_aster::plain_graph::PlainGraph;
 use calyx_aster::vault::{AsterVault, VaultOptions};
@@ -484,10 +483,12 @@ fn resolve_requested_slot(
 }
 
 fn write_fsv_readback(output: &serde_json::Value) -> CliResult {
-    let Some(root) = std::env::var_os("CALYX_FSV_ROOT") else {
+    let Some(root) = calyx_fsv::env_fsv_root("CALYX_FSV_ROOT")
+        .map_err(|error| CliError::usage(error.to_string()))?
+    else {
         return Ok(());
     };
-    let dir = PathBuf::from(root).join("weave-loom");
+    let dir = root.join("weave-loom");
     fs::create_dir_all(&dir)?;
     let path = dir.join("weave_loom_report.json");
     fs::write(&path, serde_json::to_vec_pretty(output)?)?;

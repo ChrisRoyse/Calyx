@@ -197,9 +197,9 @@ fn ph33_direct_hit_ledger_provenance_manual_fsv() {
 }
 
 fn fsv_root() -> PathBuf {
-    std::env::var("CALYX_FSV_ROOT")
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| std::env::temp_dir().join("calyx-ph33-direct-hit-ledger-fsv"))
+    calyx_fsv::fsv_root_or_else("CALYX_FSV_ROOT", || {
+        std::env::temp_dir().join("calyx-ph33-direct-hit-ledger-fsv")
+    })
 }
 
 fn reset_dir(dir: &Path) {

@@ -167,10 +167,9 @@ fn sha256_file(path: &Path) -> String {
 }
 
 fn maybe_write_fsv_json(value: &Value) {
-    let Some(root) = std::env::var_os("CALYX_FSV_ROOT") else {
+    let Some(root) = calyx_fsv::fsv_root("CALYX_FSV_ROOT") else {
         return;
     };
-    let root = PathBuf::from(root);
     fs::create_dir_all(&root).expect("create FSV root");
     fs::write(
         root.join("issue1015-real-vault-slot15-search.json"),

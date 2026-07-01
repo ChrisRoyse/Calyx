@@ -315,9 +315,9 @@ fn chain_ok(entries: &[LedgerEntry]) -> bool {
 }
 
 fn fsv_root(home: &Path) -> PathBuf {
-    std::env::var("CALYX_FSV_ROOT")
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| home.join("fsv").join("ph33-real-ledger-answer"))
+    calyx_fsv::fsv_root_or_else("CALYX_FSV_ROOT", || {
+        home.join("fsv").join("ph33-real-ledger-answer")
+    })
 }
 
 fn reset_dir(dir: &Path) {

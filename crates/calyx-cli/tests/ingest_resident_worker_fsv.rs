@@ -212,11 +212,9 @@ fn calyx_exe() -> PathBuf {
 }
 
 fn write_fsv_readback(vault_id: VaultId, readback: &Value) -> PathBuf {
-    let root = std::env::var_os("CALYX_FSV_ROOT")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| {
-            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/fsv/resident-worker-fsv")
-        });
+    let root = calyx_fsv::fsv_root_or_else("CALYX_FSV_ROOT", || {
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/fsv/resident-worker-fsv")
+    });
     fs::create_dir_all(&root).expect("create resident-worker FSV evidence root");
     let path = root.join(format!("resident-worker-readback-{vault_id}.json"));
     fs::write(

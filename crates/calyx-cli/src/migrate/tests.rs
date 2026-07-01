@@ -394,12 +394,12 @@ fn temp_root(name: &str) -> std::path::PathBuf {
 }
 
 fn maybe_write_fsv_json(name: &str, value: &serde_json::Value) {
-    let Ok(root) = std::env::var("CALYX_FSV_ROOT") else {
+    let Some(root) = calyx_fsv::fsv_root("CALYX_FSV_ROOT") else {
         return;
     };
     std::fs::create_dir_all(&root).expect("create fsv root");
     std::fs::write(
-        std::path::Path::new(&root).join(name),
+        root.join(name),
         serde_json::to_vec_pretty(value).expect("fsv json"),
     )
     .expect("write fsv json");

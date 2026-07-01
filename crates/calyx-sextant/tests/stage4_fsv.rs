@@ -200,9 +200,9 @@ fn pipeline_and_reranker_keep_candidate_text_request_scoped() {
 #[test]
 #[ignore = "manual FSV writes source-of-truth artifacts"]
 fn stage4_full_stack_fsv() {
-    let root = std::env::var("CALYX_FSV_ROOT")
-        .map(std::path::PathBuf::from)
-        .unwrap_or_else(|_| std::env::temp_dir().join("calyx-stage4-fsv"));
+    let root = calyx_fsv::fsv_root_or_else("CALYX_FSV_ROOT", || {
+        std::env::temp_dir().join("calyx-stage4-fsv")
+    });
     fs::create_dir_all(&root).unwrap();
 
     let (engine, ids) = sample_engine();

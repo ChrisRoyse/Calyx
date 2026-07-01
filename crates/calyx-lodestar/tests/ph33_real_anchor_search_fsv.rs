@@ -290,9 +290,7 @@ fn best_case_fixture(
 }
 
 fn report_dir(home: &std::path::Path) -> PathBuf {
-    std::env::var("CALYX_FSV_ROOT")
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| home.join("fsv"))
+    calyx_fsv::fsv_root_or_else("CALYX_FSV_ROOT", || home.join("fsv"))
 }
 
 fn micros(duration: Duration) -> u64 {

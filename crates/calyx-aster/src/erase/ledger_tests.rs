@@ -208,9 +208,9 @@ fn erase_tombstones(entries: &[LedgerEntry]) -> Vec<calyx_ledger::ErasureTombsto
 #[test]
 #[ignore = "manual FSV fixture for issue #503"]
 fn issue503_erasure_ledger_fsv_fixture() {
-    let root = std::env::var("CALYX_FSV_ROOT")
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| std::env::temp_dir().join("calyx-issue503-fsv"));
+    let root = calyx_fsv::fsv_root_or_else("CALYX_FSV_ROOT", || {
+        std::env::temp_dir().join("calyx-issue503-fsv")
+    });
     let vault_dir = root.join("issue503-ledger-vault");
     if vault_dir.exists() {
         fs::remove_dir_all(&vault_dir).unwrap();

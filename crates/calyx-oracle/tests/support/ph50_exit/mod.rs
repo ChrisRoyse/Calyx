@@ -159,9 +159,7 @@ fn write_json<T: Serialize>(path: &Path, value: &T) {
 }
 
 fn fsv_root() -> PathBuf {
-    std::env::var_os("CALYX_FSV_ROOT")
-        .map(PathBuf::from)
-        .expect("set CALYX_FSV_ROOT")
+    calyx_fsv::required_fsv_root("CALYX_FSV_ROOT")
 }
 
 fn vault_id() -> calyx_core::VaultId {

@@ -23,8 +23,8 @@ pub fn write_readback(name: &str, value: serde_json::Value) {
 }
 
 fn readback_root() -> (PathBuf, &'static str) {
-    std::env::var_os("CALYX_FSV_ROOT")
-        .map(|root| (PathBuf::from(root), "env"))
+    calyx_fsv::fsv_root("CALYX_FSV_ROOT")
+        .map(|root| (root, "env"))
         .unwrap_or_else(|| {
             (
                 std::env::current_dir()

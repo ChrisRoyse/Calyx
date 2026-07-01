@@ -80,7 +80,7 @@ fn invalid_input_fails_closed() {
 
 #[test]
 fn writes_fsv_readback_when_root_is_set() {
-    let Ok(root) = std::env::var("CALYX_FSV_ROOT") else {
+    let Some(root) = calyx_fsv::fsv_root("CALYX_FSV_ROOT") else {
         return;
     };
     let observations = vec![
@@ -105,7 +105,7 @@ fn writes_fsv_readback_when_root_is_set() {
         "full_log": log,
     });
     fs::create_dir_all(&root).unwrap();
-    let path = std::path::Path::new(&root).join("issue875_blind_spot_sweep_readback.json");
+    let path = root.join("issue875_blind_spot_sweep_readback.json");
     fs::write(&path, serde_json::to_vec_pretty(&value).unwrap()).unwrap();
     let bytes = fs::read(&path).unwrap();
     let readback: serde_json::Value = serde_json::from_slice(&bytes).unwrap();

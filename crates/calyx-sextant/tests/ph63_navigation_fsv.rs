@@ -107,9 +107,9 @@ fn fsv_engine() -> SearchEngine {
 #[test]
 #[ignore = "manual FSV writes issue #600 navigation source-of-truth artifacts"]
 fn navigation_manual_fsv() {
-    let root = std::env::var("CALYX_FSV_ROOT")
-        .map(std::path::PathBuf::from)
-        .unwrap_or_else(|_| std::env::temp_dir().join("calyx-issue600-navigation-fsv"));
+    let root = calyx_fsv::fsv_root_or_else("CALYX_FSV_ROOT", || {
+        std::env::temp_dir().join("calyx-issue600-navigation-fsv")
+    });
     fs::create_dir_all(&root).unwrap();
     let engine = fsv_engine();
 

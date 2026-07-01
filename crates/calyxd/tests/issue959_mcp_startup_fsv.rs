@@ -206,7 +206,7 @@ impl TestEnv {
     fn new(name: &str) -> Self {
         let guard = ENV_LOCK.lock().unwrap();
         let id = NEXT_ID.fetch_add(1, Ordering::SeqCst);
-        let fsv_root = std::env::var_os("CALYX_FSV_ROOT").map(PathBuf::from);
+        let fsv_root = calyx_fsv::fsv_root("CALYX_FSV_ROOT");
         let preserve_home = fsv_root.is_some();
         let home = fsv_root
             .map(|root| root.join("calyx-home"))
@@ -347,9 +347,9 @@ fn collect_files(root: &Path, path: &Path, out: &mut Vec<Value>) {
 }
 
 fn write_readback(name: &str, value: &Value) -> PathBuf {
-    let root = std::env::var_os("CALYX_FSV_ROOT")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| std::env::temp_dir().join("calyxd-issue959-fsv"));
+    let root = calyx_fsv::fsv_root_or_else("CALYX_FSV_ROOT", || {
+        std::env::temp_dir().join("calyxd-issue959-fsv")
+    });
     fs::create_dir_all(&root).unwrap();
     let out = root.join(name);
     fs::write(&out, serde_json::to_vec_pretty(value).unwrap()).unwrap();

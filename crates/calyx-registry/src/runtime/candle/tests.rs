@@ -162,8 +162,8 @@ fn candle_device_policy_reports_cpu_and_cuda_truth() {
         Some(error)
     };
 
-    if let Some(root) = std::env::var_os("CALYX_FSV_ROOT") {
-        write_device_policy_readback(Path::new(&root), cuda_feature, cuda_error);
+    if let Some(root) = calyx_fsv::fsv_root("CALYX_FSV_ROOT") {
+        write_device_policy_readback(&root, cuda_feature, cuda_error);
     }
 }
 

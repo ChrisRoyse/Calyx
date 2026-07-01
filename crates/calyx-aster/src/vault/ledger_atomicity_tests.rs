@@ -280,9 +280,9 @@ fn row_index(rows: &[encode::WriteRow], cf: ColumnFamily) -> usize {
 }
 
 fn fsv_root() -> PathBuf {
-    std::env::var("CALYX_FSV_ROOT")
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| std::env::temp_dir().join("calyx-ph35-group-commit-atomicity-fsv"))
+    calyx_fsv::fsv_root_or_else("CALYX_FSV_ROOT", || {
+        std::env::temp_dir().join("calyx-ph35-group-commit-atomicity-fsv")
+    })
 }
 
 fn test_dir(name: &str) -> PathBuf {

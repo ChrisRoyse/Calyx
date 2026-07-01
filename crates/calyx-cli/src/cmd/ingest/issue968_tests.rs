@@ -152,10 +152,10 @@ fn write_issue986_fsv(
     before_plain_replay: &Value,
     after_plain_replay: &Value,
 ) {
-    let Some(root) = std::env::var_os("CALYX_FSV_ROOT") else {
+    let Some(root) = calyx_fsv::fsv_root("CALYX_FSV_ROOT") else {
         return;
     };
-    let root = PathBuf::from(root).join("issue986-plain-replay-after-anchored-row");
+    let root = root.join("issue986-plain-replay-after-anchored-row");
     fs::create_dir_all(&root).unwrap();
     let artifact = json!({
         "issue": 986,
@@ -217,10 +217,10 @@ fn write_fsv(
     after_anchor_replay: &Value,
     after_third_replay: &Value,
 ) {
-    let Some(root) = std::env::var_os("CALYX_FSV_ROOT") else {
+    let Some(root) = calyx_fsv::fsv_root("CALYX_FSV_ROOT") else {
         return;
     };
-    let root = PathBuf::from(root).join("issue968-batch-duplicate-replay");
+    let root = root.join("issue968-batch-duplicate-replay");
     fs::create_dir_all(&root).unwrap();
     let artifact = json!({
         "issue": 968,

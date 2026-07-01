@@ -237,9 +237,9 @@ fn ph57_yield_policy_cuda_power_and_stream_readback() -> Result<()> {
 }
 
 fn fsv_root() -> PathBuf {
-    std::env::var_os("CALYX_FSV_ROOT")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| std::env::temp_dir().join("calyx-ph57-yield-policy-fsv"))
+    calyx_fsv::fsv_root_or_else("CALYX_FSV_ROOT", || {
+        std::env::temp_dir().join("calyx-ph57-yield-policy-fsv")
+    })
 }
 
 fn io_error(err: std::io::Error) -> ForgeError {

@@ -43,9 +43,9 @@ fn gpu_parity_shims_fail_loud_and_search_fanout_is_explicit_cpu() {
 #[test]
 #[ignore = "manual FSV writes Sextant GPU parity/fan-out source-of-truth artifacts"]
 fn gpu_parity_and_fanout_manual_fsv() {
-    let root = std::env::var("CALYX_FSV_ROOT")
-        .map(std::path::PathBuf::from)
-        .unwrap_or_else(|_| std::env::temp_dir().join("calyx-gpu-parity-fsv"));
+    let root = calyx_fsv::fsv_root_or_else("CALYX_FSV_ROOT", || {
+        std::env::temp_dir().join("calyx-gpu-parity-fsv")
+    });
     fs::create_dir_all(&root).unwrap();
 
     let maxsim_error =

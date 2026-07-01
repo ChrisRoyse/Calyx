@@ -10,15 +10,13 @@ use super::{FSV_TS, RSS_BUDGET_KIB};
 use crate::model::EvaluatedSlot;
 
 pub fn fsv_root() -> PathBuf {
-    std::env::var("CALYX_FSV_ROOT")
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| {
-            std::env::temp_dir().join(format!("issue792-fsv-{}", std::process::id()))
-        })
+    calyx_fsv::fsv_root_or_else("CALYX_FSV_ROOT", || {
+        std::env::temp_dir().join(format!("issue792-fsv-{}", std::process::id()))
+    })
 }
 
 pub fn keep_root() -> bool {
-    std::env::var_os("CALYX_FSV_ROOT").is_some()
+    calyx_fsv::fsv_root("CALYX_FSV_ROOT").is_some()
 }
 
 pub fn reset_dir(path: &Path) {

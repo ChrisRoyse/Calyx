@@ -121,6 +121,17 @@ How FSV is realized in code:
   `corrupt_shard`, `readback_level`) that print tab-delimited readback lines
   (e.g. `WAL_DRILL\t...`, `CORRUPT_SHARD\t...`) for verification.
 
+- **FSV evidence roots are absolute-only.** All readers resolve `CALYX_FSV_ROOT`
+  through the `calyx-fsv` crate: unset means the test owns a temp root; a set
+  value must be an absolute path or the run fails closed with
+  `CALYX_FSV_ROOT_NOT_ABSOLUTE`/`CALYX_FSV_ROOT_EMPTY` (value, cwd, and
+  remediation in the message). Rationale: cargo runs every test from the crate
+  root, not the workspace root, so relative roots scatter evidence under
+  `crates/<name>/...` while readback looks at the workspace (`#1014`).
+  `scripts/check.sh` additionally refuses to run with a suite-wide
+  `CALYX_FSV_ROOT` set, because independent FSV tests would collide in one
+  shared evidence root.
+
 - **FSV driver scripts.** `scripts/fsv_ph36.sh` sets `CALYX_FSV_ROOT`, runs the
   ignored FSV integration test with `cargo test -p calyx-cli --test
   ph36_fsv_integration ... -- --ignored --nocapture`, tees the log, produces an

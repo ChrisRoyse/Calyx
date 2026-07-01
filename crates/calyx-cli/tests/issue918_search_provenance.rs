@@ -78,7 +78,7 @@ fn cli_search_fails_closed_when_hit_ledger_row_is_missing() {
         }),
     );
 
-    if std::env::var_os("CALYX_FSV_ROOT").is_none() {
+    if calyx_fsv::fsv_root("CALYX_FSV_ROOT").is_none() {
         fs::remove_dir_all(root).unwrap();
     }
 }
@@ -202,10 +202,9 @@ fn stderr(output: &Output) -> String {
 }
 
 fn maybe_write_fsv_json(name: &str, value: &Value) {
-    let Some(root) = std::env::var_os("CALYX_FSV_ROOT") else {
+    let Some(root) = calyx_fsv::fsv_root("CALYX_FSV_ROOT") else {
         return;
     };
-    let root = PathBuf::from(root);
     fs::create_dir_all(&root).expect("create FSV root");
     fs::write(
         root.join(name),

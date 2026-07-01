@@ -37,10 +37,9 @@ fn fsv_error(op: &str, path: &Path, detail: impl ToString) -> ForgeError {
 }
 
 fn write_fsv_readback(name: &str, payload: serde_json::Value) -> Result<()> {
-    let Ok(root) = std::env::var("CALYX_FSV_ROOT") else {
+    let Some(root) = calyx_fsv::fsv_root("CALYX_FSV_ROOT") else {
         return Ok(());
     };
-    let root = std::path::PathBuf::from(root);
     fs::create_dir_all(&root).map_err(|err| fsv_error("fsv_mkdir", &root, err))?;
     let path = root.join(name);
     let bytes = serde_json::to_vec_pretty(&payload).map_err(|err| {

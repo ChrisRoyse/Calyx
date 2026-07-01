@@ -60,10 +60,10 @@ fn write_issue911_fsv(
     error_code: &str,
     error_message: &str,
 ) {
-    let Some(root) = std::env::var_os("CALYX_FSV_ROOT") else {
+    let Some(root) = calyx_fsv::fsv_root("CALYX_FSV_ROOT") else {
         return;
     };
-    let root = std::path::PathBuf::from(root).join("issue911-cli-ingest-unavailable");
+    let root = root.join("issue911-cli-ingest-unavailable");
     fs::create_dir_all(&root).unwrap();
     let artifact = json!({
         "issue": 911,

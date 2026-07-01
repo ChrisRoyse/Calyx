@@ -394,10 +394,10 @@ mod tests {
     #[test]
     #[ignore = "manual FSV for #652 direct group-commit misuse"]
     fn ph35_direct_on_commit_rejects_manual_fsv() {
-        let root = std::env::var("CALYX_FSV_ROOT")
-            .map(std::path::PathBuf::from)
-            .unwrap_or_else(|_| std::env::temp_dir().join("calyx-ph35-direct-on-commit-fsv"))
-            .join("direct-on-commit-reject");
+        let root = calyx_fsv::fsv_root_or_else("CALYX_FSV_ROOT", || {
+            std::env::temp_dir().join("calyx-ph35-direct-on-commit-fsv")
+        })
+        .join("direct-on-commit-reject");
         let ledger_dir = root.join("ledger-cf");
         let _ = fs::remove_dir_all(&root);
         fs::create_dir_all(&ledger_dir).expect("create FSV ledger dir");

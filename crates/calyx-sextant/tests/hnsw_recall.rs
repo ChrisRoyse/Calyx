@@ -120,9 +120,9 @@ fn hnsw_tombstones_are_purged_by_shared_ann_gc() {
 #[test]
 #[ignore = "manual FSV writes PH23 HNSW recall source-of-truth artifacts"]
 fn hnsw_recall_manual_fsv() {
-    let root = std::env::var("CALYX_FSV_ROOT")
-        .map(std::path::PathBuf::from)
-        .unwrap_or_else(|_| std::env::temp_dir().join("calyx-hnsw-recall-fsv"));
+    let root = calyx_fsv::fsv_root_or_else("CALYX_FSV_ROOT", || {
+        std::env::temp_dir().join("calyx-hnsw-recall-fsv")
+    });
     fs::create_dir_all(&root).unwrap();
 
     let n = 10_000;

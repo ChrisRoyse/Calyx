@@ -1,6 +1,5 @@
 use std::collections::BTreeMap;
 use std::fs;
-use std::path::PathBuf;
 
 use calyx_core::CxId;
 use calyx_mincut::{
@@ -26,10 +25,10 @@ fn builder_with_nodes(seeds: &[u8]) -> calyx_paths::AssocGraphBuilder {
 }
 
 fn write_readback(name: &str, value: serde_json::Value) {
-    let Ok(root) = std::env::var("CALYX_FSV_ROOT") else {
+    let Some(root) = calyx_fsv::fsv_root("CALYX_FSV_ROOT") else {
         return;
     };
-    let path = PathBuf::from(root).join(name);
+    let path = root.join(name);
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).expect("create fsv root");
     }

@@ -165,7 +165,7 @@ fn multi(token_dim: u32, rows: &[&[f32]]) -> SlotVector {
 }
 
 fn cleanup(root: std::path::PathBuf) {
-    if std::env::var_os("CALYX_FSV_ROOT").is_none() {
+    if calyx_fsv::fsv_root("CALYX_FSV_ROOT").is_none() {
         fs::remove_dir_all(root).ok();
     }
 }

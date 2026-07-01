@@ -391,9 +391,7 @@ fn require_explicit_gate() {
 }
 
 fn required_fsv_root() -> PathBuf {
-    std::env::var_os("CALYX_FSV_ROOT")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| panic!("CALYX_PH58_FSV_ROOT_REQUIRED env=CALYX_FSV_ROOT"))
+    calyx_fsv::required_fsv_root("CALYX_FSV_ROOT")
 }
 
 fn inventory_json(inventory: &TombstoneInventory) -> Value {

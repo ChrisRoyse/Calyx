@@ -359,9 +359,9 @@ fn with_silent_panic_hook<T>(work: impl FnOnce() -> T) -> T {
 }
 
 fn fsv_root() -> PathBuf {
-    std::env::var_os("CALYX_FSV_ROOT")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| std::env::temp_dir().join("calyx-issue401-fault-fsv"))
+    calyx_fsv::fsv_root_or_else("CALYX_FSV_ROOT", || {
+        std::env::temp_dir().join("calyx-issue401-fault-fsv")
+    })
 }
 
 fn reset_dir(path: &Path) -> PathBuf {

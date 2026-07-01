@@ -78,12 +78,10 @@ pub fn write_and_assert(root: &Path, summary: &Value) {
 }
 
 pub fn fsv_root() -> PathBuf {
-    std::env::var_os("CALYX_FSV_ROOT")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| {
-            let pid = std::process::id();
-            PathBuf::from(format!("/var/lib/calyx/data/fsv-issue485-{pid}"))
-        })
+    calyx_fsv::fsv_root_or_else("CALYX_FSV_ROOT", || {
+        let pid = std::process::id();
+        PathBuf::from(format!("/var/lib/calyx/data/fsv-issue485-{pid}"))
+    })
 }
 
 pub(crate) fn durable_vault(vault_dir: &Path) -> AsterVault<FixedClock> {

@@ -18,9 +18,9 @@ fn cx(seed: u8) -> CxId {
 }
 
 fn readback_path() -> PathBuf {
-    let root = std::env::var("CALYX_FSV_ROOT")
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| PathBuf::from("target/fsv/issue1013-lp-mincut-solver"));
+    let root = calyx_fsv::fsv_root_or_else("CALYX_FSV_ROOT", || {
+        PathBuf::from("target/fsv/issue1013-lp-mincut-solver")
+    });
     root.join("issue1013-lp-mincut-solver-readback.json")
 }
 

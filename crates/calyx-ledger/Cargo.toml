@@ -16,4 +16,5 @@ serde_json.workspace = true
 ulid.workspace = true
 
 [dev-dependencies]
+calyx-fsv = { path = "../calyx-fsv" }
 proptest.workspace = true

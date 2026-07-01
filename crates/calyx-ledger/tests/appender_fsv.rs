@@ -391,9 +391,9 @@ fn range_text(rows: &[LedgerRow]) -> String {
 }
 
 fn fsv_root() -> PathBuf {
-    std::env::var("CALYX_FSV_ROOT")
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| std::env::temp_dir().join("calyx-ph35-ledger-appender-fsv"))
+    calyx_fsv::fsv_root_or_else("CALYX_FSV_ROOT", || {
+        std::env::temp_dir().join("calyx-ph35-ledger-appender-fsv")
+    })
 }
 
 fn reset_child_dir(root: &Path, child: &Path) {
