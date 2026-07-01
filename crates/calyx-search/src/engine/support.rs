@@ -52,6 +52,18 @@ impl<'a> SearchReadSnapshot<'a> {
     pub(super) fn seq(&self) -> u64 {
         self.snapshot.seq()
     }
+
+    pub(super) fn lease_id(&self) -> u64 {
+        self.snapshot.lease().id()
+    }
+
+    pub(super) fn lease_max_age_ms(&self) -> u64 {
+        self.snapshot.lease().max_age_ms()
+    }
+
+    pub(super) fn lease_expires_at(&self) -> u64 {
+        self.snapshot.lease().expires_at()
+    }
 }
 
 impl Drop for SearchReadSnapshot<'_> {
