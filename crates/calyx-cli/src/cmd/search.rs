@@ -3,7 +3,7 @@ mod output;
 mod parse;
 
 pub(crate) use calyx_search::{PersistedSearchIndexes, load_docs};
-pub(crate) use parse::{KernelAnswerArgs, SearchArgs};
+pub(crate) use parse::{KernelAnswerArgs, SearchArgs, parse_resident_addr};
 #[cfg(test)]
 pub(crate) use parse::{SearchFreshnessArg, SearchFusionArg, SearchGuardArg};
 

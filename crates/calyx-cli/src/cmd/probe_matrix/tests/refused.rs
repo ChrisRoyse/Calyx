@@ -16,6 +16,9 @@ fn refused_probe_persists_diagnostic_matrix_before_fail_closed_exit() {
             top_k: 1,
             guard: GuardChoice::Off,
             out: None,
+            resident_addr: None,
+            max_variants: None,
+            time_budget_ms: None,
         },
     )
     .unwrap_err();

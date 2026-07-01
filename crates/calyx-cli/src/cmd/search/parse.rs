@@ -157,7 +157,7 @@ fn validate_query_text(value: &str) -> CliResult {
     Ok(())
 }
 
-fn parse_resident_addr(raw: &str) -> CliResult<SocketAddr> {
+pub(crate) fn parse_resident_addr(raw: &str) -> CliResult<SocketAddr> {
     let addr = raw
         .parse::<SocketAddr>()
         .map_err(|error| CliError::usage(format!("parse --resident-addr {raw}: {error}")))?;

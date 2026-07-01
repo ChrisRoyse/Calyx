@@ -5,6 +5,7 @@ use sha2::{Digest, Sha256};
 
 use super::ProbeMatrixArtifact;
 use super::support::{accepted_hit_count, hex_lower, refusal_count};
+use crate::durable_write::write_bytes_atomic;
 use crate::error::{CliError, CliResult};
 
 pub(super) struct PersistedProbeMatrix {
@@ -31,23 +32,30 @@ pub(super) fn persist_probe_matrix(
             .join(matrix_id)
             .join("matrix.json")
     });
+    persist_probe_matrix_at_path(&path, artifact, false)
+}
+
+pub(super) fn persist_probe_matrix_at_path(
+    path: &Path,
+    artifact: &ProbeMatrixArtifact,
+    replace_existing: bool,
+) -> CliResult<PersistedProbeMatrix> {
+    let mut bytes = serde_json::to_vec_pretty(artifact)?;
+    bytes.push(10);
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;
     }
     if path.exists() {
-        let existing = fs::read(&path)?;
-        if existing != bytes {
+        let existing = fs::read(path)?;
+        if existing != bytes && !replace_existing {
             return Err(CliError::usage(format!(
                 "refusing to overwrite existing different probe matrix {}",
                 path.display()
             )));
         }
-    } else {
-        let tmp = path.with_extension("json.tmp");
-        fs::write(&tmp, &bytes)?;
-        fs::rename(&tmp, &path)?;
     }
-    let readback = fs::read(&path)?;
+    write_bytes_atomic(path, &bytes, "probe matrix artifact")?;
+    let readback = fs::read(path)?;
     if readback != bytes {
         return Err(CliError::usage(format!(
             "probe matrix readback mismatch at {}",
@@ -56,7 +64,7 @@ pub(super) fn persist_probe_matrix(
     }
     let decoded: ProbeMatrixArtifact = serde_json::from_slice(&readback)?;
     Ok(PersistedProbeMatrix {
-        path,
+        path: path.to_path_buf(),
         bytes: readback.len() as u64,
         sha256: sha256_hex(&readback),
         readback_record_count: decoded.log.records.len(),

@@ -1,4 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet};
+use std::net::SocketAddr;
+use std::path::Path;
 use std::time::Instant;
 
 use calyx_core::{SlotId, SlotVector};
@@ -8,14 +10,16 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 use super::ProbeMatrixLog;
+use super::resident;
 use super::support::{accepted_hit_count, hex_lower};
 use crate::error::CliResult;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub(super) enum ProbeMatrixArtifactStatus {
+pub(crate) enum ProbeMatrixArtifactStatus {
     Ok,
     Refused,
+    Incomplete,
 }
 
 impl ProbeMatrixArtifactStatus {
@@ -75,21 +79,33 @@ impl QueryVectorCache {
     pub(super) fn query_vectors<'a>(
         &'a mut self,
         state: &VaultPanelState,
+        vault_dir: &Path,
         query: &str,
+        resident_addr: Option<SocketAddr>,
     ) -> CliResult<(String, &'a [(SlotId, SlotVector)])> {
         if !self.entries.contains_key(query) {
             let started = Instant::now();
             let query_text_sha256 = sha256_text(query);
             eprintln!(
-                "probe-matrix: query measurement cache_miss query_sha256={} selected_slots={}",
+                "probe-matrix: query measurement cache_miss query_sha256={} selected_slots={} resident_addr={:?}",
                 query_text_sha256,
-                self.allowed_slots.len()
+                self.allowed_slots.len(),
+                resident_addr
             );
-            let vectors = calyx_search::engine::measure_query_vectors_with_slots(
-                state,
-                query,
-                Some(&self.allowed_slots),
-            )?;
+            let vectors = match resident_addr {
+                Some(addr) => resident::measure_query_vectors_via_resident(
+                    state,
+                    vault_dir,
+                    query,
+                    &self.allowed_slots,
+                    addr,
+                )?,
+                None => calyx_search::engine::measure_query_vectors_with_slots(
+                    state,
+                    query,
+                    Some(&self.allowed_slots),
+                )?,
+            };
             let elapsed_ms = started.elapsed().as_millis();
             eprintln!(
                 "probe-matrix: query measurement cached query_sha256={} measured_slots={} elapsed_ms={}",

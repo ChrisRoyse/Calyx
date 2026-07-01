@@ -1,5 +1,4 @@
-use std::fs::{self, File};
-use std::io::Write;
+use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -60,84 +59,12 @@ impl WeaveLoomProgressWriter {
             },
             "details": details,
         });
-        write_json_atomic(&self.path, &artifact)
+        crate::durable_write::write_json_value_atomic(
+            &self.path,
+            &artifact,
+            "weave loom progress artifact",
+        )
     }
-}
-
-fn write_json_atomic(path: &Path, value: &Value) -> CliResult {
-    let parent = path
-        .parent()
-        .ok_or_else(|| CliError::io(format!("progress path {} has no parent", path.display())))?;
-    fs::create_dir_all(parent)?;
-    let tmp = path.with_extension("json.tmp");
-    let mut file = File::create(&tmp).map_err(|error| {
-        CliError::io(format!(
-            "create temporary progress artifact {} failed: {error}",
-            tmp.display()
-        ))
-    })?;
-    file.write_all(&serde_json::to_vec_pretty(value)?)?;
-    file.write_all(b"\n")?;
-    file.sync_all()?;
-    drop(file);
-    fs::rename(&tmp, path).map_err(|error| {
-        CliError::io(format!(
-            "publish progress artifact {} -> {} failed: {error}",
-            tmp.display(),
-            path.display()
-        ))
-    })?;
-    sync_parent_dir(parent)?;
-    Ok(())
-}
-
-#[cfg(unix)]
-fn sync_parent_dir(parent: &Path) -> CliResult {
-    let dir = File::open(parent).map_err(|error| {
-        CliError::io(format!(
-            "open progress artifact parent directory {} for sync failed: {error}",
-            parent.display()
-        ))
-    })?;
-    dir.sync_all().map_err(|error| {
-        CliError::io(format!(
-            "sync progress artifact parent directory {} failed: {error}",
-            parent.display()
-        ))
-    })
-}
-
-#[cfg(windows)]
-fn sync_parent_dir(parent: &Path) -> CliResult {
-    use std::fs::OpenOptions;
-    use std::os::windows::fs::OpenOptionsExt;
-
-    const FILE_FLAG_BACKUP_SEMANTICS: u32 = 0x0200_0000;
-
-    let dir = OpenOptions::new()
-        .read(true)
-        .custom_flags(FILE_FLAG_BACKUP_SEMANTICS)
-        .open(parent)
-        .map_err(|error| {
-            CliError::io(format!(
-                "open progress artifact parent directory {} for sync failed: {error}",
-                parent.display()
-            ))
-        })?;
-    dir.sync_all().map_err(|error| {
-        CliError::io(format!(
-            "sync progress artifact parent directory {} failed: {error}",
-            parent.display()
-        ))
-    })
-}
-
-#[cfg(not(any(unix, windows)))]
-fn sync_parent_dir(parent: &Path) -> CliResult {
-    Err(CliError::io(format!(
-        "sync progress artifact parent directory {} is unsupported on this platform",
-        parent.display()
-    )))
 }
 
 fn unix_ms() -> CliResult<u128> {

@@ -40,6 +40,7 @@ mod crash;
 mod dedup_audit_readback;
 mod dedup_readback;
 mod dispatch;
+mod durable_write;
 mod entry;
 mod error;
 mod fsv;

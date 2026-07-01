@@ -39,7 +39,7 @@ pub(crate) fn usage() -> &'static str {
        calyx measure <vault> --text <s>
        calyx erase <vault> --cx-id <cx_id> [--fsv-out <json>]
        calyx search <vault> <query> [--k <n>] [--fusion <rrf|weighted-rrf|single-lens|kernel-first|pipeline>] [--guard <off|in-region>] [--explain] [--provenance|--no-provenance] [--fresh|--stale-ok] [--filter <json-predicate>] [--resident-addr <127.0.0.1:port>]
-       calyx probe-matrix <vault> --frontier <text> [--slot <u16>] [--weighted-profile <name>] [--phrasing <terse|clinical|mechanistic|analogical|contrast>] [--length <entity|phrase|paragraph>] [--top-k <n>] [--guard <off|in-region>] [--out <json>]
+       calyx probe-matrix <vault> --frontier <text> [--slot <u16>] [--weighted-profile <name>] [--phrasing <terse|clinical|mechanistic|analogical|contrast>] [--length <entity|phrase|paragraph>] [--top-k <n>] [--guard <off|in-region>] [--out <json>] [--resident-addr <127.0.0.1:port>] [--max-variants <n>] [--time-budget-ms <ms>]
        calyx kernel-answer <vault> <query> [--anchor <kind>] [--explain]
        calyx bits <vault> <anchor-kind> [--explain]
        calyx kernel <vault> [--anchor <kind>] [--rebuild]
