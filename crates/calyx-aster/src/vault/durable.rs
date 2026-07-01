@@ -1,4 +1,7 @@
 mod manifest_ops;
+mod recovery_readback;
+
+use recovery_readback::read_manifested_batches;
 
 use super::encode::{WriteRow, decode_write_batch, encode_write_batch};
 use crate::cf::ColumnFamily;
@@ -7,8 +10,7 @@ use crate::dedup::DedupPolicy;
 use crate::manifest::recover_vault;
 use crate::pressure::DiskPressureGuard;
 use crate::resource::ResourceCounters;
-use crate::sst::{SstReader, write_sst};
-use crate::storage_names::{SstName, classify_sst, parse_cf_dir_name};
+use crate::sst::write_sst;
 use crate::timetravel::RetentionHorizon;
 use crate::wal::{GroupCommitBatcher, WalOptions, replay_dir};
 use calyx_core::{CalyxError, Panel, Result, SystemClock, TemporalPolicy};
@@ -96,6 +98,7 @@ pub(super) struct RecoveredBatch {
 pub(super) struct RecoveredBatches {
     pub batches: Vec<RecoveredBatch>,
     pub last_recovered_seq: u64,
+    pub wal_replay_floor_seq: u64,
     pub torn_tail: Option<crate::wal::TornTail>,
     pub temporal_policy: Option<TemporalPolicy>,
     pub dedup_policy: Option<DedupPolicy>,
@@ -153,7 +156,11 @@ impl DurableVault {
         Ok(())
     }
 
-    pub(super) fn open(root: impl AsRef<Path>, options: &VaultOptions) -> Result<Self> {
+    pub(super) fn open_after(
+        root: impl AsRef<Path>,
+        options: &VaultOptions,
+        wal_replay_floor_seq: u64,
+    ) -> Result<Self> {
         let root = root.as_ref().to_path_buf();
         Self::validate_options(options)?;
         fs::create_dir_all(root.join("cf"))
@@ -164,7 +171,11 @@ impl DurableVault {
                     .map_err(|error| storage_error("create tiered durable CF root", error))?;
             }
         }
-        let wal = crate::wal::Wal::open(root.join("wal"), options.wal_options)?;
+        let wal = crate::wal::Wal::open_after(
+            root.join("wal"),
+            options.wal_options,
+            wal_replay_floor_seq,
+        )?;
         let batcher = GroupCommitBatcher::new(
             wal,
             options.wal_options.group_commit_window,
@@ -220,6 +231,7 @@ impl DurableVault {
             return Ok(RecoveredBatches {
                 batches,
                 last_recovered_seq: recovery.last_recovered_seq,
+                wal_replay_floor_seq: recovery.manifest.durable_seq,
                 torn_tail: recovery.torn_tail,
                 temporal_policy: recovery.manifest.temporal_policy,
                 dedup_policy: recovery.manifest.dedup_policy,
@@ -243,6 +255,7 @@ impl DurableVault {
         Ok(RecoveredBatches {
             batches,
             last_recovered_seq,
+            wal_replay_floor_seq: 0,
             torn_tail: replay.torn_tail,
             temporal_policy: options.temporal_policy,
             dedup_policy: options.dedup_policy.clone(),
@@ -410,89 +423,6 @@ fn validate_dedup_policy(policy: &DedupPolicy, panel: Option<&Panel>) -> Result<
     } else {
         policy.validate_manifest()
     }
-}
-
-fn read_manifested_batches(
-    root: &Path,
-    tiering_policy: Option<&TieringPolicy>,
-    durable_seq: u64,
-) -> Result<Vec<RecoveredBatch>> {
-    let mut by_seq = BTreeMap::<u64, Vec<(usize, WriteRow)>>::new();
-    if durable_seq == 0 {
-        return Ok(Vec::new());
-    }
-    for cf_root in tiered_cf_roots(root, tiering_policy) {
-        if !cf_root.exists() {
-            continue;
-        }
-        for entry in fs::read_dir(&cf_root).map_err(|error| storage_error("read CF root", error))? {
-            let cf_dir = entry.map_err(|error| storage_error("read CF entry", error))?;
-            if !cf_dir
-                .file_type()
-                .map_err(|error| storage_error("stat CF entry", error))?
-                .is_dir()
-            {
-                continue;
-            }
-            let cf_name = cf_dir.file_name().to_string_lossy().to_string();
-            let cf = parse_cf_dir_name(&cf_name)?;
-            for file in
-                fs::read_dir(cf_dir.path()).map_err(|error| storage_error("read CF dir", error))?
-            {
-                let path = file
-                    .map_err(|error| storage_error("read SST entry", error))?
-                    .path();
-                let Some(name) = classify_sst(&path)? else {
-                    continue;
-                };
-                let (seq, index) = match name {
-                    SstName::DurableBatch { seq, index } => (seq, index),
-                    SstName::Compacted { seq } => (seq, 0),
-                    // Router memtable flushes are recovered by
-                    // `CfRouter::load_existing`, not by durable readback.
-                    SstName::Router { .. } => continue,
-                };
-                if seq > durable_seq {
-                    continue;
-                }
-                let reader = SstReader::open(&path)?;
-                for (row_offset, row) in reader.iter()?.into_iter().enumerate() {
-                    by_seq.entry(seq).or_default().push((
-                        index + row_offset,
-                        WriteRow {
-                            cf,
-                            key: row.key,
-                            value: row.value,
-                        },
-                    ));
-                }
-            }
-        }
-    }
-
-    Ok(by_seq
-        .into_iter()
-        .map(|(seq, mut rows)| {
-            rows.sort_by_key(|(index, _)| *index);
-            RecoveredBatch {
-                seq,
-                rows: rows.into_iter().map(|(_, row)| row).collect(),
-            }
-        })
-        .collect())
-}
-
-fn tiered_cf_roots(root: &Path, tiering_policy: Option<&TieringPolicy>) -> Vec<PathBuf> {
-    let mut roots = vec![root.join("cf")];
-    if let Some(policy) = tiering_policy {
-        for tier_root in policy.tier_roots() {
-            let cf_root = tier_root.join("cf");
-            if !roots.contains(&cf_root) {
-                roots.push(cf_root);
-            }
-        }
-    }
-    roots
 }
 
 fn storage_error(context: &str, error: io::Error) -> CalyxError {

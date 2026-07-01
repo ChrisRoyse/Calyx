@@ -4,6 +4,7 @@ use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use super::*;
+use crate::cf::ledger_key;
 use crate::vault::encode::WriteRow;
 use crate::vault::{AsterVault, VaultOptions};
 use calyx_core::{

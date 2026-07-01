@@ -37,13 +37,29 @@ pub(super) fn physical_batch_base_state(
         .iter()
         .map(|cx_id| base_key(*cx_id))
         .collect::<Vec<_>>();
-    let rows = crate::cf_read::latest_cf_rows_for_keys(vault_path, ColumnFamily::Base, &keys)
-        .map_err(|err| {
-            CliError::io(format!(
-                "read physical Base CF rows for batch in {}: {err}",
-                vault_path.display()
-            ))
-        })?;
+    let rows = if vault_path
+        .join(calyx_aster::base_page_index::BASE_PAGE_INDEX_DIR)
+        .join(calyx_aster::base_page_index::BASE_PAGE_INDEX_MANIFEST)
+        .exists()
+    {
+        calyx_aster::base_page_index::read_indexed_base_rows_for_keys(vault_path, &keys).map_err(
+            |err| {
+                CliError::io(format!(
+                    "read indexed physical Base CF rows for batch in {}: {err}",
+                    vault_path.display()
+                ))
+            },
+        )?
+    } else {
+        crate::cf_read::latest_cf_rows_for_keys(vault_path, ColumnFamily::Base, &keys).map_err(
+            |err| {
+                CliError::io(format!(
+                    "read physical Base CF rows for batch in {}: {err}",
+                    vault_path.display()
+                ))
+            },
+        )?
+    };
     let mut visible = BTreeSet::new();
     let mut tombstoned = BTreeSet::new();
     for cx_id in cx_ids {

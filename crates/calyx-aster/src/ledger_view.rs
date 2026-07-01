@@ -6,18 +6,21 @@
 //! writers cannot expose a mixed-time snapshot. It remains ledger-read-only:
 //! any append attempt is a `CALYX_LEDGER_APPEND_ONLY_VIOLATION`.
 
+mod point_read;
+
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
 use calyx_core::{CalyxError, Result as CalyxResult};
 use calyx_ledger::{LedgerCfStore, LedgerHeadAnchor, LedgerRow};
 
-use crate::cf::{CfRouter, ColumnFamily, ledger_key};
-use crate::sst::level::SstLevel;
-use crate::sst::{SstEntry, SstLookupMetadata, SstReader};
-use crate::storage_names::{SstName, classify_sst, sst_order_key};
+use crate::cf::{CfRouter, ColumnFamily};
+use crate::compaction::TieringPolicy;
+use crate::manifest::ManifestStore;
+use crate::sst::SstEntry;
 use crate::vault::encode::decode_write_batch;
-use crate::wal::replay_dir;
+use crate::wal::replay_dir_after;
+use point_read::{read_sst_ledger_rows, unresolved_seqs};
 
 /// Read-only snapshot of a vault's Ledger column family (SSTs + WAL).
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -33,27 +36,38 @@ impl AsterLedgerCfStore {
         let layout = AsterVaultLayout::read(vault)?;
         let _commit_guard =
             crate::file_lock::FileLockGuard::acquire(&durable_commit_lock_path(vault))?;
-        Self::open_with_layout(vault, layout)
+        Self::open_with_layout(vault, layout, None)
     }
 
-    /// Opens the Ledger CF when the caller already owns the durable commit lock.
-    pub(crate) fn open_unlocked(vault: &Path) -> CalyxResult<Self> {
-        let layout = AsterVaultLayout::read(vault)?;
-        Self::open_with_layout(vault, layout)
+    pub(crate) fn open_unlocked_with_tiering(
+        vault: &Path,
+        tiering_policy: Option<&TieringPolicy>,
+    ) -> CalyxResult<Self> {
+        let layout = AsterVaultLayout::read_with_tiering(vault, tiering_policy)?;
+        Self::open_with_layout(vault, layout, tiering_policy)
     }
 
-    fn open_with_layout(vault: &Path, layout: AsterVaultLayout) -> CalyxResult<Self> {
+    fn open_with_layout(
+        vault: &Path,
+        layout: AsterVaultLayout,
+        tiering_policy: Option<&TieringPolicy>,
+    ) -> CalyxResult<Self> {
         let mut rows = BTreeMap::new();
 
-        if layout.has_ledger_cf {
-            let router = CfRouter::open(vault, 0)?;
+        if !layout.ledger_cf_dirs.is_empty() {
+            let router = CfRouter::open_selected_cfs_with_tiering(
+                vault,
+                0,
+                [ColumnFamily::Ledger],
+                tiering_policy.cloned(),
+            )?;
             for entry in router.iter_cf(ColumnFamily::Ledger)? {
                 insert_sst_entry(&mut rows, entry)?;
             }
         }
 
         if layout.has_wal {
-            let replay = replay_dir(vault.join("wal"))?;
+            let replay = replay_dir_after(vault.join("wal"), layout.wal_replay_floor_seq)?;
             if let Some(torn) = replay.torn_tail {
                 return Err(torn.error());
             }
@@ -101,11 +115,29 @@ pub fn read_ledger_seqs(
     if seqs.is_empty() {
         return Ok(BTreeMap::new());
     }
-    let layout = AsterVaultLayout::read(vault)?;
     let _commit_guard = crate::file_lock::FileLockGuard::acquire(&durable_commit_lock_path(vault))?;
+    read_ledger_seqs_unlocked(vault, seqs)
+}
+
+pub(crate) fn read_ledger_seqs_unlocked(
+    vault: &Path,
+    seqs: &BTreeSet<u64>,
+) -> CalyxResult<BTreeMap<u64, LedgerRow>> {
+    read_ledger_seqs_unlocked_with_tiering(vault, seqs, None)
+}
+
+pub(crate) fn read_ledger_seqs_unlocked_with_tiering(
+    vault: &Path,
+    seqs: &BTreeSet<u64>,
+    tiering_policy: Option<&TieringPolicy>,
+) -> CalyxResult<BTreeMap<u64, LedgerRow>> {
+    if seqs.is_empty() {
+        return Ok(BTreeMap::new());
+    }
+    let layout = AsterVaultLayout::read_with_tiering(vault, tiering_policy)?;
     let mut rows = BTreeMap::new();
-    if layout.has_ledger_cf {
-        read_sst_ledger_rows(vault, seqs, &mut rows)?;
+    if !layout.ledger_cf_dirs.is_empty() {
+        read_sst_ledger_rows(&layout.ledger_cf_dirs, seqs, &mut rows)?;
     }
     let unresolved = unresolved_seqs(seqs, &rows);
     if layout.has_wal && !unresolved.is_empty() {
@@ -117,251 +149,12 @@ pub fn read_ledger_seqs(
         .collect())
 }
 
-fn read_sst_ledger_rows(
-    vault: &Path,
-    wanted: &BTreeSet<u64>,
-    rows: &mut BTreeMap<u64, Vec<u8>>,
-) -> CalyxResult<()> {
-    read_sst_ledger_rows_from_candidates(vault, wanted, rows, probable_ledger_sst_candidates)?;
-    let unresolved = unresolved_seqs(wanted, rows);
-    if !unresolved.is_empty() {
-        read_sst_ledger_rows_from_candidates(
-            vault,
-            &unresolved,
-            rows,
-            key_range_ledger_sst_candidates,
-        )?;
-    }
-    let unresolved = unresolved_seqs(wanted, rows);
-    if !unresolved.is_empty() {
-        read_sst_ledger_rows_from_candidates(
-            vault,
-            &unresolved,
-            rows,
-            named_ledger_sst_candidates,
-        )?;
-    }
-    let unresolved = unresolved_seqs(wanted, rows);
-    if !unresolved.is_empty() {
-        read_sst_ledger_rows_from_candidates(
-            vault,
-            &unresolved,
-            rows,
-            complete_ledger_sst_candidates,
-        )?;
-    }
-    Ok(())
-}
-
-fn unresolved_seqs(wanted: &BTreeSet<u64>, rows: &BTreeMap<u64, Vec<u8>>) -> BTreeSet<u64> {
-    wanted
-        .iter()
-        .copied()
-        .filter(|seq| !rows.contains_key(seq))
-        .collect()
-}
-
-fn read_sst_ledger_rows_from_candidates(
-    vault: &Path,
-    wanted: &BTreeSet<u64>,
-    rows: &mut BTreeMap<u64, Vec<u8>>,
-    candidates: fn(&Path, &BTreeSet<u64>) -> CalyxResult<Vec<PathBuf>>,
-) -> CalyxResult<()> {
-    let level = SstLevel::from_oldest_first_with_lookup(candidates(vault, wanted)?)?;
-    for seq in wanted {
-        let key = ledger_key(*seq);
-        for value in level.values_for_key(&key)? {
-            insert_ledger_bytes(rows, *seq, value)?;
-        }
-    }
-    Ok(())
-}
-
-fn probable_ledger_sst_candidates(
-    vault: &Path,
-    wanted: &BTreeSet<u64>,
-) -> CalyxResult<Vec<PathBuf>> {
-    let dir = vault.join("cf").join(ColumnFamily::Ledger.name());
-    let mut files = Vec::new();
-    for seq in wanted {
-        push_ledger_sst_candidate(&dir.join(format!("{seq:020}.sst")), &mut files)?;
-        push_ledger_sst_candidate(&dir.join(format!("{seq:020}-0000.sst")), &mut files)?;
-    }
-    sorted_unique_paths(files)
-}
-
-fn named_ledger_sst_candidates(vault: &Path, wanted: &BTreeSet<u64>) -> CalyxResult<Vec<PathBuf>> {
-    let dir = vault.join("cf").join(ColumnFamily::Ledger.name());
-    let mut files = Vec::new();
-    for entry in std::fs::read_dir(&dir)
-        .map_err(|error| CalyxError::disk_pressure(format!("read ledger CF dir: {error}")))?
-    {
-        let path = entry
-            .map_err(|error| CalyxError::disk_pressure(format!("read ledger SST entry: {error}")))?
-            .path();
-        let Some(name) = classify_sst(&path)? else {
-            continue;
-        };
-        let seq = match name {
-            SstName::Router { seq } | SstName::DurableBatch { seq, .. } => seq,
-            SstName::Compacted { .. } => continue,
-        };
-        if !wanted.contains(&seq) {
-            continue;
-        }
-        let order = sst_order_key(&path)?.ok_or_else(|| {
-            CalyxError::aster_corrupt_shard(format!(
-                "classified ledger SST {} has no order key",
-                path.display()
-            ))
-        })?;
-        files.push((order, path));
-    }
-    sorted_unique_paths(files)
-}
-
-fn key_range_ledger_sst_candidates(
-    vault: &Path,
-    wanted: &BTreeSet<u64>,
-) -> CalyxResult<Vec<PathBuf>> {
-    let dir = vault.join("cf").join(ColumnFamily::Ledger.name());
-    let mut files = Vec::new();
-    for seq in wanted {
-        if let Some(path) = primary_ledger_sst_by_key_range(&dir, *seq)? {
-            push_ledger_sst_candidate(&path, &mut files)?;
-        }
-    }
-    sorted_unique_paths(files)
-}
-
-fn primary_ledger_sst_by_key_range(dir: &Path, seq: u64) -> CalyxResult<Option<PathBuf>> {
-    let key = ledger_key(seq);
-    let mut low = 0_u64;
-    let mut high = seq;
-    let mut candidate = None;
-    while low <= high {
-        let mid = low + (high - low) / 2;
-        let path = dir.join(format!("{mid:020}-0000.sst"));
-        if !path.try_exists().map_err(|error| {
-            CalyxError::disk_pressure(format!("stat {}: {error}", path.display()))
-        })? {
-            if mid == 0 {
-                break;
-            }
-            high = mid - 1;
-            continue;
-        }
-        let lookup = ledger_sst_lookup_metadata(&path)?;
-        if lookup.first_key.as_slice() <= key.as_slice() {
-            candidate = Some((path, lookup));
-            low = mid.saturating_add(1);
-        } else if mid == 0 {
-            break;
-        } else {
-            high = mid - 1;
-        }
-    }
-    let Some((path, lookup)) = candidate else {
-        return Ok(None);
-    };
-    if key.as_slice() >= lookup.first_key.as_slice() && key.as_slice() <= lookup.last_key.as_slice()
-    {
-        Ok(Some(path))
-    } else {
-        Ok(None)
-    }
-}
-
-fn ledger_sst_lookup_metadata(path: &Path) -> CalyxResult<SstLookupMetadata> {
-    SstReader::open(path)?.lookup_metadata().ok_or_else(|| {
-        CalyxError::aster_corrupt_shard(format!("ledger SST {} has no keys", path.display()))
-    })
-}
-
-fn sorted_unique_paths(
-    mut files: Vec<(crate::storage_names::SstOrderKey, PathBuf)>,
-) -> CalyxResult<Vec<PathBuf>> {
-    files.sort_by(|(left_order, left_path), (right_order, right_path)| {
-        left_order
-            .cmp(right_order)
-            .then_with(|| left_path.cmp(right_path))
-    });
-    let mut paths = files.into_iter().map(|(_, path)| path).collect::<Vec<_>>();
-    paths.dedup();
-    Ok(paths)
-}
-
-fn complete_ledger_sst_candidates(
-    vault: &Path,
-    _wanted: &BTreeSet<u64>,
-) -> CalyxResult<Vec<PathBuf>> {
-    let dir = vault.join("cf").join(ColumnFamily::Ledger.name());
-    let mut files = Vec::new();
-    for entry in std::fs::read_dir(&dir)
-        .map_err(|error| CalyxError::disk_pressure(format!("read ledger CF dir: {error}")))?
-    {
-        let path = entry
-            .map_err(|error| CalyxError::disk_pressure(format!("read ledger SST entry: {error}")))?
-            .path();
-        let Some(_) = classify_sst(&path)? else {
-            continue;
-        };
-        let order = sst_order_key(&path)?.ok_or_else(|| {
-            CalyxError::aster_corrupt_shard(format!(
-                "classified ledger SST {} has no order key",
-                path.display()
-            ))
-        })?;
-        files.push((order, path));
-    }
-    files.sort_by(|(left_order, left_path), (right_order, right_path)| {
-        left_order
-            .cmp(right_order)
-            .then_with(|| left_path.cmp(right_path))
-    });
-    let mut paths = files.into_iter().map(|(_, path)| path).collect::<Vec<_>>();
-    paths.dedup();
-    Ok(paths)
-}
-
-fn push_ledger_sst_candidate(
-    path: &Path,
-    files: &mut Vec<(crate::storage_names::SstOrderKey, PathBuf)>,
-) -> CalyxResult<()> {
-    if !path
-        .try_exists()
-        .map_err(|error| CalyxError::disk_pressure(format!("stat {}: {error}", path.display())))?
-    {
-        return Ok(());
-    }
-    let Some(name) = classify_sst(path)? else {
-        return Ok(());
-    };
-    match name {
-        SstName::Router { .. } | SstName::DurableBatch { .. } => {}
-        SstName::Compacted { .. } => {
-            return Err(CalyxError::aster_corrupt_shard(format!(
-                "targeted ledger point read reached compacted ledger SST {}; add a compacted ledger row index before using point verification on compacted ledger layouts",
-                path.display()
-            )));
-        }
-    }
-    let order = sst_order_key(path)?.ok_or_else(|| {
-        CalyxError::aster_corrupt_shard(format!(
-            "classified ledger SST {} has no order key",
-            path.display()
-        ))
-    })?;
-    files.push((order, path.to_path_buf()));
-    Ok(())
-}
-
 fn read_wal_ledger_rows(
     vault: &Path,
     wanted: &BTreeSet<u64>,
     rows: &mut BTreeMap<u64, Vec<u8>>,
 ) -> CalyxResult<()> {
-    let replay = replay_dir(vault.join("wal"))?;
+    let replay = replay_dir_after(vault.join("wal"), wal_replay_floor_seq(vault)?)?;
     if let Some(torn) = replay.torn_tail {
         return Err(torn.error());
     }
@@ -405,12 +198,20 @@ impl LedgerCfStore for AsterLedgerCfStore {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct AsterVaultLayout {
-    has_ledger_cf: bool,
+    ledger_cf_dirs: Vec<PathBuf>,
     has_wal: bool,
+    wal_replay_floor_seq: u64,
 }
 
 impl AsterVaultLayout {
     fn read(vault: &Path) -> CalyxResult<Self> {
+        Self::read_with_tiering(vault, None)
+    }
+
+    fn read_with_tiering(
+        vault: &Path,
+        tiering_policy: Option<&TieringPolicy>,
+    ) -> CalyxResult<Self> {
         if !vault.is_dir() {
             return Err(CalyxError::ledger_corrupt(format!(
                 "vault path {} is not an Aster vault directory",
@@ -419,18 +220,65 @@ impl AsterVaultLayout {
         }
 
         let layout = Self {
-            has_ledger_cf: vault.join("cf").join(ColumnFamily::Ledger.name()).is_dir(),
+            ledger_cf_dirs: ledger_cf_dirs(vault, tiering_policy)?,
             has_wal: vault.join("wal").is_dir(),
+            wal_replay_floor_seq: wal_replay_floor_seq(vault)?,
         };
-        if !layout.has_ledger_cf && !layout.has_wal {
+        if layout.ledger_cf_dirs.is_empty() && !layout.has_wal {
             return Err(CalyxError::ledger_corrupt(format!(
-                "vault requires real Aster ledger state under {}/cf/ledger or {}/wal",
+                "vault requires real Aster ledger state under {}/cf/ledger, tiered CF roots, or {}/wal",
                 vault.display(),
                 vault.display()
             )));
         }
         Ok(layout)
     }
+}
+
+fn ledger_cf_dirs(
+    vault: &Path,
+    tiering_policy: Option<&TieringPolicy>,
+) -> CalyxResult<Vec<PathBuf>> {
+    let mut roots = vec![vault.join("cf")];
+    if let Some(policy) = tiering_policy {
+        for tier_root in policy.tier_roots() {
+            let cf_root = tier_root.join("cf");
+            if !roots.contains(&cf_root) {
+                roots.push(cf_root);
+            }
+        }
+    }
+
+    let mut dirs = Vec::new();
+    for root in roots {
+        let dir = root.join(ColumnFamily::Ledger.name());
+        match std::fs::metadata(&dir) {
+            Ok(metadata) if metadata.is_dir() => dirs.push(dir),
+            Ok(_) => {
+                return Err(CalyxError::ledger_corrupt(format!(
+                    "ledger CF path {} exists but is not a directory",
+                    dir.display()
+                )));
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => {
+                return Err(CalyxError::disk_pressure(format!(
+                    "stat ledger CF path {}: {error}",
+                    dir.display()
+                )));
+            }
+        }
+    }
+    dirs.sort();
+    dirs.dedup();
+    Ok(dirs)
+}
+
+fn wal_replay_floor_seq(vault: &Path) -> CalyxResult<u64> {
+    if !vault.join("CURRENT").exists() {
+        return Ok(0);
+    }
+    Ok(ManifestStore::open(vault).load_current()?.durable_seq)
 }
 
 fn insert_sst_entry(rows: &mut BTreeMap<u64, Vec<u8>>, entry: SstEntry) -> CalyxResult<()> {

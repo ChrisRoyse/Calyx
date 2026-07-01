@@ -52,6 +52,7 @@ where
                 durable.root(),
                 &recovered,
                 durable.ledger_checkpoint(),
+                durable.tiering_policy(),
             )?;
         }
         self.replace_retention_horizon(recovered.retention_horizon.clone())?;

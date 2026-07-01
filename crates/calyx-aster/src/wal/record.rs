@@ -15,6 +15,22 @@ pub(super) enum DecodeStatus {
 }
 
 #[derive(Debug, PartialEq, Eq)]
+pub(super) enum HeaderStatus {
+    Complete(RecordHeader),
+    Eof,
+    Torn { offset: u64, message: String },
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub(super) struct RecordHeader {
+    pub seq: u64,
+    pub len: u32,
+    pub expected_crc: u32,
+    pub start_offset: u64,
+    pub end_offset: u64,
+}
+
+#[derive(Debug, PartialEq, Eq)]
 pub(super) struct DecodedRecord {
     pub seq: u64,
     pub payload: Vec<u8>,
@@ -42,14 +58,56 @@ pub(super) fn encode(seq: u64, payload: &[u8]) -> io::Result<Vec<u8>> {
 }
 
 pub(super) fn decode_at(file: &mut File, offset: u64) -> io::Result<DecodeStatus> {
+    let header = match read_header_at(file, offset)? {
+        HeaderStatus::Complete(header) => header,
+        HeaderStatus::Eof => return Ok(DecodeStatus::Eof),
+        HeaderStatus::Torn { offset, message } => {
+            return Ok(DecodeStatus::Torn { offset, message });
+        }
+    };
+    file.seek(SeekFrom::Start(offset + HEADER_LEN as u64))?;
+    let mut payload = vec![0u8; header.len as usize];
+    if let Err(error) = file.read_exact(&mut payload) {
+        if error.kind() == io::ErrorKind::UnexpectedEof {
+            return Ok(DecodeStatus::Torn {
+                offset,
+                message: format!(
+                    "partial WAL payload for seq {}: wanted {} bytes",
+                    header.seq, header.len
+                ),
+            });
+        }
+        return Err(error);
+    }
+
+    let actual_crc = payload_crc(header.seq, header.len, &payload);
+    if actual_crc != header.expected_crc {
+        return Ok(DecodeStatus::Torn {
+            offset,
+            message: format!(
+                "crc mismatch for seq {}: expected {:08x}, got {actual_crc:08x}",
+                header.seq, header.expected_crc
+            ),
+        });
+    }
+
+    Ok(DecodeStatus::Complete(DecodedRecord {
+        seq: header.seq,
+        payload,
+        start_offset: offset,
+        end_offset: header.end_offset,
+    }))
+}
+
+pub(super) fn read_header_at(file: &mut File, offset: u64) -> io::Result<HeaderStatus> {
     file.seek(SeekFrom::Start(offset))?;
     let mut header = [0u8; HEADER_LEN];
     let read = file.read(&mut header)?;
     if read == 0 {
-        return Ok(DecodeStatus::Eof);
+        return Ok(HeaderStatus::Eof);
     }
     if read < HEADER_LEN {
-        return Ok(DecodeStatus::Torn {
+        return Ok(HeaderStatus::Torn {
             offset,
             message: format!("partial WAL header: {read}/{HEADER_LEN} bytes"),
         });
@@ -57,7 +115,7 @@ pub(super) fn decode_at(file: &mut File, offset: u64) -> io::Result<DecodeStatus
 
     let magic = u32::from_le_bytes(header[0..4].try_into().expect("magic width"));
     if magic != MAGIC {
-        return Ok(DecodeStatus::Torn {
+        return Ok(HeaderStatus::Torn {
             offset,
             message: format!("bad WAL magic 0x{magic:08x}"),
         });
@@ -67,36 +125,15 @@ pub(super) fn decode_at(file: &mut File, offset: u64) -> io::Result<DecodeStatus
     let len = u32::from_le_bytes(header[12..16].try_into().expect("len width"));
     let expected_crc = u32::from_le_bytes(header[16..20].try_into().expect("crc width"));
     if len > MAX_RECORD_BYTES {
-        return Ok(DecodeStatus::Torn {
+        return Ok(HeaderStatus::Torn {
             offset,
             message: format!("record length {len} exceeds max {MAX_RECORD_BYTES}"),
         });
     }
-
-    let mut payload = vec![0u8; len as usize];
-    if let Err(error) = file.read_exact(&mut payload) {
-        if error.kind() == io::ErrorKind::UnexpectedEof {
-            return Ok(DecodeStatus::Torn {
-                offset,
-                message: format!("partial WAL payload for seq {seq}: wanted {len} bytes"),
-            });
-        }
-        return Err(error);
-    }
-
-    let actual_crc = payload_crc(seq, len, &payload);
-    if actual_crc != expected_crc {
-        return Ok(DecodeStatus::Torn {
-            offset,
-            message: format!(
-                "crc mismatch for seq {seq}: expected {expected_crc:08x}, got {actual_crc:08x}"
-            ),
-        });
-    }
-
-    Ok(DecodeStatus::Complete(DecodedRecord {
+    Ok(HeaderStatus::Complete(RecordHeader {
         seq,
-        payload,
+        len,
+        expected_crc,
         start_offset: offset,
         end_offset: offset + HEADER_LEN as u64 + len as u64,
     }))

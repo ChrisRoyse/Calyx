@@ -129,6 +129,7 @@ pub(crate) fn existing_plain_batch_replay_rows(
 
 pub(crate) fn flush_plain_existing_batch_replay(
     vault: &AsterVault,
+    vault_path: &std::path::Path,
     rows: Vec<ExistingPlainReplayRow>,
     summary: &mut BatchIngestSummary,
     output: IngestOutput,
@@ -142,6 +143,7 @@ pub(crate) fn flush_plain_existing_batch_replay(
             "cli-idempotent-ingest-batch",
         )?;
         vault.flush()?;
+        calyx_aster::base_page_index::advance_base_page_index_head_if_base_unchanged(vault_path)?;
         let snapshot = vault.snapshot();
         for row in sub {
             if !verify_existing_base_replay_row(vault, snapshot, row)? {

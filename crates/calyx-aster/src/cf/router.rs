@@ -34,13 +34,22 @@ impl CfRouter {
         memtable_byte_cap: usize,
         cfs: impl IntoIterator<Item = ColumnFamily>,
     ) -> Result<Self> {
+        Self::open_selected_cfs_with_tiering(vault_dir, memtable_byte_cap, cfs, None)
+    }
+
+    pub(crate) fn open_selected_cfs_with_tiering(
+        vault_dir: impl AsRef<Path>,
+        memtable_byte_cap: usize,
+        cfs: impl IntoIterator<Item = ColumnFamily>,
+        tiering_policy: Option<TieringPolicy>,
+    ) -> Result<Self> {
         let selected = cfs.into_iter().collect::<BTreeSet<_>>();
         if selected.is_empty() {
             return Err(CalyxError::aster_corrupt_shard(
                 "selected CF router open requires at least one column family",
             ));
         }
-        let mut router = Self::new_empty(vault_dir, memtable_byte_cap, None)?;
+        let mut router = Self::new_empty(vault_dir, memtable_byte_cap, tiering_policy)?;
         for cf in &selected {
             router.ensure_cf(*cf)?;
         }
@@ -324,8 +333,7 @@ impl CfRouter {
                 .unwrap_or(0)
                 + 1;
             self.ensure_cf(cf)?;
-            self.levels
-                .insert(cf, SstLevel::from_oldest_first_with_lookup(files)?);
+            self.levels.insert(cf, load_level_for_cf(cf, files)?);
             self.next_file.insert(cf, next);
         }
         Ok(())
@@ -358,8 +366,7 @@ impl CfRouter {
                 .unwrap_or(0)
                 + 1;
             self.ensure_cf(*cf)?;
-            self.levels
-                .insert(*cf, SstLevel::from_oldest_first_with_lookup(files)?);
+            self.levels.insert(*cf, load_level_for_cf(*cf, files)?);
             self.next_file.insert(*cf, next);
         }
         Ok(())
@@ -397,6 +404,18 @@ impl CfRouter {
         }
         roots
     }
+}
+
+fn load_level_for_cf(cf: ColumnFamily, files: Vec<PathBuf>) -> Result<SstLevel> {
+    if eager_lookup_on_open(cf) {
+        SstLevel::from_oldest_first_with_lookup(files)
+    } else {
+        Ok(SstLevel::from_oldest_first(files))
+    }
+}
+
+fn eager_lookup_on_open(cf: ColumnFamily) -> bool {
+    matches!(cf, ColumnFamily::Base)
 }
 
 /// Lists SST files in a CF directory, failing closed on any `*.sst` file

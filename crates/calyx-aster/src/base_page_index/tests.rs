@@ -109,6 +109,93 @@ fn page_sha_mismatch_fails_closed() {
     cleanup(root);
 }
 
+#[test]
+fn indexed_key_read_returns_requested_rows_and_tombstones() {
+    let root = temp_root("keyed-read");
+    let base = root.join("cf").join(ColumnFamily::Base.name());
+    fs::create_dir_all(&base).unwrap();
+    let tombstone = crate::mvcc::tombstone_value();
+    write_sst(
+        base.join("00000000000000000001.sst"),
+        [
+            (b"a".as_slice(), b"live".as_slice()),
+            (b"b".as_slice(), tombstone.as_slice()),
+        ],
+    )
+    .unwrap();
+    build_base_page_index(&root, 1, |_| Ok(())).unwrap();
+
+    let rows = read_indexed_base_rows_for_keys(
+        &root,
+        &[b"a".to_vec(), b"b".to_vec(), b"missing".to_vec()],
+    )
+    .unwrap();
+
+    assert_eq!(rows.get(b"a".as_slice()).unwrap(), &Some(b"live".to_vec()));
+    assert_eq!(rows.get(b"b".as_slice()).unwrap(), &Some(tombstone));
+    assert_eq!(rows.get(b"missing".as_slice()).unwrap(), &None);
+    cleanup(root);
+}
+
+#[test]
+fn advancing_index_head_preserves_pages_when_base_files_unchanged() {
+    let root = temp_root("advance-head");
+    let base = root.join("cf").join(ColumnFamily::Base.name());
+    fs::create_dir_all(&base).unwrap();
+    write_sst(
+        base.join("00000000000000000001.sst"),
+        [(b"a".as_slice(), b"value".as_slice())],
+    )
+    .unwrap();
+    build_base_page_index(&root, 4, |_| Ok(())).unwrap();
+    fs::create_dir_all(root.join("ledger_head")).unwrap();
+    let anchor = LedgerHeadAnchor::new(7, [7_u8; 32]).unwrap();
+    fs::write(
+        root.join("ledger_head").join("current.json"),
+        serde_json::to_vec(&anchor).unwrap(),
+    )
+    .unwrap();
+
+    assert!(advance_base_page_index_head_if_base_unchanged(&root).unwrap());
+    let manifest = read_base_page_index_manifest(&root).unwrap();
+
+    assert_eq!(manifest.ledger_head_height, 7);
+    assert_eq!(manifest.base_sst_files, 1);
+    assert_eq!(read_indexed_base_rows(&root, 1).unwrap().len(), 1);
+    cleanup(root);
+}
+
+#[test]
+fn advancing_index_head_refuses_base_file_count_drift() {
+    let root = temp_root("advance-head-drift");
+    let base = root.join("cf").join(ColumnFamily::Base.name());
+    fs::create_dir_all(&base).unwrap();
+    write_sst(
+        base.join("00000000000000000001.sst"),
+        [(b"a".as_slice(), b"value".as_slice())],
+    )
+    .unwrap();
+    build_base_page_index(&root, 4, |_| Ok(())).unwrap();
+    write_sst(
+        base.join("00000000000000000002.sst"),
+        [(b"b".as_slice(), b"new".as_slice())],
+    )
+    .unwrap();
+    fs::create_dir_all(root.join("ledger_head")).unwrap();
+    let anchor = LedgerHeadAnchor::new(8, [8_u8; 32]).unwrap();
+    fs::write(
+        root.join("ledger_head").join("current.json"),
+        serde_json::to_vec(&anchor).unwrap(),
+    )
+    .unwrap();
+
+    let error = advance_base_page_index_head_if_base_unchanged(&root).unwrap_err();
+
+    assert_eq!(error.code, STALE_CODE);
+    assert!(error.message.contains("current vault has 2"));
+    cleanup(root);
+}
+
 fn temp_root(name: &str) -> PathBuf {
     let nanos = SystemTime::now()
         .duration_since(UNIX_EPOCH)

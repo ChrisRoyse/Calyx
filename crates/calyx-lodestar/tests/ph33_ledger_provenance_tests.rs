@@ -155,7 +155,11 @@ fn ledger_append_failures_are_reported_as_calyx_codes() {
     let error = build_kernel_pipeline_with_ledger(&graph, &[cx(10)], &params(), 2, &mut appender)
         .unwrap_err();
 
-    assert_eq!(error.code(), "CALYX_LEDGER_CORRUPT");
+    assert_eq!(error.code(), "CALYX_LEDGER_APPEND_ONLY_VIOLATION");
+    assert!(
+        error.to_string().contains("ledger seq 1 already exists"),
+        "unexpected error: {error}"
+    );
 }
 
 #[test]

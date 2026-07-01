@@ -3,6 +3,7 @@
 mod batch;
 mod point_read;
 mod record;
+mod replay;
 mod segment;
 mod stream_replay;
 
@@ -15,6 +16,9 @@ use std::time::Duration;
 
 pub use batch::GroupCommitBatcher;
 pub(crate) use point_read::read_record_at;
+pub use replay::replay_dir;
+pub(crate) use replay::replay_dir_after;
+use replay::{replay_dir_locked, replay_dir_locked_after};
 pub(crate) use stream_replay::stream_records;
 
 /// Default group-commit window for PH05.
@@ -124,12 +128,26 @@ pub struct Wal {
 impl Wal {
     /// Opens a WAL directory, replaying and truncating any torn tail first.
     pub fn open(dir: impl AsRef<Path>, options: WalOptions) -> Result<Self> {
+        Self::open_after(dir, options, 0)
+    }
+
+    /// Opens a WAL directory while skipping payload decode for records already
+    /// covered by a durable checkpoint sequence.
+    pub(crate) fn open_after(
+        dir: impl AsRef<Path>,
+        options: WalOptions,
+        replay_floor_seq: u64,
+    ) -> Result<Self> {
         batch::validate_window(options.group_commit_window)?;
         let dir = dir.as_ref().to_path_buf();
         fs::create_dir_all(&dir).map_err(|error| storage_error("create WAL directory", error))?;
         let _lock = crate::file_lock::FileLockGuard::acquire(&dir.join(".append.lock"))?;
-        let replay = replay_dir_locked(&dir)?;
-        let next_seq = replay.records.last().map_or(1, |record| record.seq + 1);
+        let replay = replay_dir_locked_after(&dir, replay_floor_seq)?;
+        let last_replayed_seq = replay
+            .records
+            .last()
+            .map_or(replay_floor_seq, |record| record.seq);
+        let next_seq = last_replayed_seq.saturating_add(1).max(1);
         let segments = segment::list_segments(&dir)?;
         let active_index = segments.last().map_or(0, |(index, _)| *index);
         let active_path = segment::segment_path(&dir, active_index);
@@ -309,66 +327,6 @@ impl Wal {
     fn active_path(&self) -> PathBuf {
         segment::segment_path(&self.dir, self.active_index)
     }
-}
-
-/// Replays a WAL directory, truncating the first torn segment tail if present.
-pub fn replay_dir(dir: impl AsRef<Path>) -> Result<ReplayOutcome> {
-    let dir = dir.as_ref();
-    let _lock = crate::file_lock::FileLockGuard::acquire(&dir.join(".append.lock"))?;
-    replay_dir_locked(dir)
-}
-
-fn replay_dir_locked(dir: &Path) -> Result<ReplayOutcome> {
-    let segments = segment::list_segments(dir)?;
-    let mut records = Vec::new();
-
-    for (position, (_, path)) in segments.iter().enumerate() {
-        let mut file = OpenOptions::new()
-            .read(true)
-            .write(true)
-            .open(path)
-            .map_err(|error| storage_error("open WAL segment for replay", error))?;
-        let mut offset = 0;
-
-        loop {
-            match record::decode_at(&mut file, offset)
-                .map_err(|error| storage_error("decode WAL record", error))?
-            {
-                DecodeStatus::Complete(decoded) => {
-                    offset = decoded.end_offset;
-                    records.push(ReplayRecord {
-                        seq: decoded.seq,
-                        payload: decoded.payload,
-                        segment_path: path.clone(),
-                        start_offset: decoded.start_offset,
-                        end_offset: decoded.end_offset,
-                    });
-                }
-                DecodeStatus::Eof => break,
-                DecodeStatus::Torn { offset, message } => {
-                    file.set_len(offset)
-                        .map_err(|error| storage_error("truncate torn WAL tail", error))?;
-                    file.sync_data()
-                        .map_err(|error| storage_error("fsync truncated WAL tail", error))?;
-                    remove_later_segments(&segments[position + 1..])?;
-                    return Ok(ReplayOutcome {
-                        records,
-                        torn_tail: Some(TornTail {
-                            segment_path: path.clone(),
-                            offset,
-                            code: CalyxErrorCode::AsterTornWal.code(),
-                            message,
-                        }),
-                    });
-                }
-            }
-        }
-    }
-
-    Ok(ReplayOutcome {
-        records,
-        torn_tail: None,
-    })
 }
 
 fn open_append_file(path: &Path) -> Result<File> {

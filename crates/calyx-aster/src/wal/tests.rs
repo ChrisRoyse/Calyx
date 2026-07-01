@@ -66,6 +66,60 @@ fn append_batch_assigns_ordered_sequences_and_one_segment() {
 }
 
 #[test]
+fn replay_after_checkpoint_skips_obsolete_payloads_and_replays_tail() {
+    let dir = test_dir("replay-after-checkpoint");
+    let options = WalOptions {
+        max_segment_bytes: 56,
+        ..WalOptions::default()
+    };
+    let mut wal = Wal::open(&dir, options).expect("open wal");
+    wal.append(b"checkpointed-one").expect("append first");
+    wal.append(b"checkpointed-two").expect("append second");
+    let tail = wal.append(b"tail-three").expect("append tail");
+    drop(wal);
+
+    let replay = replay_dir_after(&dir, 2).expect("replay after checkpoint");
+
+    assert_eq!(replay.torn_tail, None);
+    assert_eq!(
+        replay
+            .records
+            .iter()
+            .map(|record| (record.seq, record.payload.as_slice()))
+            .collect::<Vec<_>>(),
+        vec![(tail.seq, b"tail-three".as_slice())]
+    );
+    cleanup(dir);
+}
+
+#[test]
+fn open_after_checkpoint_resumes_after_floor_when_tail_is_empty() {
+    let dir = test_dir("open-after-checkpoint");
+    let mut wal = Wal::open(&dir, WalOptions::default()).expect("open wal");
+    wal.append_batch(&[b"one".as_slice(), b"two".as_slice()])
+        .expect("append checkpointed");
+    drop(wal);
+
+    let mut reopened = Wal::open_after(&dir, WalOptions::default(), 2).expect("open after floor");
+    let ack = reopened
+        .append(b"three")
+        .expect("append after checkpoint floor");
+    drop(reopened);
+
+    assert_eq!(ack.seq, 3);
+    let replay = replay_dir(&dir).expect("full replay");
+    assert_eq!(
+        replay
+            .records
+            .iter()
+            .map(|record| record.seq)
+            .collect::<Vec<_>>(),
+        [1, 2, 3]
+    );
+    cleanup(dir);
+}
+
+#[test]
 fn segment_rotates_before_crossing_limit() {
     let dir = test_dir("rotate");
     let options = WalOptions {

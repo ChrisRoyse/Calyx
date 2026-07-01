@@ -1,16 +1,19 @@
 use super::durable::RecoveredBatches;
 use super::encode::WriteRow;
 use crate::cf::ColumnFamily;
-use crate::ledger_view::AsterLedgerCfStore;
+use crate::compaction::TieringPolicy;
+use crate::ledger_view::{AsterLedgerCfStore, read_ledger_seqs_unlocked_with_tiering};
 use calyx_core::{
     CalyxError, Constellation, LedgerRef, METADATA_CHUNK_ID, METADATA_DATABASE_NAME, Result,
     SystemClock,
 };
 use calyx_ledger::{
-    ActorId, CheckpointConfig, DefaultLedgerHook, EntryKind, LedgerAppender, LedgerCfStore,
-    MemoryLedgerStore, PayloadBuilder, StagedLedgerRow, SubjectId,
+    ActorId, CheckpointConfig, CheckpointPayload, DefaultLedgerHook, EntryKind, LedgerAppender,
+    LedgerCfStore, LedgerHeadAnchor, MemoryLedgerStore, PayloadBuilder, StagedLedgerRow, SubjectId,
+    decode,
 };
 use serde_json::json;
+use std::collections::BTreeSet;
 use std::path::Path;
 use std::sync::{Mutex, MutexGuard};
 
@@ -29,8 +32,14 @@ pub(super) fn recover_hook_from_vault_dir(
     vault_dir: &Path,
     recovery: &RecoveredBatches,
     checkpoint: Option<CheckpointConfig>,
+    tiering_policy: Option<&TieringPolicy>,
 ) -> Result<AsterLedgerHook> {
-    let store = match physical_ledger_store(vault_dir, LedgerViewLock::Acquire)? {
+    let store = match physical_ledger_store(
+        vault_dir,
+        LedgerViewLock::Acquire,
+        checkpoint.as_ref(),
+        tiering_policy,
+    )? {
         Some(store) => store,
         None => recovered_ledger_store(recovery)?,
     };
@@ -70,12 +79,20 @@ enum LedgerViewLock {
 fn physical_ledger_store(
     vault_dir: &Path,
     lock: LedgerViewLock,
+    checkpoint: Option<&CheckpointConfig>,
+    tiering_policy: Option<&TieringPolicy>,
 ) -> Result<Option<MemoryLedgerStore>> {
-    let view_result = match lock {
-        LedgerViewLock::Acquire => AsterLedgerCfStore::open(vault_dir),
-        LedgerViewLock::AlreadyHeld => AsterLedgerCfStore::open_unlocked(vault_dir),
+    let _commit_guard = match lock {
+        LedgerViewLock::Acquire => Some(crate::file_lock::FileLockGuard::acquire(
+            &durable_commit_lock_path(vault_dir),
+        )?),
+        LedgerViewLock::AlreadyHeld => None,
     };
-    let view = match view_result {
+    if let Some(anchor) = crate::ledger_head::read_head_anchor(vault_dir)? {
+        return anchored_physical_ledger_store(vault_dir, &anchor, checkpoint, tiering_policy);
+    }
+
+    let view = match AsterLedgerCfStore::open_unlocked_with_tiering(vault_dir, tiering_policy) {
         Ok(view) => view,
         Err(error)
             if error.code == "CALYX_LEDGER_CORRUPT"
@@ -86,18 +103,123 @@ fn physical_ledger_store(
         Err(error) => return Err(error),
     };
     let rows = view.scan()?;
-    let anchor = view.head_anchor()?;
-    if rows.is_empty() && anchor.is_none() {
+    if rows.is_empty() {
         return Ok(None);
     }
     let mut store = MemoryLedgerStore::default();
     for row in rows {
         store.insert_raw(row.seq, row.bytes);
     }
-    if let Some(anchor) = anchor {
-        store.put_head_anchor(&anchor)?;
-    }
     Ok(Some(store))
+}
+
+fn anchored_physical_ledger_store(
+    vault_dir: &Path,
+    anchor: &LedgerHeadAnchor,
+    checkpoint: Option<&CheckpointConfig>,
+    tiering_policy: Option<&TieringPolicy>,
+) -> Result<Option<MemoryLedgerStore>> {
+    let mut store = MemoryLedgerStore::default();
+    store.put_head_anchor(anchor)?;
+    if anchor.height == 0 {
+        return Ok(Some(store));
+    }
+    let start = match checkpoint {
+        Some(config) => {
+            checkpoint_hydration_start(vault_dir, anchor.height, config, tiering_policy)?
+        }
+        None => anchor.height - 1,
+    };
+    hydrate_physical_ledger_rows(vault_dir, start, anchor.height, &mut store, tiering_policy)?;
+    Ok(Some(store))
+}
+
+fn checkpoint_hydration_start(
+    vault_dir: &Path,
+    head_height: u64,
+    config: &CheckpointConfig,
+    tiering_policy: Option<&TieringPolicy>,
+) -> Result<u64> {
+    if config.interval_entries == 0 {
+        return Err(CalyxError::ledger_corrupt(
+            "checkpoint interval_entries must be greater than zero",
+        ));
+    }
+    if head_height == 0 {
+        return Ok(0);
+    }
+    let scan_limit = config
+        .interval_entries
+        .saturating_mul(2)
+        .saturating_add(16)
+        .min(head_height);
+    let start = head_height - scan_limit;
+    let rows = read_physical_ledger_rows(vault_dir, start, head_height, tiering_policy)?;
+    for row in rows.iter().rev() {
+        let entry = decode(&row.bytes).map_err(|error| {
+            CalyxError::ledger_corrupt(format!(
+                "decode ledger row {} during checkpoint recovery: {error}",
+                row.seq
+            ))
+        })?;
+        if entry.kind == EntryKind::Admin
+            && CheckpointPayload::decode_optional(&entry.payload)?.is_some()
+        {
+            return Ok(row.seq);
+        }
+    }
+    if head_height <= config.interval_entries {
+        return Ok(0);
+    }
+    Err(CalyxError {
+        code: "CALYX_LEDGER_CHECKPOINT_RECOVERY_UNBOUNDED",
+        message: format!(
+            "anchored ledger head {head_height} has no checkpoint row in the last {scan_limit} rows; refusing full ledger hook scan during vault open"
+        ),
+        remediation: "rebuild or persist a ledger checkpoint pointer, then reopen the vault; do not bypass by disabling checkpoint recovery",
+    })
+}
+
+fn hydrate_physical_ledger_rows(
+    vault_dir: &Path,
+    start: u64,
+    end: u64,
+    store: &mut MemoryLedgerStore,
+    tiering_policy: Option<&TieringPolicy>,
+) -> Result<()> {
+    for row in read_physical_ledger_rows(vault_dir, start, end, tiering_policy)? {
+        store.insert_raw(row.seq, row.bytes);
+    }
+    Ok(())
+}
+
+fn read_physical_ledger_rows(
+    vault_dir: &Path,
+    start: u64,
+    end: u64,
+    tiering_policy: Option<&TieringPolicy>,
+) -> Result<Vec<calyx_ledger::LedgerRow>> {
+    if start > end {
+        return Err(CalyxError::ledger_corrupt(format!(
+            "invalid physical ledger hydration range {start}..{end}"
+        )));
+    }
+    let wanted = (start..end).collect::<BTreeSet<_>>();
+    let rows = read_ledger_seqs_unlocked_with_tiering(vault_dir, &wanted, tiering_policy)?;
+    let mut out = Vec::with_capacity(wanted.len());
+    for seq in wanted {
+        let row = rows.get(&seq).ok_or_else(|| {
+            CalyxError::ledger_chain_broken(format!(
+                "anchored physical ledger hydration missing seq {seq}"
+            ))
+        })?;
+        out.push(row.clone());
+    }
+    Ok(out)
+}
+
+fn durable_commit_lock_path(vault_dir: &Path) -> std::path::PathBuf {
+    vault_dir.join("locks").join("durable.commit.lock")
 }
 
 pub(super) fn lock_hook(hook: &AsterLedgerHook) -> Result<AsterLedgerHookGuard<'_>> {
@@ -110,8 +232,14 @@ pub(super) fn refresh_hook(
     vault_dir: &Path,
     recovery: &RecoveredBatches,
     checkpoint: Option<CheckpointConfig>,
+    tiering_policy: Option<&TieringPolicy>,
 ) -> Result<()> {
-    let store = match physical_ledger_store(vault_dir, LedgerViewLock::AlreadyHeld)? {
+    let store = match physical_ledger_store(
+        vault_dir,
+        LedgerViewLock::AlreadyHeld,
+        checkpoint.as_ref(),
+        tiering_policy,
+    )? {
         Some(store) => store,
         None => recovered_ledger_store(recovery)?,
     };
@@ -222,189 +350,4 @@ fn hex(bytes: &[u8]) -> String {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::cf::ledger_key;
-    use crate::ledger_view::AsterLedgerCfStore;
-    use crate::vault::{AsterVault, VaultOptions};
-    use calyx_core::VaultStore;
-    use calyx_ledger::{LedgerCfStore, VerifyResult, decode, verify_chain};
-    use std::collections::BTreeMap;
-    use std::fs;
-    use std::path::PathBuf;
-
-    #[test]
-    fn aster_batch_uses_big_endian_ledger_keys() {
-        let rows = [WriteRow {
-            cf: ColumnFamily::Ledger,
-            key: ledger_key(7),
-            value: b"entry".to_vec(),
-        }];
-
-        assert_eq!(rows[0].cf, ColumnFamily::Ledger);
-        assert_eq!(rows[0].key, ledger_key(7));
-        assert_eq!(rows[0].value, b"entry");
-    }
-
-    #[test]
-    fn recovered_hook_continues_existing_ledger_sequence() {
-        let mut rows = Vec::new();
-        let mut hook = recover_hook(
-            &RecoveredBatches {
-                batches: Vec::new(),
-                last_recovered_seq: 0,
-                torn_tail: None,
-                temporal_policy: None,
-                dedup_policy: None,
-                retention_horizon: crate::timetravel::RetentionHorizon::default(),
-                router_latest_readback: false,
-            },
-            None,
-        )
-        .expect("recover empty hook");
-        let guard = hook.get_mut().unwrap();
-        let first = stage_ingest(guard, &mut rows, &sample_constellation()).expect("stage first");
-
-        assert_eq!(first[0].ledger_ref().seq, 0);
-        assert_eq!(guard.appender().next_seq(), 0);
-        assert!(guard.appender().store().scan().unwrap().is_empty());
-        let decoded = decode(&rows[0].value).unwrap();
-        assert_eq!(decoded.kind, EntryKind::Ingest);
-        let payload: serde_json::Value = serde_json::from_slice(&decoded.payload).unwrap();
-        assert_eq!(payload["metadata"][METADATA_CHUNK_ID], "chunk-7");
-        assert_eq!(payload["metadata"][METADATA_DATABASE_NAME], "db/main");
-
-        let committed = commit_staged(guard, &first).expect("commit first");
-
-        assert_eq!(committed.seq, 0);
-        assert_eq!(guard.appender().next_seq(), 1);
-        assert_eq!(guard.appender().store().scan().unwrap().len(), 1);
-    }
-
-    #[test]
-    fn physical_ledger_rows_recover_hook_when_manifest_view_has_gap() {
-        let dir = test_dir("issue866-physical-ledger");
-        let vault = AsterVault::new_durable(
-            &dir,
-            "01ARZ3NDEKTSV4RRFFQ69G5FAV".parse().unwrap(),
-            b"issue866-salt",
-            VaultOptions::default(),
-        )
-        .expect("open durable vault");
-        for seed in 0..4 {
-            vault
-                .put(sample_constellation_with_seed(seed))
-                .expect("put sample");
-        }
-        vault.flush().expect("flush physical ledger");
-        drop(vault);
-
-        let physical = AsterLedgerCfStore::open(&dir).expect("open physical ledger");
-        let physical_rows = physical.scan().expect("scan physical ledger");
-        let physical_anchor = physical.head_anchor().expect("read physical head anchor");
-        assert_eq!(physical_rows.len(), 4);
-        assert_eq!(
-            verify_chain(&physical, 0..4).expect("verify physical ledger"),
-            VerifyResult::Intact { count: 4 }
-        );
-        let last = physical_rows.last().expect("last ledger row");
-        let gapped_recovery = RecoveredBatches {
-            batches: vec![crate::vault::durable::RecoveredBatch {
-                seq: 4,
-                rows: vec![WriteRow {
-                    cf: ColumnFamily::Ledger,
-                    key: ledger_key(last.seq),
-                    value: last.bytes.clone(),
-                }],
-            }],
-            last_recovered_seq: 4,
-            torn_tail: None,
-            temporal_policy: None,
-            dedup_policy: None,
-            retention_horizon: crate::timetravel::RetentionHorizon::default(),
-            router_latest_readback: false,
-        };
-
-        let manifest_only_error = recover_hook(&gapped_recovery, None).unwrap_err();
-        assert_eq!(manifest_only_error.code, "CALYX_LEDGER_CHAIN_BROKEN");
-        let mut recovered =
-            recover_hook_from_vault_dir(&dir, &gapped_recovery, None).expect("physical recovery");
-        let guard = recovered.get_mut().expect("hook guard");
-
-        assert_eq!(guard.appender().next_seq(), 4);
-        write_issue866_artifact(
-            physical_rows.len(),
-            physical_anchor.as_ref().map(|anchor| anchor.height),
-            manifest_only_error.code,
-            guard.appender().next_seq(),
-        );
-        cleanup(dir);
-    }
-
-    fn sample_constellation() -> Constellation {
-        sample_constellation_with_seed(7)
-    }
-
-    fn sample_constellation_with_seed(seed: u8) -> Constellation {
-        Constellation {
-            cx_id: calyx_core::CxId::from_bytes([seed; 16]),
-            vault_id: "01ARZ3NDEKTSV4RRFFQ69G5FAV".parse().unwrap(),
-            panel_version: 1,
-            created_at: 42 + u64::from(seed),
-            input_ref: calyx_core::InputRef {
-                hash: [seed; 32],
-                pointer: Some(format!("synthetic://ledger-hook/{seed}")),
-                redacted: false,
-            },
-            modality: calyx_core::Modality::Text,
-            slots: BTreeMap::new(),
-            scalars: BTreeMap::new(),
-            metadata: BTreeMap::from([
-                (METADATA_CHUNK_ID.to_string(), "chunk-7".to_string()),
-                (METADATA_DATABASE_NAME.to_string(), "db/main".to_string()),
-            ]),
-            anchors: Vec::new(),
-            provenance: LedgerRef {
-                seq: u64::from(seed),
-                hash: [seed; 32],
-            },
-            flags: calyx_core::CxFlags::default(),
-        }
-    }
-
-    fn test_dir(name: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("{name}-{}", std::process::id()));
-        fs::remove_dir_all(&dir).ok();
-        fs::create_dir_all(&dir).unwrap();
-        dir
-    }
-
-    fn cleanup(dir: PathBuf) {
-        fs::remove_dir_all(dir).unwrap();
-    }
-
-    fn write_issue866_artifact(
-        physical_rows: usize,
-        head_anchor_height: Option<u64>,
-        manifest_only_error_code: &'static str,
-        recovered_next_seq: u64,
-    ) {
-        let Some(root) = std::env::var_os("CALYX_FSV_ROOT").map(PathBuf::from) else {
-            return;
-        };
-        fs::create_dir_all(&root).unwrap();
-        let artifact = serde_json::json!({
-            "schema": "calyx-issue866-manifest-ledger-recovery-v1",
-            "physical_ledger_rows": physical_rows,
-            "head_anchor_height": head_anchor_height,
-            "manifest_only_error_code": manifest_only_error_code,
-            "recovered_next_seq": recovered_next_seq,
-            "physical_recovery_used": true
-        });
-        fs::write(
-            root.join("issue866_manifest_ledger_recovery_readback.json"),
-            serde_json::to_vec_pretty(&artifact).unwrap(),
-        )
-        .unwrap();
-    }
-}
+mod tests;

@@ -20,6 +20,7 @@ where
                 vault_dir.as_ref(),
                 &recovery,
                 options.ledger_checkpoint.clone(),
+                options.tiering_policy.as_ref(),
             )?)
         } else {
             None
@@ -62,7 +63,11 @@ where
         let durable = if options.read_only {
             None
         } else {
-            Some(DurableVault::open(vault_dir.as_ref(), &durable_options)?)
+            Some(DurableVault::open_after(
+                vault_dir.as_ref(),
+                &durable_options,
+                recovery.wal_replay_floor_seq,
+            )?)
         };
         // Data residency (PRD 30 §4): a caller-supplied pin is enforced against
         // tiering and persisted (conflict-checked, immutable); on reopen the

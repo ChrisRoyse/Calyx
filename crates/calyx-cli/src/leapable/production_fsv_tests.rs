@@ -6,9 +6,8 @@ use rusqlite::{Connection, params};
 use super::dual_write::replay_existing_sqlite;
 use super::panel_guard_enable::{PanelGuardEnable, PanelSpec};
 use super::production_fsv::{
-    CALYX_PG_STATE_CHANGED, CALYX_PG_WRITE_ATTEMPTED, CALYX_REPRODUCE_MISMATCH,
-    CALYX_VAULT_NOT_CALYX_ONLY, CALYX_VAULT_NOT_IN_PG, PgConn, ProductionFSV, REQUIRED_TABLES,
-    snapshot_pg_state,
+    CALYX_PG_STATE_CHANGED, CALYX_PG_WRITE_ATTEMPTED, CALYX_VAULT_NOT_CALYX_ONLY,
+    CALYX_VAULT_NOT_IN_PG, PgConn, ProductionFSV, REQUIRED_TABLES, snapshot_pg_state,
 };
 use super::read_flip::ReadFlip;
 use super::shadow_harness::{ShadowVault, VaultMode, read_shadow_manifest};
@@ -178,7 +177,14 @@ fn ask_proof_fails_closed_when_ledger_row_is_missing() {
 
     let error = ProductionFSV::run_full_ask_cycle(&vault, &vector(1.0), 1).unwrap_err();
 
-    assert_eq!(error.code, CALYX_REPRODUCE_MISMATCH);
+    assert_eq!(error.code, "CALYX_LEDGER_CHAIN_BROKEN");
+    assert!(
+        error
+            .message
+            .contains("anchored physical ledger hydration missing seq"),
+        "unexpected error message: {}",
+        error.message
+    );
     cleanup(root);
 }
 

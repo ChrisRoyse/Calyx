@@ -8,6 +8,7 @@
 mod tests;
 
 mod format;
+mod readback;
 mod sst_scan;
 mod types;
 
@@ -23,12 +24,13 @@ use crate::mvcc::is_tombstone_value;
 use crate::sst::SstReader;
 use crate::storage_names::sst_order_key;
 use crate::vault::encode::decode_write_batch;
-use crate::wal::{read_record_at, stream_records};
+use crate::wal::stream_records;
 
 use format::{
     corrupt, decode_hex, hex_bytes, missing, now_ms, relative_path, remove_path, sha256_hex, stale,
     sync_parent, write_bytes_file, write_json_file,
 };
+use readback::{read_page, read_source_value, validate_entry_value};
 use sst_scan::list_base_sst_files;
 pub use types::{
     BASE_PAGE_INDEX_DIR, BASE_PAGE_INDEX_MANIFEST, BasePageIndexBuildProgress, BasePageIndexEntry,
@@ -175,6 +177,67 @@ pub fn read_indexed_base_rows(vault: &Path, limit: usize) -> Result<BTreeMap<Vec
         }
     }
     Ok(rows)
+}
+
+pub fn read_indexed_base_rows_for_keys(
+    vault: &Path,
+    keys: &[Vec<u8>],
+) -> Result<BTreeMap<Vec<u8>, Option<Vec<u8>>>> {
+    let _guard = crate::file_lock::FileLockGuard::acquire(&durable_commit_lock_path(vault))?;
+    let manifest = read_manifest_file(&manifest_path(vault))?;
+    validate_current_head(vault, &manifest)?;
+    let mut rows = keys
+        .iter()
+        .map(|key| (key.clone(), None))
+        .collect::<BTreeMap<_, _>>();
+    for key in keys {
+        let key_hex = hex_bytes(key);
+        let Some(page_ref) = manifest.pages.iter().find(|page| {
+            page.first_key_hex.as_str() <= key_hex.as_str()
+                && key_hex.as_str() <= page.last_key_hex.as_str()
+        }) else {
+            continue;
+        };
+        let page = read_page(vault, page_ref)?;
+        let Some(entry) = page.entries.iter().find(|entry| entry.key_hex == key_hex) else {
+            continue;
+        };
+        let value = read_source_value(vault, key, &entry.source)?;
+        validate_entry_value(entry, &value)?;
+        rows.insert(key.clone(), Some(value));
+    }
+    Ok(rows)
+}
+
+pub fn advance_base_page_index_head_if_base_unchanged(vault: &Path) -> Result<bool> {
+    let path = manifest_path(vault);
+    if !path.exists() {
+        return Ok(false);
+    }
+    let _guard = crate::file_lock::FileLockGuard::acquire(&durable_commit_lock_path(vault))?;
+    let mut manifest = read_manifest_file(&path)?;
+    let current_base_sst_files = list_base_sst_files(vault)?.len();
+    if current_base_sst_files != manifest.base_sst_files {
+        return Err(stale(format!(
+            "Base page index covers {} Base SST files but current vault has {}; refusing to advance index head without rebuild",
+            manifest.base_sst_files, current_base_sst_files
+        )));
+    }
+    let (height, tip_hash_hex) = current_head(vault)?;
+    if height == manifest.ledger_head_height && tip_hash_hex == manifest.ledger_head_tip_hash_hex {
+        return Ok(false);
+    }
+    if height < manifest.ledger_head_height {
+        return Err(corrupt(format!(
+            "Base page index head would regress from {} to {height}",
+            manifest.ledger_head_height
+        )));
+    }
+    manifest.ledger_head_height = height;
+    manifest.ledger_head_tip_hash_hex = tip_hash_hex;
+    write_json_file(&path, &manifest)?;
+    sync_parent(&path)?;
+    Ok(true)
 }
 
 fn write_index(
@@ -354,105 +417,6 @@ fn validate_current_head(vault: &Path, manifest: &BasePageIndexManifest) -> Resu
         return Err(stale(format!(
             "Base page index was built at ledger head {}:{} but current head is {}:{}",
             manifest.ledger_head_height, manifest.ledger_head_tip_hash_hex, height, tip_hash_hex
-        )));
-    }
-    Ok(())
-}
-
-fn read_page(vault: &Path, page_ref: &BasePageIndexPageRef) -> Result<BasePageIndexPage> {
-    let path = vault.join(BASE_PAGE_INDEX_DIR).join(&page_ref.path);
-    let bytes = fs::read(&path).map_err(|error| {
-        CalyxError::disk_pressure(format!("read Base page index page: {error}"))
-    })?;
-    let actual = sha256_hex(&bytes);
-    if actual != page_ref.sha256_hex {
-        return Err(corrupt(format!(
-            "Base page index page {} sha256 mismatch: expected {}, got {}",
-            path.display(),
-            page_ref.sha256_hex,
-            actual
-        )));
-    }
-    let page: BasePageIndexPage = serde_json::from_slice(&bytes)
-        .map_err(|error| corrupt(format!("decode Base page index page: {error}")))?;
-    if page.entries.len() != page_ref.entry_count {
-        return Err(corrupt(format!(
-            "Base page index page {} expected {} entries, got {}",
-            path.display(),
-            page_ref.entry_count,
-            page.entries.len()
-        )));
-    }
-    Ok(page)
-}
-
-fn read_source_value(vault: &Path, key: &[u8], source: &BasePageIndexSource) -> Result<Vec<u8>> {
-    match source {
-        BasePageIndexSource::Sst { path, .. } => {
-            let source_path = vault.join(path);
-            if !source_path.exists() {
-                return Err(stale(format!(
-                    "Base page index source SST {} no longer exists",
-                    source_path.display()
-                )));
-            }
-            SstReader::open(&source_path)?.get(key)?.ok_or_else(|| {
-                stale(format!(
-                    "Base page index source SST {} no longer contains key {}",
-                    source_path.display(),
-                    hex_bytes(key)
-                ))
-            })
-        }
-        BasePageIndexSource::Wal {
-            path,
-            seq,
-            start_offset,
-            end_offset,
-        } => read_wal_source_value(vault, key, path, *seq, *start_offset, *end_offset),
-    }
-}
-
-fn read_wal_source_value(
-    vault: &Path,
-    key: &[u8],
-    path: &str,
-    seq: u64,
-    start_offset: u64,
-    end_offset: u64,
-) -> Result<Vec<u8>> {
-    let source_path = vault.join(path);
-    if !source_path.exists() {
-        return Err(stale(format!(
-            "Base page index source WAL {} no longer exists",
-            source_path.display()
-        )));
-    }
-    let record = read_record_at(&source_path, seq, start_offset, end_offset)?;
-    for row in decode_write_batch(&record.payload)? {
-        if row.cf == ColumnFamily::Base && row.key == key {
-            return Ok(row.value);
-        }
-    }
-    Err(stale(format!(
-        "Base page index source WAL record {seq} no longer contains key {}",
-        hex_bytes(key)
-    )))
-}
-
-fn validate_entry_value(entry: &BasePageIndexEntry, value: &[u8]) -> Result<()> {
-    let hash = sha256_hex(value);
-    if hash != entry.value_sha256_hex {
-        return Err(corrupt(format!(
-            "Base page index key {} source value sha256 mismatch: expected {}, got {}",
-            entry.key_hex, entry.value_sha256_hex, hash
-        )));
-    }
-    let tombstoned = is_tombstone_value(value);
-    if tombstoned != entry.tombstoned {
-        return Err(corrupt(format!(
-            "Base page index key {} tombstone state mismatch: manifest {}, source {}",
-            entry.key_hex, entry.tombstoned, tombstoned
         )));
     }
     Ok(())

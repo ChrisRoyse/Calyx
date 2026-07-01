@@ -1,7 +1,7 @@
 use super::*;
-use calyx_core::{Clock, CxId};
+use calyx_core::{CalyxError, Clock, CxId};
 use proptest::prelude::*;
-use std::collections::VecDeque;
+use std::collections::{BTreeMap, VecDeque};
 use std::sync::Mutex;
 
 #[test]
@@ -99,6 +99,47 @@ fn recovered_zero_ts_still_clamps_forward() {
     assert_eq!(entry_ts(&reopened), vec![0, 1]);
 }
 
+#[test]
+fn anchored_recovery_reads_last_row_without_full_scan() {
+    let entry = LedgerEntry::new(
+        0,
+        [0; HASH_BYTES],
+        EntryKind::Ingest,
+        sample_subject(1),
+        b"{}".to_vec(),
+        ActorId::Service("svc".to_string()),
+        42,
+    );
+    let store = AnchoredNoScanStore::new(entry);
+
+    let appender =
+        LedgerAppender::open(store, SequenceClock::new([41])).expect("open anchored appender");
+
+    assert_eq!(appender.next_seq(), 1);
+    assert_eq!(appender.prev_hash(), store_tip_hash(appender.store()));
+    assert_eq!(appender.last_ts(), 42);
+}
+
+#[test]
+fn anchored_recovery_rejects_mismatched_tip_hash() {
+    let entry = LedgerEntry::new(
+        0,
+        [0; HASH_BYTES],
+        EntryKind::Ingest,
+        sample_subject(1),
+        b"{}".to_vec(),
+        ActorId::Service("svc".to_string()),
+        42,
+    );
+    let mut store = AnchoredNoScanStore::new(entry);
+    store.anchor.tip_hash[0] ^= 0xff;
+
+    let error = LedgerAppender::open(store, SequenceClock::new([41])).unwrap_err();
+
+    assert_eq!(error.code, "CALYX_LEDGER_CHAIN_BROKEN");
+    assert!(error.message.contains("anchored tip hash"));
+}
+
 proptest! {
     #[test]
     fn appender_timestamps_are_monotone_for_any_clock_values(
@@ -116,6 +157,63 @@ proptest! {
         let ts = entry_ts(&appender);
         prop_assert!(ts.windows(2).all(|pair| pair[0] < pair[1]));
     }
+}
+
+#[derive(Debug)]
+struct AnchoredNoScanStore {
+    rows: BTreeMap<u64, LedgerRow>,
+    anchor: LedgerHeadAnchor,
+}
+
+impl AnchoredNoScanStore {
+    fn new(entry: LedgerEntry) -> Self {
+        let anchor = LedgerHeadAnchor::new(entry.seq.saturating_add(1), entry.entry_hash).unwrap();
+        let mut rows = BTreeMap::new();
+        rows.insert(
+            entry.seq,
+            LedgerRow {
+                seq: entry.seq,
+                bytes: encode(&entry),
+            },
+        );
+        Self { rows, anchor }
+    }
+}
+
+impl LedgerCfStore for AnchoredNoScanStore {
+    fn scan(&self) -> Result<Vec<LedgerRow>> {
+        Err(CalyxError::ledger_corrupt(
+            "anchored recovery should not full-scan ledger rows",
+        ))
+    }
+
+    fn read_seq(&self, seq: u64) -> Result<Option<LedgerRow>> {
+        Ok(self.rows.get(&seq).cloned())
+    }
+
+    fn put_new(&mut self, seq: u64, bytes: &[u8]) -> Result<()> {
+        self.rows.insert(
+            seq,
+            LedgerRow {
+                seq,
+                bytes: bytes.to_vec(),
+            },
+        );
+        Ok(())
+    }
+
+    fn head_anchor(&self) -> Result<Option<LedgerHeadAnchor>> {
+        Ok(Some(self.anchor.clone()))
+    }
+
+    fn put_head_anchor(&mut self, anchor: &LedgerHeadAnchor) -> Result<()> {
+        self.anchor = anchor.clone();
+        Ok(())
+    }
+}
+
+fn store_tip_hash(store: &AnchoredNoScanStore) -> [u8; HASH_BYTES] {
+    store.anchor.tip_hash
 }
 
 fn sample_appender<const N: usize>(

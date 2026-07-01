@@ -5,7 +5,7 @@ mod quarantine;
 use crate::dedup::DedupPolicy;
 use crate::sst::SstReader;
 use crate::timetravel::RetentionHorizon;
-use crate::wal::{ReplayRecord, TornTail, replay_dir};
+use crate::wal::{ReplayRecord, TornTail, replay_dir_after};
 use calyx_core::{CalyxError, Result, TemporalPolicy};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
@@ -312,7 +312,7 @@ pub struct RecoveryOutcome {
 pub fn recover_vault(vault_dir: impl AsRef<Path>) -> Result<RecoveryOutcome> {
     let vault_dir = vault_dir.as_ref();
     let manifest = ManifestStore::open(vault_dir).load_current()?;
-    let replay = replay_dir(vault_dir.join("wal"))?;
+    let replay = replay_dir_after(vault_dir.join("wal"), manifest.durable_seq)?;
     let wal_records: Vec<_> = replay
         .records
         .into_iter()

@@ -75,7 +75,34 @@ pub(super) fn ingest_validated_batch_streaming_with_output(
     let file = std::fs::File::open(path)
         .map_err(|err| CliError::io(format!("open batch {}: {err}", path.display())))?;
     let reader = std::io::BufReader::new(file);
-    let vault = open_vault(resolved)?;
+    let open_started = std::time::Instant::now();
+    ingest_runtime_log(format_args!(
+        "phase=open_vault_start vault={} rows={validated_row_count}",
+        resolved.path.display()
+    ));
+    let vault = match open_vault(resolved) {
+        Ok(vault) => {
+            let recovery = vault.recovery_report();
+            ingest_runtime_log(format_args!(
+                "phase=open_vault_ok vault={} last_recovered_seq={} torn_tail={} elapsed_ms={}",
+                resolved.path.display(),
+                recovery.last_recovered_seq,
+                recovery.torn_tail.is_some(),
+                open_started.elapsed().as_millis()
+            ));
+            vault
+        }
+        Err(error) => {
+            ingest_runtime_log(format_args!(
+                "phase=open_vault_error vault={} error_code={} error_message_json={} elapsed_ms={}",
+                resolved.path.display(),
+                error.code(),
+                json_string(error.message()),
+                open_started.elapsed().as_millis()
+            ));
+            return Err(error);
+        }
+    };
     ingest_runtime_log(format_args!(
         "phase=load_vault_panel_state_start vault={}",
         resolved.path.display()
@@ -120,6 +147,7 @@ pub(super) fn ingest_validated_batch_streaming_with_output(
                 flush_measure_batch(
                     &vault,
                     &state,
+                    &resolved.path,
                     &mut chunk,
                     &mut seen,
                     &mut summary,
@@ -132,6 +160,7 @@ pub(super) fn ingest_validated_batch_streaming_with_output(
         flush_measure_batch(
             &vault,
             &state,
+            &resolved.path,
             &mut chunk,
             &mut seen,
             &mut summary,
@@ -267,6 +296,7 @@ fn json_string(value: &str) -> String {
 fn flush_measure_batch(
     vault: &AsterVault,
     state: &VaultPanelState,
+    vault_path: &std::path::Path,
     chunk: &mut Vec<BatchRow>,
     seen: &mut BTreeSet<CxId>,
     summary: &mut BatchIngestSummary,
@@ -281,7 +311,13 @@ fn flush_measure_batch(
             existing_rows.len(),
             options.runtime_batch_limit
         ));
-        flush_plain_existing_batch_replay(vault, existing_rows, summary, options.output)?;
+        flush_plain_existing_batch_replay(
+            vault,
+            vault_path,
+            existing_rows,
+            summary,
+            options.output,
+        )?;
         return Ok(());
     }
     if let Some(existing_rows) = existing_batch_replay_rows(vault, state, &rows)? {
