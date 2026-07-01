@@ -27,7 +27,7 @@ export CARGO_INCREMENTAL=0
 
 bash "$repo_root/scripts/tmp_scratch_guard.sh" pre "$tmp_guard_baseline"
 
-cargo fmt --all -- --check
+bash "$repo_root/scripts/cargo-fmt-workspace.sh" --check
 cargo check --workspace --all-targets
 cargo clippy --workspace --all-targets -- -D warnings
 

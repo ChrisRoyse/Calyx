@@ -144,7 +144,7 @@ every merge (README section "Run the gate on aiwonder before every merge").
 Standard commands (from `scripts/check.sh`):
 
 ```sh
-cargo fmt --all -- --check
+bash scripts/cargo-fmt-workspace.sh --check
 cargo check --workspace --all-targets
 cargo clippy --workspace --all-targets -- -D warnings
 cargo nextest run --workspace      # primary parallel test run
@@ -155,8 +155,13 @@ cargo test --workspace --doc       # doctests (nextest does not run these)
   `cargo-nextest` is missing, and points to the focused provisioning command:
   `bash scripts/install-cargo-nextest.sh` for Bash/WSL or
   `pwsh -File scripts/install-cargo-nextest.ps1` for native Windows
-  PowerShell. It then additionally runs `scripts/orphan_rs.sh`,
-  `scripts/linecount.sh`, `scripts/verify_dataset.sh --self-test`, and
+  PowerShell. It uses `scripts/cargo-fmt-workspace.sh` for formatting so the
+  workspace gate checks one package at a time instead of expanding the whole
+  workspace into one long rustfmt command. On native Windows, use
+  `pwsh -File scripts/cargo-fmt-workspace.ps1` for the same package-by-package
+  check, or add `-Write` to apply formatting. It then additionally runs
+  `scripts/orphan_rs.sh`, `scripts/linecount.sh`,
+  `scripts/verify_dataset.sh --self-test`, and
   `scripts/check_manifest_coverage.sh --self-test`.
 - FSV / ignored tests run explicitly, e.g.
   `cargo test -p <crate> --test <name> -- --ignored --nocapture`, usually with
@@ -184,6 +189,7 @@ are not broken.
 | Path | Purpose |
 |------|---------|
 | `scripts/check.sh` | The manual aiwonder per-merge gate: rustfmt check, `cargo check --workspace --all-targets`, `cargo clippy ... -D warnings`, `cargo nextest run --workspace`, `cargo test --workspace --doc`, `scripts/orphan_rs.sh`, `scripts/linecount.sh`, and dataset/manifest self-tests. |
+| `scripts/cargo-fmt-workspace.sh` / `.ps1` | Workspace rustfmt gate that enumerates `cargo metadata` workspace packages and runs `cargo fmt -p <package>` one package at a time. This is the native Windows-safe format check for long worktree paths; it fails on the first unformatted package and prints the exact package command. |
 | `scripts/install-cargo-nextest.sh` / `.ps1` | Idempotent local provisioning for the required `cargo-nextest` subcommand on Bash/WSL and native Windows PowerShell. |
 | `scripts/orphan_rs.sh` (+ `orphan_rs_allow.txt`) | Gate: detects `.rs` files not wired into the build. |
 | `scripts/linecount.sh` | Gate: line-count limits. |

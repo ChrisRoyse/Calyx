@@ -11248,7 +11248,7 @@ helpers. `soak/ops.rs` holds soak operations. It has a `cuda` feature
 | Run `#[ignore]`d (aiwonder/FSV/CUDA) tests | `cargo test -- --ignored` (or `cargo nextest run --run-ignored all`) |
 | CUDA-feature tests | `cargo test -p calyx-forge --features cuda -- --ignored` |
 | Persist FSV evidence to a durable path | `CALYX_FSV_ROOT=/home/croyse/calyx/data/<run> cargo test -p calyx-oracle predict_fsv` |
-| Format check (pre-push gate) | `cargo fmt --all -- --check` |
+| Format check (pre-push gate) | `bash scripts/cargo-fmt-workspace.sh --check` (native Windows: `pwsh -File scripts/cargo-fmt-workspace.ps1`) |
 | Clippy (deny warnings) | `cargo clippy --workspace --all-targets -- -D warnings` |
 | Full local gate (mirrors CI) | `bash scripts/check.sh` |
 
@@ -11257,7 +11257,7 @@ helpers. `soak/ops.rs` holds soak operations. It has a `cuda` feature
 `scripts/check.sh` is the per-merge gate (same bar as CI). It sets
 `CARGO_INCREMENTAL=0` and runs, in order:
 
-1. `cargo fmt --all -- --check`
+1. `bash scripts/cargo-fmt-workspace.sh --check`
 2. `cargo check --workspace --all-targets`
 3. `cargo clippy --workspace --all-targets -- -D warnings`
 4. `cargo nextest run --workspace` (errors loudly if `cargo-nextest` missing)
@@ -11339,7 +11339,7 @@ There is exactly **one** GitHub Actions workflow: `.github/workflows/ci.yml`
 | checkout | `actions/checkout@v4` |
 | cache | `Swatinem/rust-cache@v2` |
 | install nextest | `taiki-e/install-action@nextest` |
-| rustfmt | `cargo fmt --all -- --check` |
+| rustfmt | `bash scripts/cargo-fmt-workspace.sh --check` (native Windows: `pwsh -File scripts/cargo-fmt-workspace.ps1`) |
 | check (all targets) | `cargo check --workspace --all-targets` |
 | clippy (deny warnings) | `cargo clippy --workspace --all-targets -- -D warnings` |
 | test (nextest, parallel) | `cargo nextest run --workspace` |
@@ -11355,7 +11355,7 @@ ignored tests, CUDA tests, fuzz, soak, or mutation testing.
 
 | Gate | File | What it enforces |
 |---|---|---|
-| pre-push | `.githooks/pre-push` | Rejects any push whose tree is not `cargo fmt --all -- --check` clean. Fail-loud if cargo is missing. Install once: `git config core.hooksPath .githooks` (done by `scripts/aiwonder-build-setup.sh`). |
+| pre-push | `.githooks/pre-push` | Rejects any push whose tree is not workspace-package rustfmt clean. Fail-loud if cargo is missing. Install once: `git config core.hooksPath .githooks` (done by `scripts/aiwonder-build-setup.sh`). |
 | pre-commit | `.pre-commit-config.yaml` | Single local hook `calyx-secret-scan` → `scripts/secret-scan.sh` (`pass_filenames: false`). |
 
 ### 5.3 Coverage tooling

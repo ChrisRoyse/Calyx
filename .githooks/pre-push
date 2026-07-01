@@ -32,11 +32,12 @@ if ! command -v cargo >/dev/null 2>&1; then
   exit 1
 fi
 
-echo "pre-push: cargo fmt --all -- --check ..." >&2
-if ! cargo fmt --all -- --check; then
+echo "pre-push: workspace package fmt check ..." >&2
+if ! bash "$repo_root/scripts/cargo-fmt-workspace.sh" --check; then
   echo "" >&2
   echo "pre-push: REJECTED — code is not cargo-fmt clean (files listed above)." >&2
-  echo "pre-push: run \`cargo fmt --all\` and commit the result, then push again." >&2
+  echo "pre-push: run \`bash scripts/cargo-fmt-workspace.sh --write\` and commit the result, then push again." >&2
+  echo "pre-push: on native Windows, run \`pwsh -File scripts/cargo-fmt-workspace.ps1 -Write\`." >&2
   exit 1
 fi
 echo "pre-push: fmt clean — push allowed." >&2
