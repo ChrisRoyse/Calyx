@@ -237,6 +237,13 @@ fn weave_loom_tokens(args: &weave::WeaveLoomArgs) -> Vec<String> {
     ]);
     out.extend(["--batch".to_string(), args.batch.to_string()]);
     out.extend(["--limit".to_string(), args.limit.to_string()]);
+    out.extend([
+        "--candidate-selection".to_string(),
+        args.candidate_selection.as_str().to_string(),
+    ]);
+    if args.coverage_only {
+        out.push("--coverage-only".to_string());
+    }
     if let Some(time_budget_ms) = args.time_budget_ms {
         out.extend(["--time-budget-ms".to_string(), time_budget_ms.to_string()]);
     }

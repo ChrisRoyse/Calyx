@@ -55,6 +55,8 @@ impl WeaveLoomProgressWriter {
                 "max_groundedness_distance": self.args.max_groundedness_distance,
                 "batch": self.args.batch,
                 "limit": self.args.limit,
+                "candidate_selection": self.args.candidate_selection.as_str(),
+                "coverage_only": self.args.coverage_only,
                 "time_budget_ms": self.args.time_budget_ms,
             },
             "details": details,

@@ -31,6 +31,7 @@ use super::vault::{home_dir, resolve_vault_info, vault_salt};
 use crate::bounded_progress::Deadline;
 use crate::error::{CliError, CliResult};
 use crate::output::print_json;
+pub(crate) use coverage::CandidateSelectionMode;
 
 const DEFAULT_KNN: usize = 16;
 const DEFAULT_EDGE_COS_THRESHOLD: f32 = 0.5;
@@ -50,6 +51,10 @@ pub(crate) struct WeaveLoomArgs {
     /// Cap the number of constellations processed (0 = all). For bounded FSV
     /// runs; the report records the cap so partial runs are never read as full.
     pub limit: usize,
+    /// Which deterministic source-of-truth candidate set to materialize.
+    pub candidate_selection: CandidateSelectionMode,
+    /// Stop after coverage selection and print the selected candidate report.
+    pub coverage_only: bool,
     /// Internal wall-clock budget. If exceeded, persist an incomplete progress
     /// artifact and return CALYX_CLI_TIMEOUT before an outer supervisor kill.
     pub time_budget_ms: Option<u64>,
@@ -65,6 +70,8 @@ impl Default for WeaveLoomArgs {
             max_groundedness_distance: DEFAULT_MAX_GROUNDEDNESS_DISTANCE,
             batch: DEFAULT_BATCH,
             limit: 0,
+            candidate_selection: CandidateSelectionMode::BasePrefix,
+            coverage_only: false,
             time_budget_ms: None,
         }
     }
@@ -124,32 +131,42 @@ fn run_weave_loom(args: WeaveLoomArgs) -> CliResult {
 
     let deadline = Deadline::new(args.time_budget_ms);
     progress.write("running", "coverage_preflight_start", json!({}))?;
-    let preflight =
-        match coverage::dense_slot_preflight(&resolved.path, &content_slots, args.limit, &deadline)
-        {
-            Ok(preflight) => preflight,
-            Err(error) => {
-                let _ = progress.write(
-                    "incomplete",
-                    "coverage_preflight_error",
-                    json!({ "error": error_details(&error) }),
-                );
-                return Err(error);
-            }
-        };
+    let scan = match coverage::scan_dense_slot_coverage(
+        &resolved.path,
+        &content_slots,
+        args.limit,
+        args.candidate_selection,
+        &deadline,
+    ) {
+        Ok(scan) => scan,
+        Err(error) => {
+            let _ = progress.write(
+                "incomplete",
+                "coverage_preflight_error",
+                json!({ "error": error_details(&error) }),
+            );
+            return Err(error);
+        }
+    };
     progress.write(
         "running",
         "coverage_preflight_complete",
         json!({
-            "constellations_in_vault": preflight.constellations_in_vault,
-            "candidate_rows": preflight.candidates.len(),
-            "base_page_index_live_entries": preflight.base_page_index_live_entries,
+            "constellations_in_vault": scan.constellations_in_vault,
+            "candidate_scan_rows": scan.candidate_scan_rows,
+            "base_page_index_live_entries": scan.base_page_index_live_entries,
             "candidate_order": "base_page_index_key_order",
-            "coverage": &preflight.coverage,
+            "candidate_selection_mode": args.candidate_selection.as_str(),
+            "coverage": &scan.coverage,
         }),
     )?;
 
-    let selection = match coverage::select_slot_from_coverage(requested_slot, &preflight.coverage) {
+    let selection = match coverage::select_slot_from_coverage(
+        requested_slot,
+        args.candidate_selection,
+        args.limit,
+        &scan.coverage,
+    ) {
         Ok(selection) => selection,
         Err(detail) => {
             progress.write(
@@ -157,7 +174,7 @@ fn run_weave_loom(args: WeaveLoomArgs) -> CliResult {
                 "dense_slot_coverage",
                 json!({
                     "error": detail,
-                    "coverage": &preflight.coverage,
+                    "coverage": &scan.coverage,
                     "progress_artifact": progress.path().display().to_string(),
                 }),
             )?;
@@ -167,14 +184,48 @@ fn run_weave_loom(args: WeaveLoomArgs) -> CliResult {
             )));
         }
     };
+    let preflight = coverage::materialize_selected_preflight(scan, &selection);
     let knn_slot = selection.slot;
+    progress.write(
+        "running",
+        "candidate_selection_complete",
+        json!({
+            "selection": &selection,
+            "candidate_rows": preflight.candidates.len(),
+            "candidate_scan_rows": preflight.candidate_scan_rows,
+            "selected_candidate_cx_ids": &preflight.selected_candidate_cx_ids,
+        }),
+    )?;
+    if args.coverage_only {
+        let output = json!({
+            "status": "coverage_only",
+            "vault": resolved.name,
+            "vault_dir": resolved.path.display().to_string(),
+            "progress_artifact": progress.path().display().to_string(),
+            "content_slots": content_slots.iter().map(|s| s.get()).collect::<Vec<_>>(),
+            "skipped_incompatible_content_slots": incompatible_content_slots,
+            "candidate_selection_mode": args.candidate_selection.as_str(),
+            "candidate_order": "base_page_index_key_order",
+            "selection": &selection,
+            "dense_slot_coverage": &preflight.coverage,
+            "constellations_in_vault": preflight.constellations_in_vault,
+            "candidate_scan_rows": preflight.candidate_scan_rows,
+            "base_page_index_live_entries": preflight.base_page_index_live_entries,
+            "selected_candidate_rows": preflight.selected_candidate_rows,
+            "selected_candidate_cx_ids": &preflight.selected_candidate_cx_ids,
+        });
+        progress.write("coverage_only", "complete", json!({ "output": &output }))?;
+        return print_json(&output);
+    }
     progress.write(
         "running",
         "vault_open_start",
         json!({
             "selected_content_slot": knn_slot.get(),
             "selection_reason": selection.reason,
+            "candidate_selection_mode": selection.mode,
             "candidate_rows": preflight.candidates.len(),
+            "candidate_scan_rows": preflight.candidate_scan_rows,
         }),
     )?;
     let vault = match AsterVault::open(
@@ -200,7 +251,9 @@ fn run_weave_loom(args: WeaveLoomArgs) -> CliResult {
         json!({
             "selected_content_slot": knn_slot.get(),
             "selection_reason": selection.reason,
+            "candidate_selection_mode": selection.mode,
             "candidate_rows": preflight.candidates.len(),
+            "candidate_scan_rows": preflight.candidate_scan_rows,
         }),
     )?;
 
@@ -306,13 +359,19 @@ fn run_weave_loom(args: WeaveLoomArgs) -> CliResult {
         "skipped_incompatible_content_slots": incompatible_content_slots,
         "knn_slot": knn_slot.get(),
         "knn_slot_selection_reason": selection.reason,
+        "candidate_selection_mode": selection.mode,
+        "candidate_selection": &selection,
         "dense_slot_coverage": &preflight.coverage,
         "candidate_order": "base_page_index_key_order",
+        "candidate_scan_rows": preflight.candidate_scan_rows,
+        "base_page_index_live_entries": preflight.base_page_index_live_entries,
+        "selected_candidate_rows": preflight.selected_candidate_rows,
+        "selected_candidate_cx_ids": &preflight.selected_candidate_cx_ids,
         "knn": args.knn,
         "edge_cos_threshold": args.edge_cos_threshold,
         "constellations_in_vault": total_in_vault,
         "constellations_processed": within.constellations_processed,
-        "limited": args.limit > 0 && args.limit < total_in_vault,
+        "limited": within.constellations_processed < total_in_vault,
         "xterm": {
             "rows_persisted": within.xterm_rows_persisted,
             "slot_pair_count": within.agreement_pairs.len(),

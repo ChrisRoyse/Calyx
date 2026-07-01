@@ -1,4 +1,4 @@
-use super::WeaveLoomArgs;
+use super::{WeaveLoomArgs, coverage::CandidateSelectionMode};
 use crate::bounded_progress::parse_nonzero_u64;
 use crate::cmd::{Subcommand, value};
 use crate::error::{CliError, CliResult};
@@ -44,6 +44,14 @@ pub(crate) fn parse_weave_loom(rest: &[String]) -> CliResult<Subcommand> {
                 idx += 1;
                 args.limit = parse_usize(value(rest, idx, "--limit")?, "--limit", 0)?;
             }
+            "--candidate-selection" => {
+                idx += 1;
+                args.candidate_selection =
+                    parse_candidate_selection(value(rest, idx, "--candidate-selection")?)?;
+            }
+            "--coverage-only" => {
+                args.coverage_only = true;
+            }
             "--time-budget-ms" => {
                 idx += 1;
                 args.time_budget_ms = Some(parse_nonzero_u64(
@@ -87,4 +95,14 @@ fn parse_threshold(raw: &str) -> CliResult<f32> {
         ));
     }
     Ok(value)
+}
+
+fn parse_candidate_selection(raw: &str) -> CliResult<CandidateSelectionMode> {
+    match raw {
+        "covered" => Ok(CandidateSelectionMode::Covered),
+        "base-prefix" => Ok(CandidateSelectionMode::BasePrefix),
+        other => Err(CliError::usage(format!(
+            "--candidate-selection must be one of covered|base-prefix, got {other}"
+        ))),
+    }
 }

@@ -477,6 +477,8 @@ fn arb_subcommand() -> impl Strategy<Value = Subcommand> {
                     max_groundedness_distance,
                     batch,
                     limit,
+                    candidate_selection: weave::CandidateSelectionMode::Covered,
+                    coverage_only: false,
                     time_budget_ms: None,
                 })
             }),
