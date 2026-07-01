@@ -22,6 +22,8 @@ use super::*;
 use crate::cmd::search::rebuild_persistent_indexes;
 use crate::cmd::vault::vault_salt;
 
+mod refused;
+
 fn toks(parts: &[&str]) -> Vec<String> {
     parts.iter().map(|s| s.to_string()).collect()
 }
@@ -146,9 +148,29 @@ fn run_persists_matrix_then_reads_back_source_of_truth() {
     let readback_bytes = fs::read(&matrix_path).unwrap();
     let artifact: ProbeMatrixArtifact = serde_json::from_slice(&readback_bytes).unwrap();
 
-    assert_eq!(artifact.schema_version, 1);
+    assert_eq!(artifact.schema_version, 2);
+    assert_eq!(artifact.status, ProbeMatrixArtifactStatus::Ok);
     assert_eq!(artifact.vault, "happy");
     assert_eq!(artifact.active_slots, vec![SlotId::new(8), SlotId::new(14)]);
+    assert_eq!(artifact.diagnostics.query_measurements.len(), 1);
+    assert_eq!(
+        artifact.diagnostics.query_measurements[0].measure_call_count,
+        1
+    );
+    assert_eq!(
+        artifact.diagnostics.query_measurements[0].variant_use_count,
+        6
+    );
+    assert_eq!(
+        artifact.diagnostics.query_measurements[0].measured_slot_count,
+        2
+    );
+    assert_eq!(artifact.diagnostics.variant_guard_counts.len(), 6);
+    assert!(artifact.diagnostics.variant_guard_counts.iter().all(|row| {
+        row.pre_guard_hit_count.is_none()
+            && row.post_guard_hit_count.is_none()
+            && row.guard_filtered_hit_count.is_none()
+    }));
     assert_eq!(artifact.log.schema_version, 1);
     assert_eq!(artifact.log.records.len(), 6);
     assert!(!artifact.log.productive.is_empty());
@@ -193,6 +215,14 @@ fn requested_missing_slot_fails_before_artifact_write() {
 }
 
 fn seed_home(name: &str) -> (PathBuf, PathBuf) {
+    seed_home_with_anchors(name, true)
+}
+
+fn seed_home_without_anchors(name: &str) -> (PathBuf, PathBuf) {
+    seed_home_with_anchors(name, false)
+}
+
+fn seed_home_with_anchors(name: &str, anchored: bool) -> (PathBuf, PathBuf) {
     let home =
         std::env::temp_dir().join(format!("calyx-probe-matrix-{name}-{}", std::process::id()));
     let _ = fs::remove_dir_all(&home);
@@ -295,13 +325,15 @@ fn seed_home(name: &str) -> (PathBuf, PathBuf) {
             ("source_dataset".to_string(), "issue879-fixture".to_string()),
             ("source_id".to_string(), source_id.to_string()),
         ]);
-        cx.anchors.push(Anchor {
-            kind: AnchorKind::Label("answer".to_string()),
-            value: AnchorValue::Text(source_id.to_string()),
-            source: "issue879-test".to_string(),
-            observed_at: 1,
-            confidence: 1.0,
-        });
+        if anchored {
+            cx.anchors.push(Anchor {
+                kind: AnchorKind::Label("answer".to_string()),
+                value: AnchorValue::Text(source_id.to_string()),
+                source: "issue879-test".to_string(),
+                observed_at: 1,
+                confidence: 1.0,
+            });
+        }
         vault.put(cx).unwrap();
     }
     vault.flush().unwrap();

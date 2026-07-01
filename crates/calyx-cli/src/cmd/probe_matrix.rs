@@ -5,29 +5,40 @@ use std::path::{Path, PathBuf};
 use std::time::Instant;
 
 use calyx_aster::vault::{AsterVault, VaultOptions};
-use calyx_core::{CalyxError, CxId, Modality, Panel, SlotId, SlotState};
+use calyx_core::{CalyxError, CxId, Panel, SlotId};
 use calyx_lodestar::{
-    LodestarError, PROBE_MATRIX_SCHEMA_VERSION, ProbeFusionMode, ProbeHit, ProbeLength,
-    ProbeLensEmphasis, ProbeMatrixLog, ProbeMatrixSpec, ProbePhrasing, ProbeProductivity,
-    ProbeRecord, ProbeRefusal, ProbeResponse, ProbeVariant, build_probe_matrix,
+    PROBE_MATRIX_SCHEMA_VERSION, ProbeFusionMode, ProbeHit, ProbeLength, ProbeLensEmphasis,
+    ProbeMatrixLog, ProbeMatrixSpec, ProbePhrasing, ProbeProductivity, ProbeRecord, ProbeRefusal,
+    ProbeResponse, ProbeVariant, build_probe_matrix,
 };
 use calyx_registry::{load_vault_panel_state, require_vault_registry_contracts};
-use calyx_search::{FusionChoice, GuardChoice, SearchFreshness, search_outcome_with_slots_traced};
+use calyx_search::{
+    FusionChoice, GuardChoice, SearchFreshness, search_outcome_with_query_vectors_freshness,
+};
 use calyx_sextant::{Hit, RrfProfile};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
 use super::Subcommand;
 use super::vault::{home_dir, resolve_vault_info, vault_salt};
-use crate::error::{CliError, CliResult};
+use crate::error::CliResult;
 use crate::output::print_json;
 
+mod diagnostics;
 mod parse;
 mod persist;
+mod support;
 mod trace;
+use diagnostics::{
+    ProbeMatrixArtifactStatus, ProbeMatrixDiagnostics, QueryVectorCache, variant_guard_diagnostic,
+};
 pub(crate) use parse::parse_probe_matrix;
 use persist::persist_probe_matrix;
-const PROBE_MATRIX_ARTIFACT_SCHEMA_VERSION: u32 = 1;
+use support::{
+    accepted_hit_count, active_text_slots, hex_lower, invalid_params, validate_requested_slots,
+    with_persisted_artifact_error,
+};
+const PROBE_MATRIX_ARTIFACT_SCHEMA_VERSION: u32 = 2;
 
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct ProbeMatrixArgs {
@@ -61,10 +72,12 @@ impl Default for ProbeMatrixArgs {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 struct ProbeMatrixArtifact {
     schema_version: u32,
+    status: ProbeMatrixArtifactStatus,
     vault: String,
     vault_id: String,
     vault_dir: String,
     active_slots: Vec<SlotId>,
+    diagnostics: ProbeMatrixDiagnostics,
     log: ProbeMatrixLog,
 }
 
@@ -149,6 +162,8 @@ pub(crate) fn run_probe_matrix_with_home(home: &Path, args: ProbeMatrixArgs) -> 
         rayon::current_num_threads()
     );
     let allowed_slots = spec.active_slots.iter().copied().collect::<BTreeSet<_>>();
+    let mut query_cache = QueryVectorCache::new(allowed_slots.clone());
+    let mut guard_diagnostics = Vec::new();
     let log = run_physical_probe_matrix(&spec, |variant| {
         probe_variant(
             &vault,
@@ -156,16 +171,22 @@ pub(crate) fn run_probe_matrix_with_home(home: &Path, args: ProbeMatrixArgs) -> 
             &resolved.path,
             variant,
             args.guard,
-            &allowed_slots,
+            &mut query_cache,
+            &mut guard_diagnostics,
         )
     })?;
-    ensure_useful_log(&log)?;
+    let status = ProbeMatrixArtifactStatus::from_log(&log);
     let artifact = ProbeMatrixArtifact {
         schema_version: PROBE_MATRIX_ARTIFACT_SCHEMA_VERSION,
+        status,
         vault: resolved.name.clone(),
         vault_id: resolved.vault_id.to_string(),
         vault_dir: resolved.path.display().to_string(),
         active_slots: spec.active_slots.clone(),
+        diagnostics: ProbeMatrixDiagnostics {
+            query_measurements: query_cache.diagnostics(),
+            variant_guard_counts: guard_diagnostics,
+        },
         log,
     };
     let persisted = persist_probe_matrix(&resolved.path, args.out.as_deref(), &artifact)?;
@@ -176,6 +197,9 @@ pub(crate) fn run_probe_matrix_with_home(home: &Path, args: ProbeMatrixArgs) -> 
         persisted.sha256,
         started.elapsed().as_millis()
     );
+    if let Err(error) = ensure_useful_log(&artifact.log) {
+        return Err(with_persisted_artifact_error(error, &persisted));
+    }
     print_json(&json!({
         "status": "ok",
         "vault": resolved.name,
@@ -249,23 +273,33 @@ fn probe_variant(
     vault_dir: &Path,
     variant: &ProbeVariant,
     guard: GuardChoice,
-    allowed_slots: &BTreeSet<SlotId>,
+    query_cache: &mut QueryVectorCache,
+    guard_diagnostics: &mut Vec<diagnostics::ProbeMatrixVariantDiagnostic>,
 ) -> CliResult<ProbeResponse> {
-    let mut trace_sink = trace::emit_search_trace_event;
-    let outcome = search_outcome_with_slots_traced(
+    let (query_text_sha256, query_vectors) =
+        query_cache.query_vectors(state, &variant.query_text)?;
+    let mut events = Vec::new();
+    let mut trace_sink = |event: calyx_search::SearchTraceEvent| {
+        events.push(event.clone());
+        trace::emit_search_trace_event(event);
+    };
+    let outcome = search_outcome_with_query_vectors_freshness(
         vault,
-        state,
         vault_dir,
-        &variant.query_text,
+        query_vectors,
         variant.top_k,
         fusion_choice(variant),
         guard,
         None,
         false,
-        Some(allowed_slots),
         SearchFreshness::Fresh,
         Some(&mut trace_sink),
     )?;
+    guard_diagnostics.push(variant_guard_diagnostic(
+        variant.id,
+        query_text_sha256,
+        &events,
+    ));
     let mut hits = Vec::with_capacity(outcome.hits.len());
     let calyx_search::SearchOutcome {
         hits: outcome_hits,
@@ -433,67 +467,6 @@ fn ensure_useful_log(log: &ProbeMatrixLog) -> CliResult {
         ));
     }
     Ok(())
-}
-
-fn active_text_slots(slots: &[calyx_core::Slot]) -> CliResult<Vec<SlotId>> {
-    let out = slots
-        .iter()
-        .filter(|slot| slot.state == SlotState::Active && slot.modality == Modality::Text)
-        .map(|slot| slot.slot_id)
-        .collect::<Vec<_>>();
-    if out.is_empty() {
-        return Err(CliError::usage(
-            "probe-matrix found no active text slots; pass --slot only after adding active text lenses",
-        ));
-    }
-    Ok(out)
-}
-
-fn validate_requested_slots(
-    requested: &[SlotId],
-    slots: &[calyx_core::Slot],
-) -> CliResult<Vec<SlotId>> {
-    for slot_id in requested {
-        let Some(slot) = slots.iter().find(|slot| slot.slot_id == *slot_id) else {
-            return Err(CliError::usage(format!(
-                "--slot {slot_id} is not present in the vault panel"
-            )));
-        };
-        if slot.state != SlotState::Active || slot.modality != Modality::Text {
-            return Err(CliError::usage(format!(
-                "--slot {slot_id} is not an active text slot"
-            )));
-        }
-    }
-    Ok(requested.to_vec())
-}
-
-fn accepted_hit_count(log: &ProbeMatrixLog) -> usize {
-    log.records
-        .iter()
-        .map(|record| record.accepted_hit_count)
-        .sum()
-}
-
-fn refusal_count(log: &ProbeMatrixLog) -> usize {
-    log.records.iter().map(|record| record.refusals.len()).sum()
-}
-
-fn invalid_params(detail: impl Into<String>) -> CliError {
-    LodestarError::KernelInvalidParams {
-        detail: detail.into(),
-    }
-    .into()
-}
-
-fn hex_lower(bytes: &[u8]) -> String {
-    const HEX: &[u8; 16] = b"0123456789abcdef";
-    let mut out = String::with_capacity(bytes.len() * 2);
-    for byte in bytes {
-        out.push(HEX[(byte >> 4) as usize] as char);
-        out.push(HEX[(byte & 0x0f) as usize] as char);
-    }
-    out
 }
 
 #[cfg(test)]

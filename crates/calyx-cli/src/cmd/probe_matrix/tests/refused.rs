@@ -1,0 +1,54 @@
+use super::*;
+
+#[test]
+fn refused_probe_persists_diagnostic_matrix_before_fail_closed_exit() {
+    let (home, vault_dir) = seed_home_without_anchors("refused");
+
+    let err = run_probe_matrix_with_home(
+        &home,
+        ProbeMatrixArgs {
+            vault: "refused".to_string(),
+            frontier: "alpha".to_string(),
+            slots: vec![SlotId::new(8), SlotId::new(14)],
+            weighted_profiles: vec![RrfProfile::Bridge],
+            phrasings: vec![ProbePhrasing::Terse],
+            lengths: vec![ProbeLength::Entity],
+            top_k: 1,
+            guard: GuardChoice::Off,
+            out: None,
+        },
+    )
+    .unwrap_err();
+
+    assert_eq!(err.code(), "CALYX_KERNEL_INVALID_PARAMS");
+    assert!(
+        err.message()
+            .contains("diagnostic matrix artifact persisted")
+    );
+    let matrix_path = only_matrix(&vault_dir);
+    let readback_bytes = fs::read(&matrix_path).unwrap();
+    let artifact: ProbeMatrixArtifact = serde_json::from_slice(&readback_bytes).unwrap();
+
+    assert_eq!(artifact.status, ProbeMatrixArtifactStatus::Refused);
+    assert_eq!(artifact.log.records.len(), 6);
+    assert!(artifact.log.productive.is_empty());
+    assert_eq!(
+        artifact
+            .log
+            .records
+            .iter()
+            .map(|record| record.accepted_hit_count)
+            .sum::<usize>(),
+        0
+    );
+    assert!(artifact.log.records.iter().all(|record| {
+        record
+            .refusals
+            .iter()
+            .any(|refusal| refusal.code == "CALYX_PROBE_UNGROUNDED_HITS")
+    }));
+    assert_eq!(
+        artifact.diagnostics.query_measurements[0].variant_use_count,
+        6
+    );
+}

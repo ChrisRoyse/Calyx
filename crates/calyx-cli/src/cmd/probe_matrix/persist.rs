@@ -3,7 +3,8 @@ use std::path::{Path, PathBuf};
 
 use sha2::{Digest, Sha256};
 
-use super::{ProbeMatrixArtifact, accepted_hit_count, hex_lower, refusal_count};
+use super::ProbeMatrixArtifact;
+use super::support::{accepted_hit_count, hex_lower, refusal_count};
 use crate::error::{CliError, CliResult};
 
 pub(super) struct PersistedProbeMatrix {
