@@ -1,7 +1,7 @@
 use crate::cf::{ColumnFamily, anchor_key, base_key, ledger_key, slot_key};
 use crate::mvcc::{CfRead, Snapshot};
 use calyx_core::{Anchor, CalyxError, Clock, Constellation, CxId, Result, Seq, SlotId, VaultStore};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use super::{AsterVault, anchor_merge, encode, ledger_hook, ledger_stub};
 
@@ -13,8 +13,51 @@ where
 {
     /// Reads one stored constellation through an already-pinned snapshot lease.
     pub fn get_at_snapshot(&self, id: CxId, snapshot: Snapshot) -> Result<Constellation> {
-        let mut constellation = self.read_base_at_snapshot(id, snapshot)?;
+        let constellation = self.read_base_at_snapshot(id, snapshot)?;
         let slot_ids: Vec<SlotId> = constellation.slots.keys().copied().collect();
+        self.hydrate_slots_at_snapshot(id, snapshot, constellation, slot_ids)
+    }
+
+    /// Reads one stored constellation through an already-pinned snapshot lease,
+    /// hydrating only the requested slots. The requested slots must be present
+    /// in the Base CF row, otherwise the derived caller state is stale.
+    pub fn get_selected_slots_at_snapshot<I>(
+        &self,
+        id: CxId,
+        snapshot: Snapshot,
+        selected_slots: I,
+    ) -> Result<Constellation>
+    where
+        I: IntoIterator<Item = SlotId>,
+    {
+        let constellation = self.read_base_at_snapshot(id, snapshot)?;
+        let available_slots = constellation.slots.keys().copied().collect::<BTreeSet<_>>();
+        let slot_ids = selected_slots.into_iter().collect::<BTreeSet<_>>();
+        for slot in &slot_ids {
+            if !available_slots.contains(slot) {
+                return Err(CalyxError::stale_derived(format!(
+                    "selected slot {slot} is absent from Base row for {id}"
+                )));
+            }
+        }
+        self.hydrate_slots_at_snapshot(id, snapshot, constellation, slot_ids)
+    }
+
+    fn hydrate_slots_at_snapshot<I>(
+        &self,
+        id: CxId,
+        snapshot: Snapshot,
+        mut constellation: Constellation,
+        slot_ids: I,
+    ) -> Result<Constellation>
+    where
+        I: IntoIterator<Item = SlotId>,
+    {
+        let slot_ids: Vec<SlotId> = slot_ids.into_iter().collect();
+        if slot_ids.is_empty() {
+            constellation.slots.clear();
+            return Ok(constellation);
+        }
         let reads: Vec<_> = slot_ids
             .iter()
             .map(|slot| CfRead::new(ColumnFamily::slot(*slot), slot_key(id)))

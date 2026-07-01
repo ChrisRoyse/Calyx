@@ -97,3 +97,60 @@ fn gpu_slot_without_resident_persists_incomplete_matrix_source_of_truth() {
     assert_eq!(progress["status"], "failed");
     assert_eq!(progress["phase"], "resident_required");
 }
+
+#[test]
+fn in_region_guard_diagnostics_persist_hydration_state_source_of_truth() {
+    let (home, vault_dir) = seed_home("guard-diagnostics");
+    let out = vault_dir.join("guard-diagnostics-matrix.json");
+
+    let err = run_probe_matrix_with_home(
+        &home,
+        ProbeMatrixArgs {
+            vault: "guard-diagnostics".to_string(),
+            frontier: "alpha".to_string(),
+            slots: vec![SlotId::new(8), SlotId::new(14)],
+            weighted_profiles: vec![RrfProfile::Bridge],
+            phrasings: vec![ProbePhrasing::Terse],
+            lengths: vec![ProbeLength::Entity],
+            top_k: 1,
+            guard: GuardChoice::InRegion,
+            out: Some(out.clone()),
+            resident_addr: None,
+            max_variants: Some(1),
+            time_budget_ms: None,
+        },
+    )
+    .unwrap_err();
+
+    assert_eq!(err.code(), "CALYX_PROBE_MATRIX_INCOMPLETE");
+    let artifact: ProbeMatrixArtifact = serde_json::from_slice(&fs::read(&out).unwrap()).unwrap();
+    assert_eq!(artifact.schema_version, 4);
+    assert_eq!(artifact.diagnostics.variant_guard_counts.len(), 1);
+    let row = &artifact.diagnostics.variant_guard_counts[0];
+    assert_eq!(row.guard_prefilter_input_count, Some(3));
+    assert_eq!(row.guard_prefilter_output_count, Some(1));
+    assert_eq!(row.guard_prefilter_filtered_count, Some(2));
+    assert!(row.guard_prefilter_elapsed_ms.is_some());
+    assert_eq!(row.hit_hydration_candidate_count, Some(1));
+    assert_eq!(row.hit_hydration_doc_count, Some(1));
+    assert!(row.hit_hydration_elapsed_ms.is_some());
+    assert!(row.per_hit_hydrate_start_count >= row.hit_hydration_doc_count.unwrap());
+    assert!(row.per_hit_hydrate_done_count >= row.hit_hydration_doc_count.unwrap());
+    assert_eq!(row.pre_guard_hit_count, Some(1));
+    assert_eq!(row.post_guard_hit_count, Some(1));
+    assert_eq!(row.guard_filtered_hit_count, Some(0));
+    assert_eq!(row.guard_tau.as_deref(), Some("0.999000"));
+    assert_eq!(row.guard_best_cosine_min.as_deref(), Some("1.000000"));
+    assert_eq!(row.guard_best_cosine_max.as_deref(), Some("1.000000"));
+    assert_eq!(row.guard_missing_cosine_count, Some(0));
+    assert!(row.guard_start_elapsed_ms.is_some());
+    assert!(row.guard_done_elapsed_ms.is_some());
+    assert!(row.search_done_elapsed_ms.is_some());
+    assert_eq!(row.last_search_phase.as_deref(), Some("search.done"));
+    assert!(row.guard_zero_hit_reason.is_none());
+
+    let progress: serde_json::Value =
+        serde_json::from_slice(&fs::read(&artifact.run.progress_artifact).unwrap()).unwrap();
+    assert_eq!(progress["status"], "incomplete");
+    assert_eq!(progress["phase"], "variant_budget_exhausted");
+}

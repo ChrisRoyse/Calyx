@@ -3,7 +3,10 @@ use super::*;
 use calyx_core::{
     Constellation, CxFlags, CxId, InputRef, LedgerRef, Modality, SlotId, SlotVector, VaultId,
 };
-use calyx_sextant::{CausalConfidence, FreshnessTag, Hit, PerLensContribution, ProvenanceSource};
+use calyx_sextant::{
+    CausalConfidence, FreshnessTag, FusionStrategy, Hit, PerLensContribution, ProvenanceSource,
+    RrfProfile,
+};
 use std::collections::BTreeMap;
 use ulid::Ulid;
 
@@ -85,6 +88,64 @@ fn in_region_guard_keeps_aligned_dense_hit() {
         kept.len(),
         1,
         "identical vector (cosine 1.0) must pass the guard"
+    );
+}
+
+#[test]
+fn in_region_prefilter_rejects_hits_below_dense_tau_before_hydration() {
+    let slot = SlotId::new(0);
+    let query_vectors = vec![(
+        slot,
+        SlotVector::Dense {
+            dim: 2,
+            data: vec![1.0, 0.0],
+        },
+    )];
+    let mut hit = sample_hit(cx(4));
+    hit.per_lens[0].raw_score = GUARD_TAU - 0.001;
+
+    let kept = prefilter_in_region_candidates(vec![hit], &query_vectors);
+    assert!(
+        kept.is_empty(),
+        "candidate below the dense guard tau cannot pass the later exact guard"
+    );
+}
+
+#[test]
+fn in_region_prefilter_keeps_hits_at_dense_tau_for_exact_guard() {
+    let slot = SlotId::new(0);
+    let query_vectors = vec![(
+        slot,
+        SlotVector::Dense {
+            dim: 2,
+            data: vec![1.0, 0.0],
+        },
+    )];
+    let mut hit = sample_hit(cx(5));
+    hit.per_lens[0].raw_score = GUARD_TAU;
+
+    let kept = prefilter_in_region_candidates(vec![hit], &query_vectors);
+    assert_eq!(kept.len(), 1);
+}
+
+#[test]
+fn in_region_prefilter_rejects_non_dense_only_hits() {
+    let slot = SlotId::new(13);
+    let query_vectors = vec![(
+        slot,
+        SlotVector::Sparse {
+            dim: 30_522,
+            entries: vec![calyx_core::SparseEntry { idx: 7, val: 1.0 }],
+        },
+    )];
+    let mut hit = sample_hit(cx(6));
+    hit.per_lens[0].slot = slot;
+    hit.per_lens[0].raw_score = GUARD_TAU + 0.001;
+
+    let kept = prefilter_in_region_candidates(vec![hit], &query_vectors);
+    assert!(
+        kept.is_empty(),
+        "the exact in-region guard only evaluates dense query/doc slots"
     );
 }
 

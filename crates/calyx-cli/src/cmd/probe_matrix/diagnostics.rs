@@ -51,6 +51,15 @@ pub(super) struct ProbeMatrixQueryMeasurement {
 pub(super) struct ProbeMatrixVariantDiagnostic {
     pub variant_id: usize,
     pub query_text_sha256: String,
+    pub guard_prefilter_input_count: Option<usize>,
+    pub guard_prefilter_output_count: Option<usize>,
+    pub guard_prefilter_filtered_count: Option<usize>,
+    pub guard_prefilter_elapsed_ms: Option<u128>,
+    pub hit_hydration_candidate_count: Option<usize>,
+    pub hit_hydration_doc_count: Option<usize>,
+    pub hit_hydration_elapsed_ms: Option<u128>,
+    pub per_hit_hydrate_start_count: usize,
+    pub per_hit_hydrate_done_count: usize,
     pub pre_guard_hit_count: Option<usize>,
     pub post_guard_hit_count: Option<usize>,
     pub guard_filtered_hit_count: Option<usize>,
@@ -58,6 +67,12 @@ pub(super) struct ProbeMatrixVariantDiagnostic {
     pub guard_best_cosine_min: Option<String>,
     pub guard_best_cosine_max: Option<String>,
     pub guard_missing_cosine_count: Option<usize>,
+    pub guard_start_elapsed_ms: Option<u128>,
+    pub guard_done_elapsed_ms: Option<u128>,
+    pub search_done_elapsed_ms: Option<u128>,
+    pub last_search_phase: Option<String>,
+    pub last_search_elapsed_ms: Option<u128>,
+    pub guard_zero_hit_reason: Option<String>,
 }
 
 pub(super) struct QueryVectorCache {
@@ -160,12 +175,27 @@ pub(super) fn variant_guard_diagnostic(
     query_text_sha256: String,
     events: &[SearchTraceEvent],
 ) -> ProbeMatrixVariantDiagnostic {
+    let prefilter_in = count_for_phase(events, "guard.prefilter.start");
+    let prefilter_out = count_for_phase(events, "guard.prefilter.done");
     let pre = count_for_phase(events, "guard.in_region.start");
     let post = count_for_phase(events, "guard.in_region.done");
     let summary = guard_candidate_summary(events);
+    let last_event = events.last();
     ProbeMatrixVariantDiagnostic {
         variant_id,
         query_text_sha256,
+        guard_prefilter_input_count: prefilter_in,
+        guard_prefilter_output_count: prefilter_out,
+        guard_prefilter_filtered_count: match (prefilter_in, prefilter_out) {
+            (Some(before), Some(after)) => Some(before.saturating_sub(after)),
+            _ => None,
+        },
+        guard_prefilter_elapsed_ms: elapsed_for_phase(events, "guard.prefilter.done"),
+        hit_hydration_candidate_count: count_for_phase(events, "hit_docs.hydrate.start"),
+        hit_hydration_doc_count: count_for_phase(events, "hit_docs.hydrate.done"),
+        hit_hydration_elapsed_ms: elapsed_for_phase(events, "hit_docs.hydrate.done"),
+        per_hit_hydrate_start_count: event_count_for_phase(events, "hit_doc.hydrate.start"),
+        per_hit_hydrate_done_count: event_count_for_phase(events, "hit_doc.hydrate.done"),
         pre_guard_hit_count: pre,
         post_guard_hit_count: post,
         guard_filtered_hit_count: match (pre, post) {
@@ -176,6 +206,12 @@ pub(super) fn variant_guard_diagnostic(
         guard_best_cosine_min: summary.min,
         guard_best_cosine_max: summary.max,
         guard_missing_cosine_count: summary.missing,
+        guard_start_elapsed_ms: elapsed_for_phase(events, "guard.in_region.start"),
+        guard_done_elapsed_ms: elapsed_for_phase(events, "guard.in_region.done"),
+        search_done_elapsed_ms: elapsed_for_phase(events, "search.done"),
+        last_search_phase: last_event.map(|event| event.phase.to_string()),
+        last_search_elapsed_ms: last_event.map(|event| event.elapsed_ms),
+        guard_zero_hit_reason: guard_zero_hit_reason(prefilter_in, prefilter_out, pre, post),
     }
 }
 
@@ -185,6 +221,18 @@ fn count_for_phase(events: &[SearchTraceEvent], phase: &str) -> Option<usize> {
         .rev()
         .find(|event| event.phase == phase)
         .and_then(|event| event.count)
+}
+
+fn elapsed_for_phase(events: &[SearchTraceEvent], phase: &str) -> Option<u128> {
+    events
+        .iter()
+        .rev()
+        .find(|event| event.phase == phase)
+        .map(|event| event.elapsed_ms)
+}
+
+fn event_count_for_phase(events: &[SearchTraceEvent], phase: &str) -> usize {
+    events.iter().filter(|event| event.phase == phase).count()
 }
 
 fn sha256_text(query: &str) -> String {
@@ -233,4 +281,51 @@ fn detail_field<'a>(detail: &'a str, field: &str) -> Option<&'a str> {
     detail
         .split_whitespace()
         .find_map(|part| part.strip_prefix(field)?.strip_prefix('='))
+}
+
+fn guard_zero_hit_reason(
+    prefilter_in: Option<usize>,
+    prefilter_out: Option<usize>,
+    pre: Option<usize>,
+    post: Option<usize>,
+) -> Option<String> {
+    match (prefilter_in, prefilter_out, pre, post) {
+        (Some(before), Some(0), _, _) if before > 0 => {
+            Some("in_region_guard_prefilter_rejected_all_candidates".to_string())
+        }
+        (_, _, Some(before), Some(0)) if before > 0 => {
+            Some("in_region_guard_filtered_all_candidates".to_string())
+        }
+        (_, _, Some(0), Some(0)) => Some("no_pre_guard_hits".to_string()),
+        _ => None,
+    }
+}
+
+#[cfg(test)]
+mod diagnostic_tests {
+    use super::*;
+
+    #[test]
+    fn zero_hit_reason_prefers_prefilter_rejection() {
+        assert_eq!(
+            guard_zero_hit_reason(Some(64), Some(0), Some(0), Some(0)).as_deref(),
+            Some("in_region_guard_prefilter_rejected_all_candidates")
+        );
+    }
+
+    #[test]
+    fn zero_hit_reason_reports_exact_guard_filtering() {
+        assert_eq!(
+            guard_zero_hit_reason(Some(64), Some(4), Some(4), Some(0)).as_deref(),
+            Some("in_region_guard_filtered_all_candidates")
+        );
+    }
+
+    #[test]
+    fn zero_hit_reason_reports_no_pre_guard_hits() {
+        assert_eq!(
+            guard_zero_hit_reason(None, None, Some(0), Some(0)).as_deref(),
+            Some("no_pre_guard_hits")
+        );
+    }
 }

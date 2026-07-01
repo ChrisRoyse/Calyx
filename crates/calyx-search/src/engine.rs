@@ -10,9 +10,9 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
 use calyx_aster::vault::AsterVault;
-use calyx_core::{Constellation, CxId, SlotId, SlotVector};
+use calyx_core::{CxId, SlotId, SlotVector};
+use calyx_sextant::FusionContext;
 use calyx_sextant::fusion;
-use calyx_sextant::{FusionContext, FusionStrategy, Hit, RrfProfile};
 
 use crate::engine_fusion::{stage1_slots, weights_for};
 pub use crate::engine_measure::{measure_query_vectors, measure_query_vectors_with_slots};
@@ -30,95 +30,22 @@ mod budget;
 mod guard;
 mod hydration;
 mod support;
+mod types;
 pub use budget::SearchBudget;
-use guard::apply_in_region_guard_traced;
+#[cfg(test)]
+use guard::prefilter_in_region_candidates;
+use guard::{apply_in_region_guard_traced, prefilter_in_region_candidates_traced};
 use hydration::hydrate_hit_docs_with_bounded_readbacks;
 use support::{SearchReadSnapshot, is_stale_derived, renumber_and_truncate, vault_base_count_at};
 #[cfg(test)]
 use support::{apply_in_region_guard, cosine};
+pub use types::{FusionChoice, GuardChoice, SearchFreshness, SearchOutcome};
 
 /// In-region guard cosine threshold (mirrors the CLI default).
 const GUARD_TAU: f32 = 0.999;
 
 /// Bounded MVCC reader lease for a whole search readback pass.
 const SEARCH_READER_LEASE_MS: u64 = 300_000;
-
-/// Fusion strategy choice (transport-agnostic; the CLI flag parser and the HTTP
-/// request both map onto this, then it resolves to a concrete `FusionStrategy`
-/// against the live slot set).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum FusionChoice {
-    Rrf,
-    WeightedRrf,
-    WeightedRrfProfile(RrfProfile),
-    SingleLens,
-    SingleLensSlot(SlotId),
-    KernelFirst,
-    Pipeline,
-}
-
-impl FusionChoice {
-    pub fn to_strategy(self, slots: &[SlotId]) -> CliResult<FusionStrategy> {
-        match self {
-            Self::Rrf => Ok(FusionStrategy::Rrf),
-            Self::WeightedRrf => Ok(FusionStrategy::WeightedRrf {
-                profile: RrfProfile::General,
-            }),
-            Self::WeightedRrfProfile(profile) => Ok(FusionStrategy::WeightedRrf { profile }),
-            Self::SingleLens => slots
-                .first()
-                .copied()
-                .map(|slot| FusionStrategy::SingleLens { slot })
-                .ok_or_else(|| {
-                    crate::error::SearchError::usage("single-lens search has no active lens slot")
-                }),
-            Self::SingleLensSlot(slot) => {
-                if slots.contains(&slot) {
-                    Ok(FusionStrategy::SingleLens { slot })
-                } else {
-                    Err(crate::error::SearchError::usage(format!(
-                        "single-lens search requested slot {slot}, but the slot has no active persisted search results"
-                    )))
-                }
-            }
-            Self::KernelFirst => Ok(FusionStrategy::WeightedRrf {
-                profile: RrfProfile::Kernel,
-            }),
-            Self::Pipeline => Ok(FusionStrategy::Pipeline),
-        }
-    }
-}
-
-/// Guard choice for a search.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum GuardChoice {
-    Off,
-    InRegion,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum SearchFreshness {
-    Fresh,
-    StaleOk,
-}
-
-/// The result of a search: ranked hits (each carrying score + stored
-/// provenance) and the guard tau actually applied (if any).
-pub struct SearchOutcome {
-    pub hits: Vec<Hit>,
-    pub guard_tau: Option<f32>,
-    pub docs: BTreeMap<CxId, Constellation>,
-}
-
-impl SearchOutcome {
-    fn empty() -> Self {
-        Self {
-            hits: Vec::new(),
-            guard_tau: None,
-            docs: BTreeMap::new(),
-        }
-    }
-}
 
 /// Run the real search over `vault` (already opened) using its persisted
 /// indexes at `vault_dir`. `state` is the loaded panel state (the query is
@@ -425,6 +352,22 @@ fn search_outcome_with_measured_slots(
         trace.emit("fusion.truncate.done", None, Some(hits.len()));
     }
     let hydrate_hit_slots = guard == GuardChoice::InRegion;
+    if guard == GuardChoice::InRegion {
+        let before = hits.len();
+        trace.emit("guard.prefilter.start", None, Some(before));
+        budget.check("before_in_region_prefilter", before)?;
+        hits = prefilter_in_region_candidates_traced(hits, query_vectors, trace);
+        budget.check("after_in_region_prefilter", hits.len())?;
+        trace.emit_detail(
+            "guard.prefilter.done",
+            None,
+            Some(hits.len()),
+            Some(format!(
+                "filtered={} tau={GUARD_TAU:.6}",
+                before.saturating_sub(hits.len())
+            )),
+        );
+    }
     trace.emit_detail(
         "hit_docs.hydrate.start",
         None,
