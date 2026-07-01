@@ -1,3 +1,4 @@
+use super::page;
 use super::{SstEntry, SstKeyState, SstLookupMetadata, SstReader};
 use calyx_core::Result;
 use rayon::prelude::*;
@@ -6,12 +7,12 @@ use std::path::PathBuf;
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct SstLevel {
-    files: Vec<LevelFile>,
+    pub(super) files: Vec<LevelFile>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct LevelFile {
-    path: PathBuf,
+pub(super) struct LevelFile {
+    pub(super) path: PathBuf,
     lookup: Option<SstLookupMetadata>,
 }
 
@@ -145,6 +146,43 @@ impl SstLevel {
             .into_iter()
             .filter_map(|(key, is_tombstone)| (!is_tombstone).then_some(key))
             .collect())
+    }
+
+    pub fn range_page_until(
+        &self,
+        start: &[u8],
+        end: Option<&[u8]>,
+        after_key: Option<&[u8]>,
+        limit: usize,
+    ) -> Result<Vec<SstEntry>> {
+        self.range_page_with_overlay(start, end, after_key, limit, Vec::new())
+    }
+
+    pub(crate) fn range_page_with_overlay(
+        &self,
+        start: &[u8],
+        end: Option<&[u8]>,
+        after_key: Option<&[u8]>,
+        limit: usize,
+        overlay: Vec<SstEntry>,
+    ) -> Result<Vec<SstEntry>> {
+        page::range_page(self, start, end, after_key, limit, overlay)
+    }
+
+    pub(crate) fn range_pages_with_overlay<F, E>(
+        &self,
+        start: &[u8],
+        end: Option<&[u8]>,
+        after_key: Option<&[u8]>,
+        limit: usize,
+        overlay: Vec<SstEntry>,
+        on_page: F,
+    ) -> std::result::Result<(), E>
+    where
+        F: FnMut(Vec<SstEntry>) -> std::result::Result<(), E>,
+        E: From<calyx_core::CalyxError>,
+    {
+        page::range_pages(self, start, end, after_key, limit, overlay, on_page)
     }
 
     pub fn iter(&self) -> Result<Vec<SstEntry>> {

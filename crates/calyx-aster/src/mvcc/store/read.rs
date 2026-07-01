@@ -130,6 +130,19 @@ impl VersionedCfStore {
         if limit == 0 {
             return Ok(Vec::new());
         }
+        if self.router_latest_readback.load(Ordering::Acquire) {
+            let mut rows = self.router_latest_rows_page(snapshot, cf, range, after_key, limit)?;
+            self.overlay_table_rows(snapshot, cf, Some(range), &mut rows);
+            for key in rows.keys() {
+                self.ensure_unbarriered(cf, key)?;
+            }
+            return Ok(rows
+                .into_iter()
+                .filter(|(key, _)| range.contains(key))
+                .filter(|(key, _)| after_key.is_none_or(|after| key.as_slice() > after))
+                .take(limit)
+                .collect());
+        }
         let start = after_key.unwrap_or(&range.start).to_vec();
         let lower = if after_key.is_some() {
             Bound::Excluded((cf, start))
@@ -162,7 +175,7 @@ impl VersionedCfStore {
         Ok(rows)
     }
 
-    fn ensure_unbarriered(&self, cf: ColumnFamily, key: &[u8]) -> Result<()> {
+    pub(super) fn ensure_unbarriered(&self, cf: ColumnFamily, key: &[u8]) -> Result<()> {
         let barriers = self
             .read_barriers
             .read()
@@ -190,6 +203,29 @@ impl VersionedCfStore {
         Ok(router
             .get(cf, key)?
             .filter(|value| !is_tombstone_value(value)))
+    }
+
+    fn router_latest_rows_page(
+        &self,
+        snapshot: Snapshot,
+        cf: ColumnFamily,
+        range: &KeyRange,
+        after_key: Option<&[u8]>,
+        limit: usize,
+    ) -> Result<BTreeMap<Vec<u8>, Vec<u8>>> {
+        if !self.router_latest_readback.load(Ordering::Acquire) {
+            return Ok(BTreeMap::new());
+        }
+        self.ensure_router_latest_snapshot(snapshot)?;
+        let router = self.router.read().expect("mvcc router poisoned");
+        let Some(router) = router.as_ref() else {
+            return Ok(BTreeMap::new());
+        };
+        Ok(router
+            .range_page_until(cf, &range.start, range.end.as_deref(), after_key, limit)?
+            .into_iter()
+            .filter_map(|row| (!is_tombstone_value(&row.value)).then_some((row.key, row.value)))
+            .collect())
     }
 
     fn router_latest_rows(
@@ -292,7 +328,7 @@ impl VersionedCfStore {
         }
     }
 
-    fn ensure_router_latest_snapshot(&self, snapshot: Snapshot) -> Result<()> {
+    pub(super) fn ensure_router_latest_snapshot(&self, snapshot: Snapshot) -> Result<()> {
         let latest = self.current_seq();
         if snapshot.seq() == latest {
             return Ok(());
@@ -304,7 +340,7 @@ impl VersionedCfStore {
         )))
     }
 
-    fn ensure_snapshot_live(&self, snapshot: Snapshot, clock: &dyn Clock) -> Result<()> {
+    pub(super) fn ensure_snapshot_live(&self, snapshot: Snapshot, clock: &dyn Clock) -> Result<()> {
         let now = clock.now();
         let lease = snapshot.lease();
         if lease.is_expired_at(now) {

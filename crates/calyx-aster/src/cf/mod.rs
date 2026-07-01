@@ -3,6 +3,7 @@
 mod family;
 mod key;
 mod router;
+mod router_scan;
 
 #[cfg(test)]
 mod router_tests;

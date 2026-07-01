@@ -1,4 +1,5 @@
 use std::fs;
+use std::path::PathBuf;
 use std::process::Command;
 
 use calyx_core::VaultId;
@@ -80,10 +81,22 @@ fn search_uses_vault_resident_service_and_reads_back_physical_state() {
             .arg(&vault_path),
         "rebuild search-resident index",
     );
+    let rebuild_json = parse_json(&rebuild.stdout);
+    let rebuild_progress_path = PathBuf::from(
+        rebuild_json["progress_artifact"]
+            .as_str()
+            .expect("rebuild progress artifact path"),
+    );
+    let rebuild_progress_text = fs::read_to_string(&rebuild_progress_path)
+        .expect("read rebuild progress artifact from source of truth");
+    assert!(rebuild_progress_text.contains(r#""phase":"base_scan_page""#));
+    assert!(rebuild_progress_text.contains(r#""phase":"manifest_write_ok""#));
+    assert!(rebuild_progress_path.is_file());
     let after_rebuild = cf_state(&vault_path, vault_id, "search-resident-vault");
     let index = search_index_state(&vault_path);
     println!("search_resident_fsv_after_rebuild={after_rebuild}");
     println!("search_resident_fsv_index={index}");
+    println!("search_resident_fsv_rebuild_progress={rebuild_progress_text}");
 
     let cold_local = run_fail(
         Command::new(calyx_exe())
@@ -238,7 +251,8 @@ fn search_uses_vault_resident_service_and_reads_back_physical_state() {
         },
         "commands": {
             "ingest_stdout": parse_json(&ingest.stdout),
-            "rebuild_stdout": parse_json(&rebuild.stdout),
+            "rebuild_stdout": rebuild_json,
+            "rebuild_progress_log": rebuild_progress_text,
             "search_stdout": search_hits,
             "search_stderr": String::from_utf8_lossy(&search.stderr),
             "template_service_stderr": String::from_utf8_lossy(&template_service_output.stderr),

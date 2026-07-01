@@ -9,6 +9,7 @@ use crate::persisted::SearchIndexManifest;
 
 const DEFAULT_REBUILD_SLOT_MEMORY_BUDGET_BYTES: usize = 8 * 1024 * 1024 * 1024;
 const DEFAULT_REBUILD_READER_LEASE_MS: u64 = 60 * 60 * 1000;
+const DEFAULT_REBUILD_SCAN_PAGE_ROWS: usize = 4096;
 const DEFAULT_SLOT_ROW_MEMORY_ESTIMATE_BYTES: usize = 32 * 1024;
 const MIN_SLOT_MEMORY_ESTIMATE_BYTES: usize = 1024 * 1024;
 const DENSE_REBUILD_MEMORY_MULTIPLIER: usize = 6;
@@ -29,6 +30,7 @@ pub(super) fn validate_parallel_rebuild_config() -> CliResult {
     configured_nonzero_usize("RAYON_NUM_THREADS")?;
     configured_nonzero_usize("CALYX_SEARCH_REBUILD_MEMORY_BUDGET_BYTES")?;
     configured_nonzero_u64("CALYX_SEARCH_REBUILD_READER_LEASE_MS")?;
+    configured_nonzero_usize("CALYX_SEARCH_REBUILD_SCAN_PAGE_ROWS")?;
     configured_diskann_build_backend()?;
     Ok(())
 }
@@ -37,6 +39,13 @@ pub(super) fn configured_rebuild_reader_lease_ms() -> CliResult<u64> {
     Ok(
         configured_nonzero_u64("CALYX_SEARCH_REBUILD_READER_LEASE_MS")?
             .unwrap_or(DEFAULT_REBUILD_READER_LEASE_MS),
+    )
+}
+
+pub(super) fn configured_rebuild_scan_page_rows() -> CliResult<usize> {
+    Ok(
+        configured_nonzero_usize("CALYX_SEARCH_REBUILD_SCAN_PAGE_ROWS")?
+            .unwrap_or(DEFAULT_REBUILD_SCAN_PAGE_ROWS),
     )
 }
 

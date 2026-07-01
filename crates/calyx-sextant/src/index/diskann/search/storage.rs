@@ -6,8 +6,9 @@ use calyx_core::Result;
 use super::helpers::{DiskAnnDistanceMode, io};
 use crate::error::{CALYX_INDEX_DIM_MISMATCH, CALYX_INDEX_IO, sextant_error};
 use crate::index::diskann::build::{
-    DiskAnnBuildBackend, DiskAnnBuildParams, build_diskann_graph_raw_l2_with_backend,
-    build_diskann_graph_with_backend,
+    DiskAnnBuildBackend, DiskAnnBuildParams, DiskAnnBuildProgress,
+    build_diskann_graph_raw_l2_with_backend_and_progress,
+    build_diskann_graph_with_backend_and_progress,
 };
 use crate::index::distance::l2_normalize;
 
@@ -23,6 +24,29 @@ pub(super) fn build_search_graph_with_backend(
     write_raw_sidecar: bool,
     backend: DiskAnnBuildBackend,
 ) -> Result<Option<PathBuf>> {
+    build_search_graph_with_backend_and_progress(
+        graph_path,
+        rows,
+        build_params,
+        raw_sidecar,
+        write_raw_sidecar,
+        backend,
+        |_| Ok(()),
+    )
+}
+
+pub(super) fn build_search_graph_with_backend_and_progress<F>(
+    graph_path: &Path,
+    rows: &[(u32, Vec<f32>)],
+    build_params: DiskAnnBuildParams,
+    raw_sidecar: Option<PathBuf>,
+    write_raw_sidecar: bool,
+    backend: DiskAnnBuildBackend,
+    progress: F,
+) -> Result<Option<PathBuf>>
+where
+    F: FnMut(DiskAnnBuildProgress) -> Result<()>,
+{
     build_search_graph_with_distance_backend(
         graph_path,
         rows,
@@ -31,6 +55,7 @@ pub(super) fn build_search_graph_with_backend(
         write_raw_sidecar,
         backend,
         DiskAnnDistanceMode::UnitL2,
+        progress,
     )
 }
 
@@ -50,10 +75,12 @@ pub(super) fn build_search_graph_raw_l2_with_backend(
         write_raw_sidecar,
         backend,
         DiskAnnDistanceMode::RawL2,
+        |_| Ok(()),
     )
 }
 
-fn build_search_graph_with_distance_backend(
+#[allow(clippy::too_many_arguments)]
+fn build_search_graph_with_distance_backend<F>(
     graph_path: &Path,
     rows: &[(u32, Vec<f32>)],
     build_params: DiskAnnBuildParams,
@@ -61,17 +88,39 @@ fn build_search_graph_with_distance_backend(
     write_raw_sidecar: bool,
     backend: DiskAnnBuildBackend,
     distance_mode: DiskAnnDistanceMode,
-) -> Result<Option<PathBuf>> {
+    mut progress: F,
+) -> Result<Option<PathBuf>>
+where
+    F: FnMut(DiskAnnBuildProgress) -> Result<()>,
+{
     match distance_mode {
         DiskAnnDistanceMode::UnitL2 => {
             let graph_rows = normalized_rows(rows);
-            build_diskann_graph_with_backend(graph_path, &graph_rows, build_params, backend)?;
+            build_diskann_graph_with_backend_and_progress(
+                graph_path,
+                &graph_rows,
+                build_params,
+                backend,
+                &mut progress,
+            )?;
         }
         DiskAnnDistanceMode::RawL2 => {
-            build_diskann_graph_raw_l2_with_backend(graph_path, rows, build_params, backend)?;
+            build_diskann_graph_raw_l2_with_backend_and_progress(
+                graph_path,
+                rows,
+                build_params,
+                backend,
+                &mut progress,
+            )?;
         }
         DiskAnnDistanceMode::RawCosine => {
-            build_diskann_graph_with_backend(graph_path, rows, build_params, backend)?;
+            build_diskann_graph_with_backend_and_progress(
+                graph_path,
+                rows,
+                build_params,
+                backend,
+                &mut progress,
+            )?;
         }
     }
     let raw_sidecar = match raw_sidecar {
