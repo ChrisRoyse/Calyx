@@ -4,6 +4,8 @@ use calyx_search::GuardChoice;
 use calyx_sextant::RrfProfile;
 
 use super::ProbeMatrixArgs;
+use crate::bounded_progress::parse_nonzero_u64;
+use crate::cmd::search::parse_resident_addr;
 use crate::cmd::{Subcommand, value};
 use crate::error::{CliError, CliResult};
 
@@ -59,6 +61,26 @@ pub(crate) fn parse_probe_matrix(rest: &[String]) -> CliResult<Subcommand> {
                 idx += 1;
                 args.out = Some(value(rest, idx, "--out")?.into());
             }
+            "--resident-addr" => {
+                idx += 1;
+                args.resident_addr =
+                    Some(parse_resident_addr(value(rest, idx, "--resident-addr")?)?);
+            }
+            "--max-variants" => {
+                idx += 1;
+                args.max_variants = Some(parse_usize(
+                    value(rest, idx, "--max-variants")?,
+                    "--max-variants",
+                    1,
+                )?);
+            }
+            "--time-budget-ms" => {
+                idx += 1;
+                args.time_budget_ms = Some(parse_nonzero_u64(
+                    value(rest, idx, "--time-budget-ms")?,
+                    "--time-budget-ms",
+                )?);
+            }
             other => {
                 return Err(CliError::usage(format!(
                     "unexpected probe-matrix flag {other}"
@@ -67,10 +89,8 @@ pub(crate) fn parse_probe_matrix(rest: &[String]) -> CliResult<Subcommand> {
         }
         idx += 1;
     }
-    if !frontier_seen || args.frontier.trim().is_empty() {
-        return Err(CliError::usage(
-            "probe-matrix requires non-empty --frontier <text>",
-        ));
+    if !frontier_seen {
+        return Err(CliError::usage("probe-matrix requires --frontier <text>"));
     }
     dedupe_sorted(&mut args.slots);
     dedupe_sorted(&mut args.weighted_profiles);

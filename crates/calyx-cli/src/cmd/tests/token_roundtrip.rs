@@ -122,6 +122,15 @@ fn probe_matrix_tokens(args: &probe_matrix::ProbeMatrixArgs) -> Vec<String> {
         "--out",
         args.out.as_ref().and_then(|p| p.to_str()),
     );
+    if let Some(addr) = args.resident_addr {
+        out.extend(["--resident-addr".to_string(), addr.to_string()]);
+    }
+    if let Some(max_variants) = args.max_variants {
+        out.extend(["--max-variants".to_string(), max_variants.to_string()]);
+    }
+    if let Some(time_budget_ms) = args.time_budget_ms {
+        out.extend(["--time-budget-ms".to_string(), time_budget_ms.to_string()]);
+    }
     out
 }
 

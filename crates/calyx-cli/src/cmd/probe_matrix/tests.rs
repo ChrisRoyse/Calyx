@@ -13,7 +13,7 @@ use calyx_registry::measure::measure_constellation;
 use calyx_registry::spec::default_recall_delta;
 use calyx_registry::{
     AlgorithmicLens, ExternalCmdLens, LensRuntime, LensSpec, Registry, VaultPanelState,
-    persist_vault_panel_state,
+    load_vault_panel_state, persist_vault_panel_state,
 };
 use calyx_sextant::RrfProfile;
 use ulid::Ulid;
@@ -22,6 +22,7 @@ use super::*;
 use crate::cmd::search::rebuild_persistent_indexes;
 use crate::cmd::vault::vault_salt;
 
+mod bounded;
 mod refused;
 
 fn toks(parts: &[&str]) -> Vec<String> {
@@ -55,6 +56,12 @@ fn parses_probe_matrix_axes() {
         "7",
         "--guard",
         "off",
+        "--resident-addr",
+        "127.0.0.1:8787",
+        "--max-variants",
+        "3",
+        "--time-budget-ms",
+        "5000",
     ])
     .unwrap();
 
@@ -65,6 +72,9 @@ fn parses_probe_matrix_axes() {
     assert_eq!(args.phrasings, vec![ProbePhrasing::Clinical]);
     assert_eq!(args.lengths, vec![ProbeLength::Paragraph]);
     assert_eq!(args.top_k, 7);
+    assert_eq!(args.resident_addr, Some("127.0.0.1:8787".parse().unwrap()));
+    assert_eq!(args.max_variants, Some(3));
+    assert_eq!(args.time_budget_ms, Some(5000));
 }
 
 #[test]
@@ -140,6 +150,9 @@ fn run_persists_matrix_then_reads_back_source_of_truth() {
             top_k: 1,
             guard: GuardChoice::Off,
             out: None,
+            resident_addr: None,
+            max_variants: None,
+            time_budget_ms: None,
         },
     )
     .unwrap();
@@ -148,8 +161,13 @@ fn run_persists_matrix_then_reads_back_source_of_truth() {
     let readback_bytes = fs::read(&matrix_path).unwrap();
     let artifact: ProbeMatrixArtifact = serde_json::from_slice(&readback_bytes).unwrap();
 
-    assert_eq!(artifact.schema_version, 2);
+    assert_eq!(artifact.schema_version, 3);
     assert_eq!(artifact.status, ProbeMatrixArtifactStatus::Ok);
+    assert!(artifact.run.complete);
+    assert_eq!(artifact.run.completed_variant_count, 6);
+    assert_eq!(artifact.run.next_variant_index, None);
+    assert!(PathBuf::from(&artifact.run.progress_artifact).exists());
+    assert!(PathBuf::from(&artifact.run.partial_matrix_artifact).exists());
     assert_eq!(artifact.vault, "happy");
     assert_eq!(artifact.active_slots, vec![SlotId::new(8), SlotId::new(14)]);
     assert_eq!(artifact.diagnostics.query_measurements.len(), 1);
@@ -206,12 +224,20 @@ fn requested_missing_slot_fails_before_artifact_write() {
             top_k: 1,
             guard: GuardChoice::Off,
             out: None,
+            resident_addr: None,
+            max_variants: None,
+            time_budget_ms: None,
         },
     )
     .unwrap_err();
 
     assert_eq!(err.code(), "CALYX_CLI_USAGE_ERROR");
-    assert!(!vault_dir.join("idx").join("probe_matrix").exists());
+    let progress_path = only_progress(&vault_dir);
+    let progress: serde_json::Value =
+        serde_json::from_slice(&fs::read(&progress_path).unwrap()).unwrap();
+    assert_eq!(progress["status"], "failed");
+    assert_eq!(progress["phase"], "slot_validation_error");
+    assert!(!progress_path.with_file_name("matrix.json").exists());
 }
 
 fn seed_home(name: &str) -> (PathBuf, PathBuf) {
@@ -451,6 +477,21 @@ fn only_matrix(vault_dir: &Path) -> PathBuf {
         .unwrap()
         .collect::<Result<Vec<_>, _>>()
         .unwrap();
+    let matrices: Vec<_> = dirs
+        .into_iter()
+        .map(|entry| entry.path())
+        .filter(|path| path.file_name().and_then(|name| name.to_str()) != Some("runs"))
+        .collect();
+    assert_eq!(matrices.len(), 1);
+    matrices[0].join("matrix.json")
+}
+
+fn only_progress(vault_dir: &Path) -> PathBuf {
+    let runs = vault_dir.join("idx").join("probe_matrix").join("runs");
+    let dirs = fs::read_dir(&runs)
+        .unwrap()
+        .collect::<Result<Vec<_>, _>>()
+        .unwrap();
     assert_eq!(dirs.len(), 1);
-    dirs[0].path().join("matrix.json")
+    dirs[0].path().join("progress.json")
 }

@@ -456,6 +456,9 @@ fn arb_subcommand() -> impl Strategy<Value = Subcommand> {
                 top_k,
                 guard: calyx_search::GuardChoice::Off,
                 out: None,
+                resident_addr: None,
+                max_variants: None,
+                time_budget_ms: None,
             })
         }),
         (
