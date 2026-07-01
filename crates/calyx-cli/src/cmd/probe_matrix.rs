@@ -3,6 +3,7 @@
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 
+use calyx_aster::cf::ColumnFamily;
 use calyx_aster::vault::{AsterVault, VaultOptions};
 use calyx_core::{CalyxError, Panel, SlotId};
 use calyx_lodestar::{
@@ -22,6 +23,7 @@ use crate::error::{CliError, CliResult};
 
 mod artifact;
 mod diagnostics;
+mod grounding;
 mod parse;
 mod persist;
 mod progress;
@@ -81,11 +83,16 @@ pub(crate) fn run(command: Subcommand) -> CliResult {
 }
 
 fn probe_read_vault_options(panel: &Panel, guard: GuardChoice) -> VaultOptions {
-    let selected_cfs = match guard {
-        GuardChoice::Off => Some(super::search::base_read_cfs()),
-        GuardChoice::InRegion => super::search::panel_read_cfs(panel),
+    let mut selected_cfs = match guard {
+        GuardChoice::Off => super::search::base_read_cfs(),
+        GuardChoice::InRegion => {
+            super::search::panel_read_cfs(panel).expect("probe panel read cfs are always selected")
+        }
     };
-    super::search::latest_read_vault_options_for_cfs(selected_cfs)
+    selected_cfs.push(ColumnFamily::Anchors);
+    selected_cfs.sort();
+    selected_cfs.dedup();
+    super::search::latest_read_vault_options_for_cfs(Some(selected_cfs))
 }
 
 fn selected_active_slots(args: &ProbeMatrixArgs, panel: &Panel) -> CliResult<Vec<SlotId>> {
@@ -228,6 +235,12 @@ fn probe_hit(hit: &Hit, cx: &calyx_core::Constellation) -> ProbeHit {
         format!("ledger_hash={}", hex_lower(&hit.provenance.hash)),
         format!("provenance_source={:?}", hit.provenance_source),
     ];
+    provenance.push(format!(
+        "grounding:anchor_count={} flags_ungrounded={} flags_degraded={}",
+        cx.anchors.len(),
+        cx.flags.ungrounded,
+        cx.flags.degraded
+    ));
     for (key, value) in &cx.metadata {
         if matches!(
             key.as_str(),
