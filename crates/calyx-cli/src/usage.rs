@@ -50,7 +50,7 @@ pub(crate) fn usage() -> &'static str {
        calyx verify-chain <vault> [--from <seq>] [--to <seq>] [--batch-size <n>] [--progress-jsonl <stderr|path>] [--time-budget-ms <ms>]
        calyx rebuild-search-index <vault>
        calyx kernel-build <vault> [--held-out-fraction <0..1>] [--top-k <n>] [--min-recall <0..1>]
-       calyx weave-loom <vault> [--content-slot <u16>] [--knn <n>] [--edge-cos-threshold <0..1>] [--max-groundedness-distance <n>] [--batch <n>] [--limit <n>]
+       calyx weave-loom <vault> [--content-slot <u16>] [--knn <n>] [--edge-cos-threshold <0..1>] [--max-groundedness-distance <n>] [--batch <n>] [--limit <n>] [--time-budget-ms <ms>]
        calyx reproduce <vault> <answer_id>
        calyx anneal-status <vault>
        calyx healthcheck [--vault <vault>] [--json|--no-json] [--tei <http://host:port[/path]>]

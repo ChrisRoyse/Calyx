@@ -17,7 +17,7 @@ use std::time::Duration;
 pub use batch::GroupCommitBatcher;
 pub(crate) use point_read::read_record_at;
 pub use replay::replay_dir;
-pub(crate) use replay::replay_dir_after;
+pub use replay::replay_dir_after;
 use replay::{replay_dir_locked, replay_dir_locked_after};
 pub(crate) use stream_replay::stream_records;
 

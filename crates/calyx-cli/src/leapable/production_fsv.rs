@@ -249,7 +249,10 @@ impl ProductionFSV {
                     &ledger_key(hit.ledger_ref.seq),
                 )?
                 .ok_or_else(|| {
-                    reproduce_mismatch(format!("ledger seq {} absent", hit.ledger_ref.seq))
+                    CalyxError::ledger_chain_broken(format!(
+                        "anchored physical ledger hydration missing seq {}",
+                        hit.ledger_ref.seq
+                    ))
                 })?;
             let entry = calyx_ledger::decode(&ledger_bytes)?;
             let text_hash = cx

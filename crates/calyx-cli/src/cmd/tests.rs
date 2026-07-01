@@ -474,6 +474,7 @@ fn arb_subcommand() -> impl Strategy<Value = Subcommand> {
                     max_groundedness_distance,
                     batch,
                     limit,
+                    time_budget_ms: None,
                 })
             }),
     ]

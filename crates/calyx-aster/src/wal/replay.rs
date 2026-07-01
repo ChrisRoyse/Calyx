@@ -16,10 +16,7 @@ pub fn replay_dir(dir: impl AsRef<Path>) -> Result<ReplayOutcome> {
 /// Records at or below `replay_floor_seq` are already represented by durable
 /// SST/manifest state, so recovery validates their headers and seeks over their
 /// payloads without re-reading and re-decoding old vector-heavy batches.
-pub(crate) fn replay_dir_after(
-    dir: impl AsRef<Path>,
-    replay_floor_seq: u64,
-) -> Result<ReplayOutcome> {
+pub fn replay_dir_after(dir: impl AsRef<Path>, replay_floor_seq: u64) -> Result<ReplayOutcome> {
     let dir = dir.as_ref();
     let _lock = crate::file_lock::FileLockGuard::acquire(&dir.join(".append.lock"))?;
     replay_dir_locked_after(dir, replay_floor_seq)

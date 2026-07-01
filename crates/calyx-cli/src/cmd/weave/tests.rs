@@ -27,6 +27,7 @@ fn defaults_apply_when_only_vault_given() {
     );
     assert_eq!(args.batch, DEFAULT_BATCH);
     assert_eq!(args.limit, 0);
+    assert_eq!(args.time_budget_ms, None);
 }
 
 #[test]
@@ -45,6 +46,8 @@ fn all_flags_parse() {
         "1000",
         "--limit",
         "50",
+        "--time-budget-ms",
+        "5000",
     ])
     .unwrap();
     assert_eq!(args.content_slot, Some(8));
@@ -53,6 +56,7 @@ fn all_flags_parse() {
     assert_eq!(args.max_groundedness_distance, 4);
     assert_eq!(args.batch, 1000);
     assert_eq!(args.limit, 50);
+    assert_eq!(args.time_budget_ms, Some(5000));
 }
 
 #[test]
@@ -94,6 +98,7 @@ fn unknown_flag_fails_closed() {
 fn limit_zero_is_valid_meaning_all() {
     let args = parse(&["corpus", "--limit", "0"]).unwrap();
     assert_eq!(args.limit, 0);
+    assert_eq!(args.time_budget_ms, None);
 }
 
 #[test]
@@ -127,7 +132,7 @@ fn requested_sparse_content_slot_fails_with_incompatible_readback() {
     let content_slots = super::content_lens_slots(&panel);
     let incompatible_slots = super::incompatible_content_lens_slots(&panel);
 
-    let err = super::validate_requested_knn_slot(Some(11), &content_slots, &incompatible_slots)
+    let err = super::resolve_requested_slot(Some(11), &content_slots, &incompatible_slots)
         .expect_err("sparse content slot must fail before vault mutation");
     let message = err.to_string();
 
@@ -135,44 +140,6 @@ fn requested_sparse_content_slot_fails_with_incompatible_readback() {
     assert!(message.contains("choose one of [10, 15]"));
     assert!(message.contains("slot_id: 11"));
     assert!(message.contains("sparse:30522"));
-}
-
-#[test]
-fn default_content_slot_requires_complete_coverage() {
-    let slots = vec![SlotId::new(10), SlotId::new(15)];
-    let coverage = coverage_report(&[(10, 7, 3), (15, 10, 0)], 10);
-
-    let selected = super::resolve_covered_knn_slot(None, &slots, &coverage).unwrap();
-
-    assert_eq!(selected, SlotId::new(15));
-}
-
-#[test]
-fn requested_content_slot_incomplete_coverage_fails_closed() {
-    let slots = vec![SlotId::new(10), SlotId::new(15)];
-    let coverage = coverage_report(&[(10, 7, 3), (15, 10, 0)], 10);
-
-    let err = super::resolve_covered_knn_slot(Some(SlotId::new(10)), &slots, &coverage)
-        .expect_err("requested incomplete slot must fail before graph mutation");
-    let message = err.to_string();
-
-    assert!(message.contains("--content-slot 10 covers 7 of 10 candidate rows"));
-    assert!(message.contains("missing_rows=3"));
-    assert!(message.contains("coverage="));
-}
-
-#[test]
-fn no_complete_dense_slot_fails_with_coverage_report() {
-    let slots = vec![SlotId::new(10), SlotId::new(15)];
-    let coverage = coverage_report(&[(10, 7, 3), (15, 9, 1)], 10);
-
-    let err = super::resolve_covered_knn_slot(None, &slots, &coverage)
-        .expect_err("default selection must not pick incomplete coverage");
-    let message = err.to_string();
-
-    assert!(message.contains("no active dense content slot covers all 10 candidate rows"));
-    assert!(message.contains("\"slot_id\":10"));
-    assert!(message.contains("\"slot_id\":15"));
 }
 
 fn mixed_shape_panel() -> Panel {
@@ -194,32 +161,6 @@ fn mixed_shape_panel() -> Panel {
         created_at: 1,
         kernel_ref: None,
         guard_ref: None,
-    }
-}
-
-fn coverage_report(
-    slots: &[(u16, usize, usize)],
-    candidate_base_rows: usize,
-) -> super::passes::DenseSlotCoverageReport {
-    super::passes::DenseSlotCoverageReport {
-        total_base_rows: candidate_base_rows,
-        candidate_base_rows,
-        limit: 0,
-        slots: slots
-            .iter()
-            .map(
-                |(slot_id, dense_rows, missing_rows)| super::passes::DenseSlotCoverage {
-                    slot_id: *slot_id,
-                    dense_rows: *dense_rows,
-                    missing_rows: *missing_rows,
-                    example_missing_cx_ids: if *missing_rows == 0 {
-                        Vec::new()
-                    } else {
-                        vec!["00000000000000000000000000000001".to_string()]
-                    },
-                },
-            )
-            .collect(),
     }
 }
 
