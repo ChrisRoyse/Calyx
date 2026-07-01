@@ -153,27 +153,6 @@ pub(crate) fn run_probe_matrix_with_home(home: &Path, args: ProbeMatrixArgs) -> 
             progress.path(),
         ));
     }
-    if args.resident_addr.is_none()
-        && let Err(error) =
-            resident::require_resident_for_gpu_text_slots(&state, &spec.active_slots)
-    {
-        artifacts.persist_incomplete(
-            &records,
-            &query_cache,
-            &guard_diagnostics,
-            started.elapsed().as_millis(),
-            "resident_required",
-        )?;
-        progress.write(
-            "failed",
-            "resident_required",
-            json!({
-                "error": error_details(&error),
-                "matrix_artifact": matrix_path.display().to_string(),
-            }),
-        )?;
-        return Err(error);
-    }
     progress.write("running", "vault_open_start", json!({}))?;
     let vault = match AsterVault::open(
         &resolved.path,
@@ -222,6 +201,16 @@ pub(crate) fn run_probe_matrix_with_home(home: &Path, args: ProbeMatrixArgs) -> 
             progress.path(),
         ));
     }
+    super::grounding::GroundingPreflight {
+        vault: &vault,
+        spec: &spec,
+        artifacts: &artifacts,
+        records: &records,
+        query_cache: &query_cache,
+        guard_diagnostics: &guard_diagnostics,
+        elapsed_ms: started.elapsed().as_millis(),
+    }
+    .run(&mut progress)?;
     let audit = match require_vault_registry_contracts(&resolved.path) {
         Ok(audit) => audit,
         Err(error) => {
@@ -239,6 +228,27 @@ pub(crate) fn run_probe_matrix_with_home(home: &Path, args: ProbeMatrixArgs) -> 
         audit.checked_count,
         started.elapsed().as_millis()
     );
+    if args.resident_addr.is_none()
+        && let Err(error) =
+            resident::require_resident_for_gpu_text_slots(&state, &spec.active_slots)
+    {
+        artifacts.persist_incomplete(
+            &records,
+            &query_cache,
+            &guard_diagnostics,
+            started.elapsed().as_millis(),
+            "resident_required",
+        )?;
+        progress.write(
+            "failed",
+            "resident_required",
+            json!({
+                "error": error_details(&error),
+                "matrix_artifact": matrix_path.display().to_string(),
+            }),
+        )?;
+        return Err(error);
+    }
     eprintln!(
         "probe-matrix: running frontier={:?} slots={} profiles={} phrasings={} lengths={} top_k={} guard={:?} rayon_threads={}",
         spec.frontier,

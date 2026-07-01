@@ -16,8 +16,9 @@ use super::diagnostics::{
 use super::persist::{self, persist_probe_matrix_at_path};
 use crate::cmd::vault::ResolvedVault;
 use crate::error::{CliError, CliResult};
+use crate::fsv_grounding::GroundingAudit;
 
-const PROBE_MATRIX_ARTIFACT_SCHEMA_VERSION: u32 = 4;
+const PROBE_MATRIX_ARTIFACT_SCHEMA_VERSION: u32 = 5;
 const PROBE_MATRIX_INCOMPLETE: &str = "CALYX_PROBE_MATRIX_INCOMPLETE";
 const PROBE_MATRIX_INCOMPLETE_REMEDIATION: &str = "inspect the persisted matrix/progress artifacts, then increase the budget or narrow explicit axes";
 const PROBE_MATRIX_TIMEOUT_REMEDIATION: &str = "inspect the persisted matrix/progress artifacts, then increase --time-budget-ms or narrow explicit axes";
@@ -95,6 +96,28 @@ impl<'a> MatrixArtifactWriter<'a> {
         )
     }
 
+    pub(super) fn persist_incomplete_with_grounding(
+        &self,
+        records: &[ProbeRecord],
+        query_cache: &QueryVectorCache,
+        guard_diagnostics: &[ProbeMatrixVariantDiagnostic],
+        grounding_preflight: &GroundingAudit,
+        elapsed_ms: u128,
+        reason: &str,
+    ) -> CliResult<persist::PersistedProbeMatrix> {
+        let run = self.run_state(records.len(), elapsed_ms, false, Some(reason));
+        let log = matrix_log(self.spec, records);
+        let mut artifact = self.artifact_for(
+            query_cache,
+            guard_diagnostics,
+            ProbeMatrixArtifactStatus::Incomplete,
+            run,
+            log,
+        );
+        artifact.diagnostics.grounding_preflight = Some(grounding_preflight.clone());
+        persist_probe_matrix_at_path(&self.matrix_path, &artifact, true)
+    }
+
     pub(super) fn persist_run(
         &self,
         records: &[ProbeRecord],
@@ -126,6 +149,7 @@ impl<'a> MatrixArtifactWriter<'a> {
             diagnostics: ProbeMatrixDiagnostics {
                 query_measurements: query_cache.diagnostics(),
                 variant_guard_counts: guard_diagnostics.to_vec(),
+                grounding_preflight: None,
             },
             run,
             log,

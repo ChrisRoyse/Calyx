@@ -88,7 +88,6 @@ fn missing_frontier_fails_closed() {
 #[test]
 fn bad_profile_fails_closed() {
     let err = parse(&["corpus", "--frontier", "x", "--weighted-profile", "unknown"]).unwrap_err();
-
     assert_eq!(err.code(), "CALYX_CLI_USAGE_ERROR");
     assert!(err.message().contains("unknown --weighted-profile"));
 }
@@ -113,8 +112,11 @@ fn probe_matrix_open_options_use_latest_only_router_readback() {
     );
     assert_eq!(
         options.selected_cfs,
-        Some(vec![calyx_aster::cf::ColumnFamily::Base]),
-        "probe-matrix provenance readback must not enumerate unrelated CFs"
+        Some(vec![
+            calyx_aster::cf::ColumnFamily::Base,
+            calyx_aster::cf::ColumnFamily::Anchors,
+        ]),
+        "probe-matrix provenance readback must enumerate only Base plus grounding Anchors CF"
     );
 }
 
@@ -126,6 +128,7 @@ fn in_region_probe_matrix_opens_panel_slot_cfs_for_guard_hydration() {
     let selected = options.selected_cfs.expect("in-region must select CFs");
 
     assert!(selected.contains(&calyx_aster::cf::ColumnFamily::Base));
+    assert!(selected.contains(&calyx_aster::cf::ColumnFamily::Anchors));
     assert!(selected.contains(&calyx_aster::cf::ColumnFamily::slot(SlotId::new(8))));
     assert!(selected.contains(&calyx_aster::cf::ColumnFamily::slot(SlotId::new(14))));
     assert!(
@@ -161,7 +164,7 @@ fn run_persists_matrix_then_reads_back_source_of_truth() {
     let readback_bytes = fs::read(&matrix_path).unwrap();
     let artifact: ProbeMatrixArtifact = serde_json::from_slice(&readback_bytes).unwrap();
 
-    assert_eq!(artifact.schema_version, 4);
+    assert_eq!(artifact.schema_version, 5);
     assert_eq!(artifact.status, ProbeMatrixArtifactStatus::Ok);
     assert!(artifact.run.complete);
     assert_eq!(artifact.run.completed_variant_count, 6);

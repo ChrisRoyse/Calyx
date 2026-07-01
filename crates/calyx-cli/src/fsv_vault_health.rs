@@ -15,6 +15,10 @@ use serde_json::{Value, json};
 use crate::cmd::vault::{ResolvedVault, home_dir, resolve_vault_info, vault_salt};
 use crate::durable_write::write_json_value_atomic;
 use crate::error::{CliError, CliResult};
+use crate::fsv_grounding::{
+    ANCHOR_CF_DRIFT_CODE, GROUNDING_FLAG_DRIFT_CODE, NO_GROUNDED_CANDIDATES_CODE,
+};
+use crate::fsv_vault_health_grounding::check_grounded_candidates;
 use crate::fsv_vault_health_quarantine::{
     QUARANTINE_FILE, QUARANTINED_CODE, check_marker as check_quarantine_marker,
     write_marker as write_quarantine_marker,
@@ -22,7 +26,7 @@ use crate::fsv_vault_health_quarantine::{
 use crate::output::print_json;
 
 pub(crate) const REPORT_SCHEMA: &str = "calyx.fsv.vault_health.v1";
-pub(crate) const SOURCE_OF_TRUTH: &str = "vault CURRENT/MANIFEST, registry snapshot asset, idx/search/manifest.json, base_page_index_v1/manifest.json, and fsv_quarantine.json";
+pub(crate) const SOURCE_OF_TRUTH: &str = "vault CURRENT/MANIFEST, registry snapshot asset, Base/anchors CF grounding rows, idx/search/manifest.json, base_page_index_v1/manifest.json, and fsv_quarantine.json";
 const UNREADY_CODE: &str = "CALYX_FSV_VAULT_UNREADY";
 const REGISTRY_CONTRACT_DRIFT_CODE: &str = "CALYX_REGISTRY_CONTRACT_DRIFT";
 pub(crate) const REMEDIATION: &str = "repair stale derived indexes with explicit rebuild commands or restore the real missing persisted registry snapshot before using this vault for FSV";
@@ -140,6 +144,7 @@ fn build_report(vault_ref: &str, resolved: &ResolvedVault) -> CliResult<VaultHea
         check_manifest(&manifest_result),
         check_registry_ref(&manifest_result),
         check_registry_contracts(&resolved.path),
+        check_grounded_candidates(resolved),
         check_search_index(&resolved.path, latest_seq_result),
         check_base_page_index(&resolved.path),
     ];
@@ -325,7 +330,11 @@ fn check_base_page_index(vault_dir: &Path) -> VaultHealthCheck {
     }
 }
 
-fn ok(name: &'static str, message: impl Into<String>, details: Value) -> VaultHealthCheck {
+pub(crate) fn ok(
+    name: &'static str,
+    message: impl Into<String>,
+    details: Value,
+) -> VaultHealthCheck {
     VaultHealthCheck {
         name,
         status: "ok",
@@ -353,7 +362,11 @@ pub(crate) fn failed(
     }
 }
 
-fn failed_from_calyx(name: &'static str, error: &CalyxError, details: Value) -> VaultHealthCheck {
+pub(crate) fn failed_from_calyx(
+    name: &'static str,
+    error: &CalyxError,
+    details: Value,
+) -> VaultHealthCheck {
     failed(
         name,
         error.code,
@@ -363,7 +376,11 @@ fn failed_from_calyx(name: &'static str, error: &CalyxError, details: Value) -> 
     )
 }
 
-fn failed_from_cli(name: &'static str, error: &CliError, details: Value) -> VaultHealthCheck {
+pub(crate) fn failed_from_cli(
+    name: &'static str,
+    error: &CliError,
+    details: Value,
+) -> VaultHealthCheck {
     failed(
         name,
         error.code(),
@@ -392,6 +409,12 @@ fn repair_actions(checks: &[VaultHealthCheck]) -> Vec<String> {
     let mut actions = Vec::new();
     if has_code(checks, "CALYX_STALE_DERIVED") {
         actions.push("run `calyx rebuild-search-index <vault>` and rerun vault-health".to_string());
+    }
+    if has_code(checks, NO_GROUNDED_CANDIDATES_CODE)
+        || has_code(checks, ANCHOR_CF_DRIFT_CODE)
+        || has_code(checks, GROUNDING_FLAG_DRIFT_CODE)
+    {
+        actions.push("ingest or replay real anchored content, rebuild derived indexes, and rerun vault-health".to_string());
     }
     if has_code(checks, "CALYX_BASE_PAGE_INDEX_MISSING")
         || has_code(checks, "CALYX_BASE_PAGE_INDEX_STALE")

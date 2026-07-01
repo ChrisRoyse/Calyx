@@ -23,35 +23,28 @@ fn refused_probe_persists_diagnostic_matrix_before_fail_closed_exit() {
     )
     .unwrap_err();
 
-    assert_eq!(err.code(), "CALYX_KERNEL_INVALID_PARAMS");
+    assert_eq!(err.code(), "CALYX_PROBE_NO_GROUNDED_CANDIDATES");
     assert!(
         err.message()
             .contains("diagnostic matrix artifact persisted")
     );
-    let matrix_path = only_matrix(&vault_dir);
+    let matrix_path = only_progress(&vault_dir).with_file_name("matrix.json");
     let readback_bytes = fs::read(&matrix_path).unwrap();
     let artifact: ProbeMatrixArtifact = serde_json::from_slice(&readback_bytes).unwrap();
+    let grounding = artifact
+        .diagnostics
+        .grounding_preflight
+        .as_ref()
+        .expect("grounding preflight persisted");
 
-    assert_eq!(artifact.status, ProbeMatrixArtifactStatus::Refused);
-    assert_eq!(artifact.log.records.len(), 6);
-    assert!(artifact.log.productive.is_empty());
+    assert_eq!(artifact.status, ProbeMatrixArtifactStatus::Incomplete);
     assert_eq!(
-        artifact
-            .log
-            .records
-            .iter()
-            .map(|record| record.accepted_hit_count)
-            .sum::<usize>(),
-        0
+        artifact.run.stop_reason.as_deref(),
+        Some("grounding_preflight_failed")
     );
-    assert!(artifact.log.records.iter().all(|record| {
-        record
-            .refusals
-            .iter()
-            .any(|refusal| refusal.code == "CALYX_PROBE_UNGROUNDED_HITS")
-    }));
-    assert_eq!(
-        artifact.diagnostics.query_measurements[0].variant_use_count,
-        6
-    );
+    assert!(artifact.log.records.is_empty());
+    assert_eq!(grounding.base_row_count, 3);
+    assert_eq!(grounding.anchors_cf_row_count, 0);
+    assert_eq!(grounding.accepted_eligible_active_slot_row_count, 0);
+    assert_eq!(grounding.active_slots.len(), 2);
 }

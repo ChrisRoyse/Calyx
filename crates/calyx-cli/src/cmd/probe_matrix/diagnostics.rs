@@ -13,6 +13,7 @@ use super::ProbeMatrixLog;
 use super::resident;
 use super::support::{accepted_hit_count, hex_lower};
 use crate::error::CliResult;
+use crate::fsv_grounding::GroundingAudit;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -36,6 +37,8 @@ impl ProbeMatrixArtifactStatus {
 pub(super) struct ProbeMatrixDiagnostics {
     pub query_measurements: Vec<ProbeMatrixQueryMeasurement>,
     pub variant_guard_counts: Vec<ProbeMatrixVariantDiagnostic>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub grounding_preflight: Option<GroundingAudit>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
