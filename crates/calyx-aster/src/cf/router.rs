@@ -17,8 +17,8 @@ const DEFAULT_MEMTABLE_BYTES: usize = 8 * 1024 * 1024;
 pub struct CfRouter {
     vault_dir: PathBuf,
     tiering_policy: Option<TieringPolicy>,
-    memtables: HashMap<ColumnFamily, Memtable>,
-    levels: HashMap<ColumnFamily, SstLevel>,
+    pub(super) memtables: HashMap<ColumnFamily, Memtable>,
+    pub(super) levels: HashMap<ColumnFamily, SstLevel>,
     next_file: HashMap<ColumnFamily, u64>,
     memtable_byte_cap: usize,
     resource_counters: Arc<ResourceCounters>,
@@ -213,6 +213,36 @@ impl CfRouter {
             .into_iter()
             .map(|(key, value)| SstEntry { key, value })
             .collect())
+    }
+
+    pub fn range_page_until(
+        &self,
+        cf: ColumnFamily,
+        start: &[u8],
+        end: Option<&[u8]>,
+        after_key: Option<&[u8]>,
+        limit: usize,
+    ) -> Result<Vec<SstEntry>> {
+        if limit == 0 {
+            return Ok(Vec::new());
+        }
+        let overlay = self
+            .memtables
+            .get(&cf)
+            .map(|table| {
+                table
+                    .iter()
+                    .filter(|(key, _)| key.as_slice() >= start)
+                    .filter(|(key, _)| end.is_none_or(|end| key.as_slice() < end))
+                    .map(|(key, value)| SstEntry { key, value })
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+        self.levels
+            .get(&cf)
+            .cloned()
+            .unwrap_or_default()
+            .range_page_with_overlay(start, end, after_key, limit, overlay)
     }
 
     pub fn range_keys(&self, cf: ColumnFamily, start: &[u8], end: &[u8]) -> Result<Vec<Vec<u8>>> {

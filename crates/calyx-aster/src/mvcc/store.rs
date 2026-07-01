@@ -2,6 +2,7 @@
 
 mod gc;
 mod read;
+mod scan_pages;
 use crate::cf::{CfRouter, ColumnFamily, KeyRange};
 use crate::gc::{SnapshotGcCounters, SnapshotGcReclaimer, SnapshotGcTick};
 use crate::mvcc::{
@@ -10,7 +11,7 @@ use crate::mvcc::{
 use crate::resource::{
     LeaseRegistry, LeaseView, MemtableCfStatus, MemtableStatus, ResourceCounters,
 };
-use crate::sst::SstSummary;
+use crate::sst::{SstEntry, SstSummary};
 use calyx_core::{Clock, Result, Seq, Ts};
 use std::collections::BTreeMap;
 use std::ops::Bound;

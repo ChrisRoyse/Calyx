@@ -11,6 +11,7 @@ use calyx_sextant::index::{
     DiskAnnBuildParams, DiskAnnSearch, DiskAnnSearchParams, IndexSearchHit, SextantIndex, ranked,
 };
 
+use super::rebuild::RebuildProgress;
 use super::rebuild_plan::configured_diskann_build_backend;
 use super::{SearchIndexEntry, SlotIdMap, rel, stale, write_json_atomic};
 use crate::error::CliResult;
@@ -74,6 +75,7 @@ pub(super) fn collect_slot(
     out.ok_or_else(|| stale(format!("slot {target} has no dense rows")))
 }
 
+#[cfg(test)]
 pub(super) fn write(
     vault_dir: &Path,
     root: &Path,
@@ -81,6 +83,20 @@ pub(super) fn write(
     rows: DenseSlotRows,
     base_seq: u64,
 ) -> CliResult<SearchIndexEntry> {
+    write_with_progress(vault_dir, root, slot, rows, base_seq, |_| Ok(()))
+}
+
+pub(super) fn write_with_progress<F>(
+    vault_dir: &Path,
+    root: &Path,
+    slot: SlotId,
+    rows: DenseSlotRows,
+    base_seq: u64,
+    mut progress: F,
+) -> CliResult<SearchIndexEntry>
+where
+    F: FnMut(RebuildProgress<'_>) -> CliResult,
+{
     if should_use_flat_dense_index(rows.rows.len()) {
         return flat::write(vault_dir, root, slot, rows, base_seq);
     }
@@ -96,7 +112,7 @@ pub(super) fn write(
     }
     fs::create_dir_all(&dir)?;
     let graph_path = dir.join("graph.cda");
-    DiskAnnSearch::build_with_backend(
+    DiskAnnSearch::build_with_backend_and_progress(
         slot,
         &graph_path,
         &rows.rows,
@@ -104,6 +120,15 @@ pub(super) fn write(
         None,
         search_params(rows.rows.len().max(64)),
         configured_diskann_build_backend()?,
+        |event| {
+            progress(RebuildProgress::slot(
+                event.phase,
+                slot,
+                Some(event.rows),
+                Some(base_seq),
+            ))
+            .map_err(CalyxError::from)
+        },
     )?;
     let id_map_path = dir.join("ids.json");
     write_json_atomic(

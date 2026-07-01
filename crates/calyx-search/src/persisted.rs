@@ -35,7 +35,10 @@ use crate::error::{CliError, CliResult};
 pub(crate) use rebuild::load_docs_at;
 #[cfg(test)]
 use rebuild::rebuild_from_docs;
-pub use rebuild::{RebuildProgress, load_docs, rebuild_for_vault, rebuild_for_vault_with_progress};
+pub use rebuild::{
+    RebuildProgress, load_docs, rebuild_for_vault, rebuild_for_vault_with_fallible_progress,
+    rebuild_for_vault_with_progress,
+};
 
 const MANIFEST_FORMAT: &str = "calyx-search-index-manifest-v1";
 const IDMAP_FORMAT: &str = "calyx-search-index-idmap-v1";

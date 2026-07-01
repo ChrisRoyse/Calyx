@@ -5,11 +5,11 @@ use calyx_core::{CxId, Result, SlotId};
 use super::helpers::{dense_rows, invalid, open_for_search, positions};
 use super::pq_support::write_pq_sidecar;
 use super::storage::{
-    build_search_graph_raw_l2_with_backend, build_search_graph_with_backend, default_raw_sidecar,
-    read_distance_mode,
+    build_search_graph_raw_l2_with_backend, build_search_graph_with_backend_and_progress,
+    default_raw_sidecar, read_distance_mode,
 };
 use super::{DiskAnnSearch, DiskAnnSearchParams, SearchBuildSidecars, prefetch_file_for_graph};
-use crate::index::diskann::build::{DiskAnnBuildBackend, DiskAnnBuildParams};
+use crate::index::diskann::build::{DiskAnnBuildBackend, DiskAnnBuildParams, DiskAnnBuildProgress};
 use crate::index::diskann::pq::{DiskAnnPqIndex, default_pq_sidecar};
 
 impl DiskAnnSearch {
@@ -109,6 +109,36 @@ impl DiskAnnSearch {
         )
     }
 
+    #[allow(clippy::too_many_arguments)]
+    pub fn build_with_backend_and_progress<F>(
+        slot: SlotId,
+        graph_path: impl Into<PathBuf>,
+        rows: &[(CxId, Vec<f32>)],
+        build_params: DiskAnnBuildParams,
+        raw_sidecar: Option<PathBuf>,
+        default_search: DiskAnnSearchParams,
+        backend: DiskAnnBuildBackend,
+        progress: F,
+    ) -> Result<Self>
+    where
+        F: FnMut(DiskAnnBuildProgress) -> Result<()>,
+    {
+        Self::build_with_default_raw_sidecar_and_progress(
+            slot,
+            graph_path,
+            rows,
+            build_params,
+            raw_sidecar,
+            default_search,
+            SearchBuildSidecars {
+                write_default_raw_sidecar: true,
+                pq: None,
+                backend,
+            },
+            progress,
+        )
+    }
+
     pub(crate) fn build_without_default_raw_sidecar_with_backend(
         slot: SlotId,
         graph_path: impl Into<PathBuf>,
@@ -172,16 +202,43 @@ impl DiskAnnSearch {
         default_search: DiskAnnSearchParams,
         sidecars: SearchBuildSidecars,
     ) -> Result<Self> {
+        Self::build_with_default_raw_sidecar_and_progress(
+            slot,
+            graph_path,
+            rows,
+            build_params,
+            raw_sidecar,
+            default_search,
+            sidecars,
+            |_| Ok(()),
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub(super) fn build_with_default_raw_sidecar_and_progress<F>(
+        slot: SlotId,
+        graph_path: impl Into<PathBuf>,
+        rows: &[(CxId, Vec<f32>)],
+        build_params: DiskAnnBuildParams,
+        raw_sidecar: Option<PathBuf>,
+        default_search: DiskAnnSearchParams,
+        sidecars: SearchBuildSidecars,
+        progress: F,
+    ) -> Result<Self>
+    where
+        F: FnMut(DiskAnnBuildProgress) -> Result<()>,
+    {
         let graph_path = graph_path.into();
         let dense_rows = dense_rows(rows, build_params.dim)?;
         let write_raw_sidecar = raw_sidecar.is_none() && sidecars.write_default_raw_sidecar;
-        let raw_sidecar = build_search_graph_with_backend(
+        let raw_sidecar = build_search_graph_with_backend_and_progress(
             &graph_path,
             &dense_rows,
             build_params,
             raw_sidecar,
             write_raw_sidecar,
             sidecars.backend,
+            progress,
         )?;
         if let Some(pq_params) = sidecars.pq {
             write_pq_sidecar(&graph_path, &dense_rows, pq_params)?;

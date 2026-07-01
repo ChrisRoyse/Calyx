@@ -22,5 +22,6 @@ pub use engine::{
 pub use error::{CliResult, SearchError};
 pub use persisted::{
     PersistedSearchIndexes, RebuildProgress, load_docs, rebuild_for_vault,
-    rebuild_for_vault_with_progress, validate_rebuild_config,
+    rebuild_for_vault_with_fallible_progress, rebuild_for_vault_with_progress,
+    validate_rebuild_config,
 };

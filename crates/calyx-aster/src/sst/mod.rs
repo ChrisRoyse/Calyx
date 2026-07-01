@@ -3,6 +3,7 @@
 pub mod arrow;
 mod bloom;
 pub mod level;
+mod page;
 
 use crate::mmap_col::MmapColumn;
 use bloom::BloomFilter;

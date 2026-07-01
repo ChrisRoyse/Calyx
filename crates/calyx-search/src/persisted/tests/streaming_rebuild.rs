@@ -78,6 +78,7 @@ fn streaming_rebuild_reads_physical_slot_cfs_and_validates_sidecars() {
     assert_eq!(entries[2].0, 2);
     assert_eq!(dense_hits[0].cx_id, ids[0]);
     assert!(manifest_path.is_file());
+    assert!(phases.contains(&"base_scan_page".to_string()));
     assert!(phases.contains(&"slot_plan_ok".to_string()));
     assert!(phases.contains(&"slot_build_start".to_string()));
     println!(

@@ -59,10 +59,24 @@ pub fn rebuild_for_vault(vault_dir: &Path, vault: &AsterVault) -> CliResult {
 pub fn rebuild_for_vault_with_progress<F>(
     vault_dir: &Path,
     vault: &AsterVault,
+    mut progress: F,
+) -> CliResult
+where
+    F: FnMut(RebuildProgress<'_>) + Send,
+{
+    rebuild_for_vault_with_fallible_progress(vault_dir, vault, |event| {
+        progress(event);
+        Ok(())
+    })
+}
+
+pub fn rebuild_for_vault_with_fallible_progress<F>(
+    vault_dir: &Path,
+    vault: &AsterVault,
     progress: F,
 ) -> CliResult
 where
-    F: FnMut(RebuildProgress<'_>),
+    F: FnMut(RebuildProgress<'_>) -> CliResult + Send,
 {
     super::rebuild_stream::rebuild_for_vault_with_progress(vault_dir, vault, progress)
 }

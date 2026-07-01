@@ -97,6 +97,37 @@ fn latest_readback_merges_router_sst_with_wal_overlay_and_blocks_history() {
         Some(b"sst-gone".to_vec())
     );
 
+    let latest_physical =
+        VersionedCfStore::new_with_router_latest_readback(1, CfRouter::open(&dir, 1024).unwrap());
+    let clock = FixedClock::new(200);
+    let range = KeyRange {
+        start: b"a".to_vec(),
+        end: None,
+    };
+    let physical_snapshot = latest_physical.pin_snapshot(Freshness::FreshDerived, &clock, 1_000);
+    let physical_first = latest_physical
+        .scan_cf_range_page_at(
+            physical_snapshot,
+            ColumnFamily::Base,
+            &range,
+            None,
+            1,
+            &clock,
+        )
+        .unwrap();
+    assert_eq!(physical_first, [(b"a".to_vec(), b"sst-a".to_vec())]);
+    let physical_second = latest_physical
+        .scan_cf_range_page_at(
+            physical_snapshot,
+            ColumnFamily::Base,
+            &range,
+            Some(b"a"),
+            1,
+            &clock,
+        )
+        .unwrap();
+    assert_eq!(physical_second, [(b"gone".to_vec(), b"sst-gone".to_vec())]);
+
     let latest =
         VersionedCfStore::new_with_router_latest_readback(2, CfRouter::open(&dir, 1024).unwrap());
     latest
@@ -109,7 +140,6 @@ fn latest_readback_merges_router_sst_with_wal_overlay_and_blocks_history() {
             ],
         )
         .unwrap();
-    let clock = FixedClock::new(200);
     let snapshot = latest.pin_snapshot(Freshness::FreshDerived, &clock, 1_000);
 
     assert_eq!(
@@ -149,6 +179,19 @@ fn latest_readback_merges_router_sst_with_wal_overlay_and_blocks_history() {
             (b"b".to_vec(), b"wal-b".to_vec())
         ]
     );
+
+    let overlay_first = latest
+        .scan_cf_range_page_at(snapshot, ColumnFamily::Base, &range, None, 1, &clock)
+        .unwrap();
+    assert_eq!(overlay_first, [(b"a".to_vec(), b"wal-a".to_vec())]);
+    let overlay_second = latest
+        .scan_cf_range_page_at(snapshot, ColumnFamily::Base, &range, Some(b"a"), 1, &clock)
+        .unwrap();
+    assert_eq!(overlay_second, [(b"b".to_vec(), b"wal-b".to_vec())]);
+    let overlay_done = latest
+        .scan_cf_range_page_at(snapshot, ColumnFamily::Base, &range, Some(b"b"), 1, &clock)
+        .unwrap();
+    assert!(overlay_done.is_empty());
 
     let historical = Snapshot::new(
         1,
