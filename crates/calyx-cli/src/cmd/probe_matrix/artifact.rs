@@ -221,6 +221,54 @@ pub(super) fn incomplete_error(reason: &str, matrix_path: &Path, progress_path: 
     .into()
 }
 
+const PROBE_MATRIX_GUARD_FILTERED_ALL: &str = "CALYX_PROBE_MATRIX_GUARD_FILTERED_ALL";
+
+/// Fail-closed error for when `--guard in-region` filtered every candidate the
+/// search path retrieved across all completed variants (issue #1088). Names the
+/// tau applied, whether it was the uncalibrated default, the observed in-region
+/// cosine range, and the calibration path — so the run never looks like a
+/// silently empty benchmark and is never auto-switched to `--guard off`.
+pub(super) fn guard_filtered_all_error(
+    summary: &super::diagnostics::GuardFilteredAllSummary,
+    guard_tau: Option<f32>,
+    matrix_path: &Path,
+    progress_path: &Path,
+) -> CliError {
+    let tau_display = guard_tau.map_or_else(
+        || {
+            format!(
+                "{:.6} (uncalibrated default)",
+                calyx_search::DEFAULT_IN_REGION_GUARD_TAU
+            )
+        },
+        |tau| format!("{tau:.6} (operator-supplied)"),
+    );
+    let observed = match (
+        &summary.observed_best_cosine_min,
+        &summary.observed_best_cosine_max,
+    ) {
+        (Some(min), Some(max)) => format!("observed in-region best-cosine range [{min}, {max}]"),
+        _ => "no in-region cosine was measurable for the retrieved candidates".to_string(),
+    };
+    let message = format!(
+        "probe-matrix --guard in-region filtered all {} retrieved candidates across {} variant(s) at tau={}; {}; reasons={:?}; this is not an empty benchmark — the search path retrieved candidates and the in-region guard rejected every one; matrix artifact persisted at {}; progress artifact persisted at {}",
+        summary.retrieved_candidate_count,
+        summary.variant_count,
+        tau_display,
+        observed,
+        summary.reasons,
+        matrix_path.display(),
+        progress_path.display()
+    );
+    CalyxError {
+        code: PROBE_MATRIX_GUARD_FILTERED_ALL,
+        message,
+        remediation:
+            "calibrate the in-region guard to this corpus: pass --guard-tau <cosine> at or below the observed best-cosine max, or confirm the corpus has no in-region content for these probes; do not silently rerun with --guard off",
+    }
+    .into()
+}
+
 pub(super) fn timeout_with_artifacts(
     error: &CliError,
     matrix_path: &Path,

@@ -461,6 +461,7 @@ fn arb_subcommand() -> impl Strategy<Value = Subcommand> {
                 lengths: vec![calyx_lodestar::ProbeLength::Phrase],
                 top_k,
                 guard: calyx_search::GuardChoice::Off,
+                guard_tau: None,
                 out: None,
                 resident_addr: None,
                 max_variants: None,

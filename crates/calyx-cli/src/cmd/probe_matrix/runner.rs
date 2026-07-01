@@ -289,6 +289,14 @@ pub(crate) fn run_probe_matrix_with_home(home: &Path, args: ProbeMatrixArgs) -> 
                     "matrix_artifact": matrix_path.display().to_string(),
                 }),
             )?;
+            if let Some(summary) = super::diagnostics::guard_filtered_all_summary(&guards) {
+                return Err(super::artifact::guard_filtered_all_error(
+                    &summary,
+                    args.guard_tau,
+                    &matrix_path,
+                    progress.path(),
+                ));
+            }
             return Err(incomplete_error(
                 "variant_budget_exhausted",
                 &matrix_path,
@@ -333,6 +341,7 @@ pub(crate) fn run_probe_matrix_with_home(home: &Path, args: ProbeMatrixArgs) -> 
             state: &state,
             vault_dir: &resolved.path,
             guard: args.guard,
+            guard_tau: args.guard_tau,
             query_cache: &mut query_cache,
             search_cache: &mut search_cache,
             guard_diagnostics: &mut guards,
@@ -473,6 +482,17 @@ pub(crate) fn run_probe_matrix_with_home(home: &Path, args: ProbeMatrixArgs) -> 
         }),
     )?;
     if let Err(error) = ensure_useful_log(&artifact.log) {
+        if let Some(summary) = super::diagnostics::guard_filtered_all_summary(&guards) {
+            return Err(with_persisted_artifact_error(
+                super::artifact::guard_filtered_all_error(
+                    &summary,
+                    args.guard_tau,
+                    &matrix_path,
+                    progress.path(),
+                ),
+                &persisted,
+            ));
+        }
         return Err(with_persisted_artifact_error(error, &persisted));
     }
     print_json(&json!({
