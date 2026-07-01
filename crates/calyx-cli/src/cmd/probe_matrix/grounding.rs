@@ -14,6 +14,7 @@ pub(super) struct GroundingPreflight<'a> {
     pub(super) artifacts: &'a MatrixArtifactWriter<'a>,
     pub(super) records: &'a [ProbeRecord],
     pub(super) query_cache: &'a QueryVectorCache,
+    pub(super) search_cache: &'a calyx_search::SearchSlotCache,
     pub(super) guard_diagnostics: &'a [ProbeMatrixVariantDiagnostic],
     pub(super) elapsed_ms: u128,
 }
@@ -32,6 +33,7 @@ impl GroundingPreflight<'_> {
                     let persisted = self.artifacts.persist_incomplete(
                         self.records,
                         self.query_cache,
+                        self.search_cache,
                         self.guard_diagnostics,
                         self.elapsed_ms,
                         "grounding_preflight_error",
@@ -59,6 +61,7 @@ impl GroundingPreflight<'_> {
             let persisted = self.artifacts.persist_incomplete_with_grounding(
                 self.records,
                 self.query_cache,
+                self.search_cache,
                 self.guard_diagnostics,
                 &grounding_preflight,
                 self.elapsed_ms,

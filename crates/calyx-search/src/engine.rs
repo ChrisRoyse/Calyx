@@ -6,11 +6,11 @@
 //! vault + panel state (the caller owns vault lifecycle); never resolves a CLI
 //! home and never prints — failures are structured errors.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 use std::path::Path;
 
 use calyx_aster::vault::AsterVault;
-use calyx_core::{CxId, SlotId, SlotVector};
+use calyx_core::{SlotId, SlotVector};
 use calyx_sextant::FusionContext;
 use calyx_sextant::fusion;
 
@@ -18,8 +18,10 @@ use crate::engine_fusion::{stage1_slots, weights_for};
 pub use crate::engine_measure::{measure_query_vectors, measure_query_vectors_with_slots};
 use crate::engine_measure::{
     measure_query_vectors_with_slots_traced, no_indexable_query_vectors,
-    no_indexable_stored_vectors, slot_vector_shape,
+    no_indexable_stored_vectors,
 };
+use crate::engine_slot_cache::search_slots_with_cache;
+pub use crate::engine_slot_cache::{SearchSlotCache, SearchSlotCacheDiagnostic};
 pub use crate::engine_trace::SearchTraceEvent;
 use crate::engine_trace::SearchTracer;
 use crate::error::CliResult;
@@ -164,6 +166,7 @@ pub fn search_outcome_with_slots_traced(
         allowed_slots,
         freshness,
         SearchBudget::disabled(),
+        None,
         Some(&mut trace),
     )
 }
@@ -212,6 +215,37 @@ pub fn search_outcome_with_query_vectors_freshness(
     budget: SearchBudget<'_>,
     trace_sink: Option<&mut dyn FnMut(SearchTraceEvent)>,
 ) -> CliResult<SearchOutcome> {
+    search_outcome_with_query_vectors_freshness_cached(
+        vault,
+        vault_dir,
+        query_vectors,
+        k,
+        fusion,
+        guard,
+        filter,
+        explain,
+        freshness,
+        budget,
+        None,
+        trace_sink,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn search_outcome_with_query_vectors_freshness_cached(
+    vault: &AsterVault,
+    vault_dir: &Path,
+    query_vectors: &[(SlotId, SlotVector)],
+    k: usize,
+    fusion: FusionChoice,
+    guard: GuardChoice,
+    filter: Option<&str>,
+    explain: bool,
+    freshness: SearchFreshness,
+    budget: SearchBudget<'_>,
+    slot_cache: Option<&mut SearchSlotCache>,
+    trace_sink: Option<&mut dyn FnMut(SearchTraceEvent)>,
+) -> CliResult<SearchOutcome> {
     let allowed_slots = query_vectors
         .iter()
         .map(|(slot, _)| *slot)
@@ -229,6 +263,7 @@ pub fn search_outcome_with_query_vectors_freshness(
         Some(&allowed_slots),
         freshness,
         budget,
+        slot_cache,
         Some(&mut trace),
     )
 }
@@ -246,6 +281,7 @@ fn search_outcome_with_measured_slots(
     allowed_slots: Option<&BTreeSet<SlotId>>,
     freshness: SearchFreshness,
     mut budget: SearchBudget<'_>,
+    slot_cache: Option<&mut SearchSlotCache>,
     trace: Option<&mut SearchTracer<'_>>,
 ) -> CliResult<SearchOutcome> {
     let mut noop_trace;
@@ -315,11 +351,16 @@ fn search_outcome_with_measured_slots(
         Some(format!("search_k={search_k}")),
     );
     budget.check("before_search_slots", query_vectors.len())?;
-    let per_slot = search_slots(
+    let per_slot = search_slots_with_cache(
         &indexes,
+        vault_dir,
         query_vectors,
         search_k,
+        guard,
+        freshness,
+        allowed_slots,
         filter_candidates.as_ref(),
+        slot_cache,
         trace,
     )?;
     let searched_hits = per_slot.values().map(Vec::len).sum();
@@ -406,34 +447,6 @@ fn search_outcome_with_measured_slots(
         guard_tau,
         docs: hit_docs,
     })
-}
-
-fn search_slots(
-    indexes: &PersistedSearchIndexes,
-    query_vectors: &[(SlotId, SlotVector)],
-    k: usize,
-    filter_candidates: Option<&BTreeSet<CxId>>,
-    trace: &mut SearchTracer<'_>,
-) -> CliResult<BTreeMap<SlotId, Vec<calyx_sextant::IndexSearchHit>>> {
-    let mut out = BTreeMap::new();
-    for (slot, query) in query_vectors {
-        trace.emit_detail(
-            "search_slot.start",
-            Some(*slot),
-            Some(k),
-            Some(slot_vector_shape(query)),
-        );
-        let hits = if let Some(candidates) = filter_candidates {
-            indexes.search_filtered(*slot, query, k, candidates)?
-        } else {
-            indexes.search(*slot, query, k)?
-        };
-        trace.emit("search_slot.done", Some(*slot), Some(hits.len()));
-        if !hits.is_empty() {
-            out.insert(*slot, hits);
-        }
-    }
-    Ok(out)
 }
 
 #[cfg(test)]

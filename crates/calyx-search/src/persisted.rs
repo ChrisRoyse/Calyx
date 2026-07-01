@@ -102,6 +102,7 @@ struct RebuildSummary {
 pub struct PersistedSearchIndexes {
     vault_dir: PathBuf,
     manifest: SearchIndexManifest,
+    manifest_sha256: String,
 }
 
 impl PersistedSearchIndexes {
@@ -113,7 +114,9 @@ impl PersistedSearchIndexes {
                 manifest_path.display()
             )));
         }
-        let manifest: SearchIndexManifest = serde_json::from_slice(&fs::read(&manifest_path)?)?;
+        let manifest_bytes = fs::read(&manifest_path)?;
+        let manifest_sha256 = sha256_hex(&manifest_bytes);
+        let manifest: SearchIndexManifest = serde_json::from_slice(&manifest_bytes)?;
         if manifest.format != MANIFEST_FORMAT {
             return Err(stale(format!(
                 "persistent search index manifest {} has format {}; expected {MANIFEST_FORMAT}",
@@ -124,6 +127,7 @@ impl PersistedSearchIndexes {
         Ok(Self {
             vault_dir: vault_dir.to_path_buf(),
             manifest,
+            manifest_sha256,
         })
     }
 
@@ -214,6 +218,10 @@ impl PersistedSearchIndexes {
 
     pub fn base_seq(&self) -> u64 {
         self.manifest.base_seq
+    }
+
+    pub fn manifest_sha256(&self) -> &str {
+        &self.manifest_sha256
     }
 
     pub fn ensure_fresh_at_snapshot(&self, pinned_seq: u64) -> CliResult {

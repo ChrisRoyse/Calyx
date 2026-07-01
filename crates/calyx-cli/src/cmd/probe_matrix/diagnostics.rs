@@ -36,6 +36,8 @@ impl ProbeMatrixArtifactStatus {
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub(super) struct ProbeMatrixDiagnostics {
     pub query_measurements: Vec<ProbeMatrixQueryMeasurement>,
+    #[serde(default)]
+    pub search_result_cache: calyx_search::SearchSlotCacheDiagnostic,
     pub variant_guard_counts: Vec<ProbeMatrixVariantDiagnostic>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub grounding_preflight: Option<GroundingAudit>,
@@ -72,6 +74,15 @@ pub(super) struct ProbeMatrixVariantDiagnostic {
     pub guard_missing_cosine_count: Option<usize>,
     pub guard_start_elapsed_ms: Option<u128>,
     pub guard_done_elapsed_ms: Option<u128>,
+    pub search_cache_key_sha256: Option<String>,
+    pub search_cache_lookup_count: usize,
+    pub search_cache_hit_count: usize,
+    pub search_cache_miss_count: usize,
+    pub search_cache_hit_slot_count: usize,
+    pub search_cache_miss_slot_count: usize,
+    pub search_cache_reused_hit_count: Option<usize>,
+    pub search_cache_stored_hit_count: Option<usize>,
+    pub search_cache_store_elapsed_ms: Option<u128>,
     pub search_done_elapsed_ms: Option<u128>,
     pub last_search_phase: Option<String>,
     pub last_search_elapsed_ms: Option<u128>,
@@ -211,6 +222,24 @@ pub(super) fn variant_guard_diagnostic(
         guard_missing_cosine_count: summary.missing,
         guard_start_elapsed_ms: elapsed_for_phase(events, "guard.in_region.start"),
         guard_done_elapsed_ms: elapsed_for_phase(events, "guard.in_region.done"),
+        search_cache_key_sha256: last_cache_key(events),
+        search_cache_lookup_count: event_count_for_phase(events, "search_slots.cache.lookup"),
+        search_cache_hit_count: event_count_for_phase(events, "search_slots.cache.hit"),
+        search_cache_miss_count: event_count_for_phase(events, "search_slots.cache.miss"),
+        search_cache_hit_slot_count: count_for_phase(events, "search_slots.cache.hit").unwrap_or(0),
+        search_cache_miss_slot_count: count_for_phase(events, "search_slots.cache.miss")
+            .unwrap_or(0),
+        search_cache_reused_hit_count: detail_usize(events, "search_slots.cache.hit", "hit_count"),
+        search_cache_stored_hit_count: detail_usize(
+            events,
+            "search_slots.cache.store",
+            "hit_count",
+        ),
+        search_cache_store_elapsed_ms: detail_u128(
+            events,
+            "search_slots.cache.store",
+            "search_elapsed_ms",
+        ),
         search_done_elapsed_ms: elapsed_for_phase(events, "search.done"),
         last_search_phase: last_event.map(|event| event.phase.to_string()),
         last_search_elapsed_ms: last_event.map(|event| event.elapsed_ms),
@@ -236,6 +265,35 @@ fn elapsed_for_phase(events: &[SearchTraceEvent], phase: &str) -> Option<u128> {
 
 fn event_count_for_phase(events: &[SearchTraceEvent], phase: &str) -> usize {
     events.iter().filter(|event| event.phase == phase).count()
+}
+
+fn detail_usize(events: &[SearchTraceEvent], phase: &str, field: &str) -> Option<usize> {
+    detail_value(events, phase, field).and_then(|value| value.parse::<usize>().ok())
+}
+
+fn detail_u128(events: &[SearchTraceEvent], phase: &str, field: &str) -> Option<u128> {
+    detail_value(events, phase, field).and_then(|value| value.parse::<u128>().ok())
+}
+
+fn detail_value<'a>(events: &'a [SearchTraceEvent], phase: &str, field: &str) -> Option<&'a str> {
+    events
+        .iter()
+        .rev()
+        .filter(|event| event.phase == phase)
+        .filter_map(|event| event.detail.as_deref())
+        .find_map(|detail| detail_field(detail, field))
+}
+
+fn last_cache_key(events: &[SearchTraceEvent]) -> Option<String> {
+    [
+        "search_slots.cache.hit",
+        "search_slots.cache.miss",
+        "search_slots.cache.store",
+        "search_slots.cache.lookup",
+    ]
+    .iter()
+    .find_map(|phase| detail_value(events, phase, "key_sha256"))
+    .map(str::to_string)
 }
 
 fn sha256_text(query: &str) -> String {

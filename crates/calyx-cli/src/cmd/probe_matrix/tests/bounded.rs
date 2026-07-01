@@ -27,7 +27,7 @@ fn max_variants_persists_incomplete_matrix_and_progress_source_of_truth() {
     assert_eq!(err.code(), "CALYX_PROBE_MATRIX_INCOMPLETE");
     assert!(out.exists());
     let artifact: ProbeMatrixArtifact = serde_json::from_slice(&fs::read(&out).unwrap()).unwrap();
-    assert_eq!(artifact.schema_version, 5);
+    assert_eq!(artifact.schema_version, 6);
     assert_eq!(artifact.status, ProbeMatrixArtifactStatus::Incomplete);
     assert!(!artifact.run.complete);
     assert_eq!(
@@ -39,6 +39,20 @@ fn max_variants_persists_incomplete_matrix_and_progress_source_of_truth() {
     assert_eq!(artifact.run.next_variant_index, Some(1));
     assert_eq!(artifact.run.resume_token.as_deref(), Some("variant:1"));
     assert_eq!(artifact.log.records.len(), 1);
+    let cache = &artifact.diagnostics.search_result_cache;
+    assert_eq!(
+        (
+            cache.entry_count,
+            cache.lookup_count,
+            cache.hit_count,
+            cache.miss_count
+        ),
+        (1, 1, 0, 1)
+    );
+    assert_eq!(
+        artifact.diagnostics.variant_guard_counts[0].search_cache_miss_count,
+        1
+    );
 
     let progress_path = PathBuf::from(&artifact.run.progress_artifact);
     let progress: serde_json::Value =
@@ -46,6 +60,64 @@ fn max_variants_persists_incomplete_matrix_and_progress_source_of_truth() {
     assert_eq!(progress["status"], "incomplete");
     assert_eq!(progress["phase"], "variant_budget_exhausted");
     assert!(progress["events"].as_array().unwrap().len() >= 4);
+}
+
+#[test]
+fn changed_slot_set_uses_distinct_search_cache_key_source_of_truth() {
+    let (home, vault_dir) = seed_home("slot-cache-key");
+    let out_one = vault_dir.join("slot-cache-key-one.json");
+    let out_two = vault_dir.join("slot-cache-key-two.json");
+
+    for (out, slots) in [
+        (&out_one, vec![SlotId::new(8)]),
+        (&out_two, vec![SlotId::new(8), SlotId::new(14)]),
+    ] {
+        let err = run_probe_matrix_with_home(
+            &home,
+            ProbeMatrixArgs {
+                vault: "slot-cache-key".to_string(),
+                frontier: "alpha".to_string(),
+                slots,
+                weighted_profiles: vec![RrfProfile::Bridge],
+                phrasings: vec![ProbePhrasing::Terse],
+                lengths: vec![ProbeLength::Entity],
+                top_k: 1,
+                guard: GuardChoice::Off,
+                out: Some(out.clone()),
+                resident_addr: None,
+                max_variants: Some(1),
+                time_budget_ms: None,
+            },
+        )
+        .unwrap_err();
+        assert_eq!(err.code(), "CALYX_PROBE_MATRIX_INCOMPLETE");
+    }
+
+    let one: ProbeMatrixArtifact = serde_json::from_slice(&fs::read(&out_one).unwrap()).unwrap();
+    let two: ProbeMatrixArtifact = serde_json::from_slice(&fs::read(&out_two).unwrap()).unwrap();
+    assert_eq!(one.active_slots, vec![SlotId::new(8)]);
+    assert_eq!(two.active_slots, vec![SlotId::new(8), SlotId::new(14)]);
+    assert_eq!(
+        (
+            one.diagnostics.search_result_cache.lookup_count,
+            one.diagnostics.search_result_cache.miss_count
+        ),
+        (1, 1)
+    );
+    assert_eq!(
+        (
+            two.diagnostics.search_result_cache.lookup_count,
+            two.diagnostics.search_result_cache.miss_count
+        ),
+        (1, 1)
+    );
+    let one_key = one.diagnostics.variant_guard_counts[0]
+        .search_cache_key_sha256
+        .as_deref();
+    let two_key = two.diagnostics.variant_guard_counts[0]
+        .search_cache_key_sha256
+        .as_deref();
+    assert_ne!(one_key, two_key);
 }
 
 #[test]
@@ -99,6 +171,55 @@ fn gpu_slot_without_resident_persists_incomplete_matrix_source_of_truth() {
 }
 
 #[test]
+fn stale_manifest_fails_closed_with_incomplete_cache_state_source_of_truth() {
+    let (home, vault_dir) = seed_home("stale-manifest-cache");
+    let out = vault_dir.join("stale-manifest-cache-matrix.json");
+    let manifest_path = vault_dir.join("idx").join("search").join("manifest.json");
+    let mut manifest: serde_json::Value =
+        serde_json::from_slice(&fs::read(&manifest_path).unwrap()).unwrap();
+    let base_seq = manifest["base_seq"].as_u64().unwrap();
+    manifest["base_seq"] = serde_json::json!(base_seq - 1);
+    fs::write(
+        &manifest_path,
+        serde_json::to_vec_pretty(&manifest).unwrap(),
+    )
+    .unwrap();
+
+    let err = run_probe_matrix_with_home(
+        &home,
+        ProbeMatrixArgs {
+            vault: "stale-manifest-cache".to_string(),
+            frontier: "alpha".to_string(),
+            slots: vec![SlotId::new(8), SlotId::new(14)],
+            weighted_profiles: vec![RrfProfile::Bridge],
+            phrasings: vec![ProbePhrasing::Terse],
+            lengths: vec![ProbeLength::Entity],
+            top_k: 1,
+            guard: GuardChoice::Off,
+            out: Some(out.clone()),
+            resident_addr: None,
+            max_variants: None,
+            time_budget_ms: None,
+        },
+    )
+    .unwrap_err();
+
+    assert_eq!(err.code(), "CALYX_STALE_DERIVED");
+    let artifact: ProbeMatrixArtifact = serde_json::from_slice(&fs::read(&out).unwrap()).unwrap();
+    assert_eq!(artifact.status, ProbeMatrixArtifactStatus::Incomplete);
+    assert_eq!(artifact.run.stop_reason.as_deref(), Some("variant_error"));
+    assert_eq!(artifact.run.completed_variant_count, 0);
+    assert_eq!(artifact.log.records.len(), 0);
+    assert_eq!(artifact.diagnostics.search_result_cache.lookup_count, 1);
+    assert_eq!(artifact.diagnostics.search_result_cache.miss_count, 1);
+
+    let progress: serde_json::Value =
+        serde_json::from_slice(&fs::read(&artifact.run.progress_artifact).unwrap()).unwrap();
+    assert_eq!(progress["status"], "failed");
+    assert_eq!(progress["phase"], "variant_error");
+}
+
+#[test]
 fn in_region_guard_diagnostics_persist_hydration_state_source_of_truth() {
     let (home, vault_dir) = seed_home("guard-diagnostics");
     let out = vault_dir.join("guard-diagnostics-matrix.json");
@@ -124,7 +245,7 @@ fn in_region_guard_diagnostics_persist_hydration_state_source_of_truth() {
 
     assert_eq!(err.code(), "CALYX_PROBE_MATRIX_INCOMPLETE");
     let artifact: ProbeMatrixArtifact = serde_json::from_slice(&fs::read(&out).unwrap()).unwrap();
-    assert_eq!(artifact.schema_version, 5);
+    assert_eq!(artifact.schema_version, 6);
     assert_eq!(artifact.diagnostics.variant_guard_counts.len(), 1);
     let row = &artifact.diagnostics.variant_guard_counts[0];
     assert_eq!(row.guard_prefilter_input_count, Some(3));
@@ -145,6 +266,9 @@ fn in_region_guard_diagnostics_persist_hydration_state_source_of_truth() {
     assert_eq!(row.guard_missing_cosine_count, Some(0));
     assert!(row.guard_start_elapsed_ms.is_some());
     assert!(row.guard_done_elapsed_ms.is_some());
+    assert_eq!(row.search_cache_miss_count, 1);
+    assert_eq!(row.search_cache_hit_count, 0);
+    assert!(row.search_cache_key_sha256.is_some());
     assert!(row.search_done_elapsed_ms.is_some());
     assert_eq!(row.last_search_phase.as_deref(), Some("search.done"));
     assert!(row.guard_zero_hit_reason.is_none());

@@ -12,7 +12,7 @@ use calyx_lodestar::{
 };
 use calyx_search::{
     FusionChoice, GuardChoice, SearchBudget, SearchFreshness,
-    search_outcome_with_query_vectors_freshness,
+    search_outcome_with_query_vectors_freshness_cached,
 };
 use calyx_sextant::{Hit, RrfProfile};
 
@@ -109,6 +109,7 @@ struct ProbeVariantContext<'a> {
     vault_dir: &'a Path,
     guard: GuardChoice,
     query_cache: &'a mut QueryVectorCache,
+    search_cache: &'a mut calyx_search::SearchSlotCache,
     guard_diagnostics: &'a mut Vec<diagnostics::ProbeMatrixVariantDiagnostic>,
     resident_addr: Option<SocketAddr>,
     deadline: &'a Deadline,
@@ -142,7 +143,7 @@ fn probe_variant(
             .check("probe-matrix", phase, processed as u64)
             .map_err(search_budget_error)
     };
-    let outcome = search_outcome_with_query_vectors_freshness(
+    let outcome = search_outcome_with_query_vectors_freshness_cached(
         vault,
         ctx.vault_dir,
         query_vectors,
@@ -153,6 +154,7 @@ fn probe_variant(
         false,
         SearchFreshness::Fresh,
         SearchBudget::new(&mut budget_check),
+        Some(ctx.search_cache),
         Some(&mut trace_sink),
     )?;
     ctx.guard_diagnostics.push(variant_guard_diagnostic(

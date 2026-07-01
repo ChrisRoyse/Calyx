@@ -7,6 +7,7 @@
 pub mod engine;
 mod engine_fusion;
 mod engine_measure;
+mod engine_slot_cache;
 mod engine_trace;
 pub mod error;
 pub mod filters;
@@ -14,10 +15,12 @@ pub mod persisted;
 mod provenance;
 
 pub use engine::{
-    FusionChoice, GuardChoice, SearchBudget, SearchFreshness, SearchOutcome, SearchTraceEvent,
-    measure_query_vectors, search_outcome, search_outcome_with_freshness,
-    search_outcome_with_query_vectors, search_outcome_with_query_vectors_freshness,
-    search_outcome_with_slots, search_outcome_with_slots_traced,
+    FusionChoice, GuardChoice, SearchBudget, SearchFreshness, SearchOutcome, SearchSlotCache,
+    SearchSlotCacheDiagnostic, SearchTraceEvent, measure_query_vectors, search_outcome,
+    search_outcome_with_freshness, search_outcome_with_query_vectors,
+    search_outcome_with_query_vectors_freshness,
+    search_outcome_with_query_vectors_freshness_cached, search_outcome_with_slots,
+    search_outcome_with_slots_traced,
 };
 pub use error::{CliResult, SearchError};
 pub use persisted::{

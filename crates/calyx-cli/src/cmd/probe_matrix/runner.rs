@@ -108,7 +108,8 @@ pub(crate) fn run_probe_matrix_with_home(home: &Path, args: ProbeMatrixArgs) -> 
     let deadline = Deadline::new(args.time_budget_ms);
     let mut records = Vec::<ProbeRecord>::new();
     let mut query_cache = QueryVectorCache::new(spec.active_slots.iter().copied().collect());
-    let mut guard_diagnostics = Vec::new();
+    let mut search_cache = calyx_search::SearchSlotCache::new();
+    let mut guards = Vec::new();
     let artifacts = MatrixArtifactWriter::new(
         &matrix_path,
         &resolved,
@@ -120,7 +121,8 @@ pub(crate) fn run_probe_matrix_with_home(home: &Path, args: ProbeMatrixArgs) -> 
     artifacts.persist_incomplete(
         &records,
         &query_cache,
-        &guard_diagnostics,
+        &search_cache,
+        &guards,
         started.elapsed().as_millis(),
         "initialized",
     )?;
@@ -138,7 +140,8 @@ pub(crate) fn run_probe_matrix_with_home(home: &Path, args: ProbeMatrixArgs) -> 
         artifacts.persist_incomplete(
             &records,
             &query_cache,
-            &guard_diagnostics,
+            &search_cache,
+            &guards,
             started.elapsed().as_millis(),
             "time_budget_exceeded",
         )?;
@@ -186,7 +189,8 @@ pub(crate) fn run_probe_matrix_with_home(home: &Path, args: ProbeMatrixArgs) -> 
         artifacts.persist_incomplete(
             &records,
             &query_cache,
-            &guard_diagnostics,
+            &search_cache,
+            &guards,
             started.elapsed().as_millis(),
             "time_budget_exceeded",
         )?;
@@ -207,7 +211,8 @@ pub(crate) fn run_probe_matrix_with_home(home: &Path, args: ProbeMatrixArgs) -> 
         artifacts: &artifacts,
         records: &records,
         query_cache: &query_cache,
-        guard_diagnostics: &guard_diagnostics,
+        search_cache: &search_cache,
+        guard_diagnostics: &guards,
         elapsed_ms: started.elapsed().as_millis(),
     }
     .run(&mut progress)?;
@@ -235,7 +240,8 @@ pub(crate) fn run_probe_matrix_with_home(home: &Path, args: ProbeMatrixArgs) -> 
         artifacts.persist_incomplete(
             &records,
             &query_cache,
-            &guard_diagnostics,
+            &search_cache,
+            &guards,
             started.elapsed().as_millis(),
             "resident_required",
         )?;
@@ -269,7 +275,8 @@ pub(crate) fn run_probe_matrix_with_home(home: &Path, args: ProbeMatrixArgs) -> 
             artifacts.persist_incomplete(
                 &records,
                 &query_cache,
-                &guard_diagnostics,
+                &search_cache,
+                &guards,
                 started.elapsed().as_millis(),
                 "variant_budget_exhausted",
             )?;
@@ -292,7 +299,8 @@ pub(crate) fn run_probe_matrix_with_home(home: &Path, args: ProbeMatrixArgs) -> 
             artifacts.persist_incomplete(
                 &records,
                 &query_cache,
-                &guard_diagnostics,
+                &search_cache,
+                &guards,
                 started.elapsed().as_millis(),
                 "time_budget_exceeded",
             )?;
@@ -326,7 +334,8 @@ pub(crate) fn run_probe_matrix_with_home(home: &Path, args: ProbeMatrixArgs) -> 
             vault_dir: &resolved.path,
             guard: args.guard,
             query_cache: &mut query_cache,
-            guard_diagnostics: &mut guard_diagnostics,
+            search_cache: &mut search_cache,
+            guard_diagnostics: &mut guards,
             resident_addr: args.resident_addr,
             deadline: &deadline,
         };
@@ -336,7 +345,8 @@ pub(crate) fn run_probe_matrix_with_home(home: &Path, args: ProbeMatrixArgs) -> 
                 artifacts.persist_incomplete(
                     &records,
                     &query_cache,
-                    &guard_diagnostics,
+                    &search_cache,
+                    &guards,
                     started.elapsed().as_millis(),
                     "time_budget_exceeded",
                 )?;
@@ -355,7 +365,8 @@ pub(crate) fn run_probe_matrix_with_home(home: &Path, args: ProbeMatrixArgs) -> 
                 artifacts.persist_incomplete(
                     &records,
                     &query_cache,
-                    &guard_diagnostics,
+                    &search_cache,
+                    &guards,
                     started.elapsed().as_millis(),
                     "variant_error",
                 )?;
@@ -371,7 +382,8 @@ pub(crate) fn run_probe_matrix_with_home(home: &Path, args: ProbeMatrixArgs) -> 
             artifacts.persist_incomplete(
                 &records,
                 &query_cache,
-                &guard_diagnostics,
+                &search_cache,
+                &guards,
                 started.elapsed().as_millis(),
                 "variant_validation_error",
             )?;
@@ -400,7 +412,8 @@ pub(crate) fn run_probe_matrix_with_home(home: &Path, args: ProbeMatrixArgs) -> 
         let persisted = artifacts.persist_run(
             &records,
             &query_cache,
-            &guard_diagnostics,
+            &search_cache,
+            &guards,
             ProbeMatrixArtifactStatus::Incomplete,
             artifacts.run_state(
                 records.len(),
@@ -427,7 +440,7 @@ pub(crate) fn run_probe_matrix_with_home(home: &Path, args: ProbeMatrixArgs) -> 
     let log = matrix_log(&spec, &records);
     let status = ProbeMatrixArtifactStatus::from_log(&log);
     let run = artifacts.run_state(records.len(), started.elapsed().as_millis(), true, None);
-    let artifact = artifacts.artifact_for(&query_cache, &guard_diagnostics, status, run, log);
+    let artifact = artifacts.artifact_for(&query_cache, &search_cache, &guards, status, run, log);
     let run_persisted = persist_probe_matrix_at_path(&matrix_path, &artifact, true)?;
     let persisted = if args.out.is_some() {
         run_persisted

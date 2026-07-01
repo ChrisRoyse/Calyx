@@ -18,7 +18,7 @@ use crate::cmd::vault::ResolvedVault;
 use crate::error::{CliError, CliResult};
 use crate::fsv_grounding::GroundingAudit;
 
-const PROBE_MATRIX_ARTIFACT_SCHEMA_VERSION: u32 = 5;
+const PROBE_MATRIX_ARTIFACT_SCHEMA_VERSION: u32 = 6;
 const PROBE_MATRIX_INCOMPLETE: &str = "CALYX_PROBE_MATRIX_INCOMPLETE";
 const PROBE_MATRIX_INCOMPLETE_REMEDIATION: &str = "inspect the persisted matrix/progress artifacts, then increase the budget or narrow explicit axes";
 const PROBE_MATRIX_TIMEOUT_REMEDIATION: &str = "inspect the persisted matrix/progress artifacts, then increase --time-budget-ms or narrow explicit axes";
@@ -82,6 +82,7 @@ impl<'a> MatrixArtifactWriter<'a> {
         &self,
         records: &[ProbeRecord],
         query_cache: &QueryVectorCache,
+        search_cache: &calyx_search::SearchSlotCache,
         guard_diagnostics: &[ProbeMatrixVariantDiagnostic],
         elapsed_ms: u128,
         reason: &str,
@@ -90,6 +91,7 @@ impl<'a> MatrixArtifactWriter<'a> {
         self.persist_run(
             records,
             query_cache,
+            search_cache,
             guard_diagnostics,
             ProbeMatrixArtifactStatus::Incomplete,
             run,
@@ -100,6 +102,7 @@ impl<'a> MatrixArtifactWriter<'a> {
         &self,
         records: &[ProbeRecord],
         query_cache: &QueryVectorCache,
+        search_cache: &calyx_search::SearchSlotCache,
         guard_diagnostics: &[ProbeMatrixVariantDiagnostic],
         grounding_preflight: &GroundingAudit,
         elapsed_ms: u128,
@@ -109,6 +112,7 @@ impl<'a> MatrixArtifactWriter<'a> {
         let log = matrix_log(self.spec, records);
         let mut artifact = self.artifact_for(
             query_cache,
+            search_cache,
             guard_diagnostics,
             ProbeMatrixArtifactStatus::Incomplete,
             run,
@@ -122,18 +126,27 @@ impl<'a> MatrixArtifactWriter<'a> {
         &self,
         records: &[ProbeRecord],
         query_cache: &QueryVectorCache,
+        search_cache: &calyx_search::SearchSlotCache,
         guard_diagnostics: &[ProbeMatrixVariantDiagnostic],
         status: ProbeMatrixArtifactStatus,
         run: ProbeMatrixRun,
     ) -> CliResult<persist::PersistedProbeMatrix> {
         let log = matrix_log(self.spec, records);
-        let artifact = self.artifact_for(query_cache, guard_diagnostics, status, run, log);
+        let artifact = self.artifact_for(
+            query_cache,
+            search_cache,
+            guard_diagnostics,
+            status,
+            run,
+            log,
+        );
         persist_probe_matrix_at_path(&self.matrix_path, &artifact, true)
     }
 
     pub(super) fn artifact_for(
         &self,
         query_cache: &QueryVectorCache,
+        search_cache: &calyx_search::SearchSlotCache,
         guard_diagnostics: &[ProbeMatrixVariantDiagnostic],
         status: ProbeMatrixArtifactStatus,
         run: ProbeMatrixRun,
@@ -148,6 +161,7 @@ impl<'a> MatrixArtifactWriter<'a> {
             active_slots: self.spec.active_slots.clone(),
             diagnostics: ProbeMatrixDiagnostics {
                 query_measurements: query_cache.diagnostics(),
+                search_result_cache: search_cache.diagnostics(),
                 variant_guard_counts: guard_diagnostics.to_vec(),
                 grounding_preflight: None,
             },
