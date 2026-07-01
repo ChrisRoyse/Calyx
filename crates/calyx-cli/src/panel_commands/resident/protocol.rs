@@ -48,6 +48,8 @@ pub(super) struct ReadyResponse {
     pub(super) load_ms: u128,
     pub(super) probe_ms: u128,
     pub(super) slot_count: usize,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub(super) slot_scope: Vec<u16>,
     pub(super) content_lens_count: usize,
     pub(super) registry_lens_count: usize,
     pub(super) warmed_lens_count: usize,

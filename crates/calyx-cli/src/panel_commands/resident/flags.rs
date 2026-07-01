@@ -2,7 +2,7 @@ use std::env;
 use std::net::{IpAddr, SocketAddr};
 use std::path::PathBuf;
 
-use calyx_core::{CalyxError, Modality};
+use calyx_core::{CalyxError, Modality, SlotId};
 
 use super::DEFAULT_BIND;
 use super::protocol::{ClientMeasureInput, hex_decode, hex_encode};
@@ -13,6 +13,7 @@ pub(super) struct ServeFlags {
     pub(super) home: Option<PathBuf>,
     pub(super) template: Option<String>,
     pub(super) vault: Option<PathBuf>,
+    pub(super) slots: Vec<SlotId>,
     pub(super) modality: Option<Modality>,
     pub(super) bind: Option<SocketAddr>,
     pub(super) ready_out: Option<PathBuf>,
@@ -39,6 +40,9 @@ pub(super) fn parse_serve_flags(args: &[String]) -> CliResult<ServeFlags> {
             "--home" => flags.home = Some(PathBuf::from(value(args, idx + 1, "--home")?)),
             "--template" => flags.template = Some(value(args, idx + 1, "--template")?.to_string()),
             "--vault" => flags.vault = Some(PathBuf::from(value(args, idx + 1, "--vault")?)),
+            "--slot" => flags
+                .slots
+                .push(parse_slot(value(args, idx + 1, "--slot")?)?),
             "--modality" => {
                 flags.modality = Some(parse_modality(value(args, idx + 1, "--modality")?)?)
             }
@@ -189,6 +193,13 @@ fn parse_modality(raw: &str) -> CliResult<Modality> {
     }
 }
 
+fn parse_slot(raw: &str) -> CliResult<SlotId> {
+    let value = raw
+        .parse::<u16>()
+        .map_err(|error| CliError::usage(format!("parse --slot {raw}: {error}")))?;
+    Ok(SlotId::new(value))
+}
+
 fn parse_u64(raw: &str, flag: &str) -> CliResult<u64> {
     raw.parse::<u64>()
         .map_err(|error| CliError::usage(format!("parse {flag} {raw}: {error}")))
@@ -246,6 +257,8 @@ mod tests {
             "C:\\calyx\\vaults\\01TEST",
             "--modality",
             "text",
+            "--slot",
+            "22",
             "--bind",
             "127.0.0.1:8788",
         ]))
@@ -255,6 +268,7 @@ mod tests {
             Some(Path::new("C:\\calyx\\vaults\\01TEST"))
         );
         assert_eq!(flags.modality, Some(Modality::Text));
+        assert_eq!(flags.slots, vec![SlotId::new(22)]);
         assert_eq!(flags.bind, Some("127.0.0.1:8788".parse().unwrap()));
     }
 

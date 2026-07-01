@@ -81,6 +81,10 @@ pub(crate) fn usage() -> &'static str {
        calyx panel registry-audit --vault <vault>
        calyx panel registry-repair --vault <vault> (--slot <u16>|--all)
        calyx panel warm --template <name-or-id> [--home <dir>] [--hold-secs <n>] [--out <json>] [--progress-out <jsonl>] [--max-resident-vram-mib <n>] [--resident-overhead-multiplier <n>] [--max-load-secs <n>] [--load-parallelism <n>]
+       calyx panel resident serve (--template <name-or-id>|--vault <vault>) [--home <dir>] [--modality <name>] [--slot <u16>]... [--bind <addr>] [--ready-out <json>] [--progress-out <jsonl>] [--max-resident-vram-mib <n>] [--resident-overhead-multiplier <n>] [--max-load-secs <n>] [--load-parallelism <n>]
+       calyx panel resident ready [--addr <127.0.0.1:port>] [--out <json>]
+       calyx panel resident measure [--addr <127.0.0.1:port>] --modality <name> (--input <text>|--input-file <path>|--input-hex <hex>) [--out <json>]
+       calyx panel resident stop [--addr <127.0.0.1:port>] [--out <json>]
        calyx panel a38-bundle save --name <name> --base-template <name-or-id> --required-modality <m> --include-lens <name-or-id> --evidence <json> [--home <dir>] [--budget-vram-mib <n>]
        calyx panel a38-bundle list [--home <dir>]
        calyx assay corpus-build --rows-jsonl <rows.jsonl> --out-dir <dir> --dataset <name> --target-class <n> --manifest <manifest.json> [--manifest <manifest.json> ...] [--limit-per-class <n>] [--batch-size <n>] [--cost-override-json <json>]   (rows require exactly one of text or input_path)

@@ -183,6 +183,7 @@ pub(crate) fn readiness(service: &ResidentService) -> ReadyResponse {
         load_ms: state.load_ms,
         probe_ms: state.probe_ms,
         slot_count: state.build.panel.slots.len(),
+        slot_scope: state.slot_scope.iter().map(|slot| slot.get()).collect(),
         content_lens_count: state.content_lens_count,
         registry_lens_count: state.build.registry.lens_snapshots().len(),
         warmed_lens_count: state.warmed_lens_count,

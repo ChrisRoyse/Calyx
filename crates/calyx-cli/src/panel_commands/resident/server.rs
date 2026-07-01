@@ -53,6 +53,7 @@ fn warm_options(home: PathBuf, flags: ServeFlags) -> ResidentWarmOptions {
         home,
         template: flags.template,
         vault: flags.vault,
+        slots: flags.slots,
         modality: flags.modality,
         ready_out: flags.ready_out,
         max_resident_vram_mib: flags
