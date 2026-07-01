@@ -103,6 +103,7 @@ struct CandidateUniverseKey {
     sha256: Option<String>,
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn search_slots_with_cache(
     indexes: &PersistedSearchIndexes,
     vault_dir: &Path,
@@ -215,16 +216,18 @@ pub(crate) fn search_slots_with_cache(
     Ok(per_slot)
 }
 
+type SlotHitsWithLatency = (
+    BTreeMap<SlotId, Vec<IndexSearchHit>>,
+    BTreeMap<SlotId, u128>,
+);
+
 fn search_slots_uncached(
     indexes: &PersistedSearchIndexes,
     query_vectors: &[(SlotId, SlotVector)],
     k: usize,
     filter_candidates: Option<&BTreeSet<CxId>>,
     trace: &mut SearchTracer<'_>,
-) -> CliResult<(
-    BTreeMap<SlotId, Vec<IndexSearchHit>>,
-    BTreeMap<SlotId, u128>,
-)> {
+) -> CliResult<SlotHitsWithLatency> {
     let mut out = BTreeMap::new();
     let mut elapsed_by_slot = BTreeMap::new();
     for (slot, query) in query_vectors {
@@ -256,6 +259,7 @@ fn search_slots_uncached(
 }
 
 impl SearchSlotCacheKey {
+    #[allow(clippy::too_many_arguments)]
     fn new(
         indexes: &PersistedSearchIndexes,
         vault_dir: &Path,
