@@ -400,7 +400,20 @@ pub(crate) fn resolve_vault_info(home: &Path, vault: &str) -> CliResult<Resolved
     let index = read_index(home)?;
     let checked_index = index_path(home);
     let direct = PathBuf::from(vault);
-    if direct.exists() {
+    // A bare argument (one path component) is a logical vault reference —
+    // vault id or CLI-index name — and must never be captured by an
+    // incidental same-named entry in the process cwd (#1082). Filesystem
+    // paths must be explicit: absolute, or multi-component like ./name.
+    let explicit_path = direct.is_absolute() || direct.components().count() > 1;
+    if explicit_path {
+        if !direct.exists() {
+            return Err(CalyxError::vault_access_denied(format!(
+                "direct vault path {} does not exist; pass an existing vault directory, a vault id, or a name from CLI index {}",
+                direct.display(),
+                checked_index.display()
+            ))
+            .into());
+        }
         if let Some(resolved) = resolve_direct_indexed(home, &index, &direct)? {
             return Ok(resolved);
         }
@@ -451,7 +464,7 @@ pub(crate) fn resolve_vault_info(home: &Path, vault: &str) -> CliResult<Resolved
         .into());
     }
     Err(CalyxError::vault_access_denied(format!(
-        "vault {vault} does not exist; checked CLI index {}",
+        "vault {vault} does not exist; checked CLI index {} for vault ids and names; pass an absolute or ./-prefixed path for a direct vault directory",
         checked_index.display()
     ))
     .into())
