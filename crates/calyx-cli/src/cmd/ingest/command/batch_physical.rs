@@ -42,14 +42,7 @@ pub(super) fn physical_batch_base_state(
         .join(calyx_aster::base_page_index::BASE_PAGE_INDEX_MANIFEST)
         .exists()
     {
-        calyx_aster::base_page_index::read_indexed_base_rows_for_keys(vault_path, &keys).map_err(
-            |err| {
-                CliError::io(format!(
-                    "read indexed physical Base CF rows for batch in {}: {err}",
-                    vault_path.display()
-                ))
-            },
-        )?
+        read_indexed_batch_base_rows(vault_path, &keys)?
     } else {
         crate::cf_read::latest_cf_rows_for_keys(vault_path, ColumnFamily::Base, &keys).map_err(
             |err| {
@@ -85,6 +78,36 @@ pub(super) fn physical_batch_base_state(
         visible,
         tombstoned,
     })
+}
+
+fn read_indexed_batch_base_rows(
+    vault_path: &std::path::Path,
+    keys: &[Vec<u8>],
+) -> CliResult<BTreeMap<Vec<u8>, Option<Vec<u8>>>> {
+    match calyx_aster::base_page_index::read_indexed_base_rows_for_keys(vault_path, keys) {
+        Ok(rows) => Ok(rows),
+        Err(error) if error.code == "CALYX_BASE_PAGE_INDEX_STALE" => {
+            ingest_runtime_log(format_args!(
+                "phase=batch_base_page_index_rebuild_start reason=stale vault={} key_count={}",
+                vault_path.display(),
+                keys.len()
+            ));
+            let manifest = calyx_aster::base_page_index::build_base_page_index(
+                vault_path,
+                calyx_aster::base_page_index::DEFAULT_BASE_PAGE_INDEX_PAGE_SIZE,
+                |_| Ok(()),
+            )?;
+            ingest_runtime_log(format_args!(
+                "phase=batch_base_page_index_rebuild_ok vault={} live_entries={} pages={} ledger_head={}",
+                vault_path.display(),
+                manifest.live_entries,
+                manifest.pages.len(),
+                manifest.ledger_head_height
+            ));
+            Ok(calyx_aster::base_page_index::read_indexed_base_rows_for_keys(vault_path, keys)?)
+        }
+        Err(error) => Err(error.into()),
+    }
 }
 
 pub(super) fn reject_tombstoned_batch_ids(state: &BatchPhysicalBaseState) -> CliResult<()> {
