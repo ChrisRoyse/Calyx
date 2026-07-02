@@ -1,3 +1,4 @@
+mod bridge_corpus;
 mod build_info;
 mod chain_walks;
 mod discovery_chain;
@@ -37,6 +38,13 @@ use crate::error::{CliError, CliResult};
 
 pub(crate) use panel_templates::PANEL_TEMPLATES;
 
+const KNOWN_COMMANDS: &str = "\
+create-vault add-lens retire-lens park-lens retire-vault list-panel profile-lens \
+ingest ingest-status anchor measure erase search kernel-answer bits kernel guard abundance \
+propose-lens provenance verify-chain reproduce anneal-status rebuild-search-index kernel-build \
+weave-loom domain-bridges materialize-bridge-corpus discovery-chain chain-walks probe-matrix \
+spectral-communities";
+
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) enum Subcommand {
     CreateVault(CreateVaultArgs),
@@ -66,6 +74,7 @@ pub(crate) enum Subcommand {
     KernelBuild(kernel_build::KernelBuildArgs),
     WeaveLoom(weave::WeaveLoomArgs),
     DomainBridges(domain_bridges::DomainBridgesArgs),
+    MaterializeBridgeCorpus(bridge_corpus::MaterializeBridgeCorpusArgs),
     DiscoveryChain(discovery_chain::DiscoveryChainArgs),
     ChainWalks(chain_walks::ChainWalksArgs),
     ProbeMatrix(probe_matrix::ProbeMatrixArgs),
@@ -210,6 +219,7 @@ fn run(command: Subcommand) -> CliResult {
         Subcommand::KernelBuild(_) => kernel_build::run(command),
         Subcommand::WeaveLoom(_) => weave::run(command),
         Subcommand::DomainBridges(_) => domain_bridges::run(command),
+        Subcommand::MaterializeBridgeCorpus(_) => bridge_corpus::run(command),
         Subcommand::DiscoveryChain(_) => discovery_chain::run(command),
         Subcommand::ChainWalks(_) => chain_walks::run(command),
         Subcommand::ProbeMatrix(_) => probe_matrix::run(command),
@@ -249,6 +259,7 @@ pub(crate) fn parse(args: &[String]) -> CliResult<Subcommand> {
         "kernel-build" => kernel_build::parse_kernel_build(rest),
         "weave-loom" => weave::parse_weave_loom(rest),
         "domain-bridges" => domain_bridges::parse_domain_bridges(rest),
+        "materialize-bridge-corpus" => bridge_corpus::parse_materialize_bridge_corpus(rest),
         "discovery-chain" => discovery_chain::parse_discovery_chain(rest),
         "chain-walks" => chain_walks::parse_chain_walks(rest),
         "probe-matrix" => probe_matrix::parse_probe_matrix(rest),
@@ -258,40 +269,9 @@ pub(crate) fn parse(args: &[String]) -> CliResult<Subcommand> {
 }
 
 fn is_cmd(command: &str) -> bool {
-    matches!(
-        command,
-        "create-vault"
-            | "add-lens"
-            | "retire-lens"
-            | "park-lens"
-            | "retire-vault"
-            | "list-panel"
-            | "profile-lens"
-            | "ingest"
-            | "ingest-status"
-            | "anchor"
-            | "measure"
-            | "erase"
-            | "search"
-            | "kernel-answer"
-            | "bits"
-            | "kernel"
-            | "guard"
-            | "abundance"
-            | "propose-lens"
-            | "provenance"
-            | "verify-chain"
-            | "reproduce"
-            | "anneal-status"
-            | "rebuild-search-index"
-            | "kernel-build"
-            | "weave-loom"
-            | "domain-bridges"
-            | "discovery-chain"
-            | "chain-walks"
-            | "probe-matrix"
-            | "spectral-communities"
-    )
+    KNOWN_COMMANDS
+        .split_whitespace()
+        .any(|known| known == command)
 }
 
 pub(crate) fn validate_vault_name(name: &str) -> CliResult {

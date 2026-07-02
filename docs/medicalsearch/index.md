@@ -44,4 +44,5 @@ still requires experimental confirmation.
 | `16_refusal_driven_expansion.md` | #883 refusal-expansion planner and before/after verifier | done + real regrounding FSV |
 | `17_discovery_vault_molecular.md` | #884 molecular discovery vault source-data preflight | preflight + FSV |
 | `18_oracle_event_structuring.md` | #885 Oracle event/domain structuring for recurrence reverse-query | done + FSV |
+| `19_nonclinical_bridge_corpora.md` | #994 real non-clinical bridge corpus materialization | done + molecular bridge FSV |
 | (added as work proceeds) | | |

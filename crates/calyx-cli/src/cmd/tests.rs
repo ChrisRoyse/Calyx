@@ -1,8 +1,6 @@
-use proptest::prelude::*;
-
-use calyx_core::Modality;
-
 use super::*;
+use calyx_core::Modality;
+use proptest::prelude::*;
 
 mod ingest_session_parse;
 mod token_roundtrip;
@@ -348,6 +346,13 @@ fn arb_subcommand() -> impl Strategy<Value = Subcommand> {
         (safe_name(), 0u16..128u16)
             .prop_map(|(vault, slot)| { Subcommand::ParkLens(SlotCommandArgs { vault, slot }) }),
         safe_name().prop_map(|vault| Subcommand::ListPanel(VaultRefArgs { vault })),
+        safe_name().prop_map(|name| {
+            Subcommand::MaterializeBridgeCorpus(bridge_corpus::MaterializeBridgeCorpusArgs {
+                name,
+                rows: "rows.jsonl".into(),
+                home: Some("target/home".into()),
+            })
+        }),
         safe_name().prop_map(|vault| Subcommand::Ingest(IngestArgs {
             vault,
             text: Some("roundtrip".to_string()),
