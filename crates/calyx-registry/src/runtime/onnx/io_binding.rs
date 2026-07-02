@@ -21,6 +21,10 @@
 //!   under this mode is a structured error, not a fallback.
 //! - `CALYX_ONNX_DISABLE_CPU_EP_FALLBACK=1` — additionally set the ORT
 //!   session config that refuses node-level CPU placement at build time.
+//! - `CALYX_ONNX_CPU_FALLBACK_AUDIT` — `off` | `warn` | `fail` (#1142): parse
+//!   the ORT profiling trace after the first run and surface / refuse a
+//!   GPU-policy session that runs too many compute nodes on CPU (int8 graphs
+//!   have no CUDA kernels). See `cpu_fallback_audit`.
 
 use std::collections::BTreeSet;
 
@@ -29,6 +33,10 @@ use ort::memory::{AllocationDevice, AllocatorType, MemoryInfo, MemoryType};
 use ort::session::{Session, SessionInputValue, SessionOutputs};
 use ort::value::Tensor;
 
+use super::cpu_fallback_audit::{
+    AuditMode, audit_from_trace, configured_audit_mode, configured_max_cpu_fraction,
+    profiling_file_path,
+};
 use super::{OnnxProviderPolicy, config_invalid};
 
 pub(super) const CUDA_DEVICE_ENV: &str = "CALYX_ONNX_CUDA_DEVICE";
@@ -41,8 +49,12 @@ pub(super) const DISABLE_CPU_EP_FALLBACK_ENV: &str = "CALYX_ONNX_DISABLE_CPU_EP_
 pub(super) struct OnnxRunPlan {
     label: String,
     io_binding: bool,
+    gpu_policy: bool,
     device_id: i32,
     require_static: bool,
+    audit_mode: AuditMode,
+    max_cpu_fraction: f64,
+    audited: bool,
     bound_shape: Option<(usize, usize)>,
     seen_shapes: BTreeSet<(usize, usize)>,
 }
@@ -101,6 +113,16 @@ pub(super) fn build_session(
                 ))
             })?;
     }
+    // #1142: enable ORT profiling so the first run can be audited for per-node
+    // CPU fallback. Off by default, so the hot path pays nothing unless the
+    // operator opts in via CALYX_ONNX_CPU_FALLBACK_AUDIT.
+    if configured_audit_mode()?.enabled() {
+        builder = builder
+            .with_profiling(profiling_file_path(label))
+            .map_err(|err| {
+                config_invalid(format!("ONNX profiling enable failed for {label}: {err}"))
+            })?;
+    }
     builder.commit_from_file(model_file).map_err(|err| {
         config_invalid(format!(
             "load ONNX model failed for {label} (policy={} device_id={device_id}): {err}",
@@ -134,6 +156,8 @@ impl OnnxRunPlan {
         let gpu_policy = matches!(policy, OnnxProviderPolicy::CudaFailLoud);
         let io_binding = gpu_policy && !binding_env_off;
         let require_static = env_flag(REQUIRE_STATIC_BINDING_ENV);
+        let audit_mode = configured_audit_mode()?;
+        let max_cpu_fraction = configured_max_cpu_fraction()?;
         let (allocator, cpu_fallback) = if gpu_policy {
             (
                 if io_binding {
@@ -147,15 +171,20 @@ impl OnnxRunPlan {
             ("host", "cpu_explicit_policy")
         };
         eprintln!(
-            "CALYX_ONNX_RUNTIME phase=session_ready label={label} provider={} device_id={device_id} io_binding={io_binding} io_binding_env_off={binding_env_off} allocator={allocator} cpu_fallback={cpu_fallback} require_static_binding={require_static} disable_cpu_ep_fallback={}",
+            "CALYX_ONNX_RUNTIME phase=session_ready label={label} provider={} device_id={device_id} io_binding={io_binding} io_binding_env_off={binding_env_off} allocator={allocator} cpu_fallback={cpu_fallback} require_static_binding={require_static} disable_cpu_ep_fallback={} cpu_fallback_audit={} max_cpu_node_fraction={max_cpu_fraction:.4}",
             policy.as_str(),
-            cpu_ep_fallback_disabled()
+            cpu_ep_fallback_disabled(),
+            audit_mode.as_str()
         );
         Ok(Self {
             label,
             io_binding,
+            gpu_policy,
             device_id,
             require_static,
+            audit_mode,
+            max_cpu_fraction,
+            audited: false,
             bound_shape: None,
             seen_shapes: BTreeSet::new(),
         })
@@ -179,7 +208,10 @@ impl OnnxRunPlan {
             let outputs = session
                 .run(named)
                 .map_err(|err| config_invalid(format!("ONNX inference failed: {err}")))?;
-            return extract(&outputs);
+            let result = extract(&outputs)?;
+            drop(outputs);
+            self.audit_placement_once(session)?;
+            return Ok(result);
         }
         let output_names: Vec<String> = session
             .outputs()
@@ -230,7 +262,42 @@ impl OnnxRunPlan {
                 self.label
             ))
         })?;
-        extract(&outputs)
+        let result = extract(&outputs)?;
+        drop(outputs);
+        drop(binding);
+        self.audit_placement_once(session)?;
+        Ok(result)
+    }
+
+    /// Once per session, after the first successful run, read the ORT profiling
+    /// trace and audit per-provider node placement (#1142). No-op unless the
+    /// operator enabled CALYX_ONNX_CPU_FALLBACK_AUDIT. Marked audited even on
+    /// error so a failing gate does not re-run profiling every batch.
+    fn audit_placement_once(&mut self, session: &mut Session) -> Result<()> {
+        if !self.audit_mode.enabled() || self.audited {
+            return Ok(());
+        }
+        self.audited = true;
+        let trace_path = session.end_profiling().map_err(|err| {
+            config_invalid(format!(
+                "ONNX end_profiling failed for {}: {err}",
+                self.label
+            ))
+        })?;
+        let trace = std::fs::read_to_string(&trace_path).map_err(|err| {
+            config_invalid(format!(
+                "read ONNX profiling trace {trace_path} failed for {}: {err}",
+                self.label
+            ))
+        })?;
+        audit_from_trace(
+            &self.label,
+            &trace,
+            self.gpu_policy,
+            self.audit_mode,
+            self.max_cpu_fraction,
+        )
+        .map(|_| ())
     }
 
     fn enforce_shape_contract(&mut self, shape: (usize, usize)) -> Result<()> {
