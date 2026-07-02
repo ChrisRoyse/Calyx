@@ -9,6 +9,8 @@ pub mod marker;
 mod mixed_tests;
 #[path = "persisted/multi.rs"]
 mod multi;
+#[path = "persisted/pinned.rs"]
+mod pinned;
 #[path = "persisted/rebuild.rs"]
 mod rebuild;
 #[path = "persisted/rebuild_plan.rs"]

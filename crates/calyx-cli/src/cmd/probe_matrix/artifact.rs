@@ -18,7 +18,7 @@ use crate::cmd::vault::ResolvedVault;
 use crate::error::{CliError, CliResult};
 use crate::fsv_grounding::GroundingAudit;
 
-const PROBE_MATRIX_ARTIFACT_SCHEMA_VERSION: u32 = 6;
+const PROBE_MATRIX_ARTIFACT_SCHEMA_VERSION: u32 = 7;
 const PROBE_MATRIX_INCOMPLETE: &str = "CALYX_PROBE_MATRIX_INCOMPLETE";
 const PROBE_MATRIX_INCOMPLETE_REMEDIATION: &str = "inspect the persisted matrix/progress artifacts, then increase the budget or narrow explicit axes";
 const PROBE_MATRIX_TIMEOUT_REMEDIATION: &str = "inspect the persisted matrix/progress artifacts, then increase --time-budget-ms or narrow explicit axes";

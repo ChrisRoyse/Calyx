@@ -191,6 +191,8 @@ fn run_persists_matrix_then_reads_back_source_of_truth() {
             resident_addr: None,
             max_variants: None,
             time_budget_ms: None,
+            search_miss_budget_ms: None,
+            search_hit_budget_ms: None,
         },
     )
     .unwrap();
@@ -199,7 +201,7 @@ fn run_persists_matrix_then_reads_back_source_of_truth() {
     let readback_bytes = fs::read(&matrix_path).unwrap();
     let artifact: ProbeMatrixArtifact = serde_json::from_slice(&readback_bytes).unwrap();
 
-    assert_eq!(artifact.schema_version, 6);
+    assert_eq!(artifact.schema_version, 7);
     assert_eq!(artifact.status, ProbeMatrixArtifactStatus::Ok);
     assert!(artifact.run.complete);
     assert_eq!(artifact.run.completed_variant_count, 6);
@@ -279,6 +281,8 @@ fn requested_missing_slot_fails_before_artifact_write() {
             resident_addr: None,
             max_variants: None,
             time_budget_ms: None,
+            search_miss_budget_ms: None,
+            search_hit_budget_ms: None,
         },
     )
     .unwrap_err();

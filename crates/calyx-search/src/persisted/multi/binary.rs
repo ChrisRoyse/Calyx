@@ -1,6 +1,6 @@
 use super::*;
 
-const MULTI_BINARY_MAGIC: &[u8; 16] = b"CYX_MULTI_BIN_V1";
+pub(in crate::persisted::multi) const MULTI_BINARY_MAGIC: &[u8; 16] = b"CYX_MULTI_BIN_V1";
 
 #[derive(Clone, Copy, Debug)]
 pub(super) struct BinaryHeader {
@@ -131,10 +131,7 @@ pub(super) fn search_binary(
 #[path = "binary/segments.rs"]
 mod segments;
 
-pub(super) use segments::{
-    BinarySegmentSearchSpec, score_binary_segment_collect, summarize_binary_entry,
-    summarize_binary_path,
-};
+pub(super) use segments::{summarize_binary_entry, summarize_binary_path};
 
 pub(super) fn read_binary_header_unhashed(path: &Path) -> CliResult<BinaryHeader> {
     let file = File::open(path)?;

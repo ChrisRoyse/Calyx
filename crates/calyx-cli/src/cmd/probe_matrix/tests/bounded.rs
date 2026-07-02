@@ -21,6 +21,8 @@ fn max_variants_persists_incomplete_matrix_and_progress_source_of_truth() {
             resident_addr: None,
             max_variants: Some(1),
             time_budget_ms: None,
+            search_miss_budget_ms: None,
+            search_hit_budget_ms: None,
         },
     )
     .unwrap_err();
@@ -28,7 +30,7 @@ fn max_variants_persists_incomplete_matrix_and_progress_source_of_truth() {
     assert_eq!(err.code(), "CALYX_PROBE_MATRIX_INCOMPLETE");
     assert!(out.exists());
     let artifact: ProbeMatrixArtifact = serde_json::from_slice(&fs::read(&out).unwrap()).unwrap();
-    assert_eq!(artifact.schema_version, 6);
+    assert_eq!(artifact.schema_version, 7);
     assert_eq!(artifact.status, ProbeMatrixArtifactStatus::Incomplete);
     assert!(!artifact.run.complete);
     assert_eq!(
@@ -89,6 +91,8 @@ fn changed_slot_set_uses_distinct_search_cache_key_source_of_truth() {
                 resident_addr: None,
                 max_variants: Some(1),
                 time_budget_ms: None,
+                search_miss_budget_ms: None,
+                search_hit_budget_ms: None,
             },
         )
         .unwrap_err();
@@ -153,6 +157,8 @@ fn gpu_slot_without_resident_persists_incomplete_matrix_source_of_truth() {
             resident_addr: None,
             max_variants: None,
             time_budget_ms: None,
+            search_miss_budget_ms: None,
+            search_hit_budget_ms: None,
         },
     )
     .unwrap_err();
@@ -204,6 +210,8 @@ fn stale_manifest_fails_closed_with_incomplete_cache_state_source_of_truth() {
             resident_addr: None,
             max_variants: None,
             time_budget_ms: None,
+            search_miss_budget_ms: None,
+            search_hit_budget_ms: None,
         },
     )
     .unwrap_err();
@@ -250,6 +258,8 @@ fn in_region_guard_filtering_all_candidates_fails_closed_with_specific_error() {
             resident_addr: None,
             max_variants: Some(1),
             time_budget_ms: None,
+            search_miss_budget_ms: None,
+            search_hit_budget_ms: None,
         },
     )
     .unwrap_err();
@@ -303,6 +313,8 @@ fn operator_calibrated_guard_tau_threads_to_engine_and_keeps_in_region_hits() {
             resident_addr: None,
             max_variants: Some(1),
             time_budget_ms: None,
+            search_miss_budget_ms: None,
+            search_hit_budget_ms: None,
         },
     )
     .unwrap_err();
@@ -343,13 +355,15 @@ fn in_region_guard_diagnostics_persist_hydration_state_source_of_truth() {
             resident_addr: None,
             max_variants: Some(1),
             time_budget_ms: None,
+            search_miss_budget_ms: None,
+            search_hit_budget_ms: None,
         },
     )
     .unwrap_err();
 
     assert_eq!(err.code(), "CALYX_PROBE_MATRIX_INCOMPLETE");
     let artifact: ProbeMatrixArtifact = serde_json::from_slice(&fs::read(&out).unwrap()).unwrap();
-    assert_eq!(artifact.schema_version, 6);
+    assert_eq!(artifact.schema_version, 7);
     assert_eq!(artifact.diagnostics.variant_guard_counts.len(), 1);
     let row = &artifact.diagnostics.variant_guard_counts[0];
     assert_eq!(row.guard_prefilter_input_count, Some(3));

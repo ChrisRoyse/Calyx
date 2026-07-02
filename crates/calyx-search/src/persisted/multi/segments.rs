@@ -357,7 +357,8 @@ pub(super) fn validate_segment_files(
     slot: SlotId,
     token_dim: u32,
     manifest: &MultiSegmentsManifest,
-) -> CliResult {
+) -> CliResult<Vec<super::pinned::BoundedSegmentFile>> {
+    let mut files = Vec::with_capacity(manifest.segments.len());
     for segment in &manifest.segments {
         bounds::ensure_segment_ref_bounded(slot, token_dim, segment)?;
         let path = checked_segment_path(vault_dir, &segment.index_rel, slot)?;
@@ -370,8 +371,13 @@ pub(super) fn validate_segment_files(
                 segment.index_rel
             )));
         }
+        files.push(super::pinned::BoundedSegmentFile {
+            path,
+            index_rel: segment.index_rel.clone(),
+            expected_bytes: expected,
+        });
     }
-    Ok(())
+    Ok(files)
 }
 
 fn summarize_segment_files(

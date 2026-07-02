@@ -2,6 +2,7 @@ use std::collections::BTreeMap;
 use std::collections::BTreeSet;
 use std::fs;
 use std::path::Path;
+use std::sync::{Arc, Mutex, OnceLock};
 
 #[cfg(test)]
 use calyx_core::Constellation;
@@ -10,10 +11,12 @@ use calyx_sextant::index::bm25::Bm25;
 use calyx_sextant::index::{IndexSearchHit, ranked};
 use serde::{Deserialize, Serialize};
 
+use super::pinned::{self, PinKey};
 use super::{SearchIndexEntry, rel, sha256_hex, stale, write_json_atomic_hashed};
 use crate::error::CliResult;
 
 const SPARSE_FORMAT: &str = "calyx-search-sparse-index-v1";
+const PIN_KIND: &str = "sparse_inverted";
 
 #[derive(Clone, Debug)]
 pub(super) struct SparseSlotRows {
@@ -133,7 +136,7 @@ pub(super) fn search(
             err.message
         ))
     })?;
-    let index = read(vault_dir, entry, manifest_base_seq, slot)?;
+    let index = pinned_index(vault_dir, entry, manifest_base_seq, slot)?;
     if index.dim != *query_dim {
         return Err(stale(format!(
             "persistent sparse slot {slot} index dim {} != query dim {query_dim}; reingest/backfill the vault",
@@ -144,6 +147,53 @@ pub(super) fn search(
         return Ok(Vec::new());
     }
     Ok(ranked(top_k(score(&index, entries, candidates), k)))
+}
+
+type SparsePinCache = Mutex<BTreeMap<(String, u16), (String, Arc<SparseIndex>)>>;
+
+fn cache() -> &'static SparsePinCache {
+    static CACHE: OnceLock<SparsePinCache> = OnceLock::new();
+    CACHE.get_or_init(|| Mutex::new(BTreeMap::new()))
+}
+
+/// Verify-once-then-pin: the sparse sidecar is fully read, hashed, and
+/// structurally validated on first use per manifest generation (keyed by the
+/// manifest entry sha256); cache hits still fail closed on any seq drift
+/// between the pinned index and the manifest being served.
+fn pinned_index(
+    vault_dir: &Path,
+    entry: &SearchIndexEntry,
+    manifest_base_seq: u64,
+    slot: SlotId,
+) -> CliResult<Arc<SparseIndex>> {
+    let entry_sha256 = entry.require_sha256(slot)?.to_string();
+    let cache_key = (pinned::canonical_vault_dir(vault_dir)?, slot.get());
+    {
+        let cache = cache().lock().expect("sparse pin cache poisoned");
+        if let Some((pinned_sha, index)) = cache.get(&cache_key)
+            && *pinned_sha == entry_sha256
+        {
+            if index.base_seq != manifest_base_seq || entry.built_at_seq != manifest_base_seq {
+                return Err(stale(format!(
+                    "persistent sparse sidecar seq {} / entry seq {} != manifest seq {manifest_base_seq}; rebuild the vault search indexes",
+                    index.base_seq, entry.built_at_seq
+                )));
+            }
+            return Ok(Arc::clone(index));
+        }
+    }
+    let path = vault_dir.join(entry.require_index_rel(slot)?);
+    let sidecar_bytes = if path.is_file() {
+        fs::metadata(&path)?.len()
+    } else {
+        0
+    };
+    let index = Arc::new(read(vault_dir, entry, manifest_base_seq, slot)?);
+    let pin_key = PinKey::new(vault_dir, slot.get(), PIN_KIND)?;
+    pinned::reserve(&pin_key, sidecar_bytes)?;
+    let mut cache = cache().lock().expect("sparse pin cache poisoned");
+    cache.insert(cache_key, (entry_sha256, Arc::clone(&index)));
+    Ok(index)
 }
 
 fn build_index(

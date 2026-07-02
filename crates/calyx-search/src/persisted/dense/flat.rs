@@ -1,7 +1,8 @@
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::io::{Read, Write};
 use std::path::Path;
+use std::sync::{Arc, Mutex, OnceLock};
 
 use calyx_core::{CxId, SlotId, SlotVector};
 use calyx_sextant::index::{IndexSearchHit, ranked};
@@ -9,11 +10,13 @@ use serde::{Deserialize, Serialize};
 
 use super::{DenseSlotRows, cosine};
 use crate::error::CliResult;
+use crate::persisted::pinned::{self, PinKey};
 use crate::persisted::{SearchIndexEntry, rel, sha256_hex, stale, write_atomic_hashed};
 
 const FORMAT: &str = "calyx-search-flat-dense-v1";
 const MAGIC: &[u8; 16] = b"CALYXFLATDENSE01";
 const DEFAULT_MAX_ROWS: usize = 32_768;
+const PIN_KIND: &str = "flat_dense";
 
 pub(super) fn should_use_index(row_count: usize) -> bool {
     row_count <= DEFAULT_MAX_ROWS
@@ -65,7 +68,7 @@ pub(super) fn search(
             "persistent flat dense search slot {slot} received non-dense query"
         )));
     };
-    let index = read(vault_dir, entry, slot)?;
+    let index = pinned_index(vault_dir, entry, slot)?;
     if index.header.dim != *dim {
         return Err(stale(format!(
             "persistent flat dense slot {slot} index dim {} != query dim {dim}; reingest/backfill the vault",
@@ -101,6 +104,48 @@ struct Header {
 struct Index {
     header: Header,
     rows: Vec<(CxId, Vec<f32>)>,
+}
+
+type FlatPinCache = Mutex<BTreeMap<(String, u16), (String, Arc<Index>)>>;
+
+fn cache() -> &'static FlatPinCache {
+    static CACHE: OnceLock<FlatPinCache> = OnceLock::new();
+    CACHE.get_or_init(|| Mutex::new(BTreeMap::new()))
+}
+
+/// Verify-once-then-pin: the flat dense sidecar is fully read, hashed, and
+/// validated on first use per manifest generation (keyed by the manifest
+/// entry sha256); cache hits still fail closed on seq drift between the
+/// pinned header and the manifest entry being served.
+fn pinned_index(vault_dir: &Path, entry: &SearchIndexEntry, slot: SlotId) -> CliResult<Arc<Index>> {
+    let entry_sha256 = entry.require_sha256(slot)?.to_string();
+    let cache_key = (pinned::canonical_vault_dir(vault_dir)?, slot.get());
+    {
+        let cache = cache().lock().expect("flat dense pin cache poisoned");
+        if let Some((pinned_sha, index)) = cache.get(&cache_key)
+            && *pinned_sha == entry_sha256
+        {
+            if index.header.base_seq != entry.built_at_seq {
+                return Err(stale(format!(
+                    "persistent flat dense sidecar seq {} != manifest seq {}; rebuild the vault search indexes",
+                    index.header.base_seq, entry.built_at_seq
+                )));
+            }
+            return Ok(Arc::clone(index));
+        }
+    }
+    let path = vault_dir.join(entry.require_index_rel(slot)?);
+    let sidecar_bytes = if path.is_file() {
+        fs::metadata(&path)?.len()
+    } else {
+        0
+    };
+    let index = Arc::new(read(vault_dir, entry, slot)?);
+    let pin_key = PinKey::new(vault_dir, slot.get(), PIN_KIND)?;
+    pinned::reserve(&pin_key, sidecar_bytes)?;
+    let mut cache = cache().lock().expect("flat dense pin cache poisoned");
+    cache.insert(cache_key, (entry_sha256, Arc::clone(&index)));
+    Ok(index)
 }
 
 fn write_sidecar(
