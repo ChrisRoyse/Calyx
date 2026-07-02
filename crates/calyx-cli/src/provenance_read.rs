@@ -150,6 +150,16 @@ impl VaultReadContext {
 
     /// Stage 1: resolve provenance seqs to commit seqs through the ledger
     /// provenance index and read each key from its own commit batch SST(s).
+    ///
+    /// HAZARD (issue #1107): this reads the ORIGINAL commit batch and does not
+    /// consult newer batches, which is correct ONLY while slot CF rows are
+    /// write-once for live constellations. A future feature that rewrites an
+    /// existing slot CF key in a LATER durable batch without compaction would
+    /// make this return a stale value. If you add such a feature, land a
+    /// guardrail first (tombstone/compact on rewrite, version slot rows, or a
+    /// newer-batch overlay here); the tripwire test
+    /// `later_batch_slot_rewrite_is_missed_by_stage1_write_once_assumption`
+    /// pins the current behavior.
     fn read_from_commit_batches(
         &mut self,
         cf: &ColumnFamily,

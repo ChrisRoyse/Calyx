@@ -104,3 +104,32 @@ Consumer changes:
   (`/home/croyse/calyx/vaults/01KVYX0KYVBQSGVC6N2S00FX6J`): before/after
   weave-loom coverage comparison and cx-list payload_source distribution —
   see issue #1096 comments for the evidence log.
+
+## Latent hazard: stage-1 write-once slot-row assumption (issue #1107)
+
+Stage 1 reads a slot row from the durable-batch SST of its ORIGINAL commit
+(located via the ledger provenance index) and deliberately does not consult
+newer batches. This is correct **only** while slot CF rows are write-once for
+live constellations: ingest stages them once, anchor-merge rewrites only
+base/anchors, deletion uses tombstones, compacted CFs bypass stage 1 entirely,
+and WAL-tail rows override.
+
+If a future feature rewrites an existing slot CF key in a **later** durable
+batch without compaction (in-place slot recompression, quantization migration,
+payload GC), stage 1 would return the original-batch value — a stale read —
+and cx-list / weave-loom would report the superseded payload.
+
+Guardrails to land **with** any such feature (do not ship the feature without
+one):
+
+- have the rewriter also tombstone/compact the CF (compaction presence already
+  disables stage 1), or
+- version slot rows / bump provenance on rewrite, or
+- add a newer-batch overlay to stage 1 that fails closed when a resolved key is
+  superseded.
+
+Tripwire: `provenance_read_tests::later_batch_slot_rewrite_is_missed_by_stage1_write_once_assumption`
+constructs the exact later-batch-rewrite shape and asserts stage 1 still
+returns the original value. When that assertion flips, the assumption has been
+violated and a guardrail is required before merge. The stage-1 call site
+(`read_from_commit_batches` in `provenance_read.rs`) carries the same warning.
