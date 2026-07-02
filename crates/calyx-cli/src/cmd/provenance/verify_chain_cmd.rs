@@ -12,6 +12,7 @@ use serde_json::json;
 use crate::bounded_progress::{Deadline, ProgressSink, parse_nonzero_u64, parse_nonzero_usize};
 use crate::error::{CliError, CliResult};
 use crate::output::print_json;
+use crate::verify::parse_verify_range;
 
 use super::resolve_cli_vault;
 
@@ -35,18 +36,36 @@ pub(crate) struct VerifyChainOut {
 }
 
 pub(crate) fn parse_verify_chain(rest: &[String]) -> CliResult<crate::cmd::Subcommand> {
-    let vault = rest
-        .first()
-        .ok_or_else(|| CliError::usage("verify-chain requires <vault>"))?
-        .clone();
+    let (vault, mut idx) = match rest.first().map(String::as_str) {
+        Some("--vault") => (value(rest, 1, "--vault")?.to_string(), 2),
+        Some(value) if value.starts_with("--") => {
+            return Err(CliError::usage(
+                "verify-chain requires <vault> or --vault <vault>",
+            ));
+        }
+        Some(value) => (value.to_string(), 1),
+        None => {
+            return Err(CliError::usage(
+                "verify-chain requires <vault> or --vault <vault>",
+            ));
+        }
+    };
     let mut from = None;
     let mut to = None;
+    let mut range = None;
     let mut progress_jsonl = None;
     let mut time_budget_ms = None;
     let mut batch_size = DEFAULT_VERIFY_BATCH_SIZE;
-    let mut idx = 1;
     while idx < rest.len() {
         match rest[idx].as_str() {
+            "--range" => {
+                idx += 1;
+                let parsed = parse_verify_range(value(rest, idx, "--range")?)
+                    .map_err(|error| CliError::usage(format!("invalid --range: {error}")))?;
+                if range.replace(parsed).is_some() {
+                    return Err(CliError::usage("verify-chain accepts at most one --range"));
+                }
+            }
             "--from" => {
                 idx += 1;
                 from = Some(parse_seq(value(rest, idx, "--from")?, "--from")?);
@@ -78,6 +97,15 @@ pub(crate) fn parse_verify_chain(rest: &[String]) -> CliResult<crate::cmd::Subco
             }
         }
         idx += 1;
+    }
+    if let Some(range) = range {
+        if from.is_some() || to.is_some() {
+            return Err(CliError::usage(
+                "verify-chain --range cannot be combined with --from or --to",
+            ));
+        }
+        from = Some(range.start);
+        to = Some(range.end);
     }
     Ok(crate::cmd::Subcommand::VerifyChain(VerifyChainArgs {
         vault,
@@ -317,6 +345,46 @@ mod tests {
                 batch_size: DEFAULT_VERIFY_BATCH_SIZE,
             })
         );
+    }
+
+    #[test]
+    fn parse_accepts_flagged_vault_ref_without_range() {
+        let parsed = parse_verify_chain(&tokens(["--vault", "v"])).unwrap();
+        assert_eq!(
+            parsed,
+            crate::cmd::Subcommand::VerifyChain(VerifyChainArgs {
+                vault: "v".to_string(),
+                from: None,
+                to: None,
+                progress_jsonl: None,
+                time_budget_ms: None,
+                batch_size: DEFAULT_VERIFY_BATCH_SIZE,
+            })
+        );
+    }
+
+    #[test]
+    fn parse_range_translates_to_bounds() {
+        let parsed = parse_verify_chain(&tokens(["--vault", "v", "--range", "2..5"])).unwrap();
+        assert_eq!(
+            parsed,
+            crate::cmd::Subcommand::VerifyChain(VerifyChainArgs {
+                vault: "v".to_string(),
+                from: Some(2),
+                to: Some(5),
+                progress_jsonl: None,
+                time_budget_ms: None,
+                batch_size: DEFAULT_VERIFY_BATCH_SIZE,
+            })
+        );
+    }
+
+    #[test]
+    fn parse_range_rejects_from_to_mix() {
+        let err = parse_verify_chain(&tokens(["--vault", "v", "--range", "2..5", "--to", "4"]))
+            .unwrap_err();
+        assert_eq!(err.code(), "CALYX_CLI_USAGE_ERROR");
+        assert!(err.message().contains("cannot be combined"));
     }
 
     #[test]

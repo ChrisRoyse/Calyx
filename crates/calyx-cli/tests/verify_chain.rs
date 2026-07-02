@@ -97,6 +97,14 @@ fn verify_chain_vault_range_resolves_registered_name() {
     assert_success(&by_path);
     assert_eq!(stdout(&by_path), "CHAIN_INTACT count=3");
 
+    let by_path_head = run(["verify-chain", "--vault"], &vault_dir, []);
+    assert_success(&by_path_head);
+    assert_json_ok_checked(&by_path_head, 3);
+
+    let by_name_head = run_verify_vault_head_with_home(&home, "registered-verify");
+    assert_success(&by_name_head);
+    assert_json_ok_checked(&by_name_head, 3);
+
     let missing = run_verify_vault_ref_with_home(&home, "missing-verify", "0..0");
     assert!(!missing.status.success());
     assert_stderr_code_and_message(&missing, "CALYX_VAULT_ACCESS_DENIED", "checked CLI index");
@@ -175,6 +183,14 @@ fn verify_chain_vault_name_resolves_despite_cwd_shadow_entry() {
     assert!(!explicit_missing.status.success());
     assert_stderr_code_and_message(
         &explicit_missing,
+        "CALYX_VAULT_ACCESS_DENIED",
+        "does not exist",
+    );
+
+    let explicit_missing_head = run_verify_head_from(&home, &cwd, "./missing/vault-dir");
+    assert!(!explicit_missing_head.status.success());
+    assert_stderr_code_and_message(
+        &explicit_missing_head,
         "CALYX_VAULT_ACCESS_DENIED",
         "does not exist",
     );
@@ -387,6 +403,16 @@ fn run_verify_vault_ref_with_home(home: &Path, vault: &str, range: &str) -> Outp
         .expect("run calyx verify-chain --vault")
 }
 
+fn run_verify_vault_head_with_home(home: &Path, vault: &str) -> Output {
+    Command::new(env!("CARGO_BIN_EXE_calyx"))
+        .env("CALYX_HOME", home)
+        .arg("verify-chain")
+        .arg("--vault")
+        .arg(vault)
+        .output()
+        .expect("run calyx verify-chain --vault")
+}
+
 fn run_verify_from(home: &Path, cwd: &Path, vault: &str, range: &str) -> Output {
     Command::new(env!("CARGO_BIN_EXE_calyx"))
         .env("CALYX_HOME", home)
@@ -400,12 +426,36 @@ fn run_verify_from(home: &Path, cwd: &Path, vault: &str, range: &str) -> Output 
         .expect("run calyx verify-chain --vault from cwd")
 }
 
+fn run_verify_head_from(home: &Path, cwd: &Path, vault: &str) -> Output {
+    Command::new(env!("CARGO_BIN_EXE_calyx"))
+        .env("CALYX_HOME", home)
+        .current_dir(cwd)
+        .arg("verify-chain")
+        .arg("--vault")
+        .arg(vault)
+        .output()
+        .expect("run calyx verify-chain --vault from cwd")
+}
+
 fn assert_success(output: &Output) {
     assert!(
         output.status.success(),
         "stdout: {}\nstderr: {}",
         stdout(output),
         stderr(output)
+    );
+}
+
+fn assert_json_ok_checked(output: &Output, checked: u64) {
+    let stdout = stdout(output);
+    let parsed: serde_json::Value = serde_json::from_str(&stdout)
+        .unwrap_or_else(|error| panic!("stdout JSON: {error}: {stdout}"));
+    assert_eq!(parsed["status"], "ok", "stdout: {stdout}");
+    assert_eq!(parsed["checked"], checked, "stdout: {stdout}");
+    assert_eq!(
+        parsed["break_at"],
+        serde_json::Value::Null,
+        "stdout: {stdout}"
     );
 }
 

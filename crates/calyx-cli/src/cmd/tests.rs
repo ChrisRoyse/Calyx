@@ -253,7 +253,6 @@ fn parse_provenance_ops_commands() {
             batch_size: 8192,
         })
     );
-    assert!(try_run(&tokens(["verify-chain", "--vault", "legacy"])).is_none());
 }
 
 #[test]
