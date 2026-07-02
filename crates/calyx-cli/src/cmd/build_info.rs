@@ -92,7 +92,7 @@ mod tests {
     fn capabilities_are_all_or_nothing_for_the_unified_cuda_feature() {
         let info: BuildInfo =
             calyx_buildinfo::build_info!(capabilities: crate::capabilities::COMPILED);
-        let cuda_requested = info.features.iter().any(|feature| *feature == "cuda");
+        let cuda_requested = info.features.contains(&"cuda");
         for (name, compiled) in [
             ("forge-cuda", true),
             ("registry-candle-cuda", true),
