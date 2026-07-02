@@ -6,12 +6,24 @@ use calyx_core::{Result, SlotId};
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 
+use crate::index::distance::l2_sq;
 use crate::index::{DiskAnnSearch, DiskAnnSearchParams, SpannCentroidIndex, open_diskann_graph};
 
 use super::assignment::read_ids;
 use super::{
     CENTROID_DIR, MANIFEST_FILE, PartitionDistanceMetric, PartitionedManifest, RegionMeta, cx,
 };
+
+/// Search-time knobs. `n_probe` is the probe CEILING; when `pruning_epsilon` is
+/// set, SPANN-style query-aware dynamic pruning keeps only candidate regions with
+/// centroid distance <= (1 + epsilon) * nearest-centroid distance, so easy queries
+/// touch few regions and only the hard tail spends the full ceiling.
+#[derive(Debug, Clone, Copy)]
+pub struct PartitionedSearchOptions {
+    pub n_probe: usize,
+    pub region_beam: usize,
+    pub pruning_epsilon: Option<f32>,
+}
 
 /// Region-restricted searcher over a partitioned vault. Holds centroids in RAM
 /// and lazily mmaps region graphs on demand (only probed regions are resident).
@@ -80,13 +92,43 @@ impl PartitionedSearch {
         n_probe: usize,
         region_beam: usize,
     ) -> Result<PartitionedSearchReadback> {
+        self.search_with_readback_opts(
+            query,
+            k,
+            PartitionedSearchOptions {
+                n_probe,
+                region_beam,
+                pruning_epsilon: None,
+            },
+        )
+    }
+
+    pub fn search_with_readback_opts(
+        &self,
+        query: &[f32],
+        k: usize,
+        opts: PartitionedSearchOptions,
+    ) -> Result<PartitionedSearchReadback> {
+        let PartitionedSearchOptions {
+            n_probe,
+            region_beam,
+            pruning_epsilon,
+        } = opts;
+        if let Some(epsilon) = pruning_epsilon
+            && (!epsilon.is_finite() || epsilon < 0.0)
+        {
+            return Err(crate::error::sextant_error(
+                crate::error::CALYX_INDEX_INVALID_PARAMS,
+                format!("pruning_epsilon must be finite and >= 0, got {epsilon}"),
+            ));
+        }
         if k == 0 {
             return Ok(PartitionedSearchReadback {
                 hits: Vec::new(),
                 touched_regions: Vec::new(),
             });
         }
-        let regions = match self.manifest.distance_metric {
+        let mut regions = match self.manifest.distance_metric {
             PartitionDistanceMetric::UnitL2 => {
                 self.centroids.nearest_centroids(query, n_probe.max(1))
             }
@@ -94,6 +136,9 @@ impl PartitionedSearch {
                 .centroids
                 .nearest_centroids_exact_l2(query, n_probe.max(1)),
         };
+        if let Some(epsilon) = pruning_epsilon {
+            regions = self.prune_candidate_regions(query, regions, epsilon);
+        }
         let sp = DiskAnnSearchParams {
             beamwidth: region_beam.max(k),
             ef_search: region_beam.max(k),
@@ -149,6 +194,39 @@ impl PartitionedSearch {
             hits,
             touched_regions,
         })
+    }
+
+    /// SPANN query-aware dynamic pruning (arXiv:2111.08566 §4.2): rank the routed
+    /// candidate regions by exact query->centroid distance (centroids are RAM
+    /// resident) and keep only those within (1 + epsilon) of the nearest one.
+    /// Distances are compared on the sqrt scale, so the squared-L2 threshold is
+    /// (1 + epsilon)^2 * d1_sq. The nearest candidate always survives.
+    fn prune_candidate_regions(
+        &self,
+        query: &[f32],
+        candidates: Vec<u32>,
+        epsilon: f32,
+    ) -> Vec<u32> {
+        let mut scored: Vec<(u32, f32)> = candidates
+            .into_iter()
+            .filter_map(|region| {
+                self.centroids
+                    .centroids()
+                    .get(region as usize)
+                    .map(|centroid| (region, l2_sq(centroid, query)))
+            })
+            .collect();
+        scored.sort_by(|a, b| a.1.total_cmp(&b.1).then_with(|| a.0.cmp(&b.0)));
+        let Some(&(_, nearest_sq)) = scored.first() else {
+            return Vec::new();
+        };
+        let factor = (1.0 + epsilon) * (1.0 + epsilon);
+        let threshold = nearest_sq * factor;
+        scored
+            .into_iter()
+            .filter(|&(_, dist_sq)| dist_sq <= threshold)
+            .map(|(region, _)| region)
+            .collect()
     }
 
     pub fn dim(&self) -> usize {

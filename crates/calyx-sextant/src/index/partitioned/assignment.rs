@@ -50,6 +50,11 @@ pub(super) struct BoundedAssignmentConfig {
     pub routing: AssignmentRouting,
     pub boundary_epsilon: f32,
     pub max_replication: usize,
+    /// SPANN RNG rule (arXiv:2111.08566 §4.1): skip a replica region when an
+    /// already-selected region's centroid is closer to that region's centroid
+    /// than the row is — the replica would duplicate boundary coverage the
+    /// selected region already provides.
+    pub apply_rng_rule: bool,
 }
 
 pub(super) fn stream_assign_to_ids_with_routing(
@@ -168,6 +173,7 @@ pub(super) fn stream_assign_to_ids_bounded(
                 config.boundary_epsilon,
                 config.max_replication,
                 duplicate_budget,
+                config.apply_rng_rule.then_some(centroids),
             )
             .ok_or_else(|| {
                 sextant_error(
@@ -221,6 +227,7 @@ fn score_candidates(
     scored
 }
 
+#[allow(clippy::too_many_arguments)]
 fn choose_bounded_regions(
     primary_counts: &[usize],
     stored_counts: &[usize],
@@ -229,6 +236,7 @@ fn choose_bounded_regions(
     boundary_epsilon: f32,
     max_replication: usize,
     duplicate_budget: usize,
+    rng_rule_centroids: Option<&SpannCentroidIndex>,
 ) -> Option<Vec<usize>> {
     let &(primary, primary_distance) = candidates.iter().find(|(region, _)| {
         primary_counts
@@ -236,7 +244,10 @@ fn choose_bounded_regions(
             .is_some_and(|count| *count < cap)
             && stored_counts.get(*region).is_some_and(|count| *count < cap)
     })?;
-    let threshold = primary_distance * (1.0 + boundary_epsilon);
+    // Candidates carry SQUARED distances; epsilon is defined on the distance
+    // scale (SPANN's closure rule), so the squared threshold is (1 + eps)^2.
+    let factor = (1.0 + boundary_epsilon) * (1.0 + boundary_epsilon);
+    let threshold = primary_distance * factor;
     let duplicate_cap = cap.saturating_mul(max_replication.saturating_sub(1));
     let mut selected = vec![primary];
     for &(region, distance) in candidates {
@@ -250,11 +261,36 @@ fn choose_bounded_regions(
             continue;
         }
         let duplicates = stored_counts[region].saturating_sub(primary_counts[region]);
-        if stored_counts[region] < cap && duplicates < duplicate_cap {
+        if stored_counts[region] < cap
+            && duplicates < duplicate_cap
+            && !rng_rule_skips(rng_rule_centroids, &selected, region, distance)
+        {
             selected.push(region);
         }
     }
     Some(selected)
+}
+
+/// SPANN RNG rule: replica candidate `region` (squared distance `distance_sq`
+/// from the row) is redundant when some already-selected region's centroid is
+/// closer to the candidate's centroid than the row itself is.
+fn rng_rule_skips(
+    centroids: Option<&SpannCentroidIndex>,
+    selected: &[usize],
+    region: usize,
+    distance_sq: f32,
+) -> bool {
+    let Some(index) = centroids else {
+        return false;
+    };
+    let all = index.centroids();
+    let Some(candidate) = all.get(region) else {
+        return false;
+    };
+    selected.iter().any(|&chosen| {
+        all.get(chosen)
+            .is_some_and(|centroid| l2_sq(centroid, candidate) < distance_sq)
+    })
 }
 
 fn append_assigned_chunk(

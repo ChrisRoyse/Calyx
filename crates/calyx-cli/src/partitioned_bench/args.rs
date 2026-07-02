@@ -12,6 +12,7 @@ pub(super) struct SearchArgs {
     pub(super) k: usize,
     pub(super) n_probe: usize,
     pub(super) region_beam: usize,
+    pub(super) pruning_epsilon: Option<f32>,
     pub(super) ground_truth: usize,
     pub(super) recall_floor: Option<f32>,
     pub(super) anneal_vault: Option<PathBuf>,
@@ -26,6 +27,7 @@ impl SearchArgs {
         let mut ground_truth_file = None;
         let mut ground_truth_id_map = None;
         let (mut n, mut k, mut n_probe, mut region_beam) = (1000usize, 10usize, 8usize, 64usize);
+        let mut pruning_epsilon = None;
         let mut ground_truth = 0usize;
         let mut recall_floor = None;
         let mut anneal_vault = None;
@@ -47,6 +49,7 @@ impl SearchArgs {
                 "--k" => k = parse(&next()?, "--k")?,
                 "--n-probe" => n_probe = parse(&next()?, "--n-probe")?,
                 "--region-beam" => region_beam = parse(&next()?, "--region-beam")?,
+                "--pruning-epsilon" => pruning_epsilon = Some(parse_pruning_epsilon(&next()?)?),
                 "--ground-truth" => ground_truth = parse(&next()?, "--ground-truth")?,
                 "--recall-floor" => recall_floor = Some(parse_recall_floor(&next()?)?),
                 "--anneal-vault" => anneal_vault = Some(PathBuf::from(next()?)),
@@ -93,6 +96,7 @@ impl SearchArgs {
             k,
             n_probe,
             region_beam,
+            pruning_epsilon,
             ground_truth,
             recall_floor,
             anneal_vault,
@@ -104,6 +108,16 @@ impl SearchArgs {
 pub(super) fn parse<T: std::str::FromStr>(v: &str, flag: &str) -> CliResult<T> {
     v.parse::<T>()
         .map_err(|_| CliError::usage(format!("{flag} expects a valid value, got {v}")))
+}
+
+pub(super) fn parse_pruning_epsilon(v: &str) -> CliResult<f32> {
+    let value: f32 = parse(v, "--pruning-epsilon")?;
+    if !value.is_finite() || value < 0.0 {
+        return Err(CliError::usage(
+            "--pruning-epsilon expects a finite value >= 0",
+        ));
+    }
+    Ok(value)
 }
 
 pub(super) fn parse_recall_floor(v: &str) -> CliResult<f32> {

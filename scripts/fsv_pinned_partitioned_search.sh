@@ -10,10 +10,17 @@ Options:
   --k <k>                    default: 10
   --n-probe <n>              default: 8
   --region-beam <n>          default: 64
+  --pruning-epsilon <eps>    optional: SPANN query-aware dynamic pruning
   --slo-us <microseconds>    default: 25000
+  --queries <file>           optional: real query vectors (.fbin/.i8bin) -> real mode
+  --ground-truth <count>     optional: number of queries scored against ground truth
+  --ground-truth-file <f>    optional: precomputed truth .i32bin (real mode)
+  --ground-truth-id-map <f>  optional: row-id -> external-id map .i32bin (real mode)
 
-The script refuses to rely on mutable target/release paths. It runs the supplied
-pinned binary and writes pinned_partitioned_search_readback.json even on failure.
+Real mode (--queries) measures ground_truth_recall_at_k against the supplied
+truth; synthetic mode measures diagnostic self-recall only. The script refuses
+to rely on mutable target/release paths. It runs the supplied pinned binary and
+writes pinned_partitioned_search_readback.json even on failure.
 USAGE
 }
 
@@ -25,7 +32,12 @@ n=1000
 k=10
 n_probe=8
 region_beam=64
+pruning_epsilon=""
 slo_us=25000
+queries=""
+ground_truth=""
+ground_truth_file=""
+ground_truth_id_map=""
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
@@ -37,7 +49,12 @@ while [ "$#" -gt 0 ]; do
     --k) k="${2:-}"; shift 2 ;;
     --n-probe) n_probe="${2:-}"; shift 2 ;;
     --region-beam) region_beam="${2:-}"; shift 2 ;;
+    --pruning-epsilon) pruning_epsilon="${2:-}"; shift 2 ;;
     --slo-us) slo_us="${2:-}"; shift 2 ;;
+    --queries) queries="${2:-}"; shift 2 ;;
+    --ground-truth) ground_truth="${2:-}"; shift 2 ;;
+    --ground-truth-file) ground_truth_file="${2:-}"; shift 2 ;;
+    --ground-truth-id-map) ground_truth_id_map="${2:-}"; shift 2 ;;
     -h|--help) usage; exit 0 ;;
     *) echo "unknown arg: $1" >&2; usage; exit 2 ;;
   esac
@@ -65,7 +82,12 @@ write_readback() {
   READBACK_K="$k" \
   READBACK_N_PROBE="$n_probe" \
   READBACK_REGION_BEAM="$region_beam" \
+  READBACK_PRUNING_EPSILON="$pruning_epsilon" \
   READBACK_SLO_US="$slo_us" \
+  READBACK_QUERIES="$queries" \
+  READBACK_GROUND_TRUTH="$ground_truth" \
+  READBACK_GROUND_TRUTH_FILE="$ground_truth_file" \
+  READBACK_GROUND_TRUTH_ID_MAP="$ground_truth_id_map" \
   python3 - <<'PY'
 import hashlib
 import json
@@ -147,8 +169,14 @@ readback = {
         "k": int(os.environ["READBACK_K"]),
         "n_probe": int(os.environ["READBACK_N_PROBE"]),
         "region_beam": int(os.environ["READBACK_REGION_BEAM"]),
+        "pruning_epsilon": float(os.environ["READBACK_PRUNING_EPSILON"]) if os.environ.get("READBACK_PRUNING_EPSILON") else None,
         "slo_us": int(os.environ["READBACK_SLO_US"]),
+        "ground_truth": int(os.environ["READBACK_GROUND_TRUTH"]) if os.environ.get("READBACK_GROUND_TRUTH") else None,
     },
+    "query_mode": "real" if os.environ.get("READBACK_QUERIES") else "synthetic",
+    "queries_file": meta(os.environ["READBACK_QUERIES"]) if os.environ.get("READBACK_QUERIES") else None,
+    "ground_truth_file": meta(os.environ["READBACK_GROUND_TRUTH_FILE"]) if os.environ.get("READBACK_GROUND_TRUTH_FILE") else None,
+    "ground_truth_id_map": meta(os.environ["READBACK_GROUND_TRUTH_ID_MAP"]) if os.environ.get("READBACK_GROUND_TRUTH_ID_MAP") else None,
     "pinned_binary": meta(bin_path),
     "pinned_binary_manifest": meta(bin_path.with_name(bin_path.name + ".pin.json")),
     "manifest": meta(manifest_path),
@@ -185,6 +213,9 @@ readback = {
         "k": search.get("k") if isinstance(search, dict) else None,
         "n_probe": search.get("n_probe") if isinstance(search, dict) else None,
         "region_beam": search.get("region_beam") if isinstance(search, dict) else None,
+        "pruning_epsilon": search.get("pruning_epsilon") if isinstance(search, dict) else None,
+        "region_touch_count": search.get("region_touch_count") if isinstance(search, dict) else None,
+        "mode": search.get("mode") if isinstance(search, dict) else None,
         "latency_us": latency,
         "self_recall_at_k": search.get("self_recall_at_k") if isinstance(search, dict) else None,
         "ground_truth_queries": search.get("ground_truth_queries") if isinstance(search, dict) else None,
@@ -233,6 +264,28 @@ mkdir -p "$out_dir"
 case "$root" in /home/croyse/calyx/fsv/*) ;;
   *) write_readback 2 precondition_failed CALYX_FSV_ROOT_INVALID "root must be under /home/croyse/calyx/fsv"; exit 2 ;;
 esac
+if [ -n "$ground_truth_file$ground_truth_id_map$ground_truth" ] && [ -z "$queries" ]; then
+  write_readback 2 precondition_failed CALYX_FSV_QUERIES_REQUIRED "--ground-truth* flags require --queries (real mode)"
+  exit 2
+fi
+if [ -n "$queries" ]; then
+  if [ ! -f "$queries" ]; then
+    write_readback 2 precondition_failed CALYX_FSV_QUERIES_MISSING "$queries"
+    exit 2
+  fi
+  if [ -z "$ground_truth_file" ] || [ -z "$ground_truth" ]; then
+    write_readback 2 precondition_failed CALYX_FSV_GROUND_TRUTH_REQUIRED "real mode requires --ground-truth <count> and --ground-truth-file <i32bin> for the recall gate"
+    exit 2
+  fi
+  if [ ! -f "$ground_truth_file" ]; then
+    write_readback 2 precondition_failed CALYX_FSV_GROUND_TRUTH_MISSING "$ground_truth_file"
+    exit 2
+  fi
+  if [ -n "$ground_truth_id_map" ] && [ ! -f "$ground_truth_id_map" ]; then
+    write_readback 2 precondition_failed CALYX_FSV_GROUND_TRUTH_ID_MAP_MISSING "$ground_truth_id_map"
+    exit 2
+  fi
+fi
 if [ ! -x "$bin_path" ]; then
   write_readback 74 precondition_failed CALYX_FSV_PINNED_BINARY_MISSING "$bin_path"
   exit 74
@@ -278,14 +331,26 @@ elif [ "$cap_check_code" -ne 0 ]; then
 fi
 
 sha256sum "$bin_path" "$vault/partitioned-manifest.json" > "$out_dir/pre_search_hashes.txt"
-"$bin_path" bench partitioned-search \
-  --vault "$vault" \
-  --n "$n" \
-  --k "$k" \
-  --n-probe "$n_probe" \
-  --region-beam "$region_beam" \
-  --anneal-vault "$out_dir/anneal_partitioned_search" \
-  --tuner-slo-us "$slo_us" \
+search_args=(bench partitioned-search
+  --vault "$vault"
+  --n "$n"
+  --k "$k"
+  --n-probe "$n_probe"
+  --region-beam "$region_beam")
+if [ -n "$pruning_epsilon" ]; then
+  search_args+=(--pruning-epsilon "$pruning_epsilon")
+fi
+if [ -n "$queries" ]; then
+  # Real mode: grounded recall against the supplied truth. The tuner status
+  # path is synthetic-only and rejected by the CLI in real mode.
+  search_args+=(--queries "$queries" --ground-truth "$ground_truth" --ground-truth-file "$ground_truth_file")
+  if [ -n "$ground_truth_id_map" ]; then
+    search_args+=(--ground-truth-id-map "$ground_truth_id_map")
+  fi
+else
+  search_args+=(--anneal-vault "$out_dir/anneal_partitioned_search" --tuner-slo-us "$slo_us")
+fi
+"$bin_path" "${search_args[@]}" \
   > "$out_dir/search_stdout.json" 2> "$out_dir/search_stderr.log"
 search_code=$?
 

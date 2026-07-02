@@ -48,6 +48,7 @@ struct Args {
     k: usize,
     n_probe: usize,
     region_beam: usize,
+    pruning_epsilon: Option<f32>,
     ground_truth: usize,
     recall_floor: Option<f32>,
     truth_depth: Option<usize>,
@@ -94,6 +95,7 @@ impl Args {
     fn parse(raw: &[String]) -> CliResult<Self> {
         let mut plan = None;
         let (mut n, mut k, mut n_probe, mut region_beam) = (1000, 10, 8, 64);
+        let mut pruning_epsilon = None;
         let mut ground_truth = 0;
         let mut recall_floor = None;
         let mut truth_depth = None;
@@ -119,6 +121,9 @@ impl Args {
                 "--k" => k = parse(&next()?, "--k")?,
                 "--n-probe" => n_probe = parse(&next()?, "--n-probe")?,
                 "--region-beam" => region_beam = parse(&next()?, "--region-beam")?,
+                "--pruning-epsilon" => {
+                    pruning_epsilon = Some(super::parse_pruning_epsilon(&next()?)?)
+                }
                 "--ground-truth" => ground_truth = parse(&next()?, "--ground-truth")?,
                 "--recall-floor" => recall_floor = Some(super::parse_recall_floor(&next()?)?),
                 "--truth-depth" => truth_depth = Some(parse(&next()?, "--truth-depth")?),
@@ -167,6 +172,7 @@ impl Args {
             k,
             n_probe,
             region_beam,
+            pruning_epsilon,
             ground_truth,
             recall_floor,
             truth_depth,
@@ -294,6 +300,11 @@ pub(crate) fn run(raw: &[String]) -> CliResult {
         .iter()
         .map(|slot| (slot_id(slot.spec.slot), Vec::with_capacity(truth_n)))
         .collect();
+    let search_opts = calyx_sextant::index::PartitionedSearchOptions {
+        n_probe: args.n_probe,
+        region_beam: args.region_beam,
+        pruning_epsilon: args.pruning_epsilon,
+    };
     for query_idx in 0..n {
         let started = Instant::now();
         let mut per_slot = BTreeMap::new();
@@ -303,8 +314,9 @@ pub(crate) fn run(raw: &[String]) -> CliResult {
                 let query = row_for_metric(&slot.queries, query_idx as u64, slot.distance_metric);
                 let raw_hits = slot
                     .search
-                    .search(&query, truth_depth, args.n_probe, args.region_beam)
-                    .map_err(CliError::Calyx)?;
+                    .search_with_readback_opts(&query, truth_depth, search_opts)
+                    .map_err(CliError::Calyx)?
+                    .hits;
                 Ok((slot_id(slot.spec.slot), to_index_hits(raw_hits)))
             })
             .collect::<CliResult<Vec<_>>>()?;
@@ -396,6 +408,7 @@ pub(crate) fn run(raw: &[String]) -> CliResult {
         "k": args.k,
         "n_probe": args.n_probe,
         "region_beam": args.region_beam,
+        "pruning_epsilon": args.pruning_epsilon,
         "per_slot_search_depth": truth_depth,
         "truth_depth": truth_depth,
         "ground_truth_queries": truth_n,

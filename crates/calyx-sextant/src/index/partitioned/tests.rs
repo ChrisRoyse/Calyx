@@ -99,6 +99,7 @@ fn bounded_final_assignment_caps_regions_and_preserves_ids() {
             routing: AssignmentRouting::Hnsw,
             boundary_epsilon: 0.0,
             max_replication: 1,
+            apply_rng_rule: false,
         },
     )
     .expect("bounded assignment");
@@ -144,6 +145,9 @@ fn bounded_assignment_duplicates_boundary_rows_to_adjacent_ids_files() {
             routing: AssignmentRouting::Exact,
             boundary_epsilon: 3.0,
             max_replication: 2,
+            // The row sits exactly between the two centroids (d_sq 25 each) while
+            // the centroids are 100 apart, so the RNG rule must KEEP the replica.
+            apply_rng_rule: true,
         },
     )
     .expect("bounded replicated assignment");
@@ -207,6 +211,7 @@ fn assignment_writes_nofile_scale_region_count_without_stale_ids() {
             routing: AssignmentRouting::Exact,
             boundary_epsilon: 0.0,
             max_replication: 1,
+            apply_rng_rule: false,
         },
     )
     .expect("bounded assignment");
@@ -234,6 +239,10 @@ fn partitioned_self_recall_and_region_restriction() {
         region_build_parallelism: 2,
         final_assignment_probe: DEFAULT_FINAL_ASSIGNMENT_PROBE,
         final_assignment_cap: None,
+        balance_cap: None,
+        assignment_boundary_epsilon: 0.10,
+        assignment_max_replication: 2,
+        assignment_rng_rule: true,
     };
     let manifest = build_partitioned_vault(&dir, p).expect("build");
     assert_eq!(manifest.region_build_parallelism, 2);
@@ -295,6 +304,10 @@ fn search_readback_reports_only_touched_region_graphs() {
         region_build_parallelism: 2,
         final_assignment_probe: DEFAULT_FINAL_ASSIGNMENT_PROBE,
         final_assignment_cap: None,
+        balance_cap: None,
+        assignment_boundary_epsilon: 0.10,
+        assignment_max_replication: 2,
+        assignment_rng_rule: true,
     };
     let manifest = build_partitioned_vault(&dir, p).expect("build");
     assert_eq!(manifest.region_build_parallelism, 2);
@@ -334,6 +347,10 @@ fn region_build_parallelism_is_effective_cap_and_zero_rejected() {
         region_build_parallelism: 64,
         final_assignment_probe: 4,
         final_assignment_cap: Some(128),
+        balance_cap: None,
+        assignment_boundary_epsilon: 0.10,
+        assignment_max_replication: 2,
+        assignment_rng_rule: true,
     };
 
     let manifest = build_partitioned_vault(&dir, p).expect("build");

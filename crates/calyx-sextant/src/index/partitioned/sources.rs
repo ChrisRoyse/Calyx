@@ -1,9 +1,31 @@
 use std::path::Path;
 
 use calyx_core::Result;
+use rand::{Rng, SeedableRng};
+use rand_chacha::ChaCha8Rng;
 
-use super::gen_row;
+use super::IDX_MIX;
 use crate::index::vecfile::{FbinVectors, I8BinVectors};
+
+pub fn gen_row(seed: u64, idx: u64, dim: usize) -> Vec<f32> {
+    let mut rng = ChaCha8Rng::seed_from_u64(seed ^ idx.wrapping_mul(IDX_MIX));
+    let mut v: Vec<f32> = (0..dim)
+        .map(|j| rng.gen_range(-1.0_f32..1.0) + ((idx as usize + j) % dim) as f32 * 0.001)
+        .collect();
+    let spike = (idx as usize) % dim;
+    v[spike] += 4.0;
+    normalize(&mut v);
+    v
+}
+
+pub(super) fn normalize(v: &mut [f32]) {
+    let norm = v.iter().map(|x| x * x).sum::<f32>().sqrt();
+    if norm > 0.0 {
+        for x in v {
+            *x /= norm;
+        }
+    }
+}
 
 /// Source of the vectors a partitioned vault is built from. The real production
 /// path reads genuine embeddings from disk. Synthetic rows exist only for

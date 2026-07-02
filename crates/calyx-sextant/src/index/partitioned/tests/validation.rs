@@ -74,6 +74,7 @@ fn bounded_assignment_cap_is_hard_stored_region_cap() {
             routing: AssignmentRouting::Exact,
             boundary_epsilon: 3.0,
             max_replication: 2,
+            apply_rng_rule: false,
         },
     )
     .expect("bounded assignment");
@@ -86,6 +87,156 @@ fn bounded_assignment_cap_is_hard_stored_region_cap() {
             region.count
         );
     }
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn query_aware_pruning_bounds_touched_regions_and_rejects_bad_epsilon() {
+    use crate::index::partitioned::{PartitionedSearchOptions, gen_row};
+
+    let dir = std::env::temp_dir().join(format!("calyx-part-prune-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    let p = params(43);
+    let manifest = build_partitioned_vault(&dir, p).expect("build");
+    assert!(manifest.n_regions >= 2, "need multiple regions to prune");
+    let search = PartitionedSearch::open(&dir).expect("open");
+    let query = gen_row(p.seed, 17, p.dim);
+    let ceiling = manifest.n_regions.min(4);
+
+    let unpruned = search
+        .search_with_readback_opts(
+            &query,
+            5,
+            PartitionedSearchOptions {
+                n_probe: ceiling,
+                region_beam: 32,
+                pruning_epsilon: None,
+            },
+        )
+        .expect("unpruned search");
+    assert_eq!(unpruned.touched_regions.len(), ceiling);
+
+    // A huge epsilon prunes nothing: identical to the fixed-probe search.
+    let wide = search
+        .search_with_readback_opts(
+            &query,
+            5,
+            PartitionedSearchOptions {
+                n_probe: ceiling,
+                region_beam: 32,
+                pruning_epsilon: Some(1.0e6),
+            },
+        )
+        .expect("wide search");
+    assert_eq!(wide.touched_regions.len(), ceiling);
+    assert_eq!(wide.hits, unpruned.hits);
+
+    // Epsilon 0 keeps only regions tied with the nearest centroid — at least
+    // one and strictly fewer than the ceiling for a generic query.
+    let tight = search
+        .search_with_readback_opts(
+            &query,
+            5,
+            PartitionedSearchOptions {
+                n_probe: ceiling,
+                region_beam: 32,
+                pruning_epsilon: Some(0.0),
+            },
+        )
+        .expect("tight search");
+    assert!(!tight.touched_regions.is_empty());
+    assert!(tight.touched_regions.len() < ceiling);
+    assert!(!tight.hits.is_empty());
+
+    for bad in [-0.5_f32, f32::NAN, f32::INFINITY] {
+        let error = search
+            .search_with_readback_opts(
+                &query,
+                5,
+                PartitionedSearchOptions {
+                    n_probe: ceiling,
+                    region_beam: 32,
+                    pruning_epsilon: Some(bad),
+                },
+            )
+            .expect_err("bad epsilon must fail closed");
+        assert_eq!(error.code, crate::error::CALYX_INDEX_INVALID_PARAMS);
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn balance_cap_drives_hierarchical_region_granularity_and_rejects_zero() {
+    let dir = std::env::temp_dir().join(format!("calyx-part-balcap-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    let mut p = params(47);
+    p.n_cx = 512;
+    p.sample = 512;
+    p.n_regions = 2;
+    p.balance_cap = Some(64);
+    let manifest = build_partitioned_vault(&dir, p).expect("build");
+    assert_eq!(manifest.region_balance_cap, 64);
+    assert!(
+        manifest.n_regions > 2,
+        "balance cap 64 over 512 rows must split the 2 initial regions, got {}",
+        manifest.n_regions
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+
+    let bad_dir = std::env::temp_dir().join(format!("calyx-part-balcap0-{}", std::process::id()));
+    let mut bad = params(47);
+    bad.balance_cap = Some(0);
+    let error = build_partitioned_vault(&bad_dir, bad).expect_err("balance_cap 0 must fail");
+    assert_eq!(error.code, crate::error::CALYX_INDEX_INVALID_PARAMS);
+}
+
+#[test]
+fn rng_rule_skips_redundant_replica_but_keeps_boundary_replica() {
+    // Row at [3,0]: primary centroid [1,0] (d_sq 4), replica candidate [0,0]
+    // (d_sq 9). The centroids are 1 apart (l2_sq 1 < 9), so the RNG rule must
+    // skip the replica; with the rule off the loose epsilon keeps it.
+    let centroids = SpannCentroidIndex::from_parts(
+        2,
+        vec![vec![0.0, 0.0], vec![1.0, 0.0]],
+        Vec::new(),
+        Vec::new(),
+    )
+    .expect("centroids");
+    let source = StaticSource {
+        rows: vec![vec![3.0, 0.0]],
+    };
+    let mut config = BoundedAssignmentConfig {
+        cap: 4,
+        routing_probe: 2,
+        routing: AssignmentRouting::Exact,
+        boundary_epsilon: 4.0,
+        max_replication: 2,
+        apply_rng_rule: true,
+    };
+
+    let dir = std::env::temp_dir().join(format!("calyx-part-rng-on-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    let regions =
+        stream_assign_to_ids_bounded(&dir, AssignmentSink::Final, &centroids, &source, 1, config)
+            .expect("rng-on assignment");
+    assert_eq!(
+        regions.iter().map(|region| region.count).sum::<usize>(),
+        1,
+        "RNG rule must skip the redundant replica"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+
+    let dir = std::env::temp_dir().join(format!("calyx-part-rng-off-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    config.apply_rng_rule = false;
+    let regions =
+        stream_assign_to_ids_bounded(&dir, AssignmentSink::Final, &centroids, &source, 1, config)
+            .expect("rng-off assignment");
+    assert_eq!(
+        regions.iter().map(|region| region.count).sum::<usize>(),
+        2,
+        "without the RNG rule the loose epsilon keeps the replica"
+    );
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -102,6 +253,10 @@ fn params(seed: u64) -> PartitionBuildParams {
         region_build_parallelism: 2,
         final_assignment_probe: crate::index::DEFAULT_FINAL_ASSIGNMENT_PROBE,
         final_assignment_cap: None,
+        balance_cap: None,
+        assignment_boundary_epsilon: 0.10,
+        assignment_max_replication: 2,
+        assignment_rng_rule: true,
     }
 }
 
