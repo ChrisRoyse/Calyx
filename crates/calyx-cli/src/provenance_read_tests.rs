@@ -123,6 +123,74 @@ fn uncovered_provenance_seq_reads_through_full_level() {
     fs::remove_dir_all(root).ok();
 }
 
+/// HAZARD TRIPWIRE (issue #1107): stage-1 commit-batch resolution reads a slot
+/// row from the durable-batch SST of its ORIGINAL commit (located via the
+/// ledger provenance index) and deliberately does NOT consult newer batches.
+/// This is correct ONLY while slot CF rows are write-once for live
+/// constellations (ingest stages them once; anchor-merge rewrites only
+/// base/anchors; deletions tombstone; compaction bypasses stage 1 entirely).
+///
+/// This test pins that load-bearing assumption by constructing the exact shape
+/// a future feature would create — the SAME slot key rewritten in a LATER
+/// durable batch WITHOUT compaction — and asserting that stage 1 returns the
+/// ORIGINAL-batch value. It is a characterization test of a correct-today
+/// design, not a bug: no shipping feature performs later-batch slot rewrites.
+///
+/// If any feature ever does (in-place slot recompression, quantization
+/// migration, payload GC) this assertion WILL flip to the newer value and this
+/// test must fail loudly — that is the signal to land a guardrail (tombstone or
+/// compact on rewrite, version slot rows / bump provenance, or add a
+/// newer-batch overlay to stage 1) before the feature ships. Do NOT simply
+/// update the expected value: a silent stale read here means cx-list /
+/// weave-loom would report a superseded payload.
+#[test]
+fn later_batch_slot_rewrite_is_missed_by_stage1_write_once_assumption() {
+    let root = temp_root("issue1107-write-once");
+    // Ledger provenance index: provenance seq 100 lives in commit batch 5.
+    let ledger = cf_dir(&root, &ColumnFamily::Ledger);
+    write_sst(
+        ledger.join("00000000000000000005-0000.sst"),
+        [(ledger_key(100).as_slice(), b"l100".as_slice())],
+    )
+    .unwrap();
+    // Original slot row in commit batch 5.
+    let slot = cf_dir(&root, &slot_cf());
+    write_sst(
+        slot.join("00000000000000000005-0003.sst"),
+        [(b"k1".as_slice(), b"original".as_slice())],
+    )
+    .unwrap();
+    // A LATER durable batch (commit seq 9, NOT compacted) rewrites the same
+    // slot key — the hypothetical future feature's on-disk footprint.
+    write_sst(
+        slot.join("00000000000000000009-0003.sst"),
+        [(b"k1".as_slice(), b"rewritten-newer".as_slice())],
+    )
+    .unwrap();
+
+    let mut context = VaultReadContext::new(&root);
+    let batch = context
+        .latest_cf_rows_for_provenance(slot_cf(), &[(b"k1".to_vec(), 100)])
+        .unwrap();
+    let row = batch.rows.get(b"k1".as_slice()).unwrap().as_ref().unwrap();
+
+    assert_eq!(
+        row.source,
+        RowSource::CommitBatch,
+        "stage 1 must resolve the key through its original commit batch"
+    );
+    assert_eq!(
+        row.value,
+        b"original".to_vec(),
+        "issue #1107 write-once assumption held: stage 1 returns the original-commit \
+         value and does not see the later-batch rewrite. If this now reads \
+         'rewritten-newer', a feature has introduced later-batch slot rewrites — add a \
+         guardrail (see the test doc comment) instead of updating this expectation."
+    );
+    assert_eq!(batch.stats.commit_batch_rows, 1);
+    fs::remove_dir_all(root).ok();
+}
+
 /// Router-flush ledger SSTs span many commit batches; their file seq is a
 /// flush seq, not the commit seq of the contained rows. They must never be
 /// used for commit-batch mapping.
