@@ -21,12 +21,23 @@
 //!   under this mode is a structured error, not a fallback.
 //! - `CALYX_ONNX_DISABLE_CPU_EP_FALLBACK=1` — additionally set the ORT
 //!   session config that refuses node-level CPU placement at build time.
+//!
+//! Device-arena controls (#1143 — BFC arena growth across dynamic shapes):
+//! - `CALYX_ONNX_GPU_MEM_LIMIT_MIB` — hard cap (MiB) on the CUDA BFC arena;
+//!   exhaustion becomes a structured error at a defined budget instead of
+//!   eating the device from co-tenants.
+//! - `CALYX_ONNX_ARENA_SHRINK` — `off` | `new-shape` (default) | `always`:
+//!   when to request `memory.enable_memory_arena_shrinkage` for the run.
+//! - `CALYX_ONNX_MAX_DISTINCT_SHAPES` — fail-loud cap (default 64) on the
+//!   distinct (batch, seq) shapes a GPU session may run; batch/seq bucketing
+//!   keeps real workloads far below it, so reaching it means a caller
+//!   regressed into unbounded shape diversity.
 
 use std::collections::BTreeSet;
 
 use calyx_core::{CalyxError, Result};
 use ort::memory::{AllocationDevice, AllocatorType, MemoryInfo, MemoryType};
-use ort::session::{Session, SessionInputValue, SessionOutputs};
+use ort::session::{RunOptions, Session, SessionInputValue, SessionOutputs};
 use ort::value::Tensor;
 
 use super::{OnnxProviderPolicy, config_invalid};
@@ -35,14 +46,41 @@ pub(super) const CUDA_DEVICE_ENV: &str = "CALYX_ONNX_CUDA_DEVICE";
 pub(super) const IO_BINDING_ENV: &str = "CALYX_ONNX_IO_BINDING";
 pub(super) const REQUIRE_STATIC_BINDING_ENV: &str = "CALYX_ONNX_REQUIRE_STATIC_BINDING";
 pub(super) const DISABLE_CPU_EP_FALLBACK_ENV: &str = "CALYX_ONNX_DISABLE_CPU_EP_FALLBACK";
+pub(super) const GPU_MEM_LIMIT_ENV: &str = "CALYX_ONNX_GPU_MEM_LIMIT_MIB";
+pub(super) const ARENA_SHRINK_ENV: &str = "CALYX_ONNX_ARENA_SHRINK";
+pub(super) const MAX_DISTINCT_SHAPES_ENV: &str = "CALYX_ONNX_MAX_DISTINCT_SHAPES";
+
+const DEFAULT_MAX_DISTINCT_SHAPES: usize = 64;
+const ARENA_SHRINKAGE_RUN_KEY: &str = "memory.enable_memory_arena_shrinkage";
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum ArenaShrinkPolicy {
+    Off,
+    NewShape,
+    Always,
+}
+
+impl ArenaShrinkPolicy {
+    const fn as_str(self) -> &'static str {
+        match self {
+            Self::Off => "off",
+            Self::NewShape => "new-shape",
+            Self::Always => "always",
+        }
+    }
+}
 
 /// Per-runtime run plan: which device, whether I/O binding is active, and the
 /// static-shape contract state.
+#[derive(Debug)]
 pub(super) struct OnnxRunPlan {
     label: String,
     io_binding: bool,
+    gpu_policy: bool,
     device_id: i32,
     require_static: bool,
+    arena_shrink: ArenaShrinkPolicy,
+    max_distinct_shapes: usize,
     bound_shape: Option<(usize, usize)>,
     seen_shapes: BTreeSet<(usize, usize)>,
 }
@@ -70,6 +108,63 @@ pub(super) fn cpu_ep_fallback_disabled() -> bool {
     env_flag(DISABLE_CPU_EP_FALLBACK_ENV)
 }
 
+/// Optional hard cap (bytes) on the CUDA BFC device arena; fails closed on
+/// garbage input (#1143).
+pub(super) fn configured_gpu_mem_limit() -> Result<Option<usize>> {
+    let Ok(raw) = std::env::var(GPU_MEM_LIMIT_ENV) else {
+        return Ok(None);
+    };
+    let raw = raw.trim();
+    if raw.is_empty() {
+        return Ok(None);
+    }
+    raw.parse::<usize>()
+        .ok()
+        .filter(|mib| *mib > 0)
+        .and_then(|mib| mib.checked_mul(1024 * 1024))
+        .map(Some)
+        .ok_or_else(|| CalyxError {
+            code: "CALYX_ONNX_GPU_MEM_LIMIT_INVALID",
+            message: format!("{GPU_MEM_LIMIT_ENV}={raw} is not a positive MiB count"),
+            remediation: "set CALYX_ONNX_GPU_MEM_LIMIT_MIB to a positive integer MiB budget for the CUDA arena, or unset it for no cap",
+        })
+}
+
+fn configured_arena_shrink() -> Result<ArenaShrinkPolicy> {
+    let Ok(raw) = std::env::var(ARENA_SHRINK_ENV) else {
+        return Ok(ArenaShrinkPolicy::NewShape);
+    };
+    match raw.trim() {
+        "" => Ok(ArenaShrinkPolicy::NewShape),
+        "off" => Ok(ArenaShrinkPolicy::Off),
+        "new-shape" => Ok(ArenaShrinkPolicy::NewShape),
+        "always" => Ok(ArenaShrinkPolicy::Always),
+        other => Err(CalyxError {
+            code: "CALYX_ONNX_ARENA_SHRINK_INVALID",
+            message: format!("{ARENA_SHRINK_ENV}={other} is not a known arena shrink policy"),
+            remediation: "set CALYX_ONNX_ARENA_SHRINK to off, new-shape, or always (default new-shape)",
+        }),
+    }
+}
+
+fn configured_max_distinct_shapes() -> Result<usize> {
+    let Ok(raw) = std::env::var(MAX_DISTINCT_SHAPES_ENV) else {
+        return Ok(DEFAULT_MAX_DISTINCT_SHAPES);
+    };
+    let raw = raw.trim();
+    if raw.is_empty() {
+        return Ok(DEFAULT_MAX_DISTINCT_SHAPES);
+    }
+    raw.parse::<usize>()
+        .ok()
+        .filter(|limit| *limit > 0)
+        .ok_or_else(|| CalyxError {
+            code: "CALYX_ONNX_SHAPE_LIMIT_INVALID",
+            message: format!("{MAX_DISTINCT_SHAPES_ENV}={raw} is not a positive shape count"),
+            remediation: "set CALYX_ONNX_MAX_DISTINCT_SHAPES to a positive integer (default 64), or unset it",
+        })
+}
+
 /// Shared session build for the Calyx-owned ONNX runtimes: device-aware
 /// provider registration (fail-loud, no CPU EP in the GPU list) plus the
 /// optional ORT-level refusal of node-level CPU placement.
@@ -85,7 +180,7 @@ pub(super) fn build_session(
         .map_err(|err| config_invalid(format!("ONNX intra-thread config failed: {err}")))?
         .with_execution_providers(super::fastembed_runtime::execution_providers_on_device(
             policy, device_id,
-        ))
+        )?)
         .map_err(|err| {
             config_invalid(format!(
                 "ONNX provider config failed for {label} (policy={} device_id={device_id}): {err}",
@@ -134,6 +229,9 @@ impl OnnxRunPlan {
         let gpu_policy = matches!(policy, OnnxProviderPolicy::CudaFailLoud);
         let io_binding = gpu_policy && !binding_env_off;
         let require_static = env_flag(REQUIRE_STATIC_BINDING_ENV);
+        let arena_shrink = configured_arena_shrink()?;
+        let max_distinct_shapes = configured_max_distinct_shapes()?;
+        let mem_limit = configured_gpu_mem_limit()?;
         let (allocator, cpu_fallback) = if gpu_policy {
             (
                 if io_binding {
@@ -147,18 +245,69 @@ impl OnnxRunPlan {
             ("host", "cpu_explicit_policy")
         };
         eprintln!(
-            "CALYX_ONNX_RUNTIME phase=session_ready label={label} provider={} device_id={device_id} io_binding={io_binding} io_binding_env_off={binding_env_off} allocator={allocator} cpu_fallback={cpu_fallback} require_static_binding={require_static} disable_cpu_ep_fallback={}",
+            "CALYX_ONNX_RUNTIME phase=session_ready label={label} provider={} device_id={device_id} io_binding={io_binding} io_binding_env_off={binding_env_off} allocator={allocator} cpu_fallback={cpu_fallback} require_static_binding={require_static} disable_cpu_ep_fallback={} arena_extend=same_as_requested gpu_mem_limit_mib={} arena_shrink={} max_distinct_shapes={max_distinct_shapes}",
             policy.as_str(),
-            cpu_ep_fallback_disabled()
+            cpu_ep_fallback_disabled(),
+            mem_limit
+                .map(|bytes| (bytes / (1024 * 1024)).to_string())
+                .unwrap_or_else(|| "none".to_string()),
+            arena_shrink.as_str()
         );
         Ok(Self {
             label,
             io_binding,
+            gpu_policy,
             device_id,
             require_static,
+            arena_shrink,
+            max_distinct_shapes,
             bound_shape: None,
             seen_shapes: BTreeSet::new(),
         })
+    }
+
+    /// GPU sessions pad token batches to stable power-of-two buckets so the
+    /// distinct-shape set the CUDA arena retains allocations for stays
+    /// bounded (#1143). CPU sessions run exact batches.
+    pub(super) const fn pads_batches(&self) -> bool {
+        self.gpu_policy
+    }
+
+    /// Arena shrinkage request for this run, per policy: reclaim the device
+    /// arena's transient over-extension after first-seen shapes (`new-shape`),
+    /// after every run (`always`), or never (`off`). Logged whenever active.
+    fn shrink_options(&self, new_shape: bool) -> Result<Option<RunOptions>> {
+        let shrink = self.gpu_policy
+            && match self.arena_shrink {
+                ArenaShrinkPolicy::Off => false,
+                ArenaShrinkPolicy::NewShape => new_shape,
+                ArenaShrinkPolicy::Always => true,
+            };
+        if !shrink {
+            return Ok(None);
+        }
+        let mut options = RunOptions::new().map_err(|err| {
+            config_invalid(format!(
+                "ONNX RunOptions create failed for {}: {err}",
+                self.label
+            ))
+        })?;
+        options
+            .add_config_entry(ARENA_SHRINKAGE_RUN_KEY, format!("gpu:{}", self.device_id))
+            .map_err(|err| {
+                config_invalid(format!(
+                    "ONNX arena shrinkage config failed for {}: {err}",
+                    self.label
+                ))
+            })?;
+        eprintln!(
+            "CALYX_ONNX_RUNTIME phase=arena_shrink label={} device_id={} policy={} distinct_shapes={}",
+            self.label,
+            self.device_id,
+            self.arena_shrink.as_str(),
+            self.seen_shapes.len()
+        );
+        Ok(Some(options))
     }
 
     /// Run the session over named input tensors and hand the outputs to
@@ -170,15 +319,18 @@ impl OnnxRunPlan {
         shape: (usize, usize),
         extract: impl FnOnce(&SessionOutputs<'_>) -> Result<R>,
     ) -> Result<R> {
-        self.enforce_shape_contract(shape)?;
+        let new_shape = self.enforce_shape_contract(shape)?;
+        let run_options = self.shrink_options(new_shape)?;
         if !self.io_binding {
             let named: Vec<(String, SessionInputValue<'_>)> = inputs
                 .into_iter()
                 .map(|(name, tensor)| (name, SessionInputValue::from(tensor)))
                 .collect();
-            let outputs = session
-                .run(named)
-                .map_err(|err| config_invalid(format!("ONNX inference failed: {err}")))?;
+            let outputs = match &run_options {
+                Some(options) => session.run_with_options(named, options),
+                None => session.run(named),
+            }
+            .map_err(|err| config_invalid(format!("ONNX inference failed: {err}")))?;
             return extract(&outputs);
         }
         let output_names: Vec<String> = session
@@ -224,7 +376,11 @@ impl OnnxRunPlan {
                     ))
                 })?;
         }
-        let outputs = session.run_binding(&binding).map_err(|err| {
+        let outputs = match &run_options {
+            Some(options) => session.run_binding_with_options(&binding, options),
+            None => session.run_binding(&binding),
+        }
+        .map_err(|err| {
             config_invalid(format!(
                 "ONNX io-binding inference failed for {}: {err}",
                 self.label
@@ -233,8 +389,15 @@ impl OnnxRunPlan {
         extract(&outputs)
     }
 
-    fn enforce_shape_contract(&mut self, shape: (usize, usize)) -> Result<()> {
-        if self.seen_shapes.insert(shape) {
+    /// Records the run shape; returns whether it is first-seen. GPU sessions
+    /// fail loud when distinct-shape diversity exceeds the configured cap —
+    /// the ORT CUDA BFC arena retains per-shape allocations forever, so
+    /// unbounded diversity is a slow-motion device OOM (#1143), and the
+    /// batch/seq bucketing upstream keeps legitimate streams far below the
+    /// cap.
+    pub(super) fn enforce_shape_contract(&mut self, shape: (usize, usize)) -> Result<bool> {
+        let new_shape = self.seen_shapes.insert(shape);
+        if new_shape {
             eprintln!(
                 "CALYX_ONNX_RUNTIME phase=io_binding_shape label={} batch={} seq={} io_binding={} distinct_shapes={}",
                 self.label,
@@ -243,16 +406,30 @@ impl OnnxRunPlan {
                 self.io_binding,
                 self.seen_shapes.len()
             );
+            if self.gpu_policy && self.seen_shapes.len() > self.max_distinct_shapes {
+                return Err(CalyxError {
+                    code: "CALYX_ONNX_SHAPE_DIVERSITY",
+                    message: format!(
+                        "{} has run {} distinct (batch, seq) shapes, exceeding {MAX_DISTINCT_SHAPES_ENV}={} — unbounded shape diversity grows the CUDA BFC arena until device OOM (new shape batch={} seq={})",
+                        self.label,
+                        self.seen_shapes.len(),
+                        self.max_distinct_shapes,
+                        shape.0,
+                        shape.1
+                    ),
+                    remediation: "batch and sequence bucketing should cap distinct shapes; find the caller that bypasses bucketed batching, or raise CALYX_ONNX_MAX_DISTINCT_SHAPES only if the workload legitimately needs more shape classes",
+                });
+            }
         }
         if !self.require_static {
-            return Ok(());
+            return Ok(new_shape);
         }
         match self.bound_shape {
             None => {
                 self.bound_shape = Some(shape);
-                Ok(())
+                Ok(new_shape)
             }
-            Some(bound) if bound == shape => Ok(()),
+            Some(bound) if bound == shape => Ok(new_shape),
             Some(bound) => Err(CalyxError {
                 code: "CALYX_ONNX_STATIC_BINDING_SHAPE",
                 message: format!(

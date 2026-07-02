@@ -1,0 +1,111 @@
+//! #1143 — CUDA BFC arena environment knobs and the shape-diversity gate.
+//!
+//! `std::env` is process-global, so every test that reads or writes the
+//! `CALYX_ONNX_*` arena knobs serializes on one lock.
+
+use std::sync::{Mutex, MutexGuard};
+
+use super::super::fastembed_runtime::execution_providers;
+use super::super::{OnnxProviderPolicy, io_binding};
+
+static ARENA_ENV_LOCK: Mutex<()> = Mutex::new(());
+
+fn arena_env_lock() -> MutexGuard<'static, ()> {
+    ARENA_ENV_LOCK
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
+#[test]
+fn execution_provider_policy_is_cuda_fail_loud() {
+    let _lock = arena_env_lock();
+    let providers = execution_providers(OnnxProviderPolicy::CudaFailLoud).unwrap();
+
+    assert_eq!(providers.len(), 1);
+    let provider = format!("{:?}", providers[0]);
+    assert!(provider.contains("CUDA"));
+    assert!(provider.contains("error_on_failure: true"));
+}
+
+#[test]
+fn execution_provider_policy_can_be_explicit_cpu() {
+    let providers = execution_providers(OnnxProviderPolicy::CpuExplicit).unwrap();
+
+    assert_eq!(providers.len(), 1);
+    let provider = format!("{:?}", providers[0]);
+    assert!(provider.contains("CPU"));
+    assert!(!provider.contains("CUDA"));
+}
+
+#[test]
+fn gpu_mem_limit_env_applies_and_fails_closed_on_garbage() {
+    let _lock = arena_env_lock();
+    // SAFETY: single-threaded within the arena env lock; restored before unlock.
+    unsafe { std::env::set_var("CALYX_ONNX_GPU_MEM_LIMIT_MIB", "4096") };
+    assert_eq!(
+        io_binding::configured_gpu_mem_limit().unwrap(),
+        Some(4096 * 1024 * 1024)
+    );
+    assert!(execution_providers(OnnxProviderPolicy::CudaFailLoud).is_ok());
+
+    unsafe { std::env::set_var("CALYX_ONNX_GPU_MEM_LIMIT_MIB", "not-a-number") };
+    let error = execution_providers(OnnxProviderPolicy::CudaFailLoud).unwrap_err();
+    assert_eq!(error.code, "CALYX_ONNX_GPU_MEM_LIMIT_INVALID");
+
+    unsafe { std::env::set_var("CALYX_ONNX_GPU_MEM_LIMIT_MIB", "0") };
+    let error = execution_providers(OnnxProviderPolicy::CudaFailLoud).unwrap_err();
+    assert_eq!(error.code, "CALYX_ONNX_GPU_MEM_LIMIT_INVALID");
+
+    unsafe { std::env::remove_var("CALYX_ONNX_GPU_MEM_LIMIT_MIB") };
+    assert_eq!(io_binding::configured_gpu_mem_limit().unwrap(), None);
+    assert!(execution_providers(OnnxProviderPolicy::CudaFailLoud).is_ok());
+}
+
+#[test]
+fn arena_shrink_env_fails_closed_on_garbage() {
+    let _lock = arena_env_lock();
+    unsafe { std::env::set_var("CALYX_ONNX_ARENA_SHRINK", "sometimes") };
+    let error = io_binding::OnnxRunPlan::new(OnnxProviderPolicy::CudaFailLoud, "shrink-env-test")
+        .unwrap_err();
+    assert_eq!(error.code, "CALYX_ONNX_ARENA_SHRINK_INVALID");
+    unsafe { std::env::remove_var("CALYX_ONNX_ARENA_SHRINK") };
+}
+
+#[test]
+fn max_distinct_shapes_env_fails_closed_on_garbage() {
+    let _lock = arena_env_lock();
+    unsafe { std::env::set_var("CALYX_ONNX_MAX_DISTINCT_SHAPES", "-3") };
+    let error =
+        io_binding::OnnxRunPlan::new(OnnxProviderPolicy::CudaFailLoud, "shape-limit-env-test")
+            .unwrap_err();
+    assert_eq!(error.code, "CALYX_ONNX_SHAPE_LIMIT_INVALID");
+    unsafe { std::env::remove_var("CALYX_ONNX_MAX_DISTINCT_SHAPES") };
+}
+
+#[test]
+fn gpu_shape_diversity_fails_loud_past_the_cap() {
+    let _lock = arena_env_lock();
+    unsafe { std::env::set_var("CALYX_ONNX_MAX_DISTINCT_SHAPES", "4") };
+    let mut plan =
+        io_binding::OnnxRunPlan::new(OnnxProviderPolicy::CudaFailLoud, "shape-cap-test").unwrap();
+    for batch in 1..=4_usize {
+        assert!(plan.enforce_shape_contract((batch, 128)).unwrap());
+        // Repeats of a seen shape never trip the cap.
+        assert!(!plan.enforce_shape_contract((batch, 128)).unwrap());
+    }
+    let error = plan.enforce_shape_contract((5, 128)).unwrap_err();
+    assert_eq!(error.code, "CALYX_ONNX_SHAPE_DIVERSITY");
+    unsafe { std::env::remove_var("CALYX_ONNX_MAX_DISTINCT_SHAPES") };
+}
+
+#[test]
+fn cpu_sessions_do_not_gate_shape_diversity() {
+    let _lock = arena_env_lock();
+    unsafe { std::env::set_var("CALYX_ONNX_MAX_DISTINCT_SHAPES", "2") };
+    let mut plan =
+        io_binding::OnnxRunPlan::new(OnnxProviderPolicy::CpuExplicit, "cpu-shape-test").unwrap();
+    for batch in 1..=8_usize {
+        plan.enforce_shape_contract((batch, 64)).unwrap();
+    }
+    unsafe { std::env::remove_var("CALYX_ONNX_MAX_DISTINCT_SHAPES") };
+}

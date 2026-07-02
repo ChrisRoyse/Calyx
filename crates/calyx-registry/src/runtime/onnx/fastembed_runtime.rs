@@ -4,7 +4,7 @@ use std::str::FromStr;
 use calyx_core::{CalyxError, Modality, Result, SlotShape};
 use fastembed::{EmbeddingModel, TextEmbedding, TextInitOptions};
 use hf_hub::api::sync::ApiBuilder;
-use ort::ep::{self, cuda::ConvAlgorithmSearch};
+use ort::ep::{self, ArenaExtendStrategy, cuda::ConvAlgorithmSearch};
 
 use super::cuda_guard::CudaDropGuard;
 use super::{OnnxLens, OnnxModelFiles, OnnxProviderPolicy};
@@ -48,7 +48,7 @@ pub fn from_model_with_policy(
             .with_cache_dir(cache_dir.clone())
             .with_show_download_progress(false)
             .with_intra_threads(1)
-            .with_execution_providers(execution_providers(provider_policy)),
+            .with_execution_providers(execution_providers(provider_policy)?),
     )
     .map_err(|err| CalyxError::lens_unreachable(format!("ONNX runtime init failed: {err}")))?;
     let model = CudaDropGuard::new(model, provider_policy);
@@ -155,24 +155,32 @@ pub fn model_from_name(raw: &str) -> Result<EmbeddingModel> {
 
 pub fn execution_providers(
     policy: OnnxProviderPolicy,
-) -> Vec<fastembed::ExecutionProviderDispatch> {
+) -> Result<Vec<fastembed::ExecutionProviderDispatch>> {
     execution_providers_on_device(policy, 0)
 }
 
 pub fn execution_providers_on_device(
     policy: OnnxProviderPolicy,
     device_id: i32,
-) -> Vec<fastembed::ExecutionProviderDispatch> {
+) -> Result<Vec<fastembed::ExecutionProviderDispatch>> {
     match policy {
-        OnnxProviderPolicy::CudaFailLoud => vec![
-            ep::CUDA::default()
+        OnnxProviderPolicy::CudaFailLoud => {
+            // #1143: the default kNextPowerOfTwo strategy over-reserves the
+            // BFC device arena on every extension; dynamic (batch, seq)
+            // workloads are our norm, so extend exactly as requested and let
+            // the optional limit turn exhaustion into a structured error at
+            // a defined budget.
+            let mut cuda = ep::CUDA::default()
                 .with_device_id(device_id)
                 .with_conv_algorithm_search(ConvAlgorithmSearch::Heuristic)
                 .with_conv_max_workspace(false)
-                .build()
-                .error_on_failure(),
-        ],
-        OnnxProviderPolicy::CpuExplicit => vec![ep::CPU::default().build()],
+                .with_arena_extend_strategy(ArenaExtendStrategy::SameAsRequested);
+            if let Some(limit) = super::io_binding::configured_gpu_mem_limit()? {
+                cuda = cuda.with_memory_limit(limit);
+            }
+            Ok(vec![cuda.build().error_on_failure()])
+        }
+        OnnxProviderPolicy::CpuExplicit => Ok(vec![ep::CPU::default().build()]),
     }
 }
 
