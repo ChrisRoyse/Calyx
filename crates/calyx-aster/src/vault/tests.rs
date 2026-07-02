@@ -172,6 +172,7 @@ fn anchor_writes_anchor_cf_and_updates_get() {
         .expect("anchor row");
 
     assert_eq!(got.anchors.as_slice(), std::slice::from_ref(&anchor));
+    assert!(!got.flags.ungrounded);
     assert_eq!(encode::decode_anchor(&anchor_bytes).unwrap(), anchor);
 }
 

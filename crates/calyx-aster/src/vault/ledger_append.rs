@@ -38,6 +38,7 @@ where
             let latest = self.snapshot();
             let mut constellation = self.get(id, latest)?;
             constellation.anchors.push(anchor.clone());
+            constellation.flags.ungrounded = constellation.anchors.is_empty();
             let Some(hook) = &self.ledger_hook else {
                 return self.anchor_with_raw_ledger_entry(id, &mut constellation, anchor, entry);
             };

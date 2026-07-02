@@ -194,6 +194,7 @@ where
             let latest = self.snapshot();
             let mut constellation = self.get(id, latest)?;
             constellation.anchors.push(anchor.clone());
+            constellation.flags.ungrounded = constellation.anchors.is_empty();
             let rows = [
                 (
                     ColumnFamily::Base,
