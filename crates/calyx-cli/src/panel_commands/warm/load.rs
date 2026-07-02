@@ -338,6 +338,16 @@ fn register_prepared_warm_lenses(
             lens,
             Some(item.prepare_ms),
         )?;
+        let runtime_lens_id = item.prepared.contract.lens_id();
+        if let Some(expected) = lens.runtime_lens_id
+            && runtime_lens_id != expected
+        {
+            return Err(template_store::template_error(
+                template_store::TEMPLATE_INVALID,
+                format!("runtime registered {runtime_lens_id}, expected {expected}"),
+                "recommission the lens so runtime and manifest contracts agree",
+            ));
+        }
         let registered = register_prepared_manifest_runtime(registry, item.prepared)?;
         if let Some(expected) = lens.runtime_lens_id
             && registered != expected

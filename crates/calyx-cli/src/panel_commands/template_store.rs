@@ -16,7 +16,7 @@ pub(super) use super::template_model::{
     default_time_controls, lens_ref_from_catalog, template_error,
 };
 use crate::error::CliResult;
-use crate::lens_commands::support::register_manifest_runtime;
+use crate::lens_commands::support::{prepare_manifest_runtime, register_prepared_manifest_runtime};
 
 #[derive(Clone, Debug)]
 pub(super) struct TemplateLensProgress {
@@ -394,8 +394,11 @@ pub(super) fn register_template_lenses_with_progress(
                 "rebuild the template from the current frozen lens manifest",
             ));
         }
-        if let Some(existing) = registry.find_lens_by_spec_id(spec_lens_id) {
-            if registry.lens_spec(existing) != Some(&spec) {
+        let prepared = prepare_manifest_runtime(spec)?;
+        let runtime_spec_lens_id = prepared.spec.lens_id();
+        let runtime_lens_id = prepared.contract.lens_id();
+        if let Some(existing) = registry.find_lens_by_spec_id(runtime_spec_lens_id) {
+            if registry.lens_spec(existing) != Some(&prepared.spec) {
                 return Err(template_error(
                     TEMPLATE_INVALID,
                     format!(
@@ -421,20 +424,20 @@ pub(super) fn register_template_lenses_with_progress(
             )?;
             continue;
         }
+        if let Some(expected) = lens.runtime_lens_id
+            && runtime_lens_id != expected
+        {
+            return Err(template_error(
+                TEMPLATE_INVALID,
+                format!("runtime registered {runtime_lens_id}, expected {expected}"),
+                "recommission the lens so runtime and manifest contracts agree",
+            ));
+        }
         emit_progress(
             &mut progress,
             lens_progress("runtime_register_start", idx, total, lens),
         )?;
-        let registered = register_manifest_runtime(registry, spec)?;
-        if let Some(expected) = lens.runtime_lens_id
-            && registered != expected
-        {
-            return Err(template_error(
-                TEMPLATE_INVALID,
-                format!("runtime registered {registered}, expected {expected}"),
-                "recommission the lens so runtime and manifest contracts agree",
-            ));
-        }
+        let registered = register_prepared_manifest_runtime(registry, prepared)?;
         lens.runtime_lens_id = Some(registered);
         emit_progress(
             &mut progress,
@@ -447,6 +450,9 @@ pub(super) fn register_template_lenses_with_progress(
 
 mod progress;
 use progress::{emit_progress, lens_progress};
+
+#[cfg(test)]
+mod tests;
 
 pub(super) fn id_for_loaded(template: &SavedPanelTemplate) -> CliResult<String> {
     Ok(blake3::hash(&object_bytes(template)?).to_hex().to_string())

@@ -71,8 +71,9 @@ pub use persistence_contracts::{
     RegistryContractAudit, RegistryContractDiff, RegistryContractFieldDiff,
     RegistryContractRepairChange, VaultRegistryContractRepairAllWrite,
     VaultRegistryContractRepairWrite, audit_registry_snapshot_contracts,
-    audit_vault_registry_contracts, repair_vault_registry_contracts_from_specs,
-    repair_vault_registry_slot_from_spec, require_vault_registry_contracts,
+    audit_vault_registry_contracts, lens_spec_with_frozen_contract,
+    repair_vault_registry_contracts_from_specs, repair_vault_registry_slot_from_spec,
+    require_vault_registry_contracts,
 };
 pub use placement::{
     CALYX_RAM_BUDGET_EXCEEDED, CALYX_VRAM_BUDGET_EXCEEDED, CpuLensPool, CpuPoolAdmission,

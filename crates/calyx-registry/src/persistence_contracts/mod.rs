@@ -219,6 +219,10 @@ pub fn repair_vault_registry_slot_from_spec(
     })
 }
 
+pub fn lens_spec_with_frozen_contract(spec: LensSpec, contract: &FrozenLensContract) -> LensSpec {
+    spec_from_runtime_contract(spec, contract)
+}
+
 fn audit_registry_lens_contract(lens: &RegistryLensSnapshot) -> Option<RegistryContractDiff> {
     let mut fields = Vec::new();
     let mut runtime_contract_lens_id = None;

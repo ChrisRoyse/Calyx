@@ -5,6 +5,7 @@ use calyx_registry::{
     AlgorithmicLens, CandleLens, FastembedBgem3Lens, FastembedQwen3Lens, FastembedRerankerLens,
     FastembedSparseLens, FrozenLensContract, LensRuntime, LensSpec, MultimodalAdapterLens,
     NormPolicy, OnnxColbertLens, OnnxLens, Registry, StaticLookupLens, TeiHttpLens,
+    lens_spec_with_frozen_contract,
 };
 
 use crate::error::{CliError, CliResult};
@@ -111,6 +112,7 @@ fn prepared<L>(lens: L, contract: FrozenLensContract, spec: LensSpec) -> Prepare
 where
     L: Lens + 'static,
 {
+    let spec = lens_spec_with_frozen_contract(spec, &contract);
     PreparedRuntimeLens {
         lens: Arc::new(lens),
         contract,
