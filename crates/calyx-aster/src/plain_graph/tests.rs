@@ -101,6 +101,73 @@ fn csr_projection_is_rebuildable_and_persisted() {
     assert_eq!(graph.read_csr(commit.seq).unwrap(), Some(commit.projection));
 }
 
+/// #996: a projection larger than one segment must shard into manifest +
+/// segment rows and reassemble losslessly.
+#[test]
+fn large_csr_projection_shards_into_segments_and_roundtrips() {
+    let vault = AsterVault::new(vault_id(), b"salt");
+    let graph = PlainGraph::new(&vault, "plain").unwrap();
+    let node = |index: u16| {
+        let mut bytes = [0_u8; ID_BYTES];
+        bytes[..2].copy_from_slice(&index.to_be_bytes());
+        bytes[2] = 7;
+        CxId::from_bytes(bytes)
+    };
+    const NODES: u16 = 160;
+    for index in 0..NODES {
+        graph.put_node(node(index), b"{}").unwrap();
+    }
+    for src in 0..NODES {
+        for dst in 0..NODES {
+            if src != dst {
+                graph.put_edge(node(src), "knows", node(dst), b"1").unwrap();
+            }
+        }
+    }
+    let commit = graph.rebuild_csr(vault.latest_seq()).unwrap();
+    let edge_count = usize::from(NODES) * (usize::from(NODES) - 1);
+    assert_eq!(commit.projection.edges.len(), edge_count);
+    let manifest_row = vault
+        .read_cf_at(commit.seq, ColumnFamily::Graph, &commit.key)
+        .unwrap()
+        .expect("manifest row");
+    let manifest: serde_json::Value = serde_json::from_slice(&manifest_row).unwrap();
+    println!(
+        "csr_shard_test segments={} total_bytes={}",
+        manifest["segment_count"], manifest["total_bytes"]
+    );
+    assert!(
+        manifest["segment_count"].as_u64().unwrap() >= 2,
+        "projection must span multiple segments: {manifest}"
+    );
+    assert_eq!(
+        manifest["edge_count"].as_u64().unwrap() as usize,
+        edge_count
+    );
+    let readback = graph.read_csr(commit.seq).unwrap().expect("read CSR");
+    assert_eq!(readback, commit.projection);
+}
+
+/// Legacy vaults persisted the whole projection as one row at the CSR key;
+/// the sharded reader must still decode them.
+#[test]
+fn legacy_single_row_csr_is_still_readable() {
+    let vault = AsterVault::new(vault_id(), b"salt");
+    let graph = PlainGraph::new(&vault, "plain").unwrap();
+    graph.put_node(cx(1), b"{}").unwrap();
+    graph.put_node(cx(2), b"{}").unwrap();
+    graph.put_edge(cx(1), "knows", cx(2), b"ab").unwrap();
+    let legacy = graph.csr_projection(vault.latest_seq()).unwrap();
+    let seq = vault
+        .write_cf(
+            ColumnFamily::Graph,
+            graph.keys.csr_key(),
+            serde_json::to_vec(&legacy).unwrap(),
+        )
+        .unwrap();
+    assert_eq!(graph.read_csr(seq).unwrap(), Some(legacy));
+}
+
 #[test]
 fn physical_assoc_graph_prefers_persisted_csr_projection() {
     let unique = std::time::SystemTime::now()

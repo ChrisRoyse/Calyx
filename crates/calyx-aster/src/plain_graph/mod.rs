@@ -1,6 +1,7 @@
 //! Plain graph key-encoding layer for 0-lens collections.
 
 mod assoc_graph;
+mod csr_store;
 mod key;
 mod types;
 
@@ -62,10 +63,10 @@ impl PhysicalPlainGraph {
             .collect()
     }
 
-    /// Raw persisted CSR row bytes, for byte-size/hash evidence in
+    /// Reassembled persisted CSR stream bytes, for byte-size/hash evidence in
     /// materialization readback (#996).
     pub fn read_csr_bytes(&self) -> Result<Option<Vec<u8>>> {
-        self.router.get(ColumnFamily::Graph, &self.keys.csr_key())
+        csr_store::load_csr_bytes(&self.keys, |key| self.router.get(ColumnFamily::Graph, key))
     }
 
     /// Physical node-row key count, independent of any persisted CSR. Used to
@@ -80,12 +81,7 @@ impl PhysicalPlainGraph {
     }
 
     pub fn read_csr(&self) -> Result<Option<PlainGraphCsr>> {
-        let Some(bytes) = self.read_csr_bytes()? else {
-            return Ok(None);
-        };
-        serde_json::from_slice(&bytes)
-            .map(Some)
-            .map_err(|error| graph_corrupt(format!("decode physical CSR projection: {error}")))
+        csr_store::load_csr(&self.keys, |key| self.router.get(ColumnFamily::Graph, key))
     }
 
     pub fn assoc_graph(&self) -> Result<AssocGraph> {
@@ -293,14 +289,24 @@ impl<'a, C: Clock> PlainGraph<'a, C> {
         })
     }
 
+    /// Persist the CSR projection as ordered byte segments plus a manifest.
+    /// The manifest row is written last so a reader never sees a manifest
+    /// whose segments have not been written yet; the manifest's stream hash
+    /// fails any torn/stale segment state closed on read.
     pub fn rebuild_csr(&self, snapshot: Seq) -> Result<CsrCommit> {
         let projection = self.csr_projection(snapshot)?;
-        let value = serde_json::to_vec(&projection)
-            .map_err(|error| graph_corrupt(format!("encode CSR projection: {error}")))?;
+        let (manifest_bytes, segments) = csr_store::encode_csr_segments(&self.keys, &projection)?;
+        for (ordinal, segment) in segments.into_iter().enumerate() {
+            self.vault.write_cf(
+                ColumnFamily::Graph,
+                self.keys.csr_segment_key(ordinal as u32),
+                segment,
+            )?;
+        }
         let key = self.keys.csr_key();
         let seq = self
             .vault
-            .write_cf(ColumnFamily::Graph, key.clone(), value)?;
+            .write_cf(ColumnFamily::Graph, key.clone(), manifest_bytes)?;
         Ok(CsrCommit {
             seq,
             key,
@@ -309,15 +315,9 @@ impl<'a, C: Clock> PlainGraph<'a, C> {
     }
 
     pub fn read_csr(&self, snapshot: Seq) -> Result<Option<PlainGraphCsr>> {
-        let Some(bytes) =
-            self.vault
-                .read_cf_at(snapshot, ColumnFamily::Graph, &self.keys.csr_key())?
-        else {
-            return Ok(None);
-        };
-        serde_json::from_slice(&bytes)
-            .map(Some)
-            .map_err(|error| graph_corrupt(format!("decode CSR projection: {error}")))
+        csr_store::load_csr(&self.keys, |key| {
+            self.vault.read_cf_at(snapshot, ColumnFamily::Graph, key)
+        })
     }
 
     pub fn assoc_graph(&self, snapshot: Seq) -> Result<AssocGraph> {
