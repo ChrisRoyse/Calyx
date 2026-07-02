@@ -68,3 +68,36 @@ Boundary and edge behavior covered by tests:
 
 ## Conclusion & next step
 The #883 planning and verification surface is ready. Keep #883 open until #869/#870/#871 produce the real corpus substrate, a real refusal is captured, targeted evidence/lens data is added, and the same verifier reads back a closed refusal with a new grounded answer.
+
+## 2026-07-02 real refusal-driven expansion completion
+
+### Root cause fixed during FSV
+- The first real #883 regrounding run proved a probe-layer closure but exposed a false-success state: `calyx anchor` appended anchors while leaving the Base row `flags.ungrounded=true`.
+- Fixed `AsterVault::anchor` and `AsterVault::anchor_with_ledger_entry` so appended anchors rewrite the Base row with `flags.ungrounded = anchors.is_empty()`.
+- Added coverage in `crates/calyx-aster/tests/issue883_anchor_grounding_flag.rs`; focused aiwonder test readback passed.
+
+### Real source-of-truth run
+- FSV root: `/home/croyse/calyx/fsv/issue883-real-reground-expansion-20260702T091116Z`
+- Repo head: `7cb3341a81780f844481320b09e40f46b14a9d9b`
+- Vault: `issue883-real-reground-20260702T091116Z`
+- Vault dir: `/home/croyse/calyx/vaults/01KWH1HJ3BS09BY86RMFFB8W0R`
+- Source data: local TREC-COVID parquet `/zfs/archive/calyx/datasets/trec_covid/corpus.parquet`
+- Source parquet SHA256: `d76cea1b2304dbe67a1a54f7376a61de294976682a1d7d58d82de27141f3ba4a`
+- Target source row: `ejv2xln0`, title `Surfactant protein-D and pulmonary host defense`
+- Target CxId: `0a5307abb08f0e7c64845c93f60d9e74`
+- Frontier: `Surfactant protein-D pulmonary host defense collectin SP-D`
+
+### FSV readback
+- Summary artifact: `/home/croyse/calyx/fsv/issue883-real-reground-expansion-20260702T091116Z/readback_summary.json`
+- Summary SHA256: `d2abcbf2d347af555a4c5ce155d492bf66aff8b851bd5643bf349de95997c8bb`
+- Before probe artifact: `/home/croyse/calyx/fsv/issue883-real-reground-expansion-20260702T091116Z/before_probe_matrix.json`
+- Before probe SHA256: `a603f1f449725f1169eca2cc31736e27eec8558bee081611d3d8991d9ddb0d8a`
+- After probe artifact: `/home/croyse/calyx/fsv/issue883-real-reground-expansion-20260702T091116Z/after_probe_matrix.json`
+- After probe SHA256: `65598ca7acdbf3e17cf06ea1598dc99fcbc4ac50fe115a6fed3f18a17cdd98cc`
+- Before readback: `status=refused`, `exit_code=2`, `accepted_hit_count=0`, `refusal_codes=[CALYX_PROBE_UNGROUNDED_HITS]`, target flags `ungrounded=true`, probe provenance `grounding:anchor_count=0 flags_ungrounded=true flags_degraded=false`.
+- After readback: `status=ok`, `accepted_hit_count=5`, `refusal_count=0`, target flags `ungrounded=false`, probe provenance `grounding:anchor_count=2 flags_ungrounded=false flags_degraded=false`.
+- Chain verification: before anchor `status=ok checked=4`; after anchor `status=ok checked=6`.
+- Closure predicate in the summary read back as `closed=true`.
+
+### Conclusion
+#883 is complete. A real TREC-COVID biomedical evidence row first produced a persisted ungrounded-hit refusal, then the targeted grounding evidence append turned the same frontier into grounded probe hits with source metadata and clean Base flags.
