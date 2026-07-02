@@ -470,7 +470,7 @@ fn search_outcome_with_measured_slots(
     budget.check("after_hit_hydration", hit_docs.len())?;
     trace.emit("hit_docs.hydrate.done", None, Some(hit_docs.len()));
     trace.emit("provenance.attach.start", None, Some(hits.len()));
-    attach_verified_provenance(&mut hits, &hit_docs, vault_dir, freshness_tag)?;
+    attach_verified_provenance(&mut hits, &hit_docs, vault_dir, freshness_tag, trace)?;
     trace.emit("provenance.attach.done", None, Some(hits.len()));
     let applied_guard_tau = if guard == GuardChoice::InRegion {
         trace.emit("guard.in_region.start", None, Some(hits.len()));

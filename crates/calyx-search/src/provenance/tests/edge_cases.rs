@@ -212,6 +212,7 @@ fn memo_eviction_mid_call_cannot_orphan_a_memoized_hit() {
         &outcome.docs,
         &fixture.vault_dir,
         FreshnessTag::fresh(0),
+        &mut crate::engine_trace::SearchTracer::new(None),
     )
     .expect("memo eviction mid-call must not fail already-verified hits");
     for hit in &hits {

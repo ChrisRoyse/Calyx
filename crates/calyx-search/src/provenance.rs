@@ -2,7 +2,7 @@ use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::path::Path;
 use std::sync::{Mutex, OnceLock};
 
-use calyx_aster::ledger_view::read_ledger_seqs;
+use calyx_aster::ledger_view::read_ledger_seqs_traced;
 use calyx_aster::mvcc::Snapshot;
 use calyx_aster::vault::AsterVault;
 use calyx_core::{CalyxError, Constellation, CxId, LedgerRef};
@@ -53,6 +53,7 @@ pub(crate) fn attach_verified_provenance(
     docs: &BTreeMap<CxId, Constellation>,
     vault_dir: &Path,
     freshness: FreshnessTag,
+    trace: &mut crate::engine_trace::SearchTracer<'_>,
 ) -> CliResult {
     let vault_key = crate::persisted::canonical_pin_vault_dir(vault_dir)?;
     // Freeze each hit's memo decision NOW: verifying pending hits inserts
@@ -77,7 +78,7 @@ pub(crate) fn attach_verified_provenance(
     let mut ledger = if pending.is_empty() {
         None
     } else {
-        Some(TargetedLedgerVerifier::open(vault_dir, &pending, docs)?)
+        Some(TargetedLedgerVerifier::open(vault_dir, &pending, docs, trace)?)
     };
     for (hit, hit_memoized) in hits.iter_mut().zip(memoized) {
         let cx = docs.get(&hit.cx_id).ok_or_else(|| {
@@ -165,6 +166,7 @@ impl TargetedLedgerVerifier {
         vault_dir: &Path,
         hits: &[Hit],
         docs: &BTreeMap<CxId, Constellation>,
+        trace: &mut crate::engine_trace::SearchTracer<'_>,
     ) -> CliResult<Self> {
         let mut required = BTreeSet::new();
         for hit in hits {
@@ -179,8 +181,23 @@ impl TargetedLedgerVerifier {
                 required.insert(cx.provenance.seq - 1);
             }
         }
+        let (rows, point_read) = read_ledger_seqs_traced(vault_dir, &required)?;
+        // Structured tier attribution (#1112): one event per point-read tier
+        // so FSV can assert from the runtime log which tier resolved the
+        // targeted ledger seqs and that the complete-SST scan never ran.
+        for tier in &point_read.tiers {
+            trace.emit_detail(
+                "provenance.ledger_point_read.tier",
+                None,
+                Some(tier.resolved),
+                Some(format!(
+                    "tier={} wanted={} resolved={} files_opened={} tier_elapsed_ms={}",
+                    tier.tier, tier.wanted, tier.resolved, tier.files_opened, tier.elapsed_ms
+                )),
+            );
+        }
         Ok(Self {
-            rows: read_ledger_seqs(vault_dir, &required)?,
+            rows,
             entries: BTreeMap::new(),
         })
     }

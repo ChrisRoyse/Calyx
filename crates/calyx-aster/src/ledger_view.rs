@@ -21,6 +21,7 @@ use crate::sst::SstEntry;
 use crate::vault::encode::decode_write_batch;
 use crate::wal::{replay_dir_after, stream_records};
 use point_read::{read_sst_ledger_rows, unresolved_seqs};
+pub use point_read::{LedgerPointReadTierStats, LedgerPointReadTrace};
 
 /// Read-only snapshot of a vault's Ledger column family (SSTs + WAL).
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -112,18 +113,21 @@ pub fn read_ledger_seqs(
     vault: &Path,
     seqs: &BTreeSet<u64>,
 ) -> CalyxResult<BTreeMap<u64, LedgerRow>> {
-    if seqs.is_empty() {
-        return Ok(BTreeMap::new());
-    }
-    let _commit_guard = crate::file_lock::FileLockGuard::acquire(&durable_commit_lock_path(vault))?;
-    read_ledger_seqs_unlocked(vault, seqs)
+    Ok(read_ledger_seqs_traced(vault, seqs)?.0)
 }
 
-pub(crate) fn read_ledger_seqs_unlocked(
+/// [`read_ledger_seqs`] plus the per-tier resolution trace (#1112) so callers
+/// can log — and FSV can assert — which point-read tier resolved the rows and
+/// what it cost.
+pub fn read_ledger_seqs_traced(
     vault: &Path,
     seqs: &BTreeSet<u64>,
-) -> CalyxResult<BTreeMap<u64, LedgerRow>> {
-    read_ledger_seqs_unlocked_with_tiering(vault, seqs, None)
+) -> CalyxResult<(BTreeMap<u64, LedgerRow>, LedgerPointReadTrace)> {
+    if seqs.is_empty() {
+        return Ok((BTreeMap::new(), LedgerPointReadTrace::default()));
+    }
+    let _commit_guard = crate::file_lock::FileLockGuard::acquire(&durable_commit_lock_path(vault))?;
+    read_ledger_seqs_unlocked_traced(vault, seqs, None)
 }
 
 pub(crate) fn read_ledger_seqs_unlocked_with_tiering(
@@ -131,22 +135,36 @@ pub(crate) fn read_ledger_seqs_unlocked_with_tiering(
     seqs: &BTreeSet<u64>,
     tiering_policy: Option<&TieringPolicy>,
 ) -> CalyxResult<BTreeMap<u64, LedgerRow>> {
+    Ok(read_ledger_seqs_unlocked_traced(vault, seqs, tiering_policy)?.0)
+}
+
+fn read_ledger_seqs_unlocked_traced(
+    vault: &Path,
+    seqs: &BTreeSet<u64>,
+    tiering_policy: Option<&TieringPolicy>,
+) -> CalyxResult<(BTreeMap<u64, LedgerRow>, LedgerPointReadTrace)> {
+    let mut trace = LedgerPointReadTrace::default();
     if seqs.is_empty() {
-        return Ok(BTreeMap::new());
+        return Ok((BTreeMap::new(), trace));
     }
     let layout = AsterVaultLayout::read_with_tiering(vault, tiering_policy)?;
     let mut rows = BTreeMap::new();
     if !layout.ledger_cf_dirs.is_empty() {
-        read_sst_ledger_rows(&layout.ledger_cf_dirs, seqs, &mut rows)?;
+        read_sst_ledger_rows(&layout.ledger_cf_dirs, seqs, &mut rows, &mut trace)?;
     }
     let unresolved = unresolved_seqs(seqs, &rows);
     if layout.has_wal && !unresolved.is_empty() {
+        let started = std::time::Instant::now();
+        let before = rows.len();
         read_wal_ledger_rows(vault, &unresolved, &mut rows)?;
+        trace.record("wal_tail", unresolved.len(), rows.len() - before, 0, started);
     }
-    Ok(rows
-        .into_iter()
-        .map(|(seq, bytes)| (seq, LedgerRow { seq, bytes }))
-        .collect())
+    Ok((
+        rows.into_iter()
+            .map(|(seq, bytes)| (seq, LedgerRow { seq, bytes }))
+            .collect(),
+        trace,
+    ))
 }
 
 fn read_wal_ledger_rows(
