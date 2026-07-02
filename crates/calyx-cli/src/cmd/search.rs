@@ -134,6 +134,7 @@ fn emit_rebuild_progress(
             "rows": event.rows,
             "base_seq": event.base_seq,
             "manifest_path": event.manifest_path.map(|path| path.display().to_string()),
+            "detail": event.detail,
         }),
     )
 }
