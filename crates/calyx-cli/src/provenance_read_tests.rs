@@ -26,7 +26,7 @@ fn temp_root(name: &str) -> PathBuf {
     path
 }
 
-fn cf_dir(root: &PathBuf, cf: &ColumnFamily) -> PathBuf {
+fn cf_dir(root: &std::path::Path, cf: &ColumnFamily) -> PathBuf {
     let dir = root.join("cf").join(cf.name());
     fs::create_dir_all(&dir).unwrap();
     dir
@@ -79,7 +79,12 @@ fn group_committed_rows_resolve_through_ledger_commit_batch() {
     for (key, value) in [(b"k1", b"v1"), (b"k2", b"v2"), (b"k3", b"v3")] {
         let row = batch.rows.get(key.as_slice()).unwrap().as_ref().unwrap();
         assert_eq!(row.value, value.to_vec());
-        assert_eq!(row.source, RowSource::CommitBatch, "{}", String::from_utf8_lossy(key));
+        assert_eq!(
+            row.source,
+            RowSource::CommitBatch,
+            "{}",
+            String::from_utf8_lossy(key)
+        );
     }
     assert_eq!(batch.stats.commit_batch_rows, 3);
     assert_eq!(batch.stats.full_set_rows, 0);
@@ -233,7 +238,13 @@ fn boundary_seqs_and_unresolvable_keys() {
         )
         .unwrap();
     assert_eq!(
-        batch.rows.get(b"k0".as_slice()).unwrap().as_ref().unwrap().value,
+        batch
+            .rows
+            .get(b"k0".as_slice())
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .value,
         b"v0".to_vec()
     );
     assert_eq!(

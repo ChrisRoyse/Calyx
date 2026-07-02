@@ -152,7 +152,6 @@ fn hex_digit(value: u8) -> char {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use calyx_core::SlotId;
 
     #[test]
     fn hex_bytes_matches_lowercase_plain_hex() {

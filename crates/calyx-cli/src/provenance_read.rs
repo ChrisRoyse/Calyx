@@ -89,6 +89,7 @@ impl ProvenanceReadStats {
 }
 
 /// Result of one batched provenance read.
+#[derive(Debug)]
 pub(crate) struct ProvenanceReadBatch {
     pub rows: BTreeMap<Vec<u8>, Option<ResolvedRow>>,
     pub stats: ProvenanceReadStats,
@@ -125,10 +126,8 @@ impl VaultReadContext {
         cf: ColumnFamily,
         keys: &[(Vec<u8>, u64)],
     ) -> Result<ProvenanceReadBatch, String> {
-        let mut rows: BTreeMap<Vec<u8>, Option<ResolvedRow>> = keys
-            .iter()
-            .map(|(key, _)| (key.clone(), None))
-            .collect();
+        let mut rows: BTreeMap<Vec<u8>, Option<ResolvedRow>> =
+            keys.iter().map(|(key, _)| (key.clone(), None)).collect();
         if rows.is_empty() {
             return Ok(ProvenanceReadBatch {
                 rows,
@@ -335,9 +334,7 @@ impl CfFiles {
                 }
                 let order = sst_order_key(&path)
                     .map_err(|error| error.to_string())?
-                    .ok_or_else(|| {
-                        format!("classified SST {} has no order key", path.display())
-                    })?;
+                    .ok_or_else(|| format!("classified SST {} has no order key", path.display()))?;
                 files.push((order, name, path));
             }
         }
@@ -355,8 +352,7 @@ impl CfFiles {
 
     fn durable_batch_files_for_seq(&self, commit_seq: u64) -> impl Iterator<Item = &PathBuf> {
         self.files.iter().filter_map(move |(_, name, path)| {
-            matches!(name, SstName::DurableBatch { seq, .. } if *seq == commit_seq)
-                .then_some(path)
+            matches!(name, SstName::DurableBatch { seq, .. } if *seq == commit_seq).then_some(path)
         })
     }
 }

@@ -17,6 +17,9 @@ use crate::bounded_progress::Deadline;
 use crate::error::{CliError, CliResult};
 use crate::provenance_read::VaultReadContext;
 
+type SlotCoverageMaps = BTreeMap<SlotId, HashMap<CxId, Vec<f32>>>;
+type SlotCoverageRows = Vec<DenseSlotCoverage>;
+
 pub(crate) fn scan_dense_slot_coverage(
     vault_dir: &Path,
     content_slots: &[SlotId],
@@ -74,8 +77,13 @@ fn scan_base_prefix_coverage(
         }
         candidates.push(encode::decode_constellation_base(value)?);
     }
-    let (slot_maps, coverage) =
-        scan_slots_for_candidates(vault_dir, read_context, content_slots, &candidates, deadline)?;
+    let (slot_maps, coverage) = scan_slots_for_candidates(
+        vault_dir,
+        read_context,
+        content_slots,
+        &candidates,
+        deadline,
+    )?;
     Ok(DenseSlotCoverageScan {
         constellations_in_vault: live_entries,
         candidate_scan_rows: candidates.len(),
@@ -239,10 +247,7 @@ fn scan_slots_for_candidates(
     content_slots: &[SlotId],
     candidates: &[Constellation],
     deadline: &Deadline,
-) -> CliResult<(
-    BTreeMap<SlotId, HashMap<CxId, Vec<f32>>>,
-    Vec<DenseSlotCoverage>,
-)> {
+) -> CliResult<(SlotCoverageMaps, SlotCoverageRows)> {
     let mut slot_maps = BTreeMap::new();
     let mut coverage = Vec::new();
     for (slot_index, &slot) in content_slots.iter().enumerate() {
@@ -324,7 +329,9 @@ fn classify_chunk(
             }
             accumulator.missing_rows += 1;
             if accumulator.example_missing_cx_ids.len() < EXAMPLE_MISSING_LIMIT {
-                accumulator.example_missing_cx_ids.push(cx.cx_id.to_string());
+                accumulator
+                    .example_missing_cx_ids
+                    .push(cx.cx_id.to_string());
             }
             continue;
         };
