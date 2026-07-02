@@ -29,6 +29,18 @@ set -euo pipefail
 #   --allow-in-use permits deploying over a binary some process is currently
 #     executing. This is rename-safe (the process keeps the old inode) but
 #     the running process will NOT pick up the new code until restarted.
+#
+# Feature gate (#1116): the aiwonder runner is a CUDA host, so `calyx` and
+# `calyxd` REQUIRE the `cuda` cargo feature. The 2026-07-02 outage happened
+# because a featureless deploy shipped a CPU-only calyxd that passed every
+# git-identity gate and only failed at service start. Two gates close that:
+#   a. preflight: the requested --features must include each binary's
+#      required features before anything is built
+#   b. identity:  the built/staged/deployed binary must self-report its
+#      embedded feature set (build-info `features`, #1116) and that set must
+#      include the required features
+# Both fail CALYX_DEPLOY_FEATURE_MISMATCH. A binary whose build-info lacks
+# the `features` field predates #1116 and fails CALYX_DEPLOY_IDENTITY_UNREADABLE.
 
 repo="/home/croyse/calyx/repo"
 dest="/home/croyse/calyx/target/release"
@@ -78,6 +90,31 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 [[ ${#binaries[@]} -gt 0 ]] || binaries=(calyx)
+
+# Per-binary required cargo features on the aiwonder runner (#1116).
+# calyx-mcp declares no cargo features, so it requires none.
+required_features_for() {
+  case "$1" in
+    calyx|calyxd) echo "cuda" ;;
+    calyx-mcp) echo "" ;;
+  esac
+}
+
+# Preflight (#1116 gate a): every binary's required features must be in the
+# requested --features list before any build starts. This catches the exact
+# 2026-07-02 mistake (featureless calyxd deploy) in seconds, not after a
+# full build.
+for name in "${binaries[@]}"; do
+  for required in $(required_features_for "$name"); do
+    found=0
+    IFS=', ' read -ra requested <<<"$features"
+    for feature in "${requested[@]}"; do
+      [[ "$feature" == "$required" ]] && found=1
+    done
+    [[ "$found" -eq 1 ]] || die CALYX_DEPLOY_FEATURE_MISMATCH \
+      "$name requires cargo feature '$required' on this host but --features is '${features:-<empty>}'; rerun with --features $required"
+  done
+done
 
 for tool in git cargo jq; do
   command -v "$tool" >/dev/null 2>&1 \
@@ -143,7 +180,7 @@ build_info_json() {
 
 verify_identity() {
   local name="$1" path="$2" context="$3"
-  local report sha dirty
+  local report sha dirty binary_features required
   report="$(build_info_json "$name" "$path")" \
     || die CALYX_DEPLOY_IDENTITY_UNREADABLE \
       "$context: $path does not answer build-info; it predates #1108 or is not a Calyx binary"
@@ -153,12 +190,30 @@ verify_identity() {
   # a missing key becomes the string "null" and fails the equality gate below.
   dirty="$(jq -er '.git_dirty | tostring' <<<"$report")" \
     || die CALYX_DEPLOY_IDENTITY_UNREADABLE "$context: $path build-info JSON lacks git_dirty: $report"
+  # #1116 gate b: the binary must self-report its embedded feature set. jq -e
+  # fails on a missing/non-array field, so a pre-#1116 binary cannot pass.
+  binary_features="$(jq -er '.features | if type == "array" then join(",") else error("features is not an array") end' <<<"$report")" \
+    || die CALYX_DEPLOY_IDENTITY_UNREADABLE \
+      "$context: $path build-info JSON lacks a features array (predates #1116); rebuild from origin/main: $report"
   [[ "$sha" == "$head_sha" ]] \
     || die CALYX_DEPLOY_IDENTITY_MISMATCH \
       "$context: $path reports git_sha=$sha, expected $head_sha; the build did not come from this checkout state"
   [[ "$dirty" == "false" ]] \
     || die CALYX_DEPLOY_IDENTITY_MISMATCH "$context: $path reports git_dirty=$dirty; rebuild from a clean checkout"
-  echo "[deploy] $context: $name identity verified git_sha=$sha"
+  for required in $(required_features_for "$name"); do
+    jq -e --arg f "$required" '.features | index($f) != null' <<<"$report" >/dev/null \
+      || die CALYX_DEPLOY_FEATURE_MISMATCH \
+        "$context: $path was built with features=[$binary_features] but $name requires '$required' on this host; rebuild with --features $required"
+  done
+  echo "[deploy] $context: $name identity verified git_sha=$sha features=[$binary_features]"
+}
+
+# Prints the deployed binary's embedded feature list as a JSON array, for the
+# deploy manifest. Identity (including features) was already verified.
+deployed_features_json() {
+  local name="$1" path="$2"
+  build_info_json "$name" "$path" | jq -ce '.features' \
+    || die CALYX_DEPLOY_IDENTITY_UNREADABLE "manifest: $path stopped answering build-info features"
 }
 
 crate_for() {
@@ -215,16 +270,19 @@ for name in "${binaries[@]}"; do
   verify_identity "$name" "$staged" "staged"
   mv -f "$staged" "$target"
   verify_identity "$name" "$target" "deployed"
+  features_json="$(deployed_features_json "$name" "$target")"
   jq -n \
     --arg binary "$name" \
     --arg git_sha "$head_sha" \
     --arg source_repo "$repo" \
     --arg target "$target" \
     --argjson deployed_at_unix_secs "$deployed_at" \
+    --argjson features "$features_json" \
     '{binary: $binary, git_sha: $git_sha, source_repo: $source_repo,
-      target: $target, deployed_at_unix_secs: $deployed_at_unix_secs}' \
+      target: $target, deployed_at_unix_secs: $deployed_at_unix_secs,
+      features: $features}' \
     > "$dest/$name.deploy.json"
-  jq -e '.git_sha == "'"$head_sha"'"' "$dest/$name.deploy.json" >/dev/null \
+  jq -e '.git_sha == "'"$head_sha"'" and (.features | type == "array")' "$dest/$name.deploy.json" >/dev/null \
     || die CALYX_DEPLOY_MANIFEST_UNREADABLE "readback of $dest/$name.deploy.json failed"
   stat -c "[deploy] installed %n size=%s mtime=%y" "$target"
   echo "[deploy] manifest written: $dest/$name.deploy.json"
