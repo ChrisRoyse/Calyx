@@ -57,11 +57,7 @@ fn calibrated_profile(panel_version: u64, tau: f32) -> GuardProfile {
 fn write_default_guard_profile(vault: &AsterVault, profile: &GuardProfile) {
     let bytes = serde_json::to_vec(profile).expect("serialize guard profile");
     vault
-        .write_cf(
-            ColumnFamily::Guard,
-            b"profile\0default".to_vec(),
-            bytes,
-        )
+        .write_cf(ColumnFamily::Guard, b"profile\0default".to_vec(), bytes)
         .expect("write guard profile");
     vault.flush().expect("flush guard profile");
 }
@@ -107,8 +103,10 @@ fn in_region_without_profile_fails_closed_before_slot_search() {
     );
     // Fail-fast contract: the profile gate runs before any recall work.
     assert!(
-        !events.iter().any(|event| event.phase.starts_with("search_slots")
-            || event.phase.starts_with("indexes.open")),
+        !events
+            .iter()
+            .any(|event| event.phase.starts_with("search_slots")
+                || event.phase.starts_with("indexes.open")),
         "guard resolution must fail before index open / slot search; got {:?}",
         events.iter().map(|event| event.phase).collect::<Vec<_>>()
     );
@@ -121,7 +119,10 @@ fn in_region_applies_calibrated_per_slot_tau_and_reports_no_flat_tau() {
     let vault = fixture.open_vault();
     let state = load_vault_panel_state(&fixture.vault_dir).unwrap();
     // tau=0.0: every candidate passes; the point is the profile PATH is used.
-    write_default_guard_profile(&vault, &calibrated_profile(u64::from(state.panel.version), 0.0));
+    write_default_guard_profile(
+        &vault,
+        &calibrated_profile(u64::from(state.panel.version), 0.0),
+    );
     rebuild_index(&fixture, &vault);
 
     let outcome = search_outcome(

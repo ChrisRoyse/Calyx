@@ -593,13 +593,8 @@ fn search_outcome_with_measured_slots(
                 )),
             );
             budget.check("before_in_region_guard", before)?;
-            dropped_guard_hits = apply_in_region_guard_to_hits(
-                &hit_docs,
-                profile,
-                query_vectors,
-                &mut hits,
-                true,
-            )?;
+            dropped_guard_hits =
+                apply_in_region_guard_to_hits(&hit_docs, profile, query_vectors, &mut hits, true)?;
             budget.check("after_in_region_guard", hits.len())?;
             for dropped in &dropped_guard_hits {
                 trace.emit_detail(

@@ -20,8 +20,8 @@ use crate::manifest::ManifestStore;
 use crate::sst::SstEntry;
 use crate::vault::encode::decode_write_batch;
 use crate::wal::{replay_dir_after, stream_records};
-use point_read::{read_sst_ledger_rows, unresolved_seqs};
 pub use point_read::{LedgerPointReadTierStats, LedgerPointReadTrace};
+use point_read::{read_sst_ledger_rows, unresolved_seqs};
 
 /// Read-only snapshot of a vault's Ledger column family (SSTs + WAL).
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -157,7 +157,13 @@ fn read_ledger_seqs_unlocked_traced(
         let started = std::time::Instant::now();
         let before = rows.len();
         read_wal_ledger_rows(vault, &unresolved, &mut rows)?;
-        trace.record("wal_tail", unresolved.len(), rows.len() - before, 0, started);
+        trace.record(
+            "wal_tail",
+            unresolved.len(),
+            rows.len() - before,
+            0,
+            started,
+        );
     }
     Ok((
         rows.into_iter()

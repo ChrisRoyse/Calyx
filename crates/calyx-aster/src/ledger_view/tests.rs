@@ -177,8 +177,8 @@ fn targeted_reader_resolves_drifted_ledger_file_seq_via_commit_ordered_tier() {
     )
     .expect("write drifted ledger SST");
 
-    let (targeted, trace) = read_ledger_seqs_traced(&root, &BTreeSet::from([10]))
-        .expect("targeted drifted-name read");
+    let (targeted, trace) =
+        read_ledger_seqs_traced(&root, &BTreeSet::from([10])).expect("targeted drifted-name read");
     assert_eq!(
         targeted.get(&10).map(|row| row.bytes.as_slice()),
         Some(b"ledger-row-10".as_slice())

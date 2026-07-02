@@ -433,7 +433,8 @@ fn in_region_without_operator_tau_requires_calibrated_profile() {
     .unwrap_err();
 
     assert!(
-        err.code() == "CALYX_GUARD_PROVISIONAL" || err.message().contains("CALYX_GUARD_PROVISIONAL"),
+        err.code() == "CALYX_GUARD_PROVISIONAL"
+            || err.message().contains("CALYX_GUARD_PROVISIONAL"),
         "uncalibrated in-region probe must fail closed with CALYX_GUARD_PROVISIONAL; got code={} message={}",
         err.code(),
         err.message()

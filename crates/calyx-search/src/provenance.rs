@@ -78,7 +78,9 @@ pub(crate) fn attach_verified_provenance(
     let mut ledger = if pending.is_empty() {
         None
     } else {
-        Some(TargetedLedgerVerifier::open(vault_dir, &pending, docs, trace)?)
+        Some(TargetedLedgerVerifier::open(
+            vault_dir, &pending, docs, trace,
+        )?)
     };
     for (hit, hit_memoized) in hits.iter_mut().zip(memoized) {
         let cx = docs.get(&hit.cx_id).ok_or_else(|| {
