@@ -38,6 +38,16 @@ pub struct BuildInfo {
     pub git_dirty: bool,
     /// Committer timestamp of `git_sha` (unix seconds).
     pub git_commit_unix_secs: u64,
+    /// Cargo features enabled when the binary crate was built (sorted,
+    /// hyphenated lowercase), read back from `CARGO_FEATURE_*` in `emit`.
+    /// A non-cuda `calyxd` took the service down on 2026-07-02 because no
+    /// gate could see the feature set (#1116); deploy gates compare this
+    /// list against a per-binary required-feature policy.
+    ///
+    /// Cargo mangles feature names to `CARGO_FEATURE_<UPPER_SNAKE>`, so `_`
+    /// and `-` are indistinguishable here; names are reported in hyphen form
+    /// (every Calyx feature uses hyphens).
+    pub features: Vec<&'static str>,
 }
 
 /// Constructs the [`BuildInfo`] embedded by this crate's [`emit`] build step.
@@ -53,6 +63,7 @@ macro_rules! build_info {
             env!("CALYX_BUILD_GIT_SHA"),
             env!("CALYX_BUILD_GIT_DIRTY"),
             env!("CALYX_BUILD_GIT_COMMIT_UNIX_SECS"),
+            env!("CALYX_BUILD_FEATURES"),
         )
         .expect("CALYX_BUILD_INFO_INVALID: embedded build identity is malformed")
     };
@@ -66,6 +77,7 @@ impl BuildInfo {
         git_sha: &'static str,
         git_dirty: &'static str,
         git_commit_unix_secs: &'static str,
+        features: &'static str,
     ) -> Result<Self, String> {
         validate_sha(git_sha)?;
         let git_dirty = match git_dirty {
@@ -86,8 +98,31 @@ impl BuildInfo {
             git_sha,
             git_dirty,
             git_commit_unix_secs,
+            features: parse_embedded_features(features)?,
         })
     }
+}
+
+/// Parses the comma-joined feature list embedded by [`emit`]. Empty input
+/// means no features (a valid state, e.g. `calyx-mcp` declares none); any
+/// malformed token means the binary bypassed [`emit`] and fails loudly.
+fn parse_embedded_features(raw: &'static str) -> Result<Vec<&'static str>, String> {
+    if raw.is_empty() {
+        return Ok(Vec::new());
+    }
+    let features: Vec<&'static str> = raw.split(',').collect();
+    for feature in &features {
+        let valid = !feature.is_empty()
+            && feature
+                .chars()
+                .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-');
+        if !valid {
+            return Err(format!(
+                "CALYX_BUILD_INFO_INVALID: feature name must be lowercase hyphenated ascii, got {feature:?} in {raw:?}"
+            ));
+        }
+    }
+    Ok(features)
 }
 
 fn validate_sha(sha: &str) -> Result<(), String> {
@@ -136,6 +171,30 @@ pub fn emit() {
         "cargo:rustc-env=CALYX_BUILD_GIT_COMMIT_UNIX_SECS={}",
         info.git_commit_unix_secs
     );
+    // #1116: embed the enabled cargo feature set so deploy gates can verify
+    // the artifact configuration (e.g. calyxd on aiwonder REQUIRES cuda).
+    // Cargo re-runs build scripts when the feature set changes, so this
+    // stays consistent with the compiled binary.
+    println!(
+        "cargo:rustc-env=CALYX_BUILD_FEATURES={}",
+        features_from_env_keys(std::env::vars().map(|(key, _)| key)).join(",")
+    );
+}
+
+/// Maps the build script's `CARGO_FEATURE_*` environment (one variable per
+/// enabled feature, name uppercased with `-` mangled to `_`) back to a
+/// sorted, deduplicated, hyphenated-lowercase feature list.
+pub fn features_from_env_keys<I: IntoIterator<Item = String>>(keys: I) -> Vec<String> {
+    let mut features: Vec<String> = keys
+        .into_iter()
+        .filter_map(|key| {
+            key.strip_prefix("CARGO_FEATURE_")
+                .map(|name| name.to_ascii_lowercase().replace('_', "-"))
+        })
+        .collect();
+    features.sort_unstable();
+    features.dedup();
+    features
 }
 
 /// Computes the build identity for a directory inside a git checkout.

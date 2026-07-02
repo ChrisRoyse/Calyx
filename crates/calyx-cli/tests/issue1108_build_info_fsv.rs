@@ -35,6 +35,33 @@ fn build_info_reports_the_checkout_head() {
         std::path::Path::new(executable).is_file(),
         "reported executable must exist on disk: {executable}"
     );
+
+    // #1116: the enabled cargo feature set must be embedded so deploy gates
+    // can verify artifact configuration (e.g. calyxd requires cuda). The
+    // exact contents depend on how this test build was invoked; the contract
+    // is a present array of lowercase hyphenated names matching what this
+    // test process itself was compiled with.
+    let features = report["features"]
+        .as_array()
+        .expect("build-info must report a features array");
+    for feature in features {
+        let name = feature.as_str().expect("feature names are strings");
+        assert!(
+            !name.is_empty()
+                && name
+                    .chars()
+                    .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-'),
+            "feature names must be lowercase hyphenated: {name:?}"
+        );
+    }
+    assert_eq!(
+        features
+            .iter()
+            .map(|feature| feature.as_str().expect("string"))
+            .collect::<Vec<_>>(),
+        calyx_buildinfo::build_info!().features,
+        "binary-reported features must match the features this test was compiled with"
+    );
 }
 
 #[test]
