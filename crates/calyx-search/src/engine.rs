@@ -9,10 +9,12 @@
 use std::collections::BTreeSet;
 use std::path::Path;
 
+use calyx_aster::cf::ColumnFamily;
 use calyx_aster::vault::AsterVault;
-use calyx_core::{SlotId, SlotVector};
+use calyx_core::{CalyxError, SlotId, SlotVector, VaultStore};
 use calyx_sextant::FusionContext;
-use calyx_sextant::fusion;
+use calyx_sextant::{apply_in_region_guard_to_hits, fusion};
+use calyx_ward::GuardProfile;
 
 use crate::engine_fusion::{stage1_slots, weights_for};
 pub use crate::engine_measure::{measure_query_vectors, measure_query_vectors_with_slots};
@@ -44,11 +46,12 @@ use support::{SearchReadSnapshot, is_stale_derived, renumber_and_truncate, vault
 use support::{apply_in_region_guard, cosine};
 pub use types::{FusionChoice, GuardChoice, SearchFreshness, SearchOutcome};
 
-/// In-region guard cosine threshold used when the caller does not supply a
-/// calibrated tau. This is a deliberately strict near-duplicate threshold and
-/// is NOT calibrated to any particular corpus; a caller running `in-region`
-/// against real vault content should calibrate tau to the corpus's actual
-/// in-region cosine distribution (issue #1088).
+/// Historical flat in-region cosine threshold. Since #1094 this is NEVER
+/// applied implicitly: `--guard in-region` without an operator tau loads the
+/// calibrated Ward guard profile instead (fail-closed
+/// `CALYX_GUARD_PROVISIONAL` when absent). The constant remains only as the
+/// documented strict near-duplicate reference value for operators choosing an
+/// explicit flat tau (issue #1088) and for the flat-path unit tests.
 pub const DEFAULT_IN_REGION_GUARD_TAU: f32 = 0.999;
 
 /// Test-only alias for the default tau, used by guard/support unit tests that
@@ -59,26 +62,97 @@ const GUARD_TAU: f32 = DEFAULT_IN_REGION_GUARD_TAU;
 /// Bounded MVCC reader lease for a whole search readback pass.
 const SEARCH_READER_LEASE_MS: u64 = 300_000;
 
-/// Resolve the in-region guard tau to apply. `guard = Off` ignores any tau
-/// (returns the default, unused). For `in-region`, an operator-supplied tau
-/// must be finite and in `(0.0, 1.0]` — cosine similarity is bounded by 1.0 and
-/// a non-positive threshold accepts everything, defeating the guard. A missing
-/// tau resolves to [`DEFAULT_IN_REGION_GUARD_TAU`]. Fail closed on bad input;
-/// never silently clamp (issue #1088).
-fn resolve_guard_tau(guard: GuardChoice, guard_tau: Option<f32>) -> CliResult<f32> {
-    match guard_tau {
-        None => Ok(DEFAULT_IN_REGION_GUARD_TAU),
-        Some(_) if guard != GuardChoice::InRegion => Err(crate::error::SearchError::usage(
+/// How the in-region guard will actually be enforced for this search (#1094).
+///
+/// `--guard in-region` WITHOUT an operator tau is profile-backed: the
+/// calibrated Ward [`GuardProfile`] is loaded from the Guard CF and applied
+/// with per-slot conformal taus (MCP parity). An explicit operator tau keeps
+/// the flat single-tau cosine gate with its provenance recorded in the
+/// outcome (#1088 probe-matrix calibration path). There is no silent default
+/// tau anywhere: a missing profile fails closed with
+/// `CALYX_GUARD_PROVISIONAL`.
+enum ResolvedGuard {
+    Off,
+    OperatorTau(f32),
+    Profile(Box<GuardProfile>),
+}
+
+/// Resolve the guard mode. `guard = Off` rejects a supplied tau (usage
+/// error). For `in-region`, an operator-supplied tau must be finite and in
+/// `(0.0, 1.0]` — cosine similarity is bounded by 1.0 and a non-positive
+/// threshold accepts everything, defeating the guard. Without a tau the
+/// calibrated Ward profile is loaded from the Guard CF and fails closed when
+/// absent/uncalibrated/panel-mismatched. Never silently clamp or default
+/// (issues #1088, #1094).
+fn resolve_guard(
+    vault: &AsterVault,
+    guard: GuardChoice,
+    guard_tau: Option<f32>,
+    guard_panel_version: Option<u64>,
+) -> CliResult<ResolvedGuard> {
+    match (guard, guard_tau) {
+        (GuardChoice::Off, None) => Ok(ResolvedGuard::Off),
+        (GuardChoice::Off, Some(_)) => Err(crate::error::SearchError::usage(
             "guard tau was supplied but guard mode is not in-region; pass --guard in-region or omit the tau",
         )),
-        Some(tau) if !tau.is_finite() || tau <= 0.0 || tau > 1.0 => {
+        (GuardChoice::InRegion, Some(tau)) if !tau.is_finite() || tau <= 0.0 || tau > 1.0 => {
             Err(crate::error::SearchError::usage(format!(
                 "in-region guard tau {tau} is out of range; supply a finite cosine threshold in (0.0, 1.0]"
             )))
         }
-        Some(tau) => Ok(tau),
+        (GuardChoice::InRegion, Some(tau)) => Ok(ResolvedGuard::OperatorTau(tau)),
+        (GuardChoice::InRegion, None) => Ok(ResolvedGuard::Profile(Box::new(
+            load_default_guard_profile(vault, guard_panel_version)?,
+        ))),
     }
 }
+
+/// Load the calibrated default Ward guard profile from the Guard CF, failing
+/// closed with `CALYX_GUARD_PROVISIONAL` when it is missing, undecodable,
+/// uncalibrated, or calibrated for a different panel version — the same gate
+/// the MCP search path enforces (`calyx-mcp/src/tools/search/engine.rs`).
+///
+/// The caller must have opened the vault with [`ColumnFamily::Guard`]
+/// selected: reading an unselected CF silently returns `None`, which would
+/// masquerade as a missing profile (#1094).
+fn load_default_guard_profile(
+    vault: &AsterVault,
+    guard_panel_version: Option<u64>,
+) -> CliResult<GuardProfile> {
+    let Some(bytes) = vault.read_cf_at(
+        vault.snapshot(),
+        ColumnFamily::Guard,
+        DEFAULT_GUARD_PROFILE_KEY,
+    )?
+    else {
+        return Err(CalyxError::guard_provisional(
+            "in-region search requires a calibrated default guard profile (Guard CF key `profile\\0default`); run `calyx guard <vault> calibrate` or supply an explicit operator tau",
+        )
+        .into());
+    };
+    let profile: GuardProfile = serde_json::from_slice(&bytes).map_err(|error| {
+        CalyxError::guard_provisional(format!("decode default guard profile: {error}"))
+    })?;
+    if let Some(panel_version) = guard_panel_version
+        && profile.panel_version != panel_version
+    {
+        return Err(CalyxError::guard_provisional(format!(
+            "guard profile panel_version {} does not match active panel {panel_version}; recalibrate the guard for the current panel",
+            profile.panel_version
+        ))
+        .into());
+    }
+    if !profile.is_calibrated() {
+        return Err(CalyxError::guard_provisional(
+            "default guard profile is not calibrated; run `calyx guard <vault> calibrate`",
+        )
+        .into());
+    }
+    Ok(profile)
+}
+
+/// Guard CF key of the default calibrated profile (MCP parity).
+pub const DEFAULT_GUARD_PROFILE_KEY: &[u8] = b"profile\0default";
 
 /// Run the real search over `vault` (already opened) using its persisted
 /// indexes at `vault_dir`. `state` is the loaded panel state (the query is
@@ -193,6 +267,7 @@ pub fn search_outcome_with_slots_traced(
         fusion,
         guard,
         None,
+        Some(u64::from(state.panel.version)),
         filter,
         explain,
         allowed_slots,
@@ -225,6 +300,7 @@ pub fn search_outcome_with_query_vectors(
         k,
         fusion,
         guard,
+        None,
         filter,
         explain,
         SearchFreshness::Fresh,
@@ -241,6 +317,7 @@ pub fn search_outcome_with_query_vectors_freshness(
     k: usize,
     fusion: FusionChoice,
     guard: GuardChoice,
+    guard_panel_version: Option<u64>,
     filter: Option<&str>,
     explain: bool,
     freshness: SearchFreshness,
@@ -255,6 +332,7 @@ pub fn search_outcome_with_query_vectors_freshness(
         fusion,
         guard,
         None,
+        guard_panel_version,
         filter,
         explain,
         freshness,
@@ -265,9 +343,14 @@ pub fn search_outcome_with_query_vectors_freshness(
 }
 
 /// As [`search_outcome_with_query_vectors_freshness`] but with a per-run slot
-/// cache and an optional calibrated in-region guard tau. `guard_tau = None`
-/// uses [`DEFAULT_IN_REGION_GUARD_TAU`]; `Some(tau)` requires a finite value in
-/// `(0.0, 1.0]` and is used verbatim as the in-region cosine threshold (#1088).
+/// cache and an optional operator-supplied in-region guard tau. `Some(tau)`
+/// requires a finite value in `(0.0, 1.0]` and is used verbatim as the flat
+/// in-region cosine threshold (#1088). `guard_tau = None` with
+/// `guard = in-region` applies the calibrated Ward guard profile from the
+/// Guard CF with per-slot conformal taus, failing closed with
+/// `CALYX_GUARD_PROVISIONAL` when the profile is absent/uncalibrated or (when
+/// `guard_panel_version` is supplied) calibrated for a different panel
+/// version (#1094). There is no silent default tau.
 #[allow(clippy::too_many_arguments)]
 pub fn search_outcome_with_query_vectors_freshness_cached(
     vault: &AsterVault,
@@ -277,6 +360,7 @@ pub fn search_outcome_with_query_vectors_freshness_cached(
     fusion: FusionChoice,
     guard: GuardChoice,
     guard_tau: Option<f32>,
+    guard_panel_version: Option<u64>,
     filter: Option<&str>,
     explain: bool,
     freshness: SearchFreshness,
@@ -297,6 +381,7 @@ pub fn search_outcome_with_query_vectors_freshness_cached(
         fusion,
         guard,
         guard_tau,
+        guard_panel_version,
         filter,
         explain,
         Some(&allowed_slots),
@@ -316,6 +401,7 @@ fn search_outcome_with_measured_slots(
     fusion: FusionChoice,
     guard: GuardChoice,
     guard_tau: Option<f32>,
+    guard_panel_version: Option<u64>,
     filter: Option<&str>,
     explain: bool,
     allowed_slots: Option<&BTreeSet<SlotId>>,
@@ -324,7 +410,11 @@ fn search_outcome_with_measured_slots(
     slot_cache: Option<&mut SearchSlotCache>,
     trace: Option<&mut SearchTracer<'_>>,
 ) -> CliResult<SearchOutcome> {
-    let guard_tau = resolve_guard_tau(guard, guard_tau)?;
+    // Resolve (and for profile mode, load + validate) the guard BEFORE any
+    // expensive slot search: an uncalibrated vault must fail closed with
+    // CALYX_GUARD_PROVISIONAL in milliseconds, not after seconds of recall
+    // (the #1103 lesson applied to #1094).
+    let resolved_guard = resolve_guard(vault, guard, guard_tau, guard_panel_version)?;
     let mut noop_trace;
     let trace = match trace {
         Some(trace) => trace,
@@ -434,18 +524,21 @@ fn search_outcome_with_measured_slots(
         trace.emit("fusion.truncate.done", None, Some(hits.len()));
     }
     let hydrate_hit_slots = guard == GuardChoice::InRegion;
-    if guard == GuardChoice::InRegion {
+    if let ResolvedGuard::OperatorTau(tau) = resolved_guard {
+        // The flat prefilter is an optimization bound to the operator's flat
+        // tau; the profile path guards post-hydration with per-slot taus and
+        // must see every fused candidate.
         let before = hits.len();
         trace.emit("guard.prefilter.start", None, Some(before));
         budget.check("before_in_region_prefilter", before)?;
-        hits = prefilter_in_region_candidates_traced(hits, query_vectors, guard_tau, trace);
+        hits = prefilter_in_region_candidates_traced(hits, query_vectors, tau, trace);
         budget.check("after_in_region_prefilter", hits.len())?;
         trace.emit_detail(
             "guard.prefilter.done",
             None,
             Some(hits.len()),
             Some(format!(
-                "filtered={} tau={guard_tau:.6}",
+                "filtered={} tau={tau:.6}",
                 before.saturating_sub(hits.len())
             )),
         );
@@ -472,22 +565,80 @@ fn search_outcome_with_measured_slots(
     trace.emit("provenance.attach.start", None, Some(hits.len()));
     attach_verified_provenance(&mut hits, &hit_docs, vault_dir, freshness_tag, trace)?;
     trace.emit("provenance.attach.done", None, Some(hits.len()));
-    let applied_guard_tau = if guard == GuardChoice::InRegion {
-        trace.emit("guard.in_region.start", None, Some(hits.len()));
-        budget.check("before_in_region_guard", hits.len())?;
-        hits = apply_in_region_guard_traced(hits, &hit_docs, query_vectors, guard_tau, trace);
-        budget.check("after_in_region_guard", hits.len())?;
-        trace.emit("guard.in_region.done", None, Some(hits.len()));
-        renumber_and_truncate(&mut hits, k);
-        Some(guard_tau)
-    } else {
-        None
+    let mut dropped_guard_hits = Vec::new();
+    let applied_guard_tau = match &resolved_guard {
+        ResolvedGuard::Off => None,
+        ResolvedGuard::OperatorTau(tau) => {
+            let tau = *tau;
+            trace.emit("guard.in_region.start", None, Some(hits.len()));
+            budget.check("before_in_region_guard", hits.len())?;
+            hits = apply_in_region_guard_traced(hits, &hit_docs, query_vectors, tau, trace);
+            budget.check("after_in_region_guard", hits.len())?;
+            trace.emit("guard.in_region.done", None, Some(hits.len()));
+            renumber_and_truncate(&mut hits, k);
+            Some(tau)
+        }
+        ResolvedGuard::Profile(profile) => {
+            let before = hits.len();
+            trace.emit_detail(
+                "guard.in_region.start",
+                None,
+                Some(before),
+                Some(format!(
+                    "mode=profile guard_id={} panel_version={} policy={:?} slots={}",
+                    profile.guard_id,
+                    profile.panel_version,
+                    profile.policy,
+                    profile.tau.len()
+                )),
+            );
+            budget.check("before_in_region_guard", before)?;
+            dropped_guard_hits = apply_in_region_guard_to_hits(
+                &hit_docs,
+                profile,
+                query_vectors,
+                &mut hits,
+                true,
+            )?;
+            budget.check("after_in_region_guard", hits.len())?;
+            for dropped in &dropped_guard_hits {
+                trace.emit_detail(
+                    "guard.in_region.dropped",
+                    None,
+                    None,
+                    Some(format!(
+                        "cx_id={} reason={:?}",
+                        dropped.cx_id, dropped.reason
+                    )),
+                );
+            }
+            trace.emit_detail(
+                "guard.in_region.done",
+                None,
+                Some(hits.len()),
+                Some(format!(
+                    "mode=profile dropped={}",
+                    before.saturating_sub(hits.len())
+                )),
+            );
+            if before > 0 && hits.is_empty() {
+                return Err(CalyxError::guard_ood(format!(
+                    "in-region guard blocked all {before} search candidates"
+                ))
+                .into());
+            }
+            renumber_and_truncate(&mut hits, k);
+            // Per-slot calibrated taus: no single flat tau to report. The
+            // hits carry their guard verdict evidence.
+            None
+        }
     };
     trace.emit("search.done", None, Some(hits.len()));
     Ok(SearchOutcome {
         hits,
         guard_tau: applied_guard_tau,
         docs: hit_docs,
+        dropped_guard_hits,
     })
 }
 

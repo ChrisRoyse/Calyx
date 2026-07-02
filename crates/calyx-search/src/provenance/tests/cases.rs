@@ -402,6 +402,7 @@ fn search_budget_fails_closed_during_hit_hydration() {
         FusionChoice::Rrf,
         GuardChoice::Off,
         None,
+        None,
         false,
         SearchFreshness::Fresh,
         SearchBudget::new(&mut budget),

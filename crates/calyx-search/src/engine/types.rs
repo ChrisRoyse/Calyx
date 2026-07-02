@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 
 use calyx_core::{Constellation, CxId, SlotId};
-use calyx_sextant::{FusionStrategy, Hit, RrfProfile};
+use calyx_sextant::{DroppedGuardHit, FusionStrategy, Hit, RrfProfile};
 
 use crate::error::{CliResult, SearchError};
 
@@ -63,11 +63,15 @@ pub enum SearchFreshness {
 }
 
 /// The result of a search: ranked hits (each carrying score + stored
-/// provenance) and the guard tau actually applied (if any).
+/// provenance), the flat operator guard tau actually applied (if any —
+/// profile-backed guarding applies per-slot calibrated taus and reports
+/// `None` here; the hits carry their guard verdict evidence), and the
+/// candidates the profile-backed guard dropped (#1094, MCP parity).
 pub struct SearchOutcome {
     pub hits: Vec<Hit>,
     pub guard_tau: Option<f32>,
     pub docs: BTreeMap<CxId, Constellation>,
+    pub dropped_guard_hits: Vec<DroppedGuardHit>,
 }
 
 impl SearchOutcome {
@@ -76,6 +80,7 @@ impl SearchOutcome {
             hits: Vec::new(),
             guard_tau: None,
             docs: BTreeMap::new(),
+            dropped_guard_hits: Vec::new(),
         }
     }
 }

@@ -339,6 +339,11 @@ fn in_region_guard_diagnostics_persist_hydration_state_source_of_truth() {
     let (home, vault_dir) = seed_home("guard-diagnostics");
     let out = vault_dir.join("guard-diagnostics-matrix.json");
 
+    // Explicit operator tau: since #1094 the flat single-tau gate (whose
+    // prefilter diagnostics are asserted below) runs ONLY under an
+    // operator-supplied tau; `guard_tau: None` is profile-backed and fails
+    // closed on this uncalibrated fixture (see
+    // `in_region_without_operator_tau_requires_calibrated_profile`).
     let err = run_probe_matrix_with_home(
         &home,
         ProbeMatrixArgs {
@@ -350,7 +355,7 @@ fn in_region_guard_diagnostics_persist_hydration_state_source_of_truth() {
             lengths: vec![ProbeLength::Entity],
             top_k: 1,
             guard: GuardChoice::InRegion,
-            guard_tau: None,
+            guard_tau: Some(0.999),
             out: Some(out.clone()),
             resident_addr: None,
             max_variants: Some(1),
@@ -395,4 +400,42 @@ fn in_region_guard_diagnostics_persist_hydration_state_source_of_truth() {
         serde_json::from_slice(&fs::read(&artifact.run.progress_artifact).unwrap()).unwrap();
     assert_eq!(progress["status"], "incomplete");
     assert_eq!(progress["phase"], "variant_budget_exhausted");
+}
+
+/// #1094: `--guard in-region` without an operator tau is profile-backed.
+/// On a vault without a calibrated Ward guard profile it must fail closed
+/// with `CALYX_GUARD_PROVISIONAL` — never fall back to a silent flat default.
+#[test]
+fn in_region_without_operator_tau_requires_calibrated_profile() {
+    let (home, vault_dir) = seed_home("guard-profile-required");
+    let out = vault_dir.join("guard-profile-required-matrix.json");
+
+    let err = run_probe_matrix_with_home(
+        &home,
+        ProbeMatrixArgs {
+            vault: "guard-profile-required".to_string(),
+            frontier: "alpha".to_string(),
+            slots: vec![SlotId::new(8), SlotId::new(14)],
+            weighted_profiles: vec![RrfProfile::Bridge],
+            phrasings: vec![ProbePhrasing::Terse],
+            lengths: vec![ProbeLength::Entity],
+            top_k: 1,
+            guard: GuardChoice::InRegion,
+            guard_tau: None,
+            out: Some(out),
+            resident_addr: None,
+            max_variants: Some(1),
+            time_budget_ms: None,
+            search_miss_budget_ms: None,
+            search_hit_budget_ms: None,
+        },
+    )
+    .unwrap_err();
+
+    assert!(
+        err.code() == "CALYX_GUARD_PROVISIONAL" || err.message().contains("CALYX_GUARD_PROVISIONAL"),
+        "uncalibrated in-region probe must fail closed with CALYX_GUARD_PROVISIONAL; got code={} message={}",
+        err.code(),
+        err.message()
+    );
 }

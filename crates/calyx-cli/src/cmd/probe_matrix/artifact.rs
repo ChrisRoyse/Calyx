@@ -247,13 +247,10 @@ fn guard_filtered_all_error(
     matrix_path: &Path,
     progress_path: &Path,
 ) -> CliError {
+    // Since #1094, in-region without an operator tau applies the calibrated
+    // Ward guard profile (per-slot conformal taus) — never a flat default.
     let tau_display = guard_tau.map_or_else(
-        || {
-            format!(
-                "{:.6} (uncalibrated default)",
-                calyx_search::DEFAULT_IN_REGION_GUARD_TAU
-            )
-        },
+        || "per-slot calibrated Ward guard profile".to_string(),
         |tau| format!("{tau:.6} (operator-supplied)"),
     );
     let observed = match (
