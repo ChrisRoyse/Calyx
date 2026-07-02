@@ -91,7 +91,10 @@ fn print_build_info(args: &[String]) -> ExitCode {
         eprintln!("calyx-mcp: --build-info takes no other arguments");
         return ExitCode::from(2);
     }
-    let mut report = match serde_json::to_value(calyx_buildinfo::build_info!()) {
+    // calyx-mcp has no compile-time capability surface (#1130): no cargo
+    // features, no GPU dependencies. The empty map is still explicit so a
+    // future capability cannot be forgotten silently.
+    let mut report = match serde_json::to_value(calyx_buildinfo::build_info!(capabilities: &[])) {
         Ok(value) => value,
         Err(error) => {
             eprintln!("calyx-mcp: CALYX_BUILD_INFO_INVALID: serialize build info: {error}");

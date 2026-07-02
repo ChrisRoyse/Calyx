@@ -18,7 +18,7 @@ impl CuvsBruteForceTopK {
     }
 }
 
-#[cfg(feature = "cuda")]
+#[cfg(sextant_cuvs)]
 pub fn cuvs_bruteforce_topk(
     dataset: &mut [f32],
     rows: usize,
@@ -30,7 +30,7 @@ pub fn cuvs_bruteforce_topk(
     imp::run(dataset, rows, dim, queries, query_count, k)
 }
 
-#[cfg(not(feature = "cuda"))]
+#[cfg(not(sextant_cuvs))]
 pub fn cuvs_bruteforce_topk(
     _dataset: &mut [f32],
     _rows: usize,
@@ -41,11 +41,11 @@ pub fn cuvs_bruteforce_topk(
 ) -> Result<CuvsBruteForceTopK> {
     Err(crate::error::sextant_error(
         crate::error::CALYX_SEXTANT_GPU_PARITY_UNAVAILABLE,
-        "cuvs brute-force reference generation requires building calyx-cli with --features cuda",
+        crate::cuvs_unavailable_reason("cuvs brute-force reference generation"),
     ))
 }
 
-#[cfg(feature = "cuda")]
+#[cfg(sextant_cuvs)]
 mod imp {
     use std::ffi::CStr;
     use std::os::raw::c_void;

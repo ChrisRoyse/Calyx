@@ -81,6 +81,12 @@ async fn main() -> ExitCode {
     }
 }
 
+/// Resolved compile-time capabilities (#1130): calyxd's GPU surface is the
+/// forge CUDA preflight and kernels. Values come from the owning crate's
+/// `cfg!` const so the report proves what was compiled, not what feature
+/// names were requested.
+const CAPABILITIES: &[(&str, bool)] = &[("forge-cuda", calyx_forge::CUDA_COMPILED)];
+
 /// `--build-info` (#1108): print the embedded identity JSON and exit so
 /// deploy tooling can verify the deployed daemon binary without booting it.
 fn print_build_info(args: &[String]) -> ExitCode {
@@ -88,13 +94,14 @@ fn print_build_info(args: &[String]) -> ExitCode {
         eprintln!("calyxd: --build-info takes no other arguments\n{USAGE}");
         return ExitCode::from(2);
     }
-    let mut report = match serde_json::to_value(calyx_buildinfo::build_info!()) {
-        Ok(value) => value,
-        Err(error) => {
-            eprintln!("calyxd: CALYX_BUILD_INFO_INVALID: serialize build info: {error}");
-            return ExitCode::from(2);
-        }
-    };
+    let mut report =
+        match serde_json::to_value(calyx_buildinfo::build_info!(capabilities: CAPABILITIES)) {
+            Ok(value) => value,
+            Err(error) => {
+                eprintln!("calyxd: CALYX_BUILD_INFO_INVALID: serialize build info: {error}");
+                return ExitCode::from(2);
+            }
+        };
     report["binary"] = serde_json::Value::from("calyxd");
     report["executable"] = serde_json::Value::from(
         std::env::current_exe()

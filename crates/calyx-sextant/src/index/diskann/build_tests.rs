@@ -72,6 +72,49 @@ fn build_with_progress_emits_vamana_batches_and_writes_physical_graph() {
     let _ = fs::remove_dir_all(root);
 }
 
+/// #1130 fail-closed contract: when the cuVS path is compiled out, selecting
+/// the cuvs-cagra backend must error BEFORE touching the filesystem, and the
+/// message must say exactly why it is absent — feature off vs an OS where
+/// RAPIDS ships no libcuvs — so the operator knows the fix, not just the
+/// failure. `CUVS_COMPILED` must agree with the compiled path (it is what
+/// build-info capability readback and the deploy gate assert).
+#[cfg(not(sextant_cuvs))]
+#[test]
+fn cuvs_cagra_backend_fails_closed_when_compiled_out() {
+    // Compile-time consistency: the exported capability const must agree
+    // with the compiled path this cfg selected.
+    const _: () = assert!(!crate::CUVS_COMPILED);
+    let root = temp_root("diskann-cuvs-stub");
+    let path = root.join("graph.cda");
+    let rows = vec![(0_u32, vec![0.0_f32, 1.0]), (1, vec![1.0, 0.0])];
+    let params = DiskAnnBuildParams {
+        dim: 2,
+        m_max: 4,
+        ef_construction: 8,
+        alpha: 1.2,
+    };
+    let error =
+        build_diskann_graph_with_backend(&path, &rows, params, DiskAnnBuildBackend::CuvsCagra)
+            .expect_err("cuvs-cagra must fail closed when compiled out");
+    let message = format!("{error}");
+    if cfg!(feature = "cuda") {
+        assert!(
+            message.contains("Linux only") && message.contains("#1016"),
+            "cuda-on/non-linux stub must name the platform limitation: {message}"
+        );
+    } else {
+        assert!(
+            message.contains("--features cuda"),
+            "cuda-off stub must name the missing feature: {message}"
+        );
+    }
+    assert!(
+        !path.exists(),
+        "fail-closed backend must not create graph artifacts"
+    );
+    let _ = fs::remove_dir_all(root);
+}
+
 fn temp_root(name: &str) -> PathBuf {
     let mut dir = std::env::temp_dir();
     let nanos = SystemTime::now()

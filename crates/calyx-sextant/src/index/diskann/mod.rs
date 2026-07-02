@@ -5,7 +5,7 @@
 
 pub mod build;
 pub mod concat;
-#[cfg(feature = "cuda")]
+#[cfg(sextant_cuvs)]
 mod cuvs_cagra;
 pub mod dual;
 pub mod graph;

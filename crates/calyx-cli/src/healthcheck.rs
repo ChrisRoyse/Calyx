@@ -168,7 +168,7 @@ fn build_report(request: &HealthArgs) -> HealthReport {
 
 fn binary_identity() -> BinaryIdentity {
     BinaryIdentity {
-        build: calyx_buildinfo::build_info!(),
+        build: calyx_buildinfo::build_info!(capabilities: crate::capabilities::COMPILED),
         executable: std::env::current_exe()
             .map(|path| path.display().to_string())
             .unwrap_or_else(|error| format!("unavailable: {error}")),
