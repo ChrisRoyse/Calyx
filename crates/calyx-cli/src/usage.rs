@@ -49,7 +49,7 @@ pub(crate) fn usage() -> &'static str {
        calyx abundance <vault>
        calyx propose-lens <vault> --anchor <kind>
        calyx provenance <vault> <cx_id>
-       calyx verify-chain <vault> [--from <seq>] [--to <seq>] [--batch-size <n>] [--progress-jsonl <stderr|path>] [--time-budget-ms <ms>]
+       calyx verify-chain [--vault] <vault> [--from <seq>] [--to <seq>] [--batch-size <n>] [--progress-jsonl <stderr|path>] [--time-budget-ms <ms>]
        calyx rebuild-search-index <vault>
        calyx kernel-build <vault> [--held-out-fraction <0..1>] [--top-k <n>] [--min-recall <0..1>]
        calyx weave-loom <vault> [--content-slot <u16>] [--candidate-selection covered|base-prefix] [--coverage-only] [--knn <n>] [--edge-cos-threshold <0..1>] [--max-groundedness-distance <n>] [--batch <n>] [--limit <n>] [--time-budget-ms <ms>]
@@ -147,7 +147,8 @@ pub(crate) fn usage() -> &'static str {
        calyx leapable shadow-readback --vault <dir>
        calyx ward tau --slot <n> --vault <dir>
        calyx merkle-root (--ledger <dir> | --vault <dir>) --range <a..b>
-       calyx verify-chain (--ledger <dir> | --vault <dir>) --range <a..b>
+       calyx verify-chain --ledger <dir> --range <a..b>
+       calyx verify-chain --vault <dir-or-name> --range <a..b>   (fixed-range legacy output/quarantine form)
        calyx verify-restore --vault <dir> [--json]
        calyx scan --cf ledger --vault <dir>
        calyx get-provenance --vault <dir> --cx <cx-id>

@@ -20,6 +20,7 @@ pub(crate) mod vault;
 mod vault_retire;
 mod weave;
 
+use calyx_core::Modality;
 pub(crate) use ingest::run_lens_worker as run_ingest_lens_worker;
 use ingest::{IngestOutput, IngestStatusArgs};
 pub(crate) use ingest::{
@@ -29,11 +30,8 @@ pub(crate) use search::{
     PersistedSearchIndexes, load_docs as load_search_docs, measure_text_query_vectors,
     rebuild_persistent_indexes,
 };
-
 use std::net::SocketAddr;
 use std::path::PathBuf;
-
-use calyx_core::Modality;
 
 use crate::error::{CliError, CliResult};
 
@@ -166,11 +164,14 @@ pub(crate) fn try_run(args: &[String]) -> Option<CliResult> {
     {
         return Some(crate::usage::print_command_usage(command));
     }
-    if args
+    let verify_chain = args
         .first()
-        .is_some_and(|command| command == "verify-chain")
-        && args.get(1).is_some_and(|arg| arg.starts_with("--"))
-    {
+        .is_some_and(|command| command == "verify-chain");
+    let ledger_form = args.get(1).is_some_and(|arg| arg == "--ledger");
+    let vault_range_form =
+        args.get(1).is_some_and(|arg| arg == "--vault") && args.iter().any(|arg| arg == "--range");
+    let verify_chain_legacy = verify_chain && (ledger_form || vault_range_form);
+    if verify_chain_legacy {
         return None;
     }
     Some(parse(args).and_then(run))
