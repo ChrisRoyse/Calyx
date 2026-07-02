@@ -266,6 +266,14 @@ impl SstReader {
         self.bloom.may_contain(key)
     }
 
+    /// First and last key stored in this SST, or `None` for an empty file.
+    pub fn key_range(&self) -> Option<(&[u8], &[u8])> {
+        Some((
+            self.index.first()?.key.as_slice(),
+            self.index.last()?.key.as_slice(),
+        ))
+    }
+
     pub(crate) fn lookup_metadata(&self) -> Option<SstLookupMetadata> {
         let first_key = self.index.first()?.key.clone();
         let last_key = self.index.last()?.key.clone();

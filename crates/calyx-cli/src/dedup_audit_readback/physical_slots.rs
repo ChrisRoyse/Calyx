@@ -18,8 +18,9 @@ use serde_json::json;
 
 use super::check_deadline;
 use crate::bounded_progress::{Deadline, ProgressSink};
-use crate::cf_read::{hex_bytes, latest_cf_rows_for_keys, latest_cf_rows_near_seqs};
+use crate::cf_read::hex_bytes;
 use crate::error::{CliError, CliResult};
+use crate::provenance_read::{ResolvedRow, RowSource, VaultReadContext};
 
 pub(super) fn slot_row_json(slot: SlotId, state: &PhysicalSlotState) -> serde_json::Value {
     match state {
@@ -92,11 +93,12 @@ pub(super) enum PhysicalSlotState {
 }
 
 /// Reads the physical slot CF rows for every base-listed slot of every live
-/// constellation, grouped per slot CF (the same grouped near-seq read path
-/// `weave-loom` dense-slot coverage uses). Ingest stages one physical slot row
-/// per base-listed slot in the same WAL batch as the base row, so a
-/// base-listed slot with no physical `slot_XX`/`slot_raw_XX` row fails closed
-/// as `CALYX_ASTER_CORRUPT_SHARD` instead of being reported as absent.
+/// constellation, grouped per slot CF (the same exact provenance-resolved
+/// read path `weave-loom` dense-slot coverage uses, issue #1096). Ingest
+/// stages one physical slot row per base-listed slot in the same WAL batch as
+/// the base row, so a base-listed slot with no physical
+/// `slot_XX`/`slot_raw_XX` row fails closed as `CALYX_ASTER_CORRUPT_SHARD`
+/// instead of being reported as absent.
 pub(super) fn physical_slot_states(
     vault: &Path,
     constellations: &[&Constellation],
@@ -113,6 +115,7 @@ pub(super) fn physical_slot_states(
             ));
         }
     }
+    let mut read_context = VaultReadContext::new(vault);
     let mut out = BTreeMap::new();
     for (slot, members) in per_slot {
         check_deadline(deadline, progress, "slot_lookup", out.len() as u64)?;
@@ -127,36 +130,43 @@ pub(super) fn physical_slot_states(
             .iter()
             .map(|(_, key, seq)| (key.clone(), *seq))
             .collect::<Vec<_>>();
-        let near = latest_cf_rows_near_seqs(vault, ColumnFamily::slot(slot), &pairs)
-            .map_err(|error| slot_readback_io_error(slot, "near-seq", &error))?;
-        let missing = members
-            .iter()
-            .filter(|(_, key, _)| !matches!(near.get(key), Some(Some(_))))
-            .map(|(_, key, _)| key.clone())
-            .collect::<Vec<_>>();
-        let full = if missing.is_empty() {
-            BTreeMap::new()
-        } else {
-            latest_cf_rows_for_keys(vault, ColumnFamily::slot(slot), &missing)
-                .map_err(|error| slot_readback_io_error(slot, "full-set", &error))?
-        };
+        let batch = read_context
+            .latest_cf_rows_for_provenance(ColumnFamily::slot(slot), &pairs)
+            .map_err(|error| slot_readback_io_error(slot, "provenance-resolved", &error))?;
+        progress.emit(json!({
+            "event": "cx_list.progress",
+            "phase": "slot_lookup_resolved",
+            "slot": slot.get(),
+            "read_stats": batch.stats,
+            "elapsed_ms": deadline.elapsed_ms(),
+        }))?;
         for (cx_id, key, seq) in &members {
-            let located = match near.get(key) {
-                Some(Some(bytes)) => Some((bytes.clone(), "slot_cf")),
-                _ => full
-                    .get(key)
-                    .and_then(Clone::clone)
-                    .map(|bytes| (bytes, "slot_cf_full_set")),
-            };
-            let state = resolve_slot_state(vault, *cx_id, slot, key, *seq, located)?;
+            let located = batch
+                .rows
+                .get(key)
+                .and_then(Option::as_ref)
+                .map(|row| (row.value.clone(), slot_cf_payload_source(row)));
+            let state =
+                resolve_slot_state(vault, &mut read_context, *cx_id, slot, key, *seq, located)?;
             out.insert((*cx_id, slot), state);
         }
     }
     Ok(out)
 }
 
+/// `payload_source` label for a slot-CF row by resolution stage. Commit-batch
+/// and WAL-tail reads keep the historical `slot_cf` label; full-level reads
+/// keep the `slot_cf_full_set` label introduced by issue #1060.
+fn slot_cf_payload_source(row: &ResolvedRow) -> &'static str {
+    match row.source {
+        RowSource::CommitBatch | RowSource::WalTail => "slot_cf",
+        RowSource::FullSet => "slot_cf_full_set",
+    }
+}
+
 fn resolve_slot_state(
     vault: &Path,
+    read_context: &mut VaultReadContext,
     cx_id: CxId,
     slot: SlotId,
     key: &[u8],
@@ -166,7 +176,7 @@ fn resolve_slot_state(
     let Some((bytes, payload_source)) = located else {
         // No physical slot CF row at all: the raw CF is the only remaining
         // physical location a payload could live in (compression writes both).
-        return match physical_raw_row(vault, slot, key, seq)? {
+        return match physical_raw_row(read_context, slot, key, seq)? {
             Some((raw_bytes, raw_source)) if is_tombstone_value(&raw_bytes) => {
                 Ok(PhysicalSlotState::Tombstoned {
                     payload_source: raw_source,
@@ -191,7 +201,7 @@ fn resolve_slot_state(
                 cx_id,
                 slot,
                 seq,
-                "no row found in the slot CF (near-seq or full SST set + WAL) nor in the slot_raw CF",
+                "no row found in the slot CF (commit batch, full SST set, or WAL tail) nor in the slot_raw CF",
             )),
         };
     };
@@ -208,7 +218,7 @@ fn resolve_slot_state(
             vector,
             payload_source,
         }),
-        Err(decode_error) => match physical_raw_row(vault, slot, key, seq)? {
+        Err(decode_error) => match physical_raw_row(read_context, slot, key, seq)? {
             // Compressed slots persist opaque compressed bytes in the slot CF
             // and the decodable payload in slot_raw.
             Some((raw_bytes, raw_source)) if !is_tombstone_value(&raw_bytes) => {
@@ -241,23 +251,21 @@ fn resolve_slot_state(
 }
 
 fn physical_raw_row(
-    vault: &Path,
+    read_context: &mut VaultReadContext,
     slot: SlotId,
     key: &[u8],
     seq: u64,
 ) -> CliResult<Option<(Vec<u8>, &'static str)>> {
-    let near =
-        latest_cf_rows_near_seqs(vault, ColumnFamily::slot_raw(slot), &[(key.to_vec(), seq)])
-            .map_err(|error| slot_readback_io_error(slot, "slot_raw near-seq", &error))?;
-    if let Some(Some(bytes)) = near.get(key) {
-        return Ok(Some((bytes.clone(), "slot_raw_cf")));
-    }
-    let full = latest_cf_rows_for_keys(vault, ColumnFamily::slot_raw(slot), &[key.to_vec()])
-        .map_err(|error| slot_readback_io_error(slot, "slot_raw full-set", &error))?;
-    Ok(full
-        .get(key)
-        .and_then(Clone::clone)
-        .map(|bytes| (bytes, "slot_raw_cf_full_set")))
+    let batch = read_context
+        .latest_cf_rows_for_provenance(ColumnFamily::slot_raw(slot), &[(key.to_vec(), seq)])
+        .map_err(|error| slot_readback_io_error(slot, "slot_raw provenance-resolved", &error))?;
+    Ok(batch.rows.get(key).and_then(Option::as_ref).map(|row| {
+        let source = match row.source {
+            RowSource::CommitBatch | RowSource::WalTail => "slot_raw_cf",
+            RowSource::FullSet => "slot_raw_cf_full_set",
+        };
+        (row.value.clone(), source)
+    }))
 }
 
 fn slot_readback_io_error(slot: SlotId, phase: &str, error: &str) -> CliError {

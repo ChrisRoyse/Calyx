@@ -22,6 +22,11 @@ impl CandidateSelectionMode {
     }
 }
 
+/// Exact per-slot coverage accounting. The counters are additive by
+/// construction: `dense + non_dense + absent + tombstoned + missing ==
+/// candidate_rows`. `missing_rows` counts only candidates whose base row does
+/// not list the slot — a base-listed slot with no physical row fails the scan
+/// closed instead of being counted here (issue #1096).
 #[derive(Clone, Debug, Serialize)]
 pub(super) struct DenseSlotCoverage {
     pub slot_id: u16,
@@ -29,14 +34,20 @@ pub(super) struct DenseSlotCoverage {
     pub dense_rows: usize,
     pub missing_rows: usize,
     pub non_dense_rows: usize,
+    pub absent_rows: usize,
+    pub tombstoned_rows: usize,
     pub example_missing_cx_ids: Vec<String>,
+    pub read_stats: crate::provenance_read::ProvenanceReadStats,
 }
 
 impl DenseSlotCoverage {
     pub(super) fn has_full_coverage(&self) -> bool {
-        self.candidate_rows > 0
-            && self.dense_rows == self.candidate_rows
-            && self.non_dense_rows == 0
+        self.candidate_rows > 0 && self.dense_rows == self.candidate_rows
+    }
+
+    /// Candidates that are not usable dense rows for this slot.
+    pub(super) fn uncovered_rows(&self) -> usize {
+        self.candidate_rows.saturating_sub(self.dense_rows)
     }
 }
 
@@ -113,12 +124,14 @@ pub(super) fn select_slot_from_coverage(
             });
         }
         return Err(format!(
-            "CALYX_WEAVE_LOOM_DENSE_COVERAGE_INCOMPLETE: requested content slot {} covers {}/{} candidate rows; missing_rows={}; non_dense_rows={}; example_missing_cx_ids={:?}",
+            "CALYX_WEAVE_LOOM_DENSE_COVERAGE_INCOMPLETE: requested content slot {} covers {}/{} candidate rows; missing_rows={}; non_dense_rows={}; absent_rows={}; tombstoned_rows={}; example_missing_cx_ids={:?}",
             row.slot_id,
             row.dense_rows,
             row.candidate_rows,
             row.missing_rows,
             row.non_dense_rows,
+            row.absent_rows,
+            row.tombstoned_rows,
             row.example_missing_cx_ids
         ));
     }
@@ -173,11 +186,11 @@ fn select_covered_slot(
                 scanned_rows: row.candidate_rows,
                 selected_rows,
                 requested_limit: limit,
-                excluded_uncovered_rows: row.missing_rows + row.non_dense_rows,
+                excluded_uncovered_rows: row.uncovered_rows(),
             });
         }
         return Err(format!(
-            "CALYX_WEAVE_LOOM_COVERED_SET_TOO_SMALL: requested content slot {} has only {} dense candidate rows after scanning {}; selected_rows={}; limit={}; missing_rows={}; non_dense_rows={}; example_missing_cx_ids={:?}",
+            "CALYX_WEAVE_LOOM_COVERED_SET_TOO_SMALL: requested content slot {} has only {} dense candidate rows after scanning {}; selected_rows={}; limit={}; missing_rows={}; non_dense_rows={}; absent_rows={}; tombstoned_rows={}; example_missing_cx_ids={:?}",
             row.slot_id,
             row.dense_rows,
             row.candidate_rows,
@@ -185,6 +198,8 @@ fn select_covered_slot(
             limit,
             row.missing_rows,
             row.non_dense_rows,
+            row.absent_rows,
+            row.tombstoned_rows,
             row.example_missing_cx_ids
         ));
     }
@@ -209,7 +224,7 @@ fn select_covered_slot(
             scanned_rows: row.candidate_rows,
             selected_rows,
             requested_limit: limit,
-            excluded_uncovered_rows: row.missing_rows + row.non_dense_rows,
+            excluded_uncovered_rows: row.uncovered_rows(),
         });
     }
     Err(format!(
@@ -274,12 +289,14 @@ pub(super) fn coverage_summary(coverage: &[DenseSlotCoverage]) -> String {
         .iter()
         .map(|row| {
             format!(
-                "slot {} dense={}/{} missing={} non_dense={} examples={:?}",
+                "slot {} dense={}/{} missing={} non_dense={} absent={} tombstoned={} examples={:?}",
                 row.slot_id,
                 row.dense_rows,
                 row.candidate_rows,
                 row.missing_rows,
                 row.non_dense_rows,
+                row.absent_rows,
+                row.tombstoned_rows,
                 row.example_missing_cx_ids
             )
         })

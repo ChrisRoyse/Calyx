@@ -286,6 +286,9 @@ fn coverage_row(
         dense_rows,
         missing_rows: candidate_rows.saturating_sub(dense_rows),
         non_dense_rows: 0,
+        absent_rows: 0,
+        tombstoned_rows: 0,
         example_missing_cx_ids: Vec::new(),
+        read_stats: crate::provenance_read::ProvenanceReadStats::default(),
     }
 }
