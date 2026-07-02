@@ -1,3 +1,5 @@
+use std::net::SocketAddr;
+
 use super::*;
 
 pub(super) fn measure_gpu_lenses_via_resident_service(

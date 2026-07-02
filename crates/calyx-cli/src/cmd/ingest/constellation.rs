@@ -1,5 +1,4 @@
 use std::collections::BTreeMap;
-use std::net::SocketAddr;
 use std::str::FromStr;
 use std::time::Instant;
 
@@ -13,6 +12,7 @@ pub(crate) use calyx_registry::measure::{absent, input_hash};
 use rayon::prelude::*;
 
 use super::command::ingest_runtime_log;
+use super::route::{IngestGpuRoute, gpu_route_required_error};
 use super::worker::measure_lens_in_worker;
 use crate::error::CliResult;
 use crate::lens_commands::support::runtime_name;
@@ -82,6 +82,9 @@ pub(crate) fn text_input(text: String) -> Input {
     Input::new(Modality::Text, text.into_bytes())
 }
 
+/// Single-input measurement with cold GPU workers allowed: used by the
+/// `calyx measure` debug command and in-crate tests, which are not the
+/// batch-ingest surface gated by #1004.
 pub(crate) fn measure_constellation(
     vault: &AsterVault,
     state: &VaultPanelState,
@@ -105,7 +108,7 @@ pub(crate) fn measure_constellation_with_runtime_limit(
     input: &Input,
     now: u64,
     runtime_batch_limit: Option<usize>,
-    resident_addr: Option<SocketAddr>,
+    gpu_route: IngestGpuRoute,
 ) -> CliResult<Constellation> {
     let mut measured = measure_constellation_microbatch_with_runtime_limit(
         vault,
@@ -113,7 +116,7 @@ pub(crate) fn measure_constellation_with_runtime_limit(
         std::slice::from_ref(input),
         now,
         runtime_batch_limit,
-        resident_addr,
+        gpu_route,
     )?;
     match measured.len() {
         1 => Ok(measured.remove(0)),
@@ -268,7 +271,14 @@ pub(crate) fn measure_constellation_microbatch(
     inputs: &[Input],
     now: u64,
 ) -> CliResult<Vec<Constellation>> {
-    measure_constellation_microbatch_with_runtime_limit(vault, state, inputs, now, None, None)
+    measure_constellation_microbatch_with_runtime_limit(
+        vault,
+        state,
+        inputs,
+        now,
+        None,
+        IngestGpuRoute::cold_workers_allowed(),
+    )
 }
 
 pub(crate) fn measure_constellation_microbatch_with_runtime_limit(
@@ -277,7 +287,7 @@ pub(crate) fn measure_constellation_microbatch_with_runtime_limit(
     inputs: &[Input],
     now: u64,
     runtime_batch_limit: Option<usize>,
-    resident_addr: Option<SocketAddr>,
+    gpu_route: IngestGpuRoute,
 ) -> CliResult<Vec<Constellation>> {
     if inputs.is_empty() {
         return Ok(Vec::new());
@@ -322,13 +332,13 @@ pub(crate) fn measure_constellation_microbatch_with_runtime_limit(
         gpu_lenses.len(),
         cpu_lenses.len(),
         runtime_batch_limit,
-        resident_addr
+        gpu_route.resident_addr
     ));
     let measure_one = |lens: ApplicableLens| {
         measure_applicable_lens_batch(state, lens, batch_modality, inputs, runtime_batch_limit)
             .map(|vectors| (lens.lens_id, vectors))
     };
-    let (gpu_vectors, cpu_vectors) = if let Some(addr) = resident_addr {
+    let (gpu_vectors, cpu_vectors) = if let Some(addr) = gpu_route.resident_addr {
         if !gpu_lenses.is_empty() {
             ingest_runtime_log(format_args!(
                 "phase=measure_resident_service_gate addr={} gpu_lenses={} local_lenses_deferred=true",
@@ -350,6 +360,14 @@ pub(crate) fn measure_constellation_microbatch_with_runtime_limit(
             .collect::<std::result::Result<Vec<_>, _>>()?;
         (gpu_vectors, cpu_vectors)
     } else {
+        // #1004 fail-closed gate: active GPU lenses without a resident route
+        // must not silently take the cold per-invocation worker path (full
+        // model reload per lens per command — the #999 slow path).
+        if !gpu_lenses.is_empty() && !gpu_route.allow_cold_gpu_workers {
+            return Err(
+                gpu_route_required_error(gpu_lenses.len(), batch_modality, gpu_route).into(),
+            );
+        }
         let (gpu_result, cpu_result) = rayon::join(
             || {
                 gpu_lenses

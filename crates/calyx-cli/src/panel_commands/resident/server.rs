@@ -1,4 +1,8 @@
 use super::codec::write_binary_response;
+use super::discovery::{
+    RESIDENT_DISCOVERY_SCHEMA, ResidentDiscovery, remove_resident_discovery, unix_now_ms,
+    write_resident_discovery,
+};
 use super::dispatch::{dispatch_binary_measure_batch, dispatch_request, readiness};
 use super::*;
 
@@ -20,7 +24,19 @@ pub(crate) fn serve(args: &[String]) -> CliResult {
     }
     let listener = TcpListener::bind(bind)?;
     let local_addr = listener.local_addr()?;
-    let state = load_resident_warm_state(warm_options(home, flags))?;
+    // Canonicalize the vault source before warm state consumes the flags so
+    // discovery-file consumers can compare vault identity path-for-path.
+    let discovery_vault = match flags.vault.as_deref() {
+        Some(vault) => Some(vault.canonicalize().map_err(|error| {
+            CliError::io(format!(
+                "canonicalize resident --vault {}: {error}",
+                vault.display()
+            ))
+        })?),
+        None => None,
+    };
+    let discovery_template = flags.template.clone();
+    let state = load_resident_warm_state(warm_options(home.clone(), flags))?;
     let service = Arc::new(ResidentService {
         state,
         bind: local_addr,
@@ -30,8 +46,29 @@ pub(crate) fn serve(args: &[String]) -> CliResult {
     if let Some(path) = service.state.ready_out.clone() {
         write_json_file(path, &ready)?;
     }
+    let discovery_path = write_resident_discovery(
+        &home,
+        &ResidentDiscovery {
+            schema: RESIDENT_DISCOVERY_SCHEMA.to_string(),
+            bind: local_addr,
+            process_id: std::process::id(),
+            vault: discovery_vault,
+            template: discovery_template,
+            written_at_unix_ms: unix_now_ms(),
+        },
+    )?;
+    eprintln!(
+        "CALYX_PANEL_RESIDENT_RUNTIME phase=discovery_written path={} bind={local_addr}",
+        discovery_path.display()
+    );
     print_json(&ready)?;
-    serve_loop(listener, service)
+    let served = serve_loop(listener, service);
+    // Best-effort removal of this process's own record on graceful shutdown;
+    // a crashed service leaves the file behind and ingest discovery detects
+    // that via the live readiness probe.
+    let removed = remove_resident_discovery(&home, std::process::id());
+    served?;
+    removed
 }
 
 fn resolve_home(flags: &mut ServeFlags) -> CliResult<PathBuf> {

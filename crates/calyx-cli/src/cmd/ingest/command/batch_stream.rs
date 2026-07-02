@@ -39,7 +39,7 @@ pub(crate) fn ingest_batch_streaming_with_output(
         path,
         output,
         validation.row_count,
-        None,
+        IngestGpuRoute::cold_workers_allowed(),
         None,
         None,
     )
@@ -60,7 +60,7 @@ pub(crate) fn ingest_batch_streaming_with_summary_emitter(
         path,
         IngestOutput::Summary,
         validation.row_count,
-        None,
+        IngestGpuRoute::cold_workers_allowed(),
         Some(summary_emitter),
         None,
     )
@@ -71,7 +71,7 @@ pub(crate) fn ingest_validated_batch_streaming_with_output(
     path: &std::path::Path,
     output: IngestOutput,
     validated_row_count: usize,
-    resident_addr: Option<std::net::SocketAddr>,
+    gpu_route: IngestGpuRoute,
     mut summary_emitter: Option<BatchSummaryEmitter<'_>>,
     mut session: Option<&mut BatchIngestSession>,
 ) -> CliResult<BatchIngestSummary> {
@@ -133,11 +133,17 @@ pub(crate) fn ingest_validated_batch_streaming_with_output(
     let flush_options = BatchFlushOptions {
         output,
         runtime_batch_limit,
-        resident_addr,
+        gpu_route,
     };
     ingest_runtime_log(format_args!(
-        "phase=batch_ingest_plan rows={} runtime_batch_limit={} measure_window={} put_chunk={} output={:?} resident_addr={:?}",
-        validated_row_count, runtime_batch_limit, measure_window, PUT_CHUNK, output, resident_addr
+        "phase=batch_ingest_plan rows={} runtime_batch_limit={} measure_window={} put_chunk={} output={:?} resident_addr={:?} allow_cold_gpu_workers={}",
+        validated_row_count,
+        runtime_batch_limit,
+        measure_window,
+        PUT_CHUNK,
+        output,
+        gpu_route.resident_addr,
+        gpu_route.allow_cold_gpu_workers
     ));
     preflight_batch_existing_identity(&vault, &state, path, validated_row_count)?;
     let batch_cx_ids = collect_batch_cx_ids(&vault, &state, path)?;
@@ -303,7 +309,7 @@ fn flush_measure_batch(
         &inputs,
         now_ms(),
         Some(options.runtime_batch_limit),
-        options.resident_addr,
+        options.gpu_route,
     )?;
     let mut measured = Vec::with_capacity(constellations.len());
     for (mut cx, (_, mut metadata, anchors, oracle)) in constellations.into_iter().zip(rows) {

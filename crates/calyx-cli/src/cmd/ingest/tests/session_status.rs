@@ -1,6 +1,7 @@
 use super::super::session::{BatchIngestSession, read_session_status};
 use super::*;
 use crate::cmd::IngestOutput;
+use crate::cmd::ingest::route::IngestGpuRoute;
 
 #[test]
 fn batch_ingest_writes_durable_session_status_readback() {
@@ -27,7 +28,7 @@ fn batch_ingest_writes_durable_session_status_readback() {
         &jsonl,
         IngestOutput::Summary,
         validation.row_count,
-        None,
+        IngestGpuRoute::cold_workers_allowed(),
         None,
         Some(&mut session),
     )
@@ -75,7 +76,7 @@ fn batch_ingest_session_fails_closed_on_reused_session_id() {
         &jsonl,
         IngestOutput::Summary,
         validation.row_count,
-        None,
+        IngestGpuRoute::cold_workers_allowed(),
         None,
         Some(&mut session),
     )
@@ -112,7 +113,7 @@ fn batch_ingest_session_records_post_commit_failure() {
         &jsonl,
         IngestOutput::Summary,
         validation.row_count,
-        None,
+        IngestGpuRoute::cold_workers_allowed(),
         None,
         Some(&mut session),
     )
