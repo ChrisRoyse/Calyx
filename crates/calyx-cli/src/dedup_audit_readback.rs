@@ -3,28 +3,28 @@ use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
 use calyx_aster::base_page_index::{DEFAULT_BASE_PAGE_INDEX_PAGE_SIZE, read_indexed_base_rows};
-use calyx_aster::cf::{ColumnFamily, base_key, slot_key};
+use calyx_aster::cf::{ColumnFamily, base_key};
 use calyx_aster::dedup::{ReversalToken, dedup_audit, dedup_undo};
 use calyx_aster::mvcc::is_tombstone_value;
-use calyx_aster::vault::encode::{decode_constellation_base, decode_slot_vector};
+use calyx_aster::vault::encode::decode_constellation_base;
 use calyx_aster::vault::{AsterVault, VaultOptions};
-use calyx_core::{CxId, SlotId, SlotVector};
+use calyx_core::CxId;
 use serde_json::json;
 
 use crate::bounded_progress::{Deadline, ProgressSink, parse_nonzero_u64, parse_nonzero_usize};
-use crate::cf_read::{
-    hex_bytes, latest_cf_row, latest_cf_row_near_seq, latest_cf_rows, vault_id_from_base,
-};
+use crate::cf_read::{hex_bytes, latest_cf_row, latest_cf_rows, vault_id_from_base};
 use crate::error::{CliError, CliResult};
 use crate::output::print_line;
 
 const CX_LIST_UNBOUNDED_ROW_LIMIT: usize = 100;
 
 mod index_progress;
+mod physical_slots;
 #[cfg(test)]
 mod tests;
 
 use index_progress::rebuild_cx_list_base_page_index;
+use physical_slots::{physical_slot_states, slot_row_json, slot_summary, tombstone_row};
 
 #[derive(Debug)]
 struct CxListArgs {
@@ -259,67 +259,7 @@ fn render_cx_list(
     deadline: &Deadline,
     progress: &mut ProgressSink,
 ) -> crate::error::CliResult {
-    let mut values = Vec::new();
-    for (key, value) in rows {
-        check_deadline(deadline, progress, "render_row", values.len() as u64)?;
-        if is_tombstone_value(&value) {
-            values.push(tombstone_row(&key));
-            continue;
-        }
-        let cx = decode_constellation_base(&value).map_err(|error| error.to_string())?;
-        let mut row = json!({
-            "key_hex": hex_bytes(&key),
-            "cx_id": cx.cx_id,
-            "created_at": cx.created_at,
-            "panel_version": cx.panel_version,
-            "flags": cx.flags,
-            "base_slot_count": cx.slots.len(),
-            "base_hex": hex_bytes(&value),
-            "slot_payloads_decoded": include_slots,
-            "slot_payload_decode_mode": if include_slots { "explicit_include_slots" } else { "base_only" },
-        });
-        if include_slots {
-            let slots = decoded_slot_entries(vault, &cx, deadline, progress)?;
-            row["slot_summary"] = slot_summary(slots.iter().map(|(_, vector, _)| vector));
-            row["slots"] = json!(
-                slots
-                    .iter()
-                    .map(|(slot, vector, source)| {
-                        match vector {
-                            SlotVector::Dense { dim, data } => json!({
-                                "slot": slot.get(),
-                                "kind": "dense",
-                                "payload_source": source,
-                                "dim": dim,
-                                "values": data.len(),
-                            }),
-                            SlotVector::Sparse { dim, entries } => json!({
-                                "slot": slot.get(),
-                                "kind": "sparse",
-                                "payload_source": source,
-                                "dim": dim,
-                                "entries": entries.len(),
-                            }),
-                            SlotVector::Multi { token_dim, tokens } => json!({
-                                "slot": slot.get(),
-                                "kind": "multi",
-                                "payload_source": source,
-                                "token_dim": token_dim,
-                                "tokens": tokens.len(),
-                            }),
-                            SlotVector::Absent { reason } => json!({
-                                "slot": slot.get(),
-                                "kind": "absent",
-                                "payload_source": source,
-                                "reason": reason,
-                            }),
-                        }
-                    })
-                    .collect::<Vec<_>>()
-            );
-        }
-        values.push(row);
-    }
+    let values = cx_list_rows(vault, rows, include_slots, deadline, progress)?;
     let json = serde_json::to_string_pretty(&values).map_err(|error| error.to_string())?;
     print_line(&json)?;
     progress.emit(json!({
@@ -332,81 +272,75 @@ fn render_cx_list(
     Ok(())
 }
 
-fn tombstone_row(key: &[u8]) -> serde_json::Value {
-    json!({
-        "key_hex": hex_bytes(key),
-        "cx_id": cx_id_from_base_key(key).map(|id| id.to_string()),
-        "base_visible": false,
-        "tombstoned": true,
-        "slot_payloads_decoded": false,
-        "slot_payload_decode_mode": "mvcc_tombstone",
-    })
-}
-
-fn cx_id_from_base_key(key: &[u8]) -> Option<CxId> {
-    let bytes: [u8; 16] = key.try_into().ok()?;
-    Some(CxId::from_bytes(bytes))
-}
-
-fn decoded_slot_entries(
+fn cx_list_rows(
     vault: &Path,
-    cx: &calyx_core::Constellation,
+    rows: BTreeMap<Vec<u8>, Vec<u8>>,
+    include_slots: bool,
     deadline: &Deadline,
     progress: &mut ProgressSink,
-) -> CliResult<Vec<(SlotId, SlotVector, &'static str)>> {
-    let key = slot_key(cx.cx_id);
-    let mut out = Vec::with_capacity(cx.slots.len());
-    for (slot, placeholder) in &cx.slots {
-        if matches!(placeholder, SlotVector::Absent { .. }) {
-            out.push((*slot, placeholder.clone(), "base_absent"));
+) -> CliResult<Vec<serde_json::Value>> {
+    let mut decoded = Vec::with_capacity(rows.len());
+    for (key, value) in rows {
+        check_deadline(deadline, progress, "render_row", decoded.len() as u64)?;
+        if is_tombstone_value(&value) {
+            decoded.push((key, value, None));
             continue;
         }
-        check_deadline(deadline, progress, "slot_lookup", out.len() as u64)?;
-        progress.emit(json!({
-            "event": "cx_list.progress",
-            "phase": "slot_lookup",
-            "cx_id": cx.cx_id.to_string(),
-            "slot": slot.get(),
-            "provenance_seq": cx.provenance.seq,
-            "elapsed_ms": deadline.elapsed_ms(),
-        }))?;
-        let Some(value) =
-            latest_cf_row_near_seq(vault, ColumnFamily::slot(*slot), &key, cx.provenance.seq)
-                .map_err(CliError::usage)?
-        else {
-            out.push((
-                *slot,
-                placeholder.clone(),
-                "base_hash_placeholder_missing_slot_cf",
-            ));
+        let cx = decode_constellation_base(&value).map_err(|error| error.to_string())?;
+        decoded.push((key, value, Some(cx)));
+    }
+    let slot_states = if include_slots {
+        let live = decoded
+            .iter()
+            .filter_map(|(_, _, cx)| cx.as_ref())
+            .collect::<Vec<_>>();
+        physical_slot_states(vault, &live, deadline, progress)?
+    } else {
+        BTreeMap::new()
+    };
+    let mut values = Vec::with_capacity(decoded.len());
+    for (key, value, cx) in decoded {
+        let Some(cx) = cx else {
+            values.push(tombstone_row(&key));
             continue;
         };
-        match decode_slot_vector(&value) {
-            Ok(vector) => out.push((*slot, vector, "slot_cf")),
-            Err(_) => {
-                let vector = latest_cf_row_near_seq(
-                    vault,
-                    ColumnFamily::slot_raw(*slot),
-                    &key,
-                    cx.provenance.seq,
-                )
-                .map_err(CliError::usage)?
-                .as_ref()
-                .map(|raw| decode_slot_vector(raw).map_err(|error| error.to_string()))
-                .transpose()
-                .map_err(CliError::usage)?;
-                out.push(match vector {
-                    Some(vector) => (*slot, vector, "slot_raw_cf"),
-                    None => (
-                        *slot,
-                        placeholder.clone(),
-                        "base_hash_placeholder_missing_raw_cf",
-                    ),
-                });
-            }
+        let mut row = json!({
+            "key_hex": hex_bytes(&key),
+            "cx_id": cx.cx_id,
+            "created_at": cx.created_at,
+            "panel_version": cx.panel_version,
+            "flags": cx.flags,
+            "base_slot_count": cx.slots.len(),
+            "base_hex": hex_bytes(&value),
+            "slot_payloads_decoded": include_slots,
+            "slot_payload_decode_mode": if include_slots { "physical_slot_cf_readback" } else { "base_only" },
+        });
+        if include_slots {
+            let states = cx
+                .slots
+                .keys()
+                .map(|slot| {
+                    let state = slot_states.get(&(cx.cx_id, *slot)).ok_or_else(|| {
+                        CliError::io(format!(
+                            "cx-list internal error: no physical slot state resolved for cx {} slot {}",
+                            cx.cx_id,
+                            slot.get()
+                        ))
+                    })?;
+                    Ok((*slot, state))
+                })
+                .collect::<CliResult<Vec<_>>>()?;
+            row["slot_summary"] = slot_summary(states.iter().map(|(_, state)| *state));
+            row["slots"] = json!(
+                states
+                    .iter()
+                    .map(|(slot, state)| slot_row_json(*slot, state))
+                    .collect::<Vec<_>>()
+            );
         }
+        values.push(row);
     }
-    Ok(out)
+    Ok(values)
 }
 
 fn check_deadline(
@@ -429,33 +363,4 @@ fn check_deadline(
             Err(error)
         }
     }
-}
-
-fn slot_summary<'a>(vectors: impl Iterator<Item = &'a SlotVector>) -> serde_json::Value {
-    let mut dense_slots = 0usize;
-    let mut sparse_slots = 0usize;
-    let mut multi_slots = 0usize;
-    let mut absent_reasons = BTreeMap::<String, usize>::new();
-    for vector in vectors {
-        match vector {
-            SlotVector::Dense { .. } => dense_slots += 1,
-            SlotVector::Sparse { .. } => sparse_slots += 1,
-            SlotVector::Multi { .. } => multi_slots += 1,
-            SlotVector::Absent { reason } => {
-                let key = serde_json::to_value(reason)
-                    .ok()
-                    .and_then(|value| value.as_str().map(str::to_owned))
-                    .unwrap_or_else(|| format!("{reason:?}"));
-                *absent_reasons.entry(key).or_insert(0) += 1;
-            }
-        }
-    }
-    json!({
-        "slot_count": dense_slots + sparse_slots + multi_slots + absent_reasons.values().sum::<usize>(),
-        "dense_slots": dense_slots,
-        "sparse_slots": sparse_slots,
-        "multi_slots": multi_slots,
-        "absent_slots": absent_reasons.values().sum::<usize>(),
-        "absent_reasons": absent_reasons,
-    })
 }

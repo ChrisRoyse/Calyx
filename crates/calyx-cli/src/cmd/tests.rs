@@ -460,11 +460,7 @@ fn arb_subcommand() -> impl Strategy<Value = Subcommand> {
                 phrasings: vec![calyx_lodestar::ProbePhrasing::Clinical],
                 lengths: vec![calyx_lodestar::ProbeLength::Phrase],
                 top_k,
-                guard: calyx_search::GuardChoice::Off,
-                out: None,
-                resident_addr: None,
-                max_variants: None,
-                time_budget_ms: None,
+                ..probe_matrix::ProbeMatrixArgs::default()
             })
         }),
         (

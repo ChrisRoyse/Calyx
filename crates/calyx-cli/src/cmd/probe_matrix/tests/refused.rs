@@ -15,6 +15,7 @@ fn refused_probe_persists_diagnostic_matrix_before_fail_closed_exit() {
             lengths: vec![ProbeLength::Entity],
             top_k: 1,
             guard: GuardChoice::Off,
+            guard_tau: None,
             out: None,
             resident_addr: None,
             max_variants: None,

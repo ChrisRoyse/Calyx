@@ -152,31 +152,6 @@ pub(crate) fn latest_cf_rows_near_seqs(
     Ok(rows)
 }
 
-pub(crate) fn latest_cf_row_near_seq(
-    vault: &Path,
-    cf: ColumnFamily,
-    key: &[u8],
-    seq: u64,
-) -> Result<Option<Vec<u8>>, String> {
-    let mut value = None;
-    let candidates = same_seq_sst_files(vault, cf, seq)?;
-    for file in &candidates {
-        let reader = SstReader::open(file).map_err(|error| error.to_string())?;
-        if let Some(bytes) = reader.get(key).map_err(|error| error.to_string())? {
-            value = Some(bytes);
-        }
-    }
-    let replay = replay_after_manifest(vault)?;
-    for record in replay.records {
-        for row in decode_write_batch(&record.payload).map_err(|error| error.to_string())? {
-            if row.cf == cf && row.key == key {
-                value = Some(row.value);
-            }
-        }
-    }
-    Ok(value)
-}
-
 fn storage_seqs_for_provenance(seq: u64) -> impl Iterator<Item = u64> {
     [seq, seq.saturating_add(1)].into_iter()
 }
@@ -240,37 +215,6 @@ fn same_seq_sst_files_for_seqs(
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 struct SstOrderForSort(calyx_aster::storage_names::SstOrderKey);
-
-fn same_seq_sst_files(vault: &Path, cf: ColumnFamily, seq: u64) -> Result<Vec<PathBuf>, String> {
-    let dir = vault.join("cf").join(cf.name());
-    if !dir.exists() {
-        return Ok(Vec::new());
-    }
-    let mut files = Vec::new();
-    for entry in fs::read_dir(&dir).map_err(|error| error.to_string())? {
-        let path = entry.map_err(|error| error.to_string())?.path();
-        let Some(name) = classify_sst(&path).map_err(|error| error.to_string())? else {
-            continue;
-        };
-        let file_seq = match name {
-            SstName::Router { seq } | SstName::DurableBatch { seq, .. } => seq,
-            SstName::Compacted { .. } => continue,
-        };
-        if file_seq != seq {
-            continue;
-        }
-        let order = sst_order_key(&path)
-            .map_err(|error| error.to_string())?
-            .ok_or_else(|| format!("classified SST {} has no order key", path.display()))?;
-        files.push((order, path));
-    }
-    files.sort_by(|(left_order, left_path), (right_order, right_path)| {
-        left_order
-            .cmp(right_order)
-            .then_with(|| left_path.cmp(right_path))
-    });
-    Ok(files.into_iter().map(|(_, path)| path).collect())
-}
 
 pub(crate) fn vault_id_from_base(vault: &Path) -> Result<VaultId, String> {
     latest_cf_rows(vault, ColumnFamily::Base)?
@@ -404,8 +348,8 @@ mod tests {
     }
 
     #[test]
-    fn latest_cf_row_near_seq_reads_same_sequence_candidate_only() {
-        let root = temp_root("latest-cf-row-near-seq");
+    fn latest_cf_rows_near_seqs_reads_same_sequence_candidate_only() {
+        let root = temp_root("latest-cf-rows-near-seqs-same-seq");
         let slot = root
             .join("cf")
             .join(ColumnFamily::slot(SlotId::new(8)).name());
@@ -421,9 +365,16 @@ mod tests {
         )
         .unwrap();
 
+        let rows = latest_cf_rows_near_seqs(
+            &root,
+            ColumnFamily::slot(SlotId::new(8)),
+            &[(b"k1".to_vec(), 7)],
+        )
+        .unwrap();
+
         assert_eq!(
-            latest_cf_row_near_seq(&root, ColumnFamily::slot(SlotId::new(8)), b"k1", 7).unwrap(),
-            Some(b"target".to_vec())
+            rows.get(b"k1".as_slice()).unwrap(),
+            &Some(b"target".to_vec())
         );
         fs::remove_dir_all(root).ok();
     }

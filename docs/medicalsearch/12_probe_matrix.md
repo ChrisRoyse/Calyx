@@ -220,3 +220,38 @@ Those blockers are not hidden by #879. The probe matrix harness is complete and 
 
 ## Conclusion
 #879 is complete for the physical probe-matrix harness. The command now runs against real vault state, persists a durable matrix artifact, records productive combinations with grounded provenance, and fails closed on invalid or unproductive states. Large-corpus repair and scaling continue under #1000 and #1001.
+
+## Update 2026-07-01 — #1088 in-region guard calibration
+Real-vault runs (calyx15000 issue #51) showed `--guard in-region` silently filtering every
+retrieved candidate: the in-region guard applied a hardcoded, uncalibrated cosine tau of 0.999
+(a near-duplicate threshold), so the benchmark surfaced a generic
+`CALYX_PROBE_MATRIX_INCOMPLETE` / "no grounded accepted hits" indistinguishable from a genuinely
+empty benchmark. Observed signal: `guard.prefilter.done count=0 filtered=64 tau=0.999000`.
+
+Best-practice basis (matches the Ward conformal-calibration doctrine): cosine thresholds are not
+transferable across models/corpora and must be calibrated to the corpus's actual score
+distribution — a fixed global tau is a category error for real corpora.
+
+What changed (no fallback masking, never auto-switches to `--guard off`):
+
+- **Calibration path:** `calyx probe-matrix ... --guard in-region --guard-tau <cosine in (0,1]>`
+  supplies a corpus-calibrated threshold; it overrides the documented default
+  (`calyx_search::DEFAULT_IN_REGION_GUARD_TAU = 0.999`). Out-of-range tau, or `--guard-tau`
+  without `--guard in-region`, fails closed at parse and again in the engine.
+- **Fail-closed diagnosis:** when in-region filtered every candidate the search path actually
+  retrieved across all completed variants, the run exits with
+  `CALYX_PROBE_MATRIX_GUARD_FILTERED_ALL`, naming the applied tau (and whether it was the
+  uncalibrated default or operator-supplied), the observed in-region best-cosine range, the
+  per-variant zero-hit reasons, and the persisted matrix/progress artifact paths. The observed
+  cosine range is the calibration evidence: rerun with `--guard-tau` at or below the observed
+  best-cosine max.
+- Per-variant guard diagnostics (prefilter input/output, guard tau, best-cosine min/max,
+  zero-hit reason) were already persisted in `diagnostics.variant_guard_counts`; the new exit
+  reads them back instead of discarding them.
+
+Calibration procedure for a real vault: run once with `--guard in-region` (uncalibrated); read
+`observed in-region best-cosine range [min, max]` from the `CALYX_PROBE_MATRIX_GUARD_FILTERED_ALL`
+error (or `guard_best_cosine_max` in `diagnostics.variant_guard_counts`); rerun with
+`--guard-tau` at or below that max. A follow-up unification with the calibrated per-slot Ward
+guard profile (`calyx guard calibrate`, Guard CF `profile\0default`, as the MCP search path
+already enforces) is tracked separately.

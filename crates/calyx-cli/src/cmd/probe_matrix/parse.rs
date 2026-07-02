@@ -57,6 +57,10 @@ pub(crate) fn parse_probe_matrix(rest: &[String]) -> CliResult<Subcommand> {
                 idx += 1;
                 args.guard = parse_guard(value(rest, idx, "--guard")?)?;
             }
+            "--guard-tau" => {
+                idx += 1;
+                args.guard_tau = Some(parse_guard_tau(value(rest, idx, "--guard-tau")?)?);
+            }
             "--out" => {
                 idx += 1;
                 args.out = Some(value(rest, idx, "--out")?.into());
@@ -92,6 +96,11 @@ pub(crate) fn parse_probe_matrix(rest: &[String]) -> CliResult<Subcommand> {
     if !frontier_seen {
         return Err(CliError::usage("probe-matrix requires --frontier <text>"));
     }
+    if args.guard_tau.is_some() && args.guard != GuardChoice::InRegion {
+        return Err(CliError::usage(
+            "--guard-tau requires --guard in-region; the tau calibrates the in-region cosine threshold",
+        ));
+    }
     dedupe_sorted(&mut args.slots);
     dedupe_sorted(&mut args.weighted_profiles);
     dedupe_sorted(&mut args.phrasings);
@@ -124,6 +133,18 @@ fn parse_guard(raw: &str) -> CliResult<GuardChoice> {
             "unknown --guard {other}; use off or in-region"
         ))),
     }
+}
+
+fn parse_guard_tau(raw: &str) -> CliResult<f32> {
+    let tau = raw
+        .parse::<f32>()
+        .map_err(|err| CliError::usage(format!("parse --guard-tau {raw}: {err}")))?;
+    if !tau.is_finite() || tau <= 0.0 || tau > 1.0 {
+        return Err(CliError::usage(format!(
+            "--guard-tau {raw} is out of range; supply a finite cosine threshold in (0.0, 1.0]"
+        )));
+    }
+    Ok(tau)
 }
 
 fn parse_phrasing(raw: &str) -> CliResult<ProbePhrasing> {
