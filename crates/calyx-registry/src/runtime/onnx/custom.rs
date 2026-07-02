@@ -10,7 +10,7 @@ use tokenizers::Tokenizer;
 pub(in crate::runtime::onnx) mod batch;
 
 use super::cuda_guard::CudaDropGuard;
-use super::fastembed_runtime::execution_providers;
+use super::io_binding::{OnnxRunPlan, build_session};
 use super::{OnnxFileSpec, OnnxLens, OnnxModelFiles, PoolingPolicy, config_invalid};
 use crate::frozen::{FrozenLensContract, LensDType, NormPolicy, sha256_digest};
 use crate::runtime::common::{hash_files, normalize_unit};
@@ -18,6 +18,7 @@ use batch::{TokenBatch, session_inputs, token_batches};
 
 pub struct CustomOnnxRuntime {
     session: Session,
+    run_plan: OnnxRunPlan,
     tokenizer: Tokenizer,
     pooling: PoolingPolicy,
     norm_policy: NormPolicy,
@@ -87,15 +88,10 @@ pub fn from_files(spec: OnnxFileSpec) -> Result<OnnxLens> {
             spec.model_id
         )));
     }
-    let session = Session::builder()
-        .map_err(|err| config_invalid(format!("ONNX session builder failed: {err}")))?
-        .with_intra_threads(1)
-        .map_err(|err| config_invalid(format!("ONNX intra-thread config failed: {err}")))?
-        .with_execution_providers(execution_providers(spec.provider_policy))
-        .map_err(|err| config_invalid(format!("ONNX provider config failed: {err}")))?
-        .commit_from_file(&spec.model_file)
-        .map_err(|err| config_invalid(format!("load custom ONNX model failed: {err}")))?;
+    let run_label = format!("onnx-custom:{}", spec.model_id);
+    let session = build_session(&run_label, &spec.model_file, spec.provider_policy)?;
     let session = CudaDropGuard::new(session, spec.provider_policy);
+    let run_plan = OnnxRunPlan::new(spec.provider_policy, run_label)?;
     let dim = output_dim(session.as_ref())?;
     let shape = SlotShape::Dense(dim);
     if let Some(expected) = spec.expected_shape
@@ -124,6 +120,7 @@ pub fn from_files(spec: OnnxFileSpec) -> Result<OnnxLens> {
     );
     let runtime = CustomOnnxRuntime {
         session: session.into_inner(),
+        run_plan,
         tokenizer,
         pooling: spec.pooling,
         norm_policy: spec.norm_policy,
@@ -141,16 +138,21 @@ pub fn from_files(spec: OnnxFileSpec) -> Result<OnnxLens> {
 
 impl CustomOnnxRuntime {
     fn run_token_batch(&mut self, batch: &TokenBatch) -> Result<Vec<Vec<f32>>> {
-        let input_values = session_inputs(&self.session, batch)?;
-        let outputs = self
-            .session
-            .run(input_values)
-            .map_err(|err| config_invalid(format!("custom ONNX inference failed: {err}")))?;
-        let output = output_tensor(&outputs)?;
-        let (shape, values) = output.try_extract_tensor::<f32>().map_err(|err| {
-            config_invalid(format!("custom ONNX output is not f32 tensor: {err}"))
-        })?;
-        pool_output_batch(shape, values, batch, self.pooling, self.dim)
+        let input_tensors = session_inputs(&self.session, batch)?;
+        let pooling = self.pooling;
+        let dim = self.dim;
+        self.run_plan.run_extract(
+            &mut self.session,
+            input_tensors,
+            (batch.batch, batch.seq),
+            |outputs| {
+                let output = output_tensor(outputs)?;
+                let (shape, values) = output.try_extract_tensor::<f32>().map_err(|err| {
+                    config_invalid(format!("custom ONNX output is not f32 tensor: {err}"))
+                })?;
+                pool_output_batch(shape, values, batch, pooling, dim)
+            },
+        )
     }
 }
 

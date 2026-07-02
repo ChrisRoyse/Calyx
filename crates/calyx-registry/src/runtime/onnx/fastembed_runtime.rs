@@ -156,10 +156,17 @@ pub fn model_from_name(raw: &str) -> Result<EmbeddingModel> {
 pub fn execution_providers(
     policy: OnnxProviderPolicy,
 ) -> Vec<fastembed::ExecutionProviderDispatch> {
+    execution_providers_on_device(policy, 0)
+}
+
+pub fn execution_providers_on_device(
+    policy: OnnxProviderPolicy,
+    device_id: i32,
+) -> Vec<fastembed::ExecutionProviderDispatch> {
     match policy {
         OnnxProviderPolicy::CudaFailLoud => vec![
             ep::CUDA::default()
-                .with_device_id(0)
+                .with_device_id(device_id)
                 .with_conv_algorithm_search(ConvAlgorithmSearch::Heuristic)
                 .with_conv_max_workspace(false)
                 .build()

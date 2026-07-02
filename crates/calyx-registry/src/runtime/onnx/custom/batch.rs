@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 
 use calyx_core::{CalyxError, Input, Lens, Result};
-use ort::session::{Session, SessionInputValue};
+use ort::session::Session;
 use ort::value::Tensor;
 use serde_json::Value;
 use tokenizers::Tokenizer;
@@ -148,10 +148,10 @@ fn token_inputs(encoding: &tokenizers::Encoding, max_tokens: usize) -> (Vec<i64>
     (ids, mask)
 }
 
-pub(in crate::runtime::onnx) fn session_inputs<'a>(
+pub(in crate::runtime::onnx) fn session_inputs(
     session: &Session,
     batch: &TokenBatch,
-) -> Result<Vec<(String, SessionInputValue<'a>)>> {
+) -> Result<Vec<(String, Tensor<i64>)>> {
     let shape = vec![batch.batch as i64, batch.seq as i64];
     let mut values = Vec::with_capacity(session.inputs().len());
     for input in session.inputs() {
@@ -171,7 +171,7 @@ pub(in crate::runtime::onnx) fn session_inputs<'a>(
             )));
         }
         .map_err(|err| config_invalid(format!("build ONNX tensor {} failed: {err}", name)))?;
-        values.push((name.to_string(), SessionInputValue::from(tensor)));
+        values.push((name.to_string(), tensor));
     }
     Ok(values)
 }

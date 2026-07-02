@@ -11,7 +11,7 @@ use super::colbert_files::fetch_answerai_colbert_files;
 use super::colbert_tokens::multi_rows;
 use super::cuda_guard::CudaDropGuard;
 use super::custom::batch::{TokenBatch, max_tokens_from_config, session_inputs, token_batches};
-use super::fastembed_runtime::execution_providers;
+use super::io_binding::{OnnxRunPlan, build_session};
 use super::{OnnxModelFiles, OnnxProviderPolicy, config_invalid};
 use crate::frozen::{FrozenLensContract, LensDType, NormPolicy, sha256_digest};
 use crate::runtime::common::hash_files;
@@ -46,6 +46,7 @@ pub struct OnnxColbertLens {
 
 struct OnnxColbertRuntime {
     session: Option<Session>,
+    run_plan: OnnxRunPlan,
     tokenizer: Tokenizer,
     token_dim: u32,
     max_tokens: usize,
@@ -149,15 +150,10 @@ impl OnnxColbertLens {
                 spec.model_id
             )));
         }
-        let session = Session::builder()
-            .map_err(|err| config_invalid(format!("ONNX session builder failed: {err}")))?
-            .with_intra_threads(1)
-            .map_err(|err| config_invalid(format!("ONNX intra-thread config failed: {err}")))?
-            .with_execution_providers(execution_providers(spec.provider_policy))
-            .map_err(|err| config_invalid(format!("ONNX provider config failed: {err}")))?
-            .commit_from_file(&spec.model_file)
-            .map_err(|err| config_invalid(format!("load ONNX ColBERT model failed: {err}")))?;
+        let run_label = format!("onnx-colbert:{}", spec.model_id);
+        let session = build_session(&run_label, &spec.model_file, spec.provider_policy)?;
         let session = CudaDropGuard::new(session, spec.provider_policy);
+        let run_plan = OnnxRunPlan::new(spec.provider_policy, run_label)?;
         let token_dim = output_token_dim(session.as_ref())?;
         let shape = SlotShape::Multi { token_dim };
         if let Some(expected) = spec.expected_shape
@@ -186,6 +182,7 @@ impl OnnxColbertLens {
         );
         let runtime = OnnxColbertRuntime {
             session: Some(session.into_inner()),
+            run_plan,
             tokenizer,
             token_dim,
             max_tokens,
@@ -342,15 +339,20 @@ impl OnnxColbertRuntime {
             .session
             .as_mut()
             .ok_or_else(|| CalyxError::lens_unreachable("ONNX ColBERT session is unavailable"))?;
-        let input_values = session_inputs(session, batch)?;
-        let outputs = session
-            .run(input_values)
-            .map_err(|err| config_invalid(format!("ONNX ColBERT inference failed: {err}")))?;
-        let output = output_tensor(&outputs)?;
-        let (shape, values) = output.try_extract_tensor::<f32>().map_err(|err| {
-            config_invalid(format!("ONNX ColBERT output is not f32 tensor: {err}"))
-        })?;
-        multi_rows(shape, values, batch, self.token_dim as usize)
+        let input_tensors = session_inputs(session, batch)?;
+        let token_dim = self.token_dim as usize;
+        self.run_plan.run_extract(
+            session,
+            input_tensors,
+            (batch.batch, batch.seq),
+            |outputs| {
+                let output = output_tensor(outputs)?;
+                let (shape, values) = output.try_extract_tensor::<f32>().map_err(|err| {
+                    config_invalid(format!("ONNX ColBERT output is not f32 tensor: {err}"))
+                })?;
+                multi_rows(shape, values, batch, token_dim)
+            },
+        )
     }
 }
 
