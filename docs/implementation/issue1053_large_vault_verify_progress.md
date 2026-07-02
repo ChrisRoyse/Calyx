@@ -15,7 +15,7 @@ Both paths hid the active phase from operators. They also made it hard to distin
 - `verify-chain` accepts `--time-budget-ms` and fails closed with `CALYX_CLI_TIMEOUT` if the command exceeds the requested budget at a checked phase.
 - Direct absolute vault paths resolve directly, so physical readback does not require `CALYX_HOME` when the path exists.
 - `readback cx-list` accepts `--progress-jsonl` and `--time-budget-ms`.
-- `readback cx-list --include-slots` no longer materializes every `slot_NN` CF. It resolves concrete slot payloads by the constellation provenance sequence and keeps Base `Absent` placeholders as `payload_source: "base_absent"` without touching slot SSTs.
+- `readback cx-list --include-slots` no longer materializes every `slot_NN` CF. It resolves concrete slot payloads by the constellation provenance sequence with bounded grouped point reads. (The original #1053 shortcut also skipped slot CF reads for Base `Absent` placeholders; because Base rows only persist slot hashes, every decoded placeholder is `Absent`, which made the whole readback dead code. #1060 removed the shortcut — slot state now always comes from physical slot CF rows.)
 
 Progress and diagnostics stay off stdout. Command data remains parseable stdout JSON, while long-running status goes to stderr or the explicit progress path.
 
