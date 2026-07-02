@@ -57,6 +57,9 @@ fn gpu_placed_persisted_lens_uses_resident_binary_worker_and_persists_cfs() {
         .arg("--batch")
         .arg(&batch)
         .arg("--idempotent")
+        // This FSV exercises the cold resident-child-worker transport itself,
+        // so it opts into the #1004-gated cold GPU worker route explicitly.
+        .arg("--allow-cold-gpu-workers")
         .output()
         .expect("run calyx ingest resident-worker FSV");
     let stdout = String::from_utf8_lossy(&output.stdout);

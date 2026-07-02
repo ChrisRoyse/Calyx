@@ -23,6 +23,7 @@ use super::ledger::{
     append_anchor_ledger, append_anchor_marker_ledger, append_cli_batch_ledger, append_cli_ledger,
 };
 use super::oracle_event::{OracleEvent, append_recurrence_if_absent};
+use super::route::{IngestGpuRoute, resolve_ingest_gpu_route};
 use super::session::BatchIngestSession;
 use super::store::{base_exists, ensure_base_exists, open_vault, resolve_cli_vault};
 use super::types::{AnchorReport, BatchIngestSummary, IngestOutput, IngestReport};
@@ -61,7 +62,7 @@ const MEASURE_WINDOW_ENV: &str = "CALYX_INGEST_MEASURE_WINDOW";
 struct BatchFlushOptions {
     output: IngestOutput,
     runtime_batch_limit: usize,
-    resident_addr: Option<std::net::SocketAddr>,
+    gpu_route: IngestGpuRoute,
 }
 
 pub(crate) fn ingest_runtime_log(args: std::fmt::Arguments<'_>) {
@@ -188,6 +189,11 @@ fn ingest_command(args: IngestArgs) -> CliResult {
     if let Some(batch_path) = args.batch.as_deref() {
         let validation = validate_batch_file(batch_path)?;
         let resolved = resolve_cli_vault(&args.vault)?;
+        let gpu_route = resolve_ingest_gpu_route(
+            &resolved.path,
+            args.resident_addr,
+            args.allow_cold_gpu_workers,
+        )?;
         let mut session = BatchIngestSession::start(
             &resolved,
             batch_path,
@@ -222,7 +228,7 @@ fn ingest_command(args: IngestArgs) -> CliResult {
                 batch_path,
                 args.output,
                 validation.row_count,
-                args.resident_addr,
+                gpu_route,
                 Some(&mut emit_summary),
                 Some(&mut session),
             )
@@ -232,7 +238,7 @@ fn ingest_command(args: IngestArgs) -> CliResult {
                 batch_path,
                 args.output,
                 validation.row_count,
-                args.resident_addr,
+                gpu_route,
                 None,
                 Some(&mut session),
             )
@@ -249,16 +255,20 @@ fn ingest_command(args: IngestArgs) -> CliResult {
         }
     } else {
         let resolved = resolve_cli_vault(&args.vault)?;
+        let gpu_route = resolve_ingest_gpu_route(
+            &resolved.path,
+            args.resident_addr,
+            args.allow_cold_gpu_workers,
+        )?;
         if let Some(path) = args.file {
             let modality = args.modality.expect("parser requires modality with --file");
             let retained = retain_media_input(&resolved.path, &path, modality)?;
-            let reports =
-                media::ingest_media_with_derived_text(&resolved, retained, args.resident_addr)?;
+            let reports = media::ingest_media_with_derived_text(&resolved, retained, gpu_route)?;
             for report in reports {
                 print_json(&report)?;
             }
         } else if let Some(text) = args.text {
-            for report in ingest_texts_with_resident(&resolved, &[text], args.resident_addr)? {
+            for report in ingest_texts_with_resident(&resolved, &[text], gpu_route)? {
                 print_json(&report)?;
             }
         }
@@ -314,25 +324,25 @@ pub(super) fn ingest_texts(
     resolved: &ResolvedVault,
     texts: &[String],
 ) -> CliResult<Vec<IngestReport>> {
-    ingest_texts_with_resident(resolved, texts, None)
+    ingest_texts_with_resident(resolved, texts, IngestGpuRoute::cold_workers_allowed())
 }
 
 fn ingest_texts_with_resident(
     resolved: &ResolvedVault,
     texts: &[String],
-    resident_addr: Option<std::net::SocketAddr>,
+    gpu_route: IngestGpuRoute,
 ) -> CliResult<Vec<IngestReport>> {
     let rows = texts
         .iter()
         .map(|text| (text.clone(), BTreeMap::new()))
         .collect();
-    ingest_text_rows_with_resident(resolved, rows, resident_addr)
+    ingest_text_rows_with_resident(resolved, rows, gpu_route)
 }
 
 fn ingest_text_rows_with_resident(
     resolved: &ResolvedVault,
     rows: Vec<(String, BTreeMap<String, String>)>,
-    resident_addr: Option<std::net::SocketAddr>,
+    gpu_route: IngestGpuRoute,
 ) -> CliResult<Vec<IngestReport>> {
     if rows.is_empty() {
         return Ok(Vec::new());
@@ -347,7 +357,7 @@ fn ingest_text_rows_with_resident(
             })
         })
         .collect::<CliResult<Vec<_>>>()?;
-    ingest_prepared_inputs(resolved, prepared, resident_addr)
+    ingest_prepared_inputs(resolved, prepared, gpu_route)
 }
 
 struct PreparedInput {
@@ -358,7 +368,7 @@ struct PreparedInput {
 fn ingest_prepared_inputs(
     resolved: &ResolvedVault,
     inputs: Vec<PreparedInput>,
-    resident_addr: Option<std::net::SocketAddr>,
+    gpu_route: IngestGpuRoute,
 ) -> CliResult<Vec<IngestReport>> {
     if inputs.is_empty() {
         return Ok(Vec::new());
@@ -385,7 +395,7 @@ fn ingest_prepared_inputs(
             &prepared_input.input,
             now_ms(),
             None,
-            resident_addr,
+            gpu_route,
         )?;
         cx.metadata = prepared_input.metadata;
         ensure_content_panel_floor(&cx, &state)?;

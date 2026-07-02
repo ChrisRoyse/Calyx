@@ -16,6 +16,7 @@ pub(crate) fn parse_ingest(rest: &[String]) -> CliResult<Subcommand> {
     let mut idempotent = true;
     let mut output = IngestOutput::Summary;
     let mut resident_addr = None;
+    let mut allow_cold_gpu_workers = false;
     let mut session_id = None;
     let mut idx = 1;
     while idx < rest.len() {
@@ -59,6 +60,7 @@ pub(crate) fn parse_ingest(rest: &[String]) -> CliResult<Subcommand> {
                 idx += 1;
                 resident_addr = Some(parse_resident_addr(value(rest, idx, "--resident-addr")?)?);
             }
+            "--allow-cold-gpu-workers" => allow_cold_gpu_workers = true,
             "--session-id" => {
                 idx += 1;
                 let value = value(rest, idx, "--session-id")?;
@@ -101,6 +103,7 @@ pub(crate) fn parse_ingest(rest: &[String]) -> CliResult<Subcommand> {
         idempotent,
         output,
         resident_addr,
+        allow_cold_gpu_workers,
         session_id,
     }))
 }
@@ -243,7 +246,7 @@ fn parse_ingest_output(value: &str) -> CliResult<IngestOutput> {
     }
 }
 
-fn parse_resident_addr(raw: &str) -> CliResult<SocketAddr> {
+pub(super) fn parse_resident_addr(raw: &str) -> CliResult<SocketAddr> {
     let addr = raw
         .parse::<SocketAddr>()
         .map_err(|error| CliError::usage(format!("parse --resident-addr {raw}: {error}")))?;

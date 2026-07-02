@@ -119,6 +119,7 @@ pub(crate) struct IngestArgs {
     pub idempotent: bool,
     pub output: IngestOutput,
     pub resident_addr: Option<SocketAddr>,
+    pub allow_cold_gpu_workers: bool,
     pub session_id: Option<String>,
 }
 

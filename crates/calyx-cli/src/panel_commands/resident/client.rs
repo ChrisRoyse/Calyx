@@ -18,6 +18,12 @@ pub(crate) fn client_command(args: &[String], op: &str) -> CliResult {
     print_json(&response)
 }
 
+/// Programmatic readiness probe used by ingest resident-route discovery: one
+/// JSON `ready` round-trip returning the raw readiness value.
+pub(crate) fn ready_value_at(addr: SocketAddr) -> CliResult<Value> {
+    send_request(addr, json!({ "op": "ready" }))
+}
+
 fn send_request(addr: SocketAddr, request: Value) -> CliResult<Value> {
     ensure_loopback(addr)?;
     let mut stream = TcpStream::connect(addr).map_err(|error| {

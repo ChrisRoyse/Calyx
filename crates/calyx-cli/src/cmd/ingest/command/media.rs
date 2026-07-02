@@ -1,5 +1,3 @@
-use std::net::SocketAddr;
-
 use calyx_aster::vault::AsterVault;
 use calyx_core::{Modality, SlotState, VaultStore};
 use calyx_ledger::{ActorId, SubjectId};
@@ -9,6 +7,7 @@ use super::ingest_runtime_log;
 use crate::cmd::ingest::constellation::{
     ensure_content_panel_floor, measure_constellation_with_runtime_limit,
 };
+use crate::cmd::ingest::route::IngestGpuRoute;
 use crate::cmd::ingest::store::{base_exists, open_vault};
 use crate::cmd::ingest::types::IngestReport;
 use crate::cmd::ingest::verify::verify_base_readback;
@@ -23,7 +22,7 @@ use crate::raw_media::{RetainedMediaInput, media_metadata};
 pub(super) fn ingest_media_with_derived_text(
     resolved: &ResolvedVault,
     retained: RetainedMediaInput,
-    resident_addr: Option<SocketAddr>,
+    gpu_route: IngestGpuRoute,
 ) -> CliResult<Vec<IngestReport>> {
     let vault = open_vault(resolved)?;
     ingest_runtime_log(format_args!(
@@ -48,7 +47,7 @@ pub(super) fn ingest_media_with_derived_text(
         &retained.input,
         now_ms(),
         None,
-        resident_addr,
+        gpu_route,
     )?;
     media_cx.metadata = media_metadata(&retained);
     ensure_content_panel_floor(&media_cx, &state)?;
@@ -58,7 +57,7 @@ pub(super) fn ingest_media_with_derived_text(
         &derived.input,
         now_ms(),
         None,
-        resident_addr,
+        gpu_route,
     )?;
     text_cx.metadata = derived.metadata.clone();
     ensure_content_panel_floor(&text_cx, &state)?;
