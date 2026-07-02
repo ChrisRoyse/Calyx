@@ -84,6 +84,9 @@ mod partitioned_bench;
 mod path_identity;
 mod ph42_readback;
 mod provenance;
+mod provenance_read;
+#[cfg(test)]
+mod provenance_read_tests;
 mod raw_media;
 mod recurrence_readback;
 mod resource_drill;

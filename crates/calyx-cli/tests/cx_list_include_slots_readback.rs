@@ -212,7 +212,9 @@ fn cx_list_include_slots_reads_slot_raw_for_undecodable_slot_rows() {
     let rows = stdout_json(run_cx_list(&vault_dir, &["--include-slots"]));
     let slot = &rows.as_array().expect("array")[0]["slots"][0];
     assert_eq!(slot["kind"], "dense", "{slot}");
-    assert_eq!(slot["payload_source"], "slot_raw_cf", "{slot}");
+    // This synthetic vault has no ledger CF, so the row cannot resolve via
+    // its commit batch and is honestly labeled as a full-SST-set read.
+    assert_eq!(slot["payload_source"], "slot_raw_cf_full_set", "{slot}");
 
     fs::remove_dir_all(root).ok();
 }
@@ -274,7 +276,12 @@ fn cx_list_include_slots_reports_tombstoned_slot_rows() {
     let row = &rows.as_array().expect("array")[0];
     let slot = &row["slots"][0];
     assert_eq!(slot["kind"], "tombstoned", "{slot}");
-    assert_eq!(slot["payload_source"], "slot_cf_tombstone", "{slot}");
+    // No ledger CF in this synthetic layout: the tombstone resolves through
+    // the full SST set (newest-first), not through a commit batch.
+    assert_eq!(
+        slot["payload_source"], "slot_cf_full_set_tombstone",
+        "{slot}"
+    );
     assert_eq!(row["slot_summary"]["tombstoned_slots"], 1);
     assert_eq!(row["slot_summary"]["dense_slots"], 0);
 

@@ -5,8 +5,9 @@ use calyx_aster::base_page_index::{
     read_base_page_index_manifest, read_indexed_base_rows, visit_indexed_base_row_pages,
 };
 use calyx_aster::cf::{ColumnFamily, slot_key};
+use calyx_aster::mvcc::is_tombstone_value;
 use calyx_aster::vault::encode;
-use calyx_core::{Constellation, CxId, SlotId, SlotVector};
+use calyx_core::{CalyxError, Constellation, CxId, SlotId, SlotVector};
 
 use super::{
     COVERED_SCAN_BATCH_SIZE, CandidateSelectionMode, DenseSlotCoverage, DenseSlotCoverageScan,
@@ -14,6 +15,7 @@ use super::{
 };
 use crate::bounded_progress::Deadline;
 use crate::error::{CliError, CliResult};
+use crate::provenance_read::VaultReadContext;
 
 type SlotCoverageMaps = BTreeMap<SlotId, HashMap<CxId, Vec<f32>>>;
 type SlotCoverageRows = Vec<DenseSlotCoverage>;
@@ -28,9 +30,11 @@ pub(crate) fn scan_dense_slot_coverage(
 ) -> CliResult<DenseSlotCoverageScan> {
     deadline.check("weave-loom", "coverage.base_page_index_manifest", 0)?;
     let manifest = read_base_page_index_manifest(vault_dir)?;
+    let mut read_context = VaultReadContext::new(vault_dir);
     match mode {
         CandidateSelectionMode::BasePrefix => scan_base_prefix_coverage(
             vault_dir,
+            &mut read_context,
             content_slots,
             limit,
             manifest.live_entries,
@@ -38,6 +42,7 @@ pub(crate) fn scan_dense_slot_coverage(
         ),
         CandidateSelectionMode::Covered => scan_bounded_covered_coverage(
             vault_dir,
+            &mut read_context,
             requested_slot,
             content_slots,
             limit,
@@ -49,6 +54,7 @@ pub(crate) fn scan_dense_slot_coverage(
 
 fn scan_base_prefix_coverage(
     vault_dir: &Path,
+    read_context: &mut VaultReadContext,
     content_slots: &[SlotId],
     limit: usize,
     live_entries: usize,
@@ -71,8 +77,13 @@ fn scan_base_prefix_coverage(
         }
         candidates.push(encode::decode_constellation_base(value)?);
     }
-    let (slot_maps, coverage) =
-        scan_slots_for_candidates(vault_dir, content_slots, &candidates, deadline)?;
+    let (slot_maps, coverage) = scan_slots_for_candidates(
+        vault_dir,
+        read_context,
+        content_slots,
+        &candidates,
+        deadline,
+    )?;
     Ok(DenseSlotCoverageScan {
         constellations_in_vault: live_entries,
         candidate_scan_rows: candidates.len(),
@@ -86,6 +97,7 @@ fn scan_base_prefix_coverage(
 
 fn scan_bounded_covered_coverage(
     vault_dir: &Path,
+    read_context: &mut VaultReadContext,
     requested_slot: Option<SlotId>,
     content_slots: &[SlotId],
     limit: usize,
@@ -95,6 +107,7 @@ fn scan_bounded_covered_coverage(
     if requested_slot.is_none() && limit > 0 {
         return scan_auto_bounded_covered_coverage(
             vault_dir,
+            read_context,
             content_slots,
             limit,
             live_entries,
@@ -102,11 +115,19 @@ fn scan_bounded_covered_coverage(
         );
     }
     let measured_slots = requested_slot.map_or_else(|| content_slots.to_vec(), |slot| vec![slot]);
-    scan_covered_slots(vault_dir, &measured_slots, limit, live_entries, deadline)
+    scan_covered_slots(
+        vault_dir,
+        read_context,
+        &measured_slots,
+        limit,
+        live_entries,
+        deadline,
+    )
 }
 
 fn scan_auto_bounded_covered_coverage(
     vault_dir: &Path,
+    read_context: &mut VaultReadContext,
     content_slots: &[SlotId],
     limit: usize,
     live_entries: usize,
@@ -116,7 +137,14 @@ fn scan_auto_bounded_covered_coverage(
     let mut measured_coverage = Vec::new();
     let mut last_scan = None;
     for &slot in content_slots {
-        let mut scan = scan_covered_slots(vault_dir, &[slot], limit, live_entries, deadline)?;
+        let mut scan = scan_covered_slots(
+            vault_dir,
+            read_context,
+            &[slot],
+            limit,
+            live_entries,
+            deadline,
+        )?;
         let row = scan.coverage.remove(0);
         let reached_target = row.dense_rows >= target_rows;
         measured_coverage.push(row);
@@ -141,6 +169,7 @@ fn scan_auto_bounded_covered_coverage(
 
 fn scan_covered_slots(
     vault_dir: &Path,
+    read_context: &mut VaultReadContext,
     measured_slots: &[SlotId],
     limit: usize,
     live_entries: usize,
@@ -148,13 +177,9 @@ fn scan_covered_slots(
 ) -> CliResult<DenseSlotCoverageScan> {
     let target_rows = if limit == 0 { usize::MAX } else { limit.max(2) };
     let mut candidates = Vec::new();
-    let mut slot_maps = measured_slots
+    let mut accumulators = measured_slots
         .iter()
-        .map(|&slot| (slot, HashMap::new()))
-        .collect::<BTreeMap<_, _>>();
-    let mut non_dense_rows = measured_slots
-        .iter()
-        .map(|&slot| (slot, 0usize))
+        .map(|&slot| (slot, SlotAccumulator::default()))
         .collect::<BTreeMap<_, _>>();
     let mut stopped_after_target = false;
 
@@ -173,45 +198,22 @@ fn scan_covered_slots(
                 chunk.push(encode::decode_constellation_base(value)?);
             }
             for (slot_index, &slot) in measured_slots.iter().enumerate() {
-                let keys = chunk
-                    .iter()
-                    .map(|cx| (slot_key(cx.cx_id), cx.provenance.seq))
-                    .collect::<Vec<_>>();
-                let slot_rows = crate::cf_read::latest_cf_rows_near_seqs(
+                let accumulator = accumulators.get_mut(&slot).expect("slot accumulator");
+                classify_chunk(
                     vault_dir,
-                    ColumnFamily::slot(slot),
-                    &keys,
-                )
-                .map_err(|error| {
-                    CliError::io(format!(
-                        "weave-loom dense coverage grouped readback failed for slot {slot}: {error}"
-                    ))
-                })?;
-                for (candidate_index, cx) in chunk.iter().enumerate() {
-                    let processed = (slot_index * candidates.len() + candidate_index) as u64;
-                    if candidate_index == 0 || (candidate_index + 1) % 256 == 0 {
-                        deadline.check("weave-loom", "coverage.slot_point_read", processed)?;
-                    }
-                    let Some(Some(bytes)) = slot_rows.get(slot_key(cx.cx_id).as_slice()) else {
-                        continue;
-                    };
-                    match encode::decode_slot_vector(bytes)? {
-                        SlotVector::Dense { data, .. } => {
-                            slot_maps
-                                .get_mut(&slot)
-                                .expect("slot accumulator")
-                                .insert(cx.cx_id, data);
-                        }
-                        SlotVector::Absent { .. } => {}
-                        _ => *non_dense_rows.get_mut(&slot).expect("slot accumulator") += 1,
-                    }
-                }
+                    read_context,
+                    slot,
+                    &chunk,
+                    accumulator,
+                    deadline,
+                    (slot_index * candidates.len()) as u64,
+                )?;
             }
             candidates.extend(chunk);
             if target_rows != usize::MAX
-                && measured_slots
-                    .iter()
-                    .any(|slot| slot_maps.get(slot).map_or(0, HashMap::len) >= target_rows)
+                && accumulators
+                    .values()
+                    .any(|accumulator| accumulator.map.len() >= target_rows)
             {
                 stopped_after_target = true;
                 return Ok(false);
@@ -220,18 +222,14 @@ fn scan_covered_slots(
         Ok(true)
     })?;
 
-    let coverage = measured_slots
-        .iter()
-        .map(|&slot| {
-            summarize_slot_coverage(
-                slot,
-                candidates.len(),
-                *non_dense_rows.get(&slot).unwrap_or(&0),
-                slot_maps.get(&slot).expect("slot accumulator"),
-                &candidates,
-            )
-        })
-        .collect::<Vec<_>>();
+    let mut slot_maps = BTreeMap::new();
+    let mut coverage = Vec::new();
+    for &slot in measured_slots {
+        let accumulator = accumulators.remove(&slot).expect("slot accumulator");
+        let (map, row) = summarize_slot_coverage(slot, candidates.len(), accumulator)?;
+        slot_maps.insert(slot, map);
+        coverage.push(row);
+    }
     Ok(DenseSlotCoverageScan {
         constellations_in_vault: live_entries,
         candidate_scan_rows: candidates.len(),
@@ -245,76 +243,165 @@ fn scan_covered_slots(
 
 fn scan_slots_for_candidates(
     vault_dir: &Path,
+    read_context: &mut VaultReadContext,
     content_slots: &[SlotId],
     candidates: &[Constellation],
     deadline: &Deadline,
 ) -> CliResult<(SlotCoverageMaps, SlotCoverageRows)> {
     let mut slot_maps = BTreeMap::new();
     let mut coverage = Vec::new();
-    let candidate_rows = candidates.len();
     for (slot_index, &slot) in content_slots.iter().enumerate() {
-        let mut map = HashMap::new();
-        let mut non_dense_rows = 0usize;
-        let keys = candidates
-            .iter()
-            .map(|cx| (slot_key(cx.cx_id), cx.provenance.seq))
-            .collect::<Vec<_>>();
-        let slot_rows =
-            crate::cf_read::latest_cf_rows_near_seqs(vault_dir, ColumnFamily::slot(slot), &keys)
-                .map_err(|error| {
-                    CliError::io(format!(
-                        "weave-loom dense coverage grouped readback failed for slot {slot}: {error}"
-                    ))
-                })?;
-        for (candidate_index, cx) in candidates.iter().enumerate() {
-            let processed = (slot_index * candidate_rows + candidate_index) as u64;
-            if candidate_index == 0 || (candidate_index + 1) % 256 == 0 {
-                deadline.check("weave-loom", "coverage.slot_point_read", processed)?;
-            }
-            let Some(Some(bytes)) = slot_rows.get(slot_key(cx.cx_id).as_slice()) else {
-                continue;
-            };
-            match encode::decode_slot_vector(bytes)? {
-                SlotVector::Dense { data, .. } => {
-                    map.insert(cx.cx_id, data);
-                }
-                SlotVector::Absent { .. } => {}
-                _ => non_dense_rows += 1,
-            }
-        }
-        coverage.push(summarize_slot_coverage(
+        let mut accumulator = SlotAccumulator::default();
+        classify_chunk(
+            vault_dir,
+            read_context,
             slot,
-            candidate_rows,
-            non_dense_rows,
-            &map,
             candidates,
-        ));
+            &mut accumulator,
+            deadline,
+            (slot_index * candidates.len()) as u64,
+        )?;
+        let (map, row) = summarize_slot_coverage(slot, candidates.len(), accumulator)?;
         slot_maps.insert(slot, map);
+        coverage.push(row);
     }
     Ok((slot_maps, coverage))
+}
+
+/// Per-slot classification state. Every candidate lands in exactly one
+/// bucket, so the buckets always sum to the candidate count.
+#[derive(Default)]
+struct SlotAccumulator {
+    map: HashMap<CxId, Vec<f32>>,
+    non_dense_rows: usize,
+    absent_rows: usize,
+    tombstoned_rows: usize,
+    missing_rows: usize,
+    example_missing_cx_ids: Vec<String>,
+    read_stats: crate::provenance_read::ProvenanceReadStats,
+}
+
+/// Reads and classifies one chunk of candidates against one slot CF. A
+/// candidate whose base row lists the slot but has no physical slot row in
+/// any resolution stage fails closed as `CALYX_ASTER_CORRUPT_SHARD` — it is
+/// never silently counted as missing coverage (issue #1096).
+fn classify_chunk(
+    vault_dir: &Path,
+    read_context: &mut VaultReadContext,
+    slot: SlotId,
+    chunk: &[Constellation],
+    accumulator: &mut SlotAccumulator,
+    deadline: &Deadline,
+    processed_offset: u64,
+) -> CliResult<()> {
+    if chunk.is_empty() {
+        return Ok(());
+    }
+    let keys = chunk
+        .iter()
+        .map(|cx| (slot_key(cx.cx_id), cx.provenance.seq))
+        .collect::<Vec<_>>();
+    let batch = read_context
+        .latest_cf_rows_for_provenance(ColumnFamily::slot(slot), &keys)
+        .map_err(|error| {
+            CliError::io(format!(
+                "weave-loom dense coverage grouped readback failed for slot {slot}: {error}"
+            ))
+        })?;
+    accumulator.read_stats.accumulate(batch.stats);
+    for (candidate_index, cx) in chunk.iter().enumerate() {
+        if candidate_index == 0 || (candidate_index + 1) % 256 == 0 {
+            deadline.check(
+                "weave-loom",
+                "coverage.slot_point_read",
+                processed_offset + candidate_index as u64,
+            )?;
+        }
+        let key = slot_key(cx.cx_id);
+        let Some(Some(resolved)) = batch.rows.get(key.as_slice()) else {
+            if cx.slots.contains_key(&slot) {
+                return Err(missing_listed_slot_row_error(
+                    vault_dir,
+                    cx,
+                    slot,
+                    &accumulator.read_stats,
+                ));
+            }
+            accumulator.missing_rows += 1;
+            if accumulator.example_missing_cx_ids.len() < EXAMPLE_MISSING_LIMIT {
+                accumulator
+                    .example_missing_cx_ids
+                    .push(cx.cx_id.to_string());
+            }
+            continue;
+        };
+        if is_tombstone_value(&resolved.value) {
+            accumulator.tombstoned_rows += 1;
+            continue;
+        }
+        match encode::decode_slot_vector(&resolved.value)? {
+            SlotVector::Dense { data, .. } => {
+                accumulator.map.insert(cx.cx_id, data);
+            }
+            SlotVector::Absent { .. } => accumulator.absent_rows += 1,
+            _ => accumulator.non_dense_rows += 1,
+        }
+    }
+    Ok(())
+}
+
+fn missing_listed_slot_row_error(
+    vault_dir: &Path,
+    cx: &Constellation,
+    slot: SlotId,
+    read_stats: &crate::provenance_read::ProvenanceReadStats,
+) -> CliError {
+    CalyxError::aster_corrupt_shard(format!(
+        "weave-loom dense coverage fail-closed: base row for cx {} in {} lists slot {} \
+         (provenance seq {}) but no physical slot row exists in the commit batch, the full \
+         SST level, or the WAL tail; read stats so far: {:?}",
+        cx.cx_id,
+        vault_dir.display(),
+        slot.get(),
+        cx.provenance.seq,
+        read_stats,
+    ))
+    .into()
 }
 
 fn summarize_slot_coverage(
     slot: SlotId,
     candidate_rows: usize,
-    non_dense_rows: usize,
-    map: &HashMap<CxId, Vec<f32>>,
-    candidates: &[Constellation],
-) -> DenseSlotCoverage {
-    let dense_rows = map.len();
-    let missing_rows = candidate_rows.saturating_sub(dense_rows + non_dense_rows);
-    let example_missing_cx_ids = candidates
-        .iter()
-        .filter(|cx| !map.contains_key(&cx.cx_id))
-        .take(EXAMPLE_MISSING_LIMIT)
-        .map(|cx| cx.cx_id.to_string())
-        .collect();
-    DenseSlotCoverage {
+    accumulator: SlotAccumulator,
+) -> CliResult<(HashMap<CxId, Vec<f32>>, DenseSlotCoverage)> {
+    let dense_rows = accumulator.map.len();
+    let classified = dense_rows
+        + accumulator.non_dense_rows
+        + accumulator.absent_rows
+        + accumulator.tombstoned_rows
+        + accumulator.missing_rows;
+    if classified != candidate_rows {
+        return Err(CliError::io(format!(
+            "weave-loom dense coverage accounting bug for slot {}: {classified} classified rows \
+             != {candidate_rows} candidate rows (dense={dense_rows} non_dense={} absent={} \
+             tombstoned={} missing={})",
+            slot.get(),
+            accumulator.non_dense_rows,
+            accumulator.absent_rows,
+            accumulator.tombstoned_rows,
+            accumulator.missing_rows,
+        )));
+    }
+    let row = DenseSlotCoverage {
         slot_id: slot.get(),
         candidate_rows,
         dense_rows,
-        missing_rows,
-        non_dense_rows,
-        example_missing_cx_ids,
-    }
+        missing_rows: accumulator.missing_rows,
+        non_dense_rows: accumulator.non_dense_rows,
+        absent_rows: accumulator.absent_rows,
+        tombstoned_rows: accumulator.tombstoned_rows,
+        example_missing_cx_ids: accumulator.example_missing_cx_ids,
+        read_stats: accumulator.read_stats,
+    };
+    Ok((accumulator.map, row))
 }

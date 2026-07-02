@@ -2,11 +2,11 @@ use calyx_aster::cf::ColumnFamily;
 use calyx_aster::manifest::ManifestStore;
 use calyx_aster::sst::SstReader;
 use calyx_aster::sst::level::SstLevel;
-use calyx_aster::storage_names::{SstName, classify_sst, sst_order_key};
+use calyx_aster::storage_names::{SstName, classify_sst};
 use calyx_aster::vault::encode::{decode_constellation_base, decode_write_batch};
 use calyx_aster::wal::{ReplayOutcome, replay_dir_after};
 use calyx_core::VaultId;
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -104,59 +104,7 @@ pub(crate) fn latest_cf_rows_for_keys(
     Ok(rows)
 }
 
-pub(crate) fn latest_cf_rows_near_seqs(
-    vault: &Path,
-    cf: ColumnFamily,
-    keys: &[(Vec<u8>, u64)],
-) -> Result<BTreeMap<Vec<u8>, Option<Vec<u8>>>, String> {
-    let mut rows = keys
-        .iter()
-        .map(|(key, _)| (key.clone(), None))
-        .collect::<BTreeMap<_, _>>();
-    if rows.is_empty() {
-        return Ok(rows);
-    }
-    let mut wanted_seqs = BTreeSet::new();
-    let mut keys_by_seq = BTreeMap::<u64, Vec<Vec<u8>>>::new();
-    for (key, seq) in keys {
-        for storage_seq in storage_seqs_for_provenance(*seq) {
-            wanted_seqs.insert(storage_seq);
-            keys_by_seq
-                .entry(storage_seq)
-                .or_default()
-                .push(key.clone());
-        }
-    }
-    let files_by_seq = same_seq_sst_files_for_seqs(vault, cf, &wanted_seqs)?;
-    for (seq, seq_keys) in &keys_by_seq {
-        let Some(files) = files_by_seq.get(seq) else {
-            continue;
-        };
-        for file in files {
-            let reader = SstReader::open(file).map_err(|error| error.to_string())?;
-            for key in seq_keys {
-                if let Some(bytes) = reader.get(key).map_err(|error| error.to_string())? {
-                    rows.insert(key.clone(), Some(bytes));
-                }
-            }
-        }
-    }
-    let replay = replay_after_manifest(vault)?;
-    for record in replay.records {
-        for row in decode_write_batch(&record.payload).map_err(|error| error.to_string())? {
-            if row.cf == cf && rows.contains_key(&row.key) {
-                rows.insert(row.key, Some(row.value));
-            }
-        }
-    }
-    Ok(rows)
-}
-
-fn storage_seqs_for_provenance(seq: u64) -> impl Iterator<Item = u64> {
-    [seq, seq.saturating_add(1)].into_iter()
-}
-
-fn replay_after_manifest(vault: &Path) -> Result<ReplayOutcome, String> {
+pub(crate) fn replay_after_manifest(vault: &Path) -> Result<ReplayOutcome, String> {
     let floor = wal_replay_floor(vault)?;
     replay_dir_after(vault.join("wal"), floor).map_err(|error| error.to_string())
 }
@@ -170,51 +118,6 @@ fn wal_replay_floor(vault: &Path) -> Result<u64, String> {
     }
     Ok(0)
 }
-
-fn same_seq_sst_files_for_seqs(
-    vault: &Path,
-    cf: ColumnFamily,
-    seqs: &BTreeSet<u64>,
-) -> Result<BTreeMap<u64, Vec<PathBuf>>, String> {
-    let dir = vault.join("cf").join(cf.name());
-    if !dir.exists() || seqs.is_empty() {
-        return Ok(BTreeMap::new());
-    }
-    let mut files = BTreeMap::<u64, Vec<(crate::cf_read::SstOrderForSort, PathBuf)>>::new();
-    for entry in fs::read_dir(&dir).map_err(|error| error.to_string())? {
-        let path = entry.map_err(|error| error.to_string())?.path();
-        let Some(name) = classify_sst(&path).map_err(|error| error.to_string())? else {
-            continue;
-        };
-        let file_seq = match name {
-            SstName::Router { seq } | SstName::DurableBatch { seq, .. } => seq,
-            SstName::Compacted { .. } => continue,
-        };
-        if !seqs.contains(&file_seq) {
-            continue;
-        }
-        let order = sst_order_key(&path)
-            .map_err(|error| error.to_string())?
-            .ok_or_else(|| format!("classified SST {} has no order key", path.display()))?;
-        files
-            .entry(file_seq)
-            .or_default()
-            .push((SstOrderForSort(order), path));
-    }
-    let mut out = BTreeMap::new();
-    for (seq, mut rows) in files {
-        rows.sort_by(|(left_order, left_path), (right_order, right_path)| {
-            left_order
-                .cmp(right_order)
-                .then_with(|| left_path.cmp(right_path))
-        });
-        out.insert(seq, rows.into_iter().map(|(_, path)| path).collect());
-    }
-    Ok(out)
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
-struct SstOrderForSort(calyx_aster::storage_names::SstOrderKey);
 
 pub(crate) fn vault_id_from_base(vault: &Path) -> Result<VaultId, String> {
     latest_cf_rows(vault, ColumnFamily::Base)?
@@ -249,7 +152,6 @@ fn hex_digit(value: u8) -> char {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use calyx_core::SlotId;
 
     #[test]
     fn hex_bytes_matches_lowercase_plain_hex() {
@@ -317,65 +219,6 @@ mod tests {
         assert_eq!(rows.get(b"k1".as_slice()).unwrap(), &Some(b"new".to_vec()));
         assert_eq!(rows.get(b"missing".as_slice()).unwrap(), &None);
         assert!(!rows.contains_key(b"k3".as_slice()));
-        fs::remove_dir_all(root).ok();
-    }
-
-    #[test]
-    fn latest_cf_rows_near_seqs_reads_one_based_storage_seq_for_zero_based_provenance() {
-        let root = temp_root("latest-cf-rows-near-seqs-one-based-storage");
-        let slot = root
-            .join("cf")
-            .join(ColumnFamily::slot(SlotId::new(8)).name());
-        fs::create_dir_all(&slot).unwrap();
-        calyx_aster::sst::write_sst(
-            slot.join("00000000000000000001-0010.sst"),
-            [(b"k1".as_slice(), b"target".as_slice())],
-        )
-        .unwrap();
-
-        let rows = latest_cf_rows_near_seqs(
-            &root,
-            ColumnFamily::slot(SlotId::new(8)),
-            &[(b"k1".to_vec(), 0)],
-        )
-        .unwrap();
-
-        assert_eq!(
-            rows.get(b"k1".as_slice()).unwrap(),
-            &Some(b"target".to_vec())
-        );
-        fs::remove_dir_all(root).ok();
-    }
-
-    #[test]
-    fn latest_cf_rows_near_seqs_reads_same_sequence_candidate_only() {
-        let root = temp_root("latest-cf-rows-near-seqs-same-seq");
-        let slot = root
-            .join("cf")
-            .join(ColumnFamily::slot(SlotId::new(8)).name());
-        fs::create_dir_all(&slot).unwrap();
-        calyx_aster::sst::write_sst(
-            slot.join("00000000000000000001-0010.sst"),
-            [(b"k1".as_slice(), b"old".as_slice())],
-        )
-        .unwrap();
-        calyx_aster::sst::write_sst(
-            slot.join("00000000000000000007-0010.sst"),
-            [(b"k1".as_slice(), b"target".as_slice())],
-        )
-        .unwrap();
-
-        let rows = latest_cf_rows_near_seqs(
-            &root,
-            ColumnFamily::slot(SlotId::new(8)),
-            &[(b"k1".to_vec(), 7)],
-        )
-        .unwrap();
-
-        assert_eq!(
-            rows.get(b"k1".as_slice()).unwrap(),
-            &Some(b"target".to_vec())
-        );
         fs::remove_dir_all(root).ok();
     }
 
