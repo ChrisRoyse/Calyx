@@ -96,7 +96,11 @@ where
                 let Some(order) = sst_order_key(&shard.path)? else {
                     continue;
                 };
-                if order.seq < safe_point {
+                // `safe_point` is a commit seq; only commit-domain files
+                // (epoch 1) can be compared against it. Legacy router flushes
+                // carry flush ordinals (issue #1138) and are adopted via the
+                // CLI compact path instead of snapshot GC.
+                if order.epoch == 1 && order.seq < safe_point {
                     inputs.push(shard);
                     files_seen += 1;
                     if files_seen == max_input_files {

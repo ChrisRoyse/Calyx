@@ -4,7 +4,7 @@ use crate::memtable::{Memtable, MemtableUsage};
 use crate::resource::ResourceCounters;
 use crate::sst::level::SstLevel;
 use crate::sst::{SstEntry, SstSummary};
-use crate::storage_names::{SstName, classify_sst, parse_cf_dir_name, sst_order_key};
+use crate::storage_names::flush_sst_file_name;
 use calyx_core::{CalyxError, Result};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fs;
@@ -13,13 +13,20 @@ use std::sync::Arc;
 
 const DEFAULT_MEMTABLE_BYTES: usize = 8 * 1024 * 1024;
 
+/// Commit watermark for router writes that have no commit domain (raw
+/// `CfRouter` users such as drills and standalone stores). Flushes at this
+/// watermark sort at the very start of the commit domain, which is exact for
+/// standalone directories (there are no commit-domain files) and never
+/// shadows commit-domain data elsewhere.
+pub const NO_COMMIT_DOMAIN: u64 = 0;
+
 #[derive(Debug)]
 pub struct CfRouter {
     vault_dir: PathBuf,
     tiering_policy: Option<TieringPolicy>,
     pub(super) memtables: HashMap<ColumnFamily, Memtable>,
     pub(super) levels: HashMap<ColumnFamily, SstLevel>,
-    next_file: HashMap<ColumnFamily, u64>,
+    pub(super) next_file: HashMap<ColumnFamily, u64>,
     memtable_byte_cap: usize,
     resource_counters: Arc<ResourceCounters>,
 }
@@ -101,7 +108,22 @@ impl CfRouter {
         })
     }
 
+    /// Raw write with no commit domain; see [`Self::put_at`].
     pub fn put(&mut self, cf: ColumnFamily, key: &[u8], value: &[u8]) -> Result<()> {
+        self.put_at(cf, key, value, NO_COMMIT_DOMAIN)
+    }
+
+    /// Writes one row; any memtable flush this write triggers is stamped with
+    /// `commit_watermark` (the highest commit seq whose rows can be in the
+    /// flushed memtable), so the flush SST orders exactly against durable
+    /// batches in the commit domain (issue #1138).
+    pub fn put_at(
+        &mut self,
+        cf: ColumnFamily,
+        key: &[u8],
+        value: &[u8],
+        commit_watermark: u64,
+    ) -> Result<()> {
         self.ensure_cf(cf)?;
         let mut counted_backpressure = false;
         let ack = match self.memtable_mut(cf).write(key, value, 0) {
@@ -110,7 +132,7 @@ impl CfRouter {
                 if error.code != "CALYX_BACKPRESSURE" {
                     return Err(error);
                 }
-                self.flush_cf(cf)?;
+                self.flush_cf_at(cf, commit_watermark)?;
                 match self.memtable_mut(cf).write(key, value, 0) {
                     Ok(ack) => {
                         self.resource_counters.record_memtable_absorbed();
@@ -130,7 +152,7 @@ impl CfRouter {
             if !counted_backpressure {
                 self.resource_counters.record_memtable_absorbed();
             }
-            self.flush_cf(cf)?;
+            self.flush_cf_at(cf, commit_watermark)?;
         }
         Ok(())
     }
@@ -172,12 +194,30 @@ impl CfRouter {
         usage
     }
 
+    /// Raw flush with no commit domain; see [`Self::flush_cf_at`].
     pub fn flush_cf(&mut self, cf: ColumnFamily) -> Result<SstSummary> {
+        self.flush_cf_at(cf, NO_COMMIT_DOMAIN)
+    }
+
+    /// Flushes one CF's memtable to a commit-anchored flush SST
+    /// (`flush-{watermark:020}-{ordinal:04}.sst`). `commit_watermark` must be
+    /// the highest commit seq whose rows can be in the memtable; understating
+    /// it is safe (the file sorts earlier and committed rows keep their
+    /// durable-batch home), overstating it can shadow newer durable batches.
+    pub fn flush_cf_at(&mut self, cf: ColumnFamily, commit_watermark: u64) -> Result<SstSummary> {
         self.ensure_cf(cf)?;
         let fresh = Memtable::new(self.memtable_byte_cap);
         let frozen = std::mem::replace(self.memtable_mut(cf), fresh).freeze();
-        let seq = self.next_sequence(cf);
-        let path = self.cf_dir(cf).join(format!("{seq:020}.sst"));
+        let ordinal = self.next_sequence(cf);
+        let ordinal = usize::try_from(ordinal).map_err(|_| {
+            CalyxError::aster_corrupt_shard(format!(
+                "flush ordinal {ordinal} for {} exceeds the platform's usize range",
+                cf.name()
+            ))
+        })?;
+        let path = self
+            .cf_dir(cf)
+            .join(flush_sst_file_name(commit_watermark, ordinal));
         let summary = frozen.flush_to_sst(&path)?;
         self.levels
             .entry(cf)
@@ -296,7 +336,14 @@ impl CfRouter {
         self.levels.get(&cf).map_or(0, SstLevel::file_count)
     }
 
+    /// Raw flush with no commit domain; see [`Self::flush_pending_at`].
     pub fn flush_pending(&mut self) -> Result<Vec<SstSummary>> {
+        self.flush_pending_at(NO_COMMIT_DOMAIN)
+    }
+
+    /// Flushes every non-empty memtable at `commit_watermark`; see
+    /// [`Self::flush_cf_at`] for the watermark contract.
+    pub fn flush_pending_at(&mut self, commit_watermark: u64) -> Result<Vec<SstSummary>> {
         let cfs = self
             .memtables
             .iter()
@@ -304,12 +351,12 @@ impl CfRouter {
             .collect::<Vec<_>>();
         let mut summaries = Vec::with_capacity(cfs.len());
         for cf in cfs {
-            summaries.push(self.flush_cf(cf)?);
+            summaries.push(self.flush_cf_at(cf, commit_watermark)?);
         }
         Ok(summaries)
     }
 
-    fn ensure_cf(&mut self, cf: ColumnFamily) -> Result<()> {
+    pub(super) fn ensure_cf(&mut self, cf: ColumnFamily) -> Result<()> {
         fs::create_dir_all(self.cf_dir(cf))
             .map_err(|error| CalyxError::disk_pressure(format!("create CF dir: {error}")))?;
         self.memtables
@@ -317,88 +364,6 @@ impl CfRouter {
             .or_insert_with(|| Memtable::new(self.memtable_byte_cap));
         self.levels.entry(cf).or_default();
         self.next_file.entry(cf).or_insert(1);
-        Ok(())
-    }
-
-    fn load_existing(&mut self) -> Result<()> {
-        let mut by_cf = HashMap::<ColumnFamily, Vec<PathBuf>>::new();
-        for cf_root in self.cf_roots() {
-            if !cf_root.exists() {
-                continue;
-            }
-            for entry in fs::read_dir(cf_root)
-                .map_err(|error| CalyxError::disk_pressure(format!("read CF root: {error}")))?
-            {
-                let path = entry
-                    .map_err(|error| CalyxError::disk_pressure(format!("read CF entry: {error}")))?
-                    .path();
-                if !path.is_dir() {
-                    continue;
-                }
-                let name = path
-                    .file_name()
-                    .map(|value| value.to_string_lossy().to_string())
-                    .ok_or_else(|| {
-                        CalyxError::aster_corrupt_shard(format!(
-                            "CF directory entry {} has no name",
-                            path.display()
-                        ))
-                    })?;
-                let cf = parse_cf_dir_name(&name)?;
-                by_cf.entry(cf).or_default().extend(list_sst_files(&path)?);
-            }
-        }
-        for (cf, mut files) in by_cf {
-            sort_ssts_by_sequence(&mut files)?;
-            files.dedup();
-            // Only router-flushed SSTs participate in the next-file counter;
-            // durable batches and compaction outputs use disjoint name shapes.
-            let next = files
-                .iter()
-                .filter_map(|file| match classify_sst(file) {
-                    Ok(Some(SstName::Router { seq })) => Some(seq),
-                    _ => None,
-                })
-                .max()
-                .unwrap_or(0)
-                + 1;
-            self.ensure_cf(cf)?;
-            self.levels.insert(cf, load_level_for_cf(cf, files)?);
-            self.next_file.insert(cf, next);
-        }
-        Ok(())
-    }
-
-    fn load_existing_cfs(&mut self, cfs: &[ColumnFamily]) -> Result<()> {
-        let mut by_cf = HashMap::<ColumnFamily, Vec<PathBuf>>::new();
-        for cf_root in self.cf_roots() {
-            for cf in cfs {
-                let cf_dir = cf_root.join(cf.name());
-                if cf_dir.exists() {
-                    by_cf
-                        .entry(*cf)
-                        .or_default()
-                        .extend(list_sst_files(&cf_dir)?);
-                }
-            }
-        }
-        for cf in cfs {
-            let mut files = by_cf.remove(cf).unwrap_or_default();
-            sort_ssts_by_sequence(&mut files)?;
-            files.dedup();
-            let next = files
-                .iter()
-                .filter_map(|file| match classify_sst(file) {
-                    Ok(Some(SstName::Router { seq })) => Some(seq),
-                    _ => None,
-                })
-                .max()
-                .unwrap_or(0)
-                + 1;
-            self.ensure_cf(*cf)?;
-            self.levels.insert(*cf, load_level_for_cf(*cf, files)?);
-            self.next_file.insert(*cf, next);
-        }
         Ok(())
     }
 
@@ -422,7 +387,7 @@ impl CfRouter {
         )
     }
 
-    fn cf_roots(&self) -> Vec<PathBuf> {
+    pub(super) fn cf_roots(&self) -> Vec<PathBuf> {
         let mut roots = vec![self.vault_dir.join("cf")];
         if let Some(policy) = &self.tiering_policy {
             for tier_root in policy.tier_roots() {
@@ -434,56 +399,4 @@ impl CfRouter {
         }
         roots
     }
-}
-
-fn load_level_for_cf(cf: ColumnFamily, files: Vec<PathBuf>) -> Result<SstLevel> {
-    if eager_lookup_on_open(cf) {
-        SstLevel::from_oldest_first_with_lookup(files)
-    } else {
-        Ok(SstLevel::from_oldest_first(files))
-    }
-}
-
-fn eager_lookup_on_open(cf: ColumnFamily) -> bool {
-    matches!(cf, ColumnFamily::Base)
-}
-
-/// Lists SST files in a CF directory, failing closed on any `*.sst` file
-/// whose name matches no canonical writer shape (such files were previously
-/// loaded into levels while being invisible to the next-file counter).
-fn list_sst_files(dir: &Path) -> Result<Vec<PathBuf>> {
-    let mut files = Vec::new();
-    for entry in fs::read_dir(dir)
-        .map_err(|error| CalyxError::disk_pressure(format!("read CF dir: {error}")))?
-    {
-        let path = entry
-            .map_err(|error| CalyxError::disk_pressure(format!("read CF file: {error}")))?
-            .path();
-        if sst_order_key(&path)?.is_some() {
-            files.push(path);
-        }
-    }
-    Ok(files)
-}
-
-fn sort_ssts_by_sequence(files: &mut [PathBuf]) -> Result<()> {
-    let mut keyed = files
-        .iter()
-        .map(|path| {
-            Ok((
-                sst_order_key(path)?.ok_or_else(|| {
-                    CalyxError::aster_corrupt_shard(format!(
-                        "non-SST path {} in CF level",
-                        path.display()
-                    ))
-                })?,
-                path.clone(),
-            ))
-        })
-        .collect::<Result<Vec<_>>>()?;
-    keyed.sort_by(|left, right| left.0.cmp(&right.0).then_with(|| left.1.cmp(&right.1)));
-    for (slot, (_, path)) in files.iter_mut().zip(keyed) {
-        *slot = path;
-    }
-    Ok(())
 }

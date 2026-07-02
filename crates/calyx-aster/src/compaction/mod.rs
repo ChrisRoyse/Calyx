@@ -5,12 +5,13 @@ mod tiering;
 
 use crate::cf::ColumnFamily;
 use crate::sst::{SstReader, write_sst};
+use crate::storage_names::{SstName, classify_sst};
 use calyx_core::{CalyxError, Result};
 use std::collections::BTreeMap;
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, RwLock};
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
@@ -201,7 +202,6 @@ impl CompactionScheduler {
         let thread_stop = stop.clone();
         let thread = thread::spawn(move || {
             let mut interval_ms = options.interval_ms.max(1);
-            let run_id = AtomicU64::new(0);
             while !thread_stop.load(Ordering::Acquire) {
                 thread::sleep(Duration::from_millis(interval_ms));
                 if thread_stop.load(Ordering::Acquire) {
@@ -213,12 +213,26 @@ impl CompactionScheduler {
                     if debt.score_milli < options.debt_trigger_score_milli {
                         continue;
                     }
-                    let output = scheduler_output_path(
+                    // The scheduler itself is the only writer of this catalog,
+                    // so this input set matches the one compact_cf pins below.
+                    let inputs = catalog.shards_for_cf(cf);
+                    let dir = scheduler_output_dir(
                         &options.output_root,
                         options.tiering_policy.as_ref(),
                         cf,
-                        &run_id,
                     );
+                    let output = match commit_domain_output_path(&dir, &inputs) {
+                        Ok(output) => output,
+                        Err(error) => {
+                            eprintln!(
+                                "calyx compaction scheduler error: cannot name commit-domain \
+                                 output for CF {} in {}: {error}",
+                                cf.name(),
+                                dir.display()
+                            );
+                            continue;
+                        }
+                    };
                     match catalog.compact_cf(cf, output, CompactionThrottle::unlimited()) {
                         Ok(CompactionResult::Compacted(report))
                             if report.write_amp_milli > options.max_write_amp_milli =>
@@ -228,7 +242,11 @@ impl CompactionScheduler {
                                 .min(options.max_interval_ms.max(1));
                         }
                         Ok(_) => {}
-                        Err(error) => eprintln!("calyx compaction scheduler error: {error}"),
+                        Err(error) => eprintln!(
+                            "calyx compaction scheduler error: compact CF {} into {}: {error}",
+                            cf.name(),
+                            dir.display()
+                        ),
                     }
                 }
             }
@@ -242,19 +260,72 @@ impl CompactionScheduler {
     }
 }
 
-fn scheduler_output_path(
+fn scheduler_output_dir(
     root: &Path,
     tiering_policy: Option<&TieringPolicy>,
     cf: ColumnFamily,
-    run_id: &AtomicU64,
 ) -> PathBuf {
-    let id = run_id.fetch_add(1, Ordering::AcqRel) + 1;
-    let file_name = format!("compacted-{id:020}.sst");
     if let Some(policy) = tiering_policy {
-        policy.place_current_cf(cf).absolute_dir().join(file_name)
+        policy.place_current_cf(cf).absolute_dir()
     } else {
-        root.join(cf.name()).join(file_name)
+        root.join(cf.name())
     }
+}
+
+/// Commit-domain output path for a compaction of `inputs` (issue #1137).
+///
+/// The output is named from the highest commit-domain seq present in the
+/// inputs — the highest seq at which the merged state is true — so
+/// full-restore readback restores the merged rows at that seq instead of
+/// misreading a foreign counter as commit seq ~1 and corrupting history.
+/// Legacy router flushes carry no commit-domain bound and contribute seq 0;
+/// their content stays sound under the durable-coverage invariant plus the
+/// `ensure_unambiguous_sst_order` gate (issue #1138). Fails closed on
+/// non-canonical input names and when no adoption slot remains.
+pub fn commit_domain_output_path(dir: &Path, inputs: &[SstShard]) -> Result<PathBuf> {
+    let mut max_seq = 0_u64;
+    for shard in inputs {
+        let name = classify_sst(&shard.path)?.ok_or_else(|| {
+            CalyxError::aster_corrupt_shard(format!(
+                "compaction input {} is not an SST file",
+                shard.path.display()
+            ))
+        })?;
+        let seq = match name {
+            SstName::RouterLegacy { .. } => 0,
+            SstName::Flush { watermark, .. } => watermark,
+            SstName::DurableBatch { seq, .. } | SstName::Compacted { seq } => seq,
+        };
+        max_seq = max_seq.max(seq);
+    }
+    durable_compaction_slot_path(dir, max_seq)
+}
+
+/// First free `{seq:020}-{index:04}.sst` adoption slot in the reserved
+/// `9000..=9999` index range (descending), the durable-batch-shaped naming
+/// full-restore readback restores at `seq`. Shared by the CLI `compact`
+/// command and the background scheduler so every commit-domain compaction
+/// output is named through one implementation.
+pub fn durable_compaction_slot_path(dir: &Path, seq: u64) -> Result<PathBuf> {
+    const FIRST_INDEX: u16 = 9_000;
+    const LAST_INDEX: u16 = 9_999;
+    for index in (FIRST_INDEX..=LAST_INDEX).rev() {
+        let path = dir.join(format!("{seq:020}-{index:04}.sst"));
+        if !path.exists() {
+            return Ok(path);
+        }
+    }
+    Err(CalyxError {
+        code: "CALYX_ASTER_COMPACTION_SLOTS_EXHAUSTED",
+        message: format!(
+            "no compaction adoption slot ({FIRST_INDEX}..={LAST_INDEX}) remains for commit seq \
+             {seq} in {}",
+            dir.display()
+        ),
+        remediation: "advance the vault's durable seq (write and flush) so compaction outputs \
+                      move to a new seq, or remove superseded adoption slots via a full \
+                      compaction, then retry",
+    })
 }
 
 /// Per-run throttle. `None` means no byte cap for the run.

@@ -475,6 +475,8 @@ mod compaction_tests;
 
 #[cfg(test)]
 mod recovery_stranding_tests;
+#[cfg(test)]
+mod seq_domain_tests;
 
 #[cfg(test)]
 mod recovery_tests;

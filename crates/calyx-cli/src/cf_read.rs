@@ -2,7 +2,9 @@ use calyx_aster::cf::ColumnFamily;
 use calyx_aster::manifest::ManifestStore;
 use calyx_aster::sst::SstReader;
 use calyx_aster::sst::level::SstLevel;
-use calyx_aster::storage_names::{SstName, classify_sst};
+use calyx_aster::storage_names::{
+    SstOrderKey, classify_sst, ensure_unambiguous_sst_order, sst_order_key,
+};
 use calyx_aster::vault::encode::{decode_constellation_base, decode_write_batch};
 use calyx_aster::wal::{ReplayOutcome, replay_dir_after};
 use calyx_core::VaultId;
@@ -10,7 +12,9 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-/// Lists canonical Aster SST files in deterministic readback order.
+/// Lists canonical Aster SST files in deterministic readback order, failing
+/// closed on seq-domain-ambiguous layouts (issue #1138): callers fold rows
+/// newest-wins in this order, so an ambiguous order would read stale rows.
 pub(crate) fn list_sst_files(dir: &Path) -> Result<Vec<PathBuf>, String> {
     let mut files = Vec::new();
     if !dir.exists() {
@@ -25,17 +29,19 @@ pub(crate) fn list_sst_files(dir: &Path) -> Result<Vec<PathBuf>, String> {
             files.push(path);
         }
     }
+    ensure_unambiguous_sst_order(files.iter().map(PathBuf::as_path))
+        .map_err(|error| error.to_string())?;
     files.sort_by(|left, right| sst_order(left).cmp(&sst_order(right)).then(left.cmp(right)));
     Ok(files)
 }
 
-pub(crate) fn sst_order(path: &Path) -> (u64, usize) {
-    match classify_sst(path).ok().flatten() {
-        Some(SstName::Router { seq }) => (seq, 0),
-        Some(SstName::DurableBatch { seq, index }) => (seq, index),
-        Some(SstName::Compacted { seq }) => (seq, usize::MAX),
-        None => (0, 0),
-    }
+pub(crate) fn sst_order(path: &Path) -> SstOrderKey {
+    sst_order_key(path).ok().flatten().unwrap_or(SstOrderKey {
+        epoch: 0,
+        seq: 0,
+        class_rank: 0,
+        index: 0,
+    })
 }
 
 pub(crate) fn latest_cf_rows(

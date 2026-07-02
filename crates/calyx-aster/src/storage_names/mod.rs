@@ -1,10 +1,14 @@
 //! Canonical on-disk file-name contract for Aster-owned directories.
 //!
-//! Aster's `cf/<family>/` directories are shared by three writers with
-//! disjoint canonical name shapes, and the WAL directory has one:
+//! Aster's `cf/<family>/` directories are shared by writers with disjoint
+//! canonical name shapes, and the WAL directory has one:
 //!
-//! - LSM router flush: `{seq:020}.sst`
-//! - durable group-commit batch: `{seq:020}-{index:04}.sst`
+//! - LSM router memtable flush (commit-anchored, issue #1138):
+//!   `flush-{watermark:020}-{ordinal:04}.sst`
+//! - LSM router memtable flush (legacy shape, written before #1138):
+//!   `{ordinal:020}.sst`
+//! - durable group-commit batch (and the reserved `9000..=9999` index range
+//!   used by compaction adoption slots): `{seq:020}-{index:04}.sst`
 //! - compaction output: `compacted-{seq:020}.sst`
 //! - WAL segment: `{index:020}.wal`
 //!
@@ -14,27 +18,63 @@
 //! fail-closed authority: every `*.sst` / `*.wal` name must classify into a
 //! canonical shape, otherwise the caller receives a typed
 //! `CALYX_ASTER_CORRUPT_SHARD` error instead of silent data loss.
+//!
+//! # Sequence domains and ordering (issues #1132/#1137/#1138)
+//!
+//! The numbers in these names live in two incomparable domains. Durable
+//! batches, compaction outputs, and the `watermark` of commit-anchored flush
+//! files carry the vault-wide *commit seq*. Legacy flush files carry only a
+//! per-CF *flush ordinal*, which says nothing about commit time. Ordering is
+//! therefore epoch-based ([`SstOrderKey`]): legacy flush files form epoch 0,
+//! ordered among themselves by ordinal (sound because the ordinal is monotone
+//! per CF and a later flush of the same memtable chain always holds
+//! newer-or-equal state for every key it shares with an earlier flush), and
+//! all commit-domain files form epoch 1, ordered by commit seq. Epoch 0 sorts
+//! first, which is sound only while every committed row also has a
+//! commit-domain durable home — the invariant enforced fail-closed since
+//! #1132/#1139. When a legacy ordinal numerically exceeds a commit-domain seq
+//! in the same directory, the pre-#1138 single-domain sort interleaved the
+//! two domains arbitrarily (newer durable batches could be shadowed by older
+//! flushes); [`ensure_unambiguous_sst_order`] rejects that layout with
+//! `CALYX_ASTER_SST_ORDER_AMBIGUOUS` instead of guessing.
 
 use crate::cf::ColumnFamily;
 use calyx_core::{CalyxError, Result, SlotId};
 use std::path::Path;
 
+#[cfg(test)]
+mod tests;
+
 /// Canonical SST file-name classes; each variant names the subsystem that
 /// owns files of that shape.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SstName {
-    /// LSM router memtable flush: `{seq:020}.sst`.
-    Router { seq: u64 },
-    /// Durable group-commit batch (and CLI/recurrence compaction slots in the
-    /// `-9000..=-9999` index range): `{seq:020}-{index:04}.sst`.
+    /// Legacy LSM router memtable flush: `{ordinal:020}.sst`. The number is a
+    /// per-CF flush ordinal, NOT a commit seq (issue #1138); only written by
+    /// pre-#1138 binaries and by raw `CfRouter` users with no commit domain.
+    RouterLegacy { ordinal: u64 },
+    /// Commit-anchored LSM router memtable flush:
+    /// `flush-{watermark:020}-{ordinal:04}.sst`. `watermark` is the highest
+    /// commit seq whose rows can be present in the file (recorded by the
+    /// writer at flush time); `ordinal` continues the per-CF flush chain.
+    Flush { watermark: u64, ordinal: usize },
+    /// Durable group-commit batch (and compaction adoption slots in the
+    /// `9000..=9999` index range): `{seq:020}-{index:04}.sst`.
     DurableBatch { seq: u64, index: usize },
     /// Compaction output: `compacted-{seq:020}.sst`.
     Compacted { seq: u64 },
 }
 
 /// Canonical chronological order for SST files inside one CF.
+///
+/// `epoch` separates the two sequence domains: 0 for legacy flush files
+/// (ordered by flush ordinal), 1 for commit-domain files (ordered by commit
+/// seq). See the module docs for why epoch 0 sorts first and when that is
+/// sound. Callers that merge rows newest-wins across a CF's files must gate
+/// the file set through [`ensure_unambiguous_sst_order`] first.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct SstOrderKey {
+    pub epoch: u8,
     pub seq: u64,
     pub class_rank: u8,
     pub index: usize,
@@ -43,17 +83,26 @@ pub struct SstOrderKey {
 impl SstOrderKey {
     fn from_name(name: SstName) -> Self {
         match name {
-            SstName::Router { seq } => Self {
-                seq,
-                class_rank: 1,
+            SstName::RouterLegacy { ordinal } => Self {
+                epoch: 0,
+                seq: ordinal,
+                class_rank: 0,
                 index: 0,
             },
+            SstName::Flush { watermark, ordinal } => Self {
+                epoch: 1,
+                seq: watermark,
+                class_rank: 1,
+                index: ordinal,
+            },
             SstName::DurableBatch { seq, index } => Self {
+                epoch: 1,
                 seq,
                 class_rank: 2,
                 index,
             },
             SstName::Compacted { seq } => Self {
+                epoch: 1,
                 seq,
                 class_rank: 3,
                 index: usize::MAX,
@@ -79,6 +128,66 @@ pub fn classify_sst(path: &Path) -> Result<Option<SstName>> {
 /// Returns the chronological sort key for a canonical SST file.
 pub fn sst_order_key(path: &Path) -> Result<Option<SstOrderKey>> {
     Ok(classify_sst(path)?.map(SstOrderKey::from_name))
+}
+
+/// Canonical file name for a commit-anchored router flush.
+pub fn flush_sst_file_name(watermark: u64, ordinal: usize) -> String {
+    format!("flush-{watermark:020}-{ordinal:04}.sst")
+}
+
+/// Fails closed when one CF directory holds a legacy flush file whose ordinal
+/// numerically exceeds a commit-domain seq in the same set (issue #1138).
+///
+/// In that layout the legacy file's true commit watermark is unknowable and
+/// the pre-#1138 single-domain sort could shadow a newer durable batch behind
+/// an older flush, so every ordering consumer must refuse instead of serving
+/// a potentially stale merge. Legacy files whose ordinals all sit below every
+/// commit-domain seq keep the (unchanged) epoch-0-first order, which is sound
+/// under the durable-coverage invariant enforced since #1132/#1139.
+/// Commit-anchored `Flush` files never trip this gate: against legacy files
+/// they share the per-CF ordinal chain (their ordinals are strictly larger),
+/// and against durable batches their watermark is an exact commit seq.
+pub fn ensure_unambiguous_sst_order<'a, I>(files: I) -> Result<()>
+where
+    I: IntoIterator<Item = &'a Path>,
+{
+    let mut max_legacy: Option<(u64, &Path)> = None;
+    let mut min_commit: Option<(u64, &Path)> = None;
+    for path in files {
+        match classify_sst(path)? {
+            Some(SstName::RouterLegacy { ordinal }) => {
+                if max_legacy.is_none_or(|(max, _)| ordinal > max) {
+                    max_legacy = Some((ordinal, path));
+                }
+            }
+            Some(SstName::DurableBatch { seq, .. } | SstName::Compacted { seq }) => {
+                if min_commit.is_none_or(|(min, _)| seq < min) {
+                    min_commit = Some((seq, path));
+                }
+            }
+            Some(SstName::Flush { .. }) | None => {}
+        }
+    }
+    let (Some((ordinal, legacy_path)), Some((seq, commit_path))) = (max_legacy, min_commit) else {
+        return Ok(());
+    };
+    if ordinal <= seq {
+        return Ok(());
+    }
+    Err(CalyxError {
+        code: "CALYX_ASTER_SST_ORDER_AMBIGUOUS",
+        message: format!(
+            "legacy router flush {} (per-CF flush ordinal {ordinal}) and commit-domain SST {} \
+             (commit seq {seq}) overlap numerically; the flush ordinal is not a commit seq, so \
+             newest-wins ordering across these files is undefined and reads could silently \
+             return stale rows (issue #1138)",
+            legacy_path.display(),
+            commit_path.display()
+        ),
+        remediation: "run the CLI `compact` command on this vault/CF to adopt the legacy flush \
+                      files into the commit domain, then retry; do not reorder or delete the \
+                      files by hand",
+    })
 }
 
 /// Returns the WAL segment index for canonical `{index:020}.wal` names,
@@ -170,14 +279,21 @@ fn classify_sst_stem(stem: &str) -> Option<SstName> {
             seq: canonical_seq(seq_text)?,
         });
     }
+    if let Some(rest) = stem.strip_prefix("flush-") {
+        let (watermark_text, ordinal_text) = rest.split_once('-')?;
+        return Some(SstName::Flush {
+            watermark: canonical_seq(watermark_text)?,
+            ordinal: canonical_index(ordinal_text)?,
+        });
+    }
     if let Some((seq_text, index_text)) = stem.split_once('-') {
         return Some(SstName::DurableBatch {
             seq: canonical_seq(seq_text)?,
             index: canonical_index(index_text)?,
         });
     }
-    Some(SstName::Router {
-        seq: canonical_seq(stem)?,
+    Some(SstName::RouterLegacy {
+        ordinal: canonical_seq(stem)?,
     })
 }
 
@@ -208,167 +324,4 @@ fn unrecognized_name(path: &Path, kind: &str) -> CalyxError {
          refusing to silently skip it during recovery/scan",
         path.display()
     ))
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use std::path::PathBuf;
-
-    fn sst(name: &str) -> PathBuf {
-        PathBuf::from("/vault/cf/base").join(name)
-    }
-
-    /// Guard: every static CF round-trips name → parse_cf_dir_name. A new
-    /// `ColumnFamily` that forgets to register its directory name here fails
-    /// this test immediately instead of only on a vault reopen.
-    #[test]
-    fn every_static_cf_dir_name_round_trips() {
-        for cf in ColumnFamily::STATIC {
-            let parsed = parse_cf_dir_name(&cf.name()).unwrap_or_else(|e| {
-                panic!("CF {:?} dir name {} not parseable: {e}", cf, cf.name())
-            });
-            assert_eq!(
-                parsed, cf,
-                "parse_cf_dir_name must invert name() for {cf:?}"
-            );
-        }
-        // Slot CFs (quantized + raw) also round-trip.
-        for cf in [
-            ColumnFamily::slot(calyx_core::SlotId::new(0)),
-            ColumnFamily::slot_raw(calyx_core::SlotId::new(42)),
-        ] {
-            assert_eq!(parse_cf_dir_name(&cf.name()).unwrap(), cf);
-        }
-    }
-
-    #[test]
-    fn canonical_sst_names_classify() {
-        assert_eq!(
-            classify_sst(&sst("00000000000000000007.sst")).unwrap(),
-            Some(SstName::Router { seq: 7 })
-        );
-        assert_eq!(
-            classify_sst(&sst("00000000000000000007-0003.sst")).unwrap(),
-            Some(SstName::DurableBatch { seq: 7, index: 3 })
-        );
-        assert_eq!(
-            classify_sst(&sst("00000000000000000007-9999.sst")).unwrap(),
-            Some(SstName::DurableBatch {
-                seq: 7,
-                index: 9999
-            })
-        );
-        assert_eq!(
-            classify_sst(&sst("00000000000000000007-12345.sst")).unwrap(),
-            Some(SstName::DurableBatch {
-                seq: 7,
-                index: 12345
-            })
-        );
-        assert_eq!(
-            classify_sst(&sst("compacted-00000000000000000042.sst")).unwrap(),
-            Some(SstName::Compacted { seq: 42 })
-        );
-    }
-
-    #[test]
-    fn sst_order_key_uses_sequence_not_filename_prefix() {
-        let compacted_6 = sst_order_key(&sst("compacted-00000000000000000006.sst"))
-            .unwrap()
-            .unwrap();
-        let router_7 = sst_order_key(&sst("00000000000000000007.sst"))
-            .unwrap()
-            .unwrap();
-        let durable_7 = sst_order_key(&sst("00000000000000000007-0000.sst"))
-            .unwrap()
-            .unwrap();
-        let compacted_7 = sst_order_key(&sst("compacted-00000000000000000007.sst"))
-            .unwrap()
-            .unwrap();
-
-        assert!(compacted_6 < router_7);
-        assert!(router_7 < durable_7);
-        assert!(durable_7 < compacted_7);
-    }
-
-    #[test]
-    fn non_sst_files_are_not_claimed() {
-        assert_eq!(classify_sst(&sst(".append.lock")).unwrap(), None);
-        assert_eq!(classify_sst(&sst("notes.txt")).unwrap(), None);
-        assert_eq!(
-            classify_sst(&sst(".00000000000000000007.sst.tmp")).unwrap(),
-            None
-        );
-    }
-
-    #[test]
-    fn noncanonical_sst_names_fail_closed() {
-        for name in [
-            "1.sst",                          // missing zero padding
-            "00000000000000000007-1.sst",     // index missing zero padding
-            "00000000000000000007-01000.sst", // over-wide zero-padded index
-            "compacted-1.sst",                // compacted seq missing padding
-            "99999999999999999999.sst",       // 20 digits but > u64::MAX
-            "0000000000000000000a.sst",       // non-digit
-            "soak-00.sst",                    // legacy CLI soak name
-            "compact-1764950000000.sst",      // legacy CLI compact name
-            "tiered.sst",                     // legacy CLI tier name
-            "00000000000000000007-.sst",      // empty index
-            "garbage.sst",
-        ] {
-            let error = classify_sst(&sst(name)).unwrap_err();
-            assert_eq!(
-                error.code.to_string(),
-                "CALYX_ASTER_CORRUPT_SHARD",
-                "{name}"
-            );
-        }
-    }
-
-    #[test]
-    fn wal_names_classify_and_fail_closed() {
-        assert_eq!(
-            wal_segment_index(Path::new("/v/wal/00000000000000000003.wal")).unwrap(),
-            Some(3)
-        );
-        assert_eq!(
-            wal_segment_index(Path::new("/v/wal/.append.lock")).unwrap(),
-            None
-        );
-        for name in [
-            "3.wal",
-            "0000000000000000000x.wal",
-            "99999999999999999999.wal",
-        ] {
-            let error = wal_segment_index(&PathBuf::from("/v/wal").join(name)).unwrap_err();
-            assert_eq!(
-                error.code.to_string(),
-                "CALYX_ASTER_CORRUPT_SHARD",
-                "{name}"
-            );
-        }
-    }
-
-    #[test]
-    fn cf_dir_names_round_trip_and_fail_closed() {
-        for cf in [
-            ColumnFamily::Base,
-            ColumnFamily::Recurrence,
-            ColumnFamily::Document,
-            ColumnFamily::slot(SlotId::new(0)),
-            ColumnFamily::slot_raw(SlotId::new(7)),
-            ColumnFamily::slot(SlotId::new(123)),
-        ] {
-            assert_eq!(parse_cf_dir_name(&cf.name()).unwrap(), cf);
-        }
-        for name in ["slot_5", "slot_xyz", "slot_99999", "unknown_cf", "Slot_05"] {
-            let error = parse_cf_dir_name(name).unwrap_err();
-            assert_eq!(
-                error.code.to_string(),
-                "CALYX_ASTER_CORRUPT_SHARD",
-                "{name}"
-            );
-        }
-    }
 }

@@ -138,9 +138,75 @@ fn next_file_counter_resumes_past_existing_router_ssts() {
     reopened.put(ColumnFamily::Base, b"k3", b"v3").unwrap();
     let summary = reopened.flush_cf(ColumnFamily::Base).unwrap();
 
+    // Raw routers have no commit domain (watermark 0); the flush ordinal
+    // chain still resumes past existing files.
     assert_eq!(
         summary.path.file_name().unwrap().to_str().unwrap(),
-        "00000000000000000003.sst"
+        "flush-00000000000000000000-0003.sst"
+    );
+    cleanup(dir);
+}
+
+/// The flush ordinal chain also resumes past legacy-shaped flush files
+/// (`{ordinal:020}.sst`), so upgraded directories never reuse an ordinal.
+#[test]
+fn next_file_counter_resumes_past_legacy_router_ssts() {
+    let dir = test_dir("next-file-legacy-resume");
+    let base = dir.join("cf/base");
+    fs::create_dir_all(&base).unwrap();
+    crate::sst::write_sst(
+        base.join("00000000000000000002.sst"),
+        [(b"k1".as_slice(), b"legacy".as_slice())],
+    )
+    .unwrap();
+
+    let mut reopened = CfRouter::open(&dir, 64).unwrap();
+    reopened.put(ColumnFamily::Base, b"k2", b"new").unwrap();
+    let summary = reopened.flush_cf(ColumnFamily::Base).unwrap();
+
+    assert_eq!(
+        summary.path.file_name().unwrap().to_str().unwrap(),
+        "flush-00000000000000000000-0003.sst"
+    );
+    // Both flush generations stay readable, newest ordinal winning.
+    assert_eq!(
+        reopened.get(ColumnFamily::Base, b"k1").unwrap(),
+        Some(b"legacy".to_vec())
+    );
+    assert_eq!(
+        reopened.get(ColumnFamily::Base, b"k2").unwrap(),
+        Some(b"new".to_vec())
+    );
+    cleanup(dir);
+}
+
+/// Issue #1138 fail-closed gate: a legacy flush ordinal that numerically
+/// exceeds a commit-domain seq in the same CF makes newest-wins ordering
+/// undefined; the open must refuse instead of serving stale rows.
+#[test]
+fn reopen_fails_closed_on_ambiguous_legacy_ordinal_vs_commit_seq() {
+    let dir = test_dir("ambiguous-order");
+    let base = dir.join("cf/base");
+    fs::create_dir_all(&base).unwrap();
+    // Legacy flush ordinal 5 vs durable batch commit seq 4 — the #1138 repro.
+    crate::sst::write_sst(
+        base.join("00000000000000000005.sst"),
+        [(b"k".as_slice(), b"stale".as_slice())],
+    )
+    .unwrap();
+    crate::sst::write_sst(
+        base.join("00000000000000000004-0000.sst"),
+        [(b"k".as_slice(), b"newer".as_slice())],
+    )
+    .unwrap();
+
+    let error = CfRouter::open(&dir, 64).expect_err("ambiguous seq domains");
+
+    assert_eq!(error.code, "CALYX_ASTER_SST_ORDER_AMBIGUOUS");
+    assert!(
+        error.message.contains("00000000000000000005.sst"),
+        "{}",
+        error.message
     );
     cleanup(dir);
 }

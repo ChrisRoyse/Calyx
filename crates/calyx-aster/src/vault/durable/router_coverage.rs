@@ -1,8 +1,9 @@
 //! Fail-closed physical coverage check for full-restore opens (issue #1132).
 //!
-//! Router memtable-flush SSTs (`{ordinal:020}.sst`) carry per-CF flush
-//! ordinals, not commit seqs, so durable readback can never restore them into
-//! the MVCC row table. On a healthy vault that is harmless: every committed
+//! Router memtable-flush SSTs (legacy `{ordinal:020}.sst` and commit-anchored
+//! `flush-{watermark:020}-{ordinal:04}.sst`) hold merged latest-state rows
+//! whose exact per-row commit seqs are unknowable from the file, so durable
+//! readback can never restore them into the MVCC row table. On a healthy vault that is harmless: every committed
 //! row also has a commit-domain home (durable-batch/compacted SST or WAL
 //! record), so the restored state covers all router content. When that
 //! invariant is broken (a manifest advanced past rows whose durable-batch
@@ -65,7 +66,10 @@ pub(in crate::vault) fn router_only_rows(
                 let path = file
                     .map_err(|error| storage_error("read SST entry", error))?
                     .path();
-                if !matches!(classify_sst(&path)?, Some(SstName::Router { .. })) {
+                if !matches!(
+                    classify_sst(&path)?,
+                    Some(SstName::RouterLegacy { .. } | SstName::Flush { .. })
+                ) {
                     continue;
                 }
                 for row in SstReader::open(&path)?.iter()? {

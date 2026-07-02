@@ -2,21 +2,17 @@ use super::{parse_cf, unix_millis};
 use calyx_aster::cf::ColumnFamily;
 use calyx_aster::compaction::{
     CompactionReport, CompactionResult, CompactionThrottle, SstShard, compact_shards,
+    durable_compaction_slot_path,
 };
 use calyx_aster::manifest::ManifestStore;
 use calyx_aster::storage_names::{SstName, classify_sst};
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use crate::cf_read::list_sst_files;
-
-const DURABLE_COMPACT_FIRST_INDEX: u16 = 9_000;
-const DURABLE_COMPACT_LAST_INDEX: u16 = 9_999;
-
 pub fn compact(vault: &Path, cf_name: &str) -> crate::error::CliResult {
     let cf = parse_cf(cf_name)?;
     let cf_dir = vault.join("cf").join(cf.name());
-    let files = list_sst_files(&cf_dir)?;
+    let files = list_sst_files_for_adoption(&cf_dir)?;
     let output = compaction_output_path(vault, &cf_dir, &files)?;
     let shards = shards_for(cf, &files)?;
     let result = compact_shards(cf, &shards, &output, CompactionThrottle::unlimited())
@@ -55,7 +51,7 @@ fn compaction_output_path(
     if durable_seq == 0 && files.len() >= 2 {
         return Err("refusing durable CLI compact before CURRENT durable_seq advances".to_string());
     }
-    durable_compaction_output_path(cf_dir, durable_seq)
+    durable_compaction_slot_path(cf_dir, durable_seq).map_err(|error| error.to_string())
 }
 
 fn validate_durable_inputs(files: &[PathBuf], durable_seq: u64) -> Result<(), String> {
@@ -75,25 +71,51 @@ fn validate_durable_inputs(files: &[PathBuf], durable_seq: u64) -> Result<(), St
     ))
 }
 
-fn durable_compaction_output_path(cf_dir: &Path, durable_seq: u64) -> Result<PathBuf, String> {
-    for index in (DURABLE_COMPACT_FIRST_INDEX..=DURABLE_COMPACT_LAST_INDEX).rev() {
-        let path = cf_dir.join(format!("{durable_seq:020}-{index:04}.sst"));
-        if !path.exists() {
-            return Ok(path);
+/// Lists a CF directory's canonical SST files in epoch order WITHOUT the
+/// `CALYX_ASTER_SST_ORDER_AMBIGUOUS` gate that every read path enforces.
+///
+/// CLI compact is the sanctioned repair path that gate's remediation points
+/// to, so it must be able to run on the ambiguous layout it repairs. Merging
+/// legacy flush files epoch-first assumes the durable-coverage invariant
+/// (every committed row also has a commit-domain home, enforced fail-closed
+/// since #1132/#1139) — the same assumption every pre-#1138 read of a
+/// non-overlapping layout already made — and the adopted output replaces all
+/// inputs in the commit domain, clearing the ambiguity. Non-canonical names
+/// still fail closed.
+fn list_sst_files_for_adoption(dir: &Path) -> Result<Vec<PathBuf>, String> {
+    let mut files = Vec::new();
+    if !dir.exists() {
+        return Ok(files);
+    }
+    for entry in fs::read_dir(dir).map_err(|error| error.to_string())? {
+        let path = entry.map_err(|error| error.to_string())?.path();
+        if classify_sst(&path)
+            .map_err(|error| error.to_string())?
+            .is_some()
+        {
+            files.push(path);
         }
     }
-    Err(format!(
-        "no durable CLI compaction output slot remains for seq {durable_seq}"
-    ))
+    files.sort_by(|left, right| {
+        crate::cf_read::sst_order(left)
+            .cmp(&crate::cf_read::sst_order(right))
+            .then(left.cmp(right))
+    });
+    Ok(files)
 }
 
 fn durable_input_is_manifest_bounded(path: &Path, durable_seq: u64) -> bool {
     match classify_sst(path) {
-        Ok(Some(
-            SstName::Router { seq }
-            | SstName::DurableBatch { seq, .. }
-            | SstName::Compacted { seq },
-        )) => seq <= durable_seq,
+        // Legacy flush files carry per-CF flush ordinals with no
+        // commit-domain bound; adopting them into the durable domain is
+        // exactly what CLI compact is for (issues #1132/#1138), and their
+        // content is covered by the durable-coverage invariant plus the
+        // seq-domain order gate in `list_sst_files`.
+        Ok(Some(SstName::RouterLegacy { .. })) => true,
+        Ok(Some(SstName::Flush { watermark, .. })) => watermark <= durable_seq,
+        Ok(Some(SstName::DurableBatch { seq, .. } | SstName::Compacted { seq })) => {
+            seq <= durable_seq
+        }
         _ => false,
     }
 }

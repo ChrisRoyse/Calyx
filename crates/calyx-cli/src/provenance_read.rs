@@ -396,7 +396,9 @@ impl LedgerProvenanceIndex {
                     commit_seq: seq,
                     range: None,
                 }),
-                SstName::Router { .. } | SstName::Compacted { .. } => None,
+                SstName::RouterLegacy { .. }
+                | SstName::Flush { .. }
+                | SstName::Compacted { .. } => None,
             })
             .collect();
         Ok(Self { files })

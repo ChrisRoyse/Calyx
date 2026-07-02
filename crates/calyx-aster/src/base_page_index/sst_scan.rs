@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use calyx_core::{CalyxError, Result};
 
 use crate::cf::ColumnFamily;
-use crate::storage_names::{classify_sst, sst_order_key};
+use crate::storage_names::{classify_sst, ensure_unambiguous_sst_order, sst_order_key};
 
 pub(super) fn list_base_sst_files(vault: &Path) -> Result<Vec<PathBuf>> {
     let dir = vault.join("cf").join(ColumnFamily::Base.name());
@@ -23,6 +23,9 @@ pub(super) fn list_base_sst_files(vault: &Path) -> Result<Vec<PathBuf>> {
             files.push((order, path));
         }
     }
+    // The page index folds rows newest-wins in this order (issue #1138):
+    // an ambiguous seq-domain layout must fail closed, not index stale rows.
+    ensure_unambiguous_sst_order(files.iter().map(|(_, path)| path.as_path()))?;
     files.sort_by(|(left_order, left_path), (right_order, right_path)| {
         left_order
             .cmp(right_order)

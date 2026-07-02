@@ -44,9 +44,13 @@ pub(super) fn read_manifested_batches(
                 let (seq, index) = match name {
                     SstName::DurableBatch { seq, index } => (seq, index),
                     SstName::Compacted { seq } => (seq, 0),
-                    // Router memtable flushes are recovered by
-                    // `CfRouter::load_existing`, not by durable readback.
-                    SstName::Router { .. } => continue,
+                    // Router memtable flushes (legacy and commit-anchored)
+                    // hold merged latest-state rows whose exact per-row commit
+                    // seqs are unknowable; they are recovered by
+                    // `CfRouter::load_existing`, not by durable readback, and
+                    // the router-coverage gate proves the restored state
+                    // covers them (issue #1132).
+                    SstName::RouterLegacy { .. } | SstName::Flush { .. } => continue,
                 };
                 if seq > durable_seq {
                     continue;

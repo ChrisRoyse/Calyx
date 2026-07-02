@@ -3,6 +3,7 @@
 mod family;
 mod key;
 mod router;
+mod router_load;
 mod router_scan;
 
 #[cfg(test)]
@@ -16,7 +17,7 @@ pub use key::{
     slot_key, temporal_xterm_key, temporal_xterm_prefix_range, verify_cx_hash_prefix, xterm_key,
     xterm_prefix_range,
 };
-pub use router::CfRouter;
+pub use router::{CfRouter, NO_COMMIT_DOMAIN};
 
 #[cfg(test)]
 mod tests;

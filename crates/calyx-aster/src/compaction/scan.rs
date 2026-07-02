@@ -1,5 +1,5 @@
 use super::{CompactionCatalog, SstShard, TieringPolicy};
-use crate::storage_names::{parse_cf_dir_name, sst_order_key};
+use crate::storage_names::{ensure_unambiguous_sst_order, parse_cf_dir_name, sst_order_key};
 use calyx_core::{CalyxError, Result};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -51,11 +51,19 @@ pub fn catalog_from_vault_tiers(
             .then_with(|| left.path.cmp(&right.path))
     });
     shards.dedup_by(|left, right| left.path == right.path);
+    // One CF's files can span multiple tier roots; the per-directory gate in
+    // list_ssts cannot see that union, so gate each CF's full shard set here.
+    for chunk in shards.chunk_by(|left, right| left.cf == right.cf) {
+        ensure_unambiguous_sst_order(chunk.iter().map(|shard| shard.path.as_path()))?;
+    }
     Ok(CompactionCatalog::new(shards))
 }
 
 /// Lists SST files for compaction, failing closed on any `*.sst` name that
-/// matches no canonical writer shape instead of compacting unknown bytes.
+/// matches no canonical writer shape instead of compacting unknown bytes,
+/// and on seq-domain-ambiguous layouts (issue #1138) — compaction merges
+/// newest-wins in this order, so an ambiguous order would bake stale rows
+/// into the output and reclaim the inputs holding the newer versions.
 fn list_ssts(dir: &Path) -> Result<Vec<PathBuf>> {
     let mut files = Vec::new();
     for entry in fs::read_dir(dir)
@@ -70,6 +78,7 @@ fn list_ssts(dir: &Path) -> Result<Vec<PathBuf>> {
             files.push((order, path));
         }
     }
+    ensure_unambiguous_sst_order(files.iter().map(|(_, path)| path.as_path()))?;
     files.sort_by(|left, right| left.0.cmp(&right.0).then_with(|| left.1.cmp(&right.1)));
     Ok(files.into_iter().map(|(_, path)| path).collect())
 }
