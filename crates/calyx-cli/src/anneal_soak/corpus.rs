@@ -10,6 +10,7 @@ use calyx_core::{
 use serde::Deserialize;
 
 use super::request::SoakRequest;
+use crate::error::{CliError, CliResult};
 
 const PANEL_VERSION: u32 = 70;
 const INGEST_BATCH_ROWS: usize = 1_000;
@@ -31,15 +32,12 @@ struct CorpusRow {
     source: Option<String>,
 }
 
-pub(super) fn ingest_corpus(
-    vault: &AsterVault,
-    request: &SoakRequest,
-) -> Result<CorpusStats, String> {
+pub(super) fn ingest_corpus(vault: &AsterVault, request: &SoakRequest) -> CliResult<CorpusStats> {
     let file = File::open(&request.corpus_jsonl).map_err(|error| {
-        format!(
+        CliError::io(format!(
             "CALYX_FSV_ANNEAL_SOAK_INCOMPLETE: open corpus {}: {error}",
             request.corpus_jsonl.display()
-        )
+        ))
     })?;
     let mut stats = CorpusStats {
         rows: 0,
@@ -51,14 +49,16 @@ pub(super) fn ingest_corpus(
     let clock = SystemClock;
     let mut batch = Vec::with_capacity(INGEST_BATCH_ROWS);
     for line in BufReader::new(file).lines() {
-        let line = line.map_err(|error| format!("read corpus JSONL: {error}"))?;
+        let line = line.map_err(|error| CliError::io(format!("read corpus JSONL: {error}")))?;
         if line.trim().is_empty() {
             continue;
         }
-        let row: CorpusRow =
-            serde_json::from_str(&line).map_err(|error| format!("parse corpus JSONL: {error}"))?;
+        let row: CorpusRow = serde_json::from_str(&line)
+            .map_err(|error| CliError::runtime(format!("parse corpus JSONL: {error}")))?;
         if row.text.trim().is_empty() || row.label.trim().is_empty() {
-            return Err("CALYX_FSV_ANNEAL_SOAK_INCOMPLETE: empty text or label row".to_string());
+            return Err(CliError::runtime(
+                "CALYX_FSV_ANNEAL_SOAK_INCOMPLETE: empty text or label row",
+            ));
         }
         hasher.update(row.text.as_bytes());
         hasher.update(row.label.as_bytes());
@@ -72,27 +72,22 @@ pub(super) fn ingest_corpus(
     }
     flush_batch(vault, &mut batch)?;
     if stats.rows < request.min_docs {
-        return Err(format!(
+        return Err(CliError::runtime(format!(
             "CALYX_FSV_ANNEAL_SOAK_INCOMPLETE: corpus rows {} below required {}",
             stats.rows, request.min_docs
-        ));
+        )));
     }
     stats.corpus_hash = hasher.finalize().to_hex().to_string();
-    vault.flush().map_err(|error| error.to_string())?;
+    vault.flush()?;
     Ok(stats)
 }
 
-fn flush_batch(
-    vault: &AsterVault,
-    batch: &mut Vec<Constellation>,
-) -> std::result::Result<(), String> {
+fn flush_batch(vault: &AsterVault, batch: &mut Vec<Constellation>) -> CliResult {
     if batch.is_empty() {
         return Ok(());
     }
-    vault
-        .put_batch(std::mem::take(batch))
-        .map(|_| ())
-        .map_err(|error| error.to_string())
+    vault.put_batch(std::mem::take(batch))?;
+    Ok(())
 }
 
 fn constellation_for(clock: &dyn Clock, vault: &AsterVault, row: &CorpusRow) -> Constellation {

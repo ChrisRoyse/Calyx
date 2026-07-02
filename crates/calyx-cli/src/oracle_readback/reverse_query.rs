@@ -20,6 +20,7 @@ use serde::Deserialize;
 use serde_json::json;
 
 use crate::cf_read::hex_bytes;
+use crate::error::CliError;
 
 const USAGE: &str = "usage: calyx readback reverse_query --vault <dir> --domain <domain> --answer <text> --fixture <json> --vault-id <id> --salt <s>";
 
@@ -27,26 +28,21 @@ pub(crate) fn readback_reverse_query(args: &[String]) -> crate::error::CliResult
     let args = ReadbackArgs::parse(args)?;
     let fixture = ReverseFixture::read(&args.fixture, &args.domain)?;
     let vault_id = VaultId::from_str(&args.vault_id)
-        .map_err(|error| format!("invalid --vault-id: {error}"))?;
+        .map_err(|error| CliError::usage(format!("invalid --vault-id: {error}")))?;
     let vault = AsterVault::new_durable(
         &args.vault,
         vault_id,
         args.salt.as_bytes().to_vec(),
         VaultOptions::default(),
-    )
-    .map_err(|error| error.to_string())?;
+    )?;
     let rows = fixture.persist_rows(&vault, vault_id, &args.domain)?;
-    vault
-        .flush()
-        .map_err(|error| format!("flush reverse_query fixture rows: {error}"))?;
+    vault.flush()?;
 
     let answer = AnchorValue::Text(args.answer.clone());
     let clock = FixedClock::new(fixture.clock_ts);
     match reverse_query(&vault, &answer, DomainId::from(args.domain.clone()), &clock) {
         Ok(causes) => {
-            vault
-                .flush()
-                .map_err(|error| format!("flush reverse_query ledger row: {error}"))?;
+            vault.flush()?;
             let ledger_ref = causes.first().map(|cause| cause.provenance.clone());
             let ledger_row = ledger_ref
                 .as_ref()
@@ -72,7 +68,9 @@ pub(crate) fn readback_reverse_query(args: &[String]) -> crate::error::CliResult
                     "provisional_count": causes.iter().filter(|cause| cause.provisional).count(),
                     "causes": causes,
                 }))
-                .map_err(|error| error.to_string())?
+                .map_err(|error| CliError::runtime(format!(
+                    "serialize reverse_query readback: {error}"
+                )))?
             );
             Ok(())
         }
@@ -90,9 +88,11 @@ pub(crate) fn readback_reverse_query(args: &[String]) -> crate::error::CliResult
                     "error": error.to_string(),
                     "remediation": error.remediation(),
                 }))
-                .map_err(|error| error.to_string())?
+                .map_err(|error| CliError::runtime(format!(
+                    "serialize reverse_query error readback: {error}"
+                )))?
             );
-            Err(error.to_string().into())
+            Err(calyx_core::CalyxError::from(error).into())
         }
     }
 }
@@ -108,7 +108,7 @@ struct ReadbackArgs {
 }
 
 impl ReadbackArgs {
-    fn parse(args: &[String]) -> Result<Self, String> {
+    fn parse(args: &[String]) -> crate::error::CliResult<Self> {
         let mut vault = None;
         let mut domain = None;
         let mut answer = None;
@@ -118,7 +118,7 @@ impl ReadbackArgs {
         let mut index = 0;
         while index < args.len() {
             let flag = args[index].as_str();
-            let value = args.get(index + 1).ok_or_else(|| USAGE.to_string())?;
+            let value = args.get(index + 1).ok_or_else(|| CliError::usage(USAGE))?;
             match flag {
                 "--vault" => vault = Some(PathBuf::from(value)),
                 "--domain" => domain = Some(value.clone()),
@@ -126,17 +126,17 @@ impl ReadbackArgs {
                 "--fixture" => fixture = Some(PathBuf::from(value)),
                 "--vault-id" => vault_id = Some(value.clone()),
                 "--salt" => salt = Some(value.clone()),
-                _ => return Err(USAGE.to_string()),
+                _ => return Err(CliError::usage(USAGE)),
             }
             index += 2;
         }
         Ok(Self {
-            vault: vault.ok_or_else(|| USAGE.to_string())?,
-            domain: domain.ok_or_else(|| USAGE.to_string())?,
-            answer: answer.ok_or_else(|| USAGE.to_string())?,
-            fixture: fixture.ok_or_else(|| USAGE.to_string())?,
-            vault_id: vault_id.ok_or_else(|| USAGE.to_string())?,
-            salt: salt.ok_or_else(|| USAGE.to_string())?,
+            vault: vault.ok_or_else(|| CliError::usage(USAGE))?,
+            domain: domain.ok_or_else(|| CliError::usage(USAGE))?,
+            answer: answer.ok_or_else(|| CliError::usage(USAGE))?,
+            fixture: fixture.ok_or_else(|| CliError::usage(USAGE))?,
+            vault_id: vault_id.ok_or_else(|| CliError::usage(USAGE))?,
+            salt: salt.ok_or_else(|| CliError::usage(USAGE))?,
         })
     }
 }
@@ -171,36 +171,43 @@ struct FixtureEdge {
 }
 
 impl ReverseFixture {
-    fn read(path: &Path, domain: &str) -> Result<Self, String> {
-        let bytes = std::fs::read(path).map_err(|error| format!("read fixture: {error}"))?;
-        let fixture: Self =
-            serde_json::from_slice(&bytes).map_err(|error| format!("parse fixture: {error}"))?;
+    fn read(path: &Path, domain: &str) -> crate::error::CliResult<Self> {
+        let bytes =
+            std::fs::read(path).map_err(|error| CliError::io(format!("read fixture: {error}")))?;
+        let fixture: Self = serde_json::from_slice(&bytes)
+            .map_err(|error| CliError::runtime(format!("parse fixture: {error}")))?;
         if fixture
             .domain
             .as_deref()
             .is_some_and(|value| value != domain)
         {
-            return Err("reverse_query fixture domain does not match --domain".to_string());
+            return Err(CliError::runtime(
+                "reverse_query fixture domain does not match --domain",
+            ));
         }
         fixture.validate()?;
         Ok(fixture)
     }
 
-    fn validate(&self) -> Result<(), String> {
+    fn validate(&self) -> crate::error::CliResult<()> {
         for edge in &self.edges {
             if edge.from.trim().is_empty() || edge.to.trim().is_empty() {
-                return Err("reverse_query edge endpoints must be non-empty".to_string());
+                return Err(CliError::runtime(
+                    "reverse_query edge endpoints must be non-empty",
+                ));
             }
             if !edge.structural_only && edge.occurrences == 0 {
-                return Err(
-                    "reverse_query recurrence edge occurrences must be positive".to_string()
-                );
+                return Err(CliError::runtime(
+                    "reverse_query recurrence edge occurrences must be positive",
+                ));
             }
             if edge
                 .confidence
                 .is_some_and(|value| !value.is_finite() || !(0.0..=1.0).contains(&value))
             {
-                return Err("reverse_query confidence must be finite and in [0,1]".to_string());
+                return Err(CliError::runtime(
+                    "reverse_query confidence must be finite and in [0,1]",
+                ));
             }
         }
         Ok(())
@@ -211,7 +218,7 @@ impl ReverseFixture {
         vault: &AsterVault,
         vault_id: VaultId,
         domain: &str,
-    ) -> Result<RowsWritten, String> {
+    ) -> crate::error::CliResult<RowsWritten> {
         let mut rows = RowsWritten::default();
         for (index, edge) in self.edges.iter().enumerate() {
             if edge.structural_only {
@@ -239,7 +246,7 @@ fn write_recurrence_edge(
     domain: &str,
     edge: &FixtureEdge,
     index: usize,
-) -> Result<usize, String> {
+) -> crate::error::CliResult<usize> {
     let series_key = format!("{index}-{}-{}", edge.from, edge.to);
     let cx_id = cx_id(domain, &edge.from, &series_key);
     write_base(
@@ -255,16 +262,13 @@ fn write_recurrence_edge(
         let occurrence = Occurrence {
             id: OccurrenceId(occurrence_id),
             t_k: EpochSecs(1_000 + occurrence_id as i64),
-            context: OccurrenceContext::new(context).map_err(|error| error.to_string())?,
+            context: OccurrenceContext::new(context)?,
         };
-        vault
-            .write_cf(
-                ColumnFamily::Recurrence,
-                recurrence_key(cx_id, occurrence_id),
-                encode_recurrence_row(&StoredRecurrenceRow::Occurrence(occurrence))
-                    .map_err(|error| error.to_string())?,
-            )
-            .map_err(|error| error.to_string())?;
+        vault.write_cf(
+            ColumnFamily::Recurrence,
+            recurrence_key(cx_id, occurrence_id),
+            encode_recurrence_row(&StoredRecurrenceRow::Occurrence(occurrence))?,
+        )?;
     }
     Ok(edge.occurrences as usize)
 }
@@ -275,7 +279,7 @@ fn write_structural_edge(
     domain: &str,
     edge: &FixtureEdge,
     index: usize,
-) -> std::result::Result<(), String> {
+) -> crate::error::CliResult<()> {
     let series_key = format!("{index}-{}-structural", edge.from);
     let cx_id = cx_id(domain, &edge.from, &series_key);
     let confidence = edge.confidence.unwrap_or(0.35);
@@ -291,15 +295,13 @@ fn write_structural_edge(
     )
 }
 
-fn write_base(vault: &AsterVault, cx: Constellation) -> std::result::Result<(), String> {
-    vault
-        .write_cf(
-            ColumnFamily::Base,
-            base_key(cx.cx_id),
-            encode::encode_constellation_base(&cx).map_err(|error| error.to_string())?,
-        )
-        .map(|_| ())
-        .map_err(|error| error.to_string())
+fn write_base(vault: &AsterVault, cx: Constellation) -> crate::error::CliResult<()> {
+    vault.write_cf(
+        ColumnFamily::Base,
+        base_key(cx.cx_id),
+        encode::encode_constellation_base(&cx)?,
+    )?;
+    Ok(())
 }
 
 fn fixture_constellation(
@@ -355,7 +357,7 @@ impl FixtureEdge {
     }
 }
 
-fn edge_context(default_domain: &str, edge: &FixtureEdge) -> Result<Vec<u8>, String> {
+fn edge_context(default_domain: &str, edge: &FixtureEdge) -> crate::error::CliResult<Vec<u8>> {
     serde_json::to_vec(&json!({
         "action": edge.from,
         "consequences": [{
@@ -366,18 +368,17 @@ fn edge_context(default_domain: &str, edge: &FixtureEdge) -> Result<Vec<u8>, Str
             "provisional": !edge.grounded,
         }]
     }))
-    .map_err(|error| error.to_string())
+    .map_err(|error| CliError::runtime(format!("serialize reverse_query edge context: {error}")))
 }
 
-fn read_ledger_row(vault: &AsterVault, ledger_ref: &LedgerRef) -> Result<Vec<u8>, String> {
+fn read_ledger_row(vault: &AsterVault, ledger_ref: &LedgerRef) -> crate::error::CliResult<Vec<u8>> {
     vault
         .read_cf_at(
             vault.latest_seq(),
             ColumnFamily::Ledger,
             &ledger_key(ledger_ref.seq),
-        )
-        .map_err(|error| error.to_string())?
-        .ok_or_else(|| format!("ledger row {} not found", ledger_ref.seq))
+        )?
+        .ok_or_else(|| CliError::runtime(format!("ledger row {} not found", ledger_ref.seq)))
 }
 
 fn cx_id(domain: &str, action: &str, series_key: &str) -> CxId {

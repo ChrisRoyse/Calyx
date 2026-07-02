@@ -6,21 +6,22 @@ use std::collections::BTreeMap;
 use std::path::Path;
 
 use crate::cf_read::{hex_bytes, list_sst_files};
+use crate::error::CliError;
 
 pub fn readback_mistakes(vault: &Path, last: usize) -> crate::error::CliResult {
     if last == 0 {
-        return Err("anneal mistakes readback requires --last > 0"
-            .to_string()
-            .into());
+        return Err(CliError::usage(
+            "anneal mistakes readback requires --last > 0",
+        ));
     }
     let cf = ColumnFamily::AnnealMistakes;
     let mut physical_rows = Vec::new();
     let mut rows_by_seq = BTreeMap::new();
     for file in list_sst_files(&vault.join("cf").join(cf.name()))? {
-        let reader = SstReader::open(&file).map_err(|error| error.to_string())?;
-        for row in reader.iter().map_err(|error| error.to_string())? {
-            let seq = mistake_seq_from_key(&row.key).map_err(|error| error.to_string())?;
-            let entry = decode_mistake_entry(&row.value).map_err(|error| error.to_string())?;
+        let reader = SstReader::open(&file)?;
+        for row in reader.iter()? {
+            let seq = mistake_seq_from_key(&row.key)?;
+            let entry = decode_mistake_entry(&row.value)?;
             let readback = json!({
                 "seq": seq,
                 "file": file.display().to_string(),
@@ -56,7 +57,8 @@ pub fn readback_mistakes(vault: &Path, last: usize) -> crate::error::CliResult {
     });
     println!(
         "{}",
-        serde_json::to_string_pretty(&readback).map_err(|error| error.to_string())?
+        serde_json::to_string_pretty(&readback)
+            .map_err(|error| CliError::runtime(format!("serialize mistakes readback: {error}")))?
     );
     Ok(())
 }

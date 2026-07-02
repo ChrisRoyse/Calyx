@@ -15,18 +15,17 @@ use serde_json::{Value, json};
 use super::DEFAULT_MIN_DOCS;
 use super::corpus::CorpusStats;
 use super::request::SoakRequest;
+use crate::error::{CliError, CliResult};
 
 pub(super) fn write_metric_outputs(
     vault: &AsterVault,
     request: &SoakRequest,
     stats: &CorpusStats,
     report: &calyx_anneal::SoakReport,
-) -> Result<Value, String> {
+) -> CliResult<Value> {
     let context = JObjectiveContext::new("ph70_ag_news", 4).with_weights(JWeights::default());
-    let mut curve = GrowthCurve::new(AsterGrowthCf::new(vault), Arc::new(SystemClock))
-        .map_err(|error| error.to_string())?;
-    let mut series = File::create(request.metrics_dir.join("anneal_j_series.jsonl"))
-        .map_err(|error| error.to_string())?;
+    let mut curve = GrowthCurve::new(AsterGrowthCf::new(vault), Arc::new(SystemClock))?;
+    let mut series = File::create(request.metrics_dir.join("anneal_j_series.jsonl"))?;
     let mut first_j = None;
     let mut last_j = None;
     let mut first_value = None;
@@ -34,16 +33,14 @@ pub(super) fn write_metric_outputs(
     let mut previous_query = 0;
     for (index, sample) in report.samples.iter().enumerate() {
         let source = SoakJSource::new(sample, report, stats);
-        let value = compute_j(&context, &source).map_err(|error| error.to_string())?;
+        let value = compute_j(&context, &source)?;
         let intel = intelligence_from(value.clone(), sample.query_count);
-        write_intelligence_report_snapshot(vault, &intel).map_err(|error| error.to_string())?;
-        let growth = curve
-            .record_sample(
-                &intel,
-                sample.query_count.saturating_sub(previous_query),
-                vec!["ph70_real_corpus_soak".to_string()],
-            )
-            .map_err(|error| error.to_string())?;
+        write_intelligence_report_snapshot(vault, &intel)?;
+        let growth = curve.record_sample(
+            &intel,
+            sample.query_count.saturating_sub(previous_query),
+            vec!["ph70_real_corpus_soak".to_string()],
+        )?;
         previous_query = sample.query_count;
         if first_j.is_none() {
             first_j = Some(value.j);
@@ -60,7 +57,7 @@ pub(super) fn write_metric_outputs(
             index + 1 == report.samples.len(),
         )?;
     }
-    vault.flush().map_err(|error| error.to_string())?;
+    vault.flush()?;
     let goodhart = goodhart_report(first_value, last_value, stats)?;
     let summary = summary_json(
         request,
@@ -90,7 +87,7 @@ fn write_series_row(
     stats: &CorpusStats,
     growth: &calyx_anneal::GrowthSample,
     is_last: bool,
-) -> std::result::Result<(), String> {
+) -> CliResult {
     let row = json!({
         "step": index + 1,
         "query_count": sample.query_count,
@@ -105,9 +102,11 @@ fn write_series_row(
     writeln!(
         series,
         "{}",
-        serde_json::to_string(&row).map_err(|error| error.to_string())?
-    )
-    .map_err(|error| error.to_string())
+        serde_json::to_string(&row).map_err(|error| CliError::runtime(format!(
+            "serialize anneal J series row: {error}"
+        )))?
+    )?;
+    Ok(())
 }
 
 #[derive(Clone)]
@@ -194,10 +193,11 @@ fn goodhart_report(
     before: Option<JValue>,
     after: Option<JValue>,
     stats: &CorpusStats,
-) -> Result<GoodhartReport, String> {
+) -> CliResult<GoodhartReport> {
     let before =
-        before.ok_or_else(|| "CALYX_FSV_ANNEAL_SOAK_INCOMPLETE: no first J".to_string())?;
-    let after = after.ok_or_else(|| "CALYX_FSV_ANNEAL_SOAK_INCOMPLETE: no last J".to_string())?;
+        before.ok_or_else(|| CliError::runtime("CALYX_FSV_ANNEAL_SOAK_INCOMPLETE: no first J"))?;
+    let after =
+        after.ok_or_else(|| CliError::runtime("CALYX_FSV_ANNEAL_SOAK_INCOMPLETE: no last J"))?;
     let held = HeldOutSet::sealed(
         "ph70-ag-news-heldout",
         stats.rows / 10,
@@ -205,13 +205,11 @@ fn goodhart_report(
         after,
     );
     let checker = GoodhartChecker::new(held, Arc::new(FixedWard { fraction: 0.99 }));
-    checker
-        .check(
-            &before,
-            checker.held_out_set.after.as_ref().expect("sealed"),
-            &[],
-        )
-        .map_err(|error| error.to_string())
+    Ok(checker.check(
+        &before,
+        checker.held_out_set.after.as_ref().expect("sealed"),
+        &[],
+    )?)
 }
 
 struct FixedWard {
@@ -258,10 +256,7 @@ fn summary_json(
     })
 }
 
-fn write_p99_delta(
-    path: &Path,
-    report: &calyx_anneal::SoakReport,
-) -> std::result::Result<(), String> {
+fn write_p99_delta(path: &Path, report: &calyx_anneal::SoakReport) -> CliResult {
     let required_max = (report.baseline_p99_ns as f64 * 0.80).round() as u64;
     let text = format!(
         "p99_first_ns={}\np99_last_ns={}\np99_required_max_ns={}\np99_decrease_fraction={:.6}\np99_pass={}\n",
@@ -271,12 +266,13 @@ fn write_p99_delta(
         report.p99_reduction,
         report.final_p99_ns <= required_max
     );
-    fs::write(path, text).map_err(|error| error.to_string())
+    Ok(fs::write(path, text)?)
 }
 
-fn write_json(path: &Path, value: &Value) -> std::result::Result<(), String> {
-    let bytes = serde_json::to_vec_pretty(value).map_err(|error| error.to_string())?;
-    fs::write(path, [bytes, b"\n".to_vec()].concat()).map_err(|error| error.to_string())
+fn write_json(path: &Path, value: &Value) -> CliResult {
+    let bytes = serde_json::to_vec_pretty(value)
+        .map_err(|error| CliError::runtime(format!("serialize {}: {error}", path.display())))?;
+    Ok(fs::write(path, [bytes, b"\n".to_vec()].concat())?)
 }
 
 fn p99_reduction(baseline: u64, current: u64) -> f64 {

@@ -85,7 +85,9 @@ impl OracleEvent {
         );
         metadata.insert(
             calyx_oracle::ORACLE_EFFECT_METADATA_KEY.to_string(),
-            serde_json::to_string(&self.outcome)?,
+            serde_json::to_string(&self.outcome).map_err(|error| {
+                CliError::runtime(format!("serialize oracle event outcome: {error}"))
+            })?,
         );
         metadata.insert(
             ORACLE_STRUCTURED_METADATA_KEY.to_string(),
@@ -104,7 +106,9 @@ impl OracleEvent {
                 "provisional": !self.grounded
             }
         });
-        let bytes = serde_json::to_vec(&value)?;
+        let bytes = serde_json::to_vec(&value).map_err(|error| {
+            CliError::runtime(format!("serialize oracle occurrence context: {error}"))
+        })?;
         OccurrenceContext::new(bytes).map_err(CliError::from)
     }
 }

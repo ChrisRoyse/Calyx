@@ -14,6 +14,8 @@ use calyx_sextant::{
     TemporalPolicy, TemporalSearchInput, TimeWindow, temporal_search_from_primary_with_recurrence,
 };
 
+use crate::error::CliError;
+
 const CONTENT_SLOT: SlotId = SlotId::new(8);
 const TEMPORAL_SLOT: SlotId = SlotId::new(20);
 const QUERY_SCORE: f32 = 0.70;
@@ -31,8 +33,7 @@ pub fn readback_temporal_search(clock_fixed: i64, tz_offset_secs: i32) -> crate:
         vault_id(),
         b"temporal-readback-recurrence",
         VaultOptions::default(),
-    )
-    .map_err(|error| error.to_string())?;
+    )?;
     seed_recurrence(&vault, clock_fixed)?;
 
     let policy = policy_recurrence_only()?;
@@ -53,59 +54,54 @@ pub fn readback_temporal_search(clock_fixed: i64, tz_offset_secs: i32) -> crate:
             window_recall: Default::default(),
         },
         &vault,
-    )
-    .map_err(|error| error.to_string())?;
+    )?;
     println!(
         "{}",
-        serde_json::to_string_pretty(&result).map_err(|error| error.to_string())?
+        serde_json::to_string_pretty(&result).map_err(|error| {
+            CliError::runtime(format!("serialize temporal search readback: {error}"))
+        })?
     );
     Ok(())
 }
 
-fn seed_recurrence(vault: &AsterVault, clock_fixed: i64) -> std::result::Result<(), String> {
-    vault
-        .put(row(CX_A, created_at_secs(clock_fixed, 3_000)))
-        .map_err(|error| error.to_string())?;
-    vault
-        .put(row(CX_B, created_at_secs(clock_fixed, 86_400)))
-        .map_err(|error| error.to_string())?;
+fn seed_recurrence(vault: &AsterVault, clock_fixed: i64) -> crate::error::CliResult {
+    vault.put(row(CX_A, created_at_secs(clock_fixed, 3_000)))?;
+    vault.put(row(CX_B, created_at_secs(clock_fixed, 86_400)))?;
     for idx in 0..50 {
         append_occurrence(
             vault,
             cx(CX_A),
             EpochSecs(event_time(clock_fixed, (50 - idx) * 60)),
-            OccurrenceContext::new(format!("A-{idx}")).map_err(|error| error.to_string())?,
+            OccurrenceContext::new(format!("A-{idx}"))?,
             EpochSecs(event_time(clock_fixed, 0)),
             RetentionPolicy::default(),
-        )
-        .map_err(|error| error.to_string())?;
+        )?;
     }
     append_occurrence(
         vault,
         cx(CX_B),
         EpochSecs(event_time(clock_fixed, 86_400)),
-        OccurrenceContext::new("B-singleton").map_err(|error| error.to_string())?,
+        OccurrenceContext::new("B-singleton")?,
         EpochSecs(event_time(clock_fixed, 0)),
         RetentionPolicy::default(),
-    )
-    .map_err(|error| error.to_string())?;
-    vault.flush().map_err(|error| error.to_string())
+    )?;
+    vault.flush()?;
+    Ok(())
 }
 
-fn policy_recurrence_only() -> Result<TemporalPolicy, String> {
-    TemporalPolicy::new(
+fn policy_recurrence_only() -> crate::error::CliResult<TemporalPolicy> {
+    Ok(TemporalPolicy::new(
         true,
         DecayFunction::Step,
         Default::default(),
         Default::default(),
-        FusionWeights::new(1.0, 0.0, 0.0).map_err(|error| error.to_string())?,
+        FusionWeights::new(1.0, 0.0, 0.0)?,
         BoostConfig {
             post_retrieval_alpha: 0.0,
             ..BoostConfig::default()
         },
         true,
-    )
-    .map_err(|error| error.to_string())
+    )?)
 }
 
 fn hit(seed: u8, rank: usize, event_time_secs: i64) -> Hit {
@@ -160,11 +156,12 @@ fn row(seed: u8, created_at: u64) -> calyx_core::Constellation {
     }
 }
 
-fn reset_dir(path: &Path) -> std::result::Result<(), String> {
+fn reset_dir(path: &Path) -> crate::error::CliResult {
     if path.exists() {
-        fs::remove_dir_all(path).map_err(|error| error.to_string())?;
+        fs::remove_dir_all(path)?;
     }
-    fs::create_dir_all(path).map_err(|error| error.to_string())
+    fs::create_dir_all(path)?;
+    Ok(())
 }
 
 fn event_time(clock_fixed: i64, age_secs: i64) -> i64 {

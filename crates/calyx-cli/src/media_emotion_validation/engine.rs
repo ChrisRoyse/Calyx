@@ -6,6 +6,7 @@ use serde::Serialize;
 
 use super::data::{EmotionSample, ValidationData};
 use super::request::EmotionRequest;
+use crate::error::{CliError, CliResult};
 
 pub(crate) const MEDIA_PANEL_VERSION: u32 = 10;
 pub(crate) const AUDIO_EMOTION_SLOT: SlotId = SlotId::new(3);
@@ -29,17 +30,16 @@ pub(crate) struct EmotionReport {
 pub(crate) fn evaluate_emotion(
     data: &ValidationData,
     request: &EmotionRequest,
-) -> Result<EmotionReport, String> {
+) -> CliResult<EmotionReport> {
     let view = emotion_view(&data.samples)?;
     let anchor = grounded_anchor();
     let emotion_bits =
-        ksg_mi_continuous_discrete_with_anchor(&view.features, &view.labels, request.k, &anchor)
-            .map_err(|error| error.to_string())?;
+        ksg_mi_continuous_discrete_with_anchor(&view.features, &view.labels, request.k, &anchor)?;
     if emotion_bits.bits + f32::EPSILON < request.min_bits {
-        return Err(format!(
+        return Err(CliError::runtime(format!(
             "CALYX_FSV_MEDIA_EMOTION_BITS_BELOW_THRESHOLD: bits={:.6} threshold={:.6}",
             emotion_bits.bits, request.min_bits
-        ));
+        )));
     }
     Ok(EmotionReport {
         sample_rows: data.total_rows,
@@ -67,12 +67,12 @@ pub(crate) fn panel_estimate(report: &EmotionReport) -> MiEstimate {
     )
 }
 
-fn emotion_view(samples: &[EmotionSample]) -> Result<EmotionView, String> {
+fn emotion_view(samples: &[EmotionSample]) -> CliResult<EmotionView> {
     if samples.len() < 50 {
-        return Err(format!(
+        return Err(CliError::runtime(format!(
             "CALYX_FSV_MEDIA_EMOTION_LABEL_DOMAIN_MISMATCH: need at least 50 samples; got {}",
             samples.len()
-        ));
+        )));
     }
     let feature_dim = rectangular_dim(samples.iter().map(|sample| sample.features.as_slice()))?;
     let labels = samples
@@ -81,10 +81,9 @@ fn emotion_view(samples: &[EmotionSample]) -> Result<EmotionView, String> {
         .collect::<Vec<_>>();
     let label_count = labels.iter().copied().collect::<BTreeSet<_>>().len();
     if label_count < 2 {
-        return Err(
-            "CALYX_FSV_MEDIA_EMOTION_LABEL_DOMAIN_MISMATCH: emotion labels must contain at least two values"
-                .to_string(),
-        );
+        return Err(CliError::runtime(
+            "CALYX_FSV_MEDIA_EMOTION_LABEL_DOMAIN_MISMATCH: emotion labels must contain at least two values",
+        ));
     }
     Ok(EmotionView {
         features: samples
@@ -97,20 +96,23 @@ fn emotion_view(samples: &[EmotionSample]) -> Result<EmotionView, String> {
     })
 }
 
-fn rectangular_dim<'a>(mut rows: impl Iterator<Item = &'a [f32]>) -> Result<usize, String> {
+fn rectangular_dim<'a>(mut rows: impl Iterator<Item = &'a [f32]>) -> CliResult<usize> {
     let Some(first) = rows.next() else {
-        return Err("CALYX_FSV_MEDIA_EMOTION_INVALID_FEATURE: no feature rows".to_string());
+        return Err(CliError::runtime(
+            "CALYX_FSV_MEDIA_EMOTION_INVALID_FEATURE: no feature rows",
+        ));
     };
     let dim = first.len();
     if dim == 0 {
-        return Err("CALYX_FSV_MEDIA_EMOTION_INVALID_FEATURE: feature dim is zero".to_string());
+        return Err(CliError::runtime(
+            "CALYX_FSV_MEDIA_EMOTION_INVALID_FEATURE: feature dim is zero",
+        ));
     }
     for row in rows {
         if row.len() != dim {
-            return Err(
-                "CALYX_FSV_MEDIA_EMOTION_INVALID_FEATURE: feature rows are not rectangular"
-                    .to_string(),
-            );
+            return Err(CliError::runtime(
+                "CALYX_FSV_MEDIA_EMOTION_INVALID_FEATURE: feature rows are not rectangular",
+            ));
         }
     }
     Ok(dim)

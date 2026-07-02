@@ -81,7 +81,11 @@ fn perfect_single_lens_fails_delta_gate() {
     let indexed = build_engine(&vault, &data).unwrap();
     let error = evaluate_recall(&indexed.engine, &data, &request, &indexed).unwrap_err();
 
-    assert!(error.contains("CALYX_FSV_SEXTANT_RECALL_BELOW_THRESHOLD"));
+    assert!(
+        error
+            .message()
+            .contains("CALYX_FSV_SEXTANT_RECALL_BELOW_THRESHOLD")
+    );
     let _ = fs::remove_dir_all(root);
 }
 
@@ -89,7 +93,7 @@ fn perfect_single_lens_fails_delta_gate() {
 fn missing_ledger_ref_fails_closed() {
     let mut hit = stub_hit();
     assert_eq!(
-        ensure_ledger_refs(&[hit.clone()]).unwrap_err(),
+        ensure_ledger_refs(&[hit.clone()]).unwrap_err().message(),
         "CALYX_FSV_LEDGER_REF_MISSING"
     );
     hit.provenance_source = ProvenanceSource::Stored;
@@ -120,7 +124,7 @@ fn empty_qrels_fail_closed() {
     let indexed = build_engine(&vault, &data).unwrap();
     let error = evaluate_recall(&indexed.engine, &data, &request, &indexed).unwrap_err();
 
-    assert_eq!(error, "CALYX_FSV_EMPTY_QRELS");
+    assert_eq!(error.message(), "CALYX_FSV_EMPTY_QRELS");
     let _ = fs::remove_dir_all(root);
 }
 

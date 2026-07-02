@@ -1,13 +1,31 @@
 //! CLI error contract: every failure serializes to a stable, machine-dispatchable
 //! envelope on stderr and exits `2`.
 //!
-//! `CliError` wraps the structured [`CalyxError`] catalog (PRD 18) plus two
-//! CLI-local conditions — I/O and usage — that have no catalog entry but still
-//! must surface a stable `code` + `remediation` so an agent (A17) can
+//! `CliError` wraps the structured [`CalyxError`] catalog (PRD 18) plus three
+//! CLI-local conditions — I/O, usage, and runtime — that have no catalog entry
+//! but still must surface a stable `code` + `remediation` so an agent (A17) can
 //! self-correct without parsing prose. Every variant serializes to the exact
 //! wire shape `{"code":"CALYX_*","message":"…","remediation":"…"}` so the JSON
 //! emitted on stderr is byte-identical to what [`CalyxError`] produces over any
 //! other surface (MCP, API).
+//!
+//! Classification is explicit at every failure site (issue #1145):
+//! - [`CliError::Calyx`] — a typed catalog error propagated verbatim via `?`;
+//!   its `code` and `remediation` must never be rewritten.
+//! - [`CliError::Usage`] — the caller must change the command line; reserved
+//!   for argument/flag parse failures only.
+//! - [`CliError::Io`] — the OS refused a file/path operation.
+//! - [`CliError::Runtime`] — the command and arguments were valid but an
+//!   operation failed without a catalog entry (gate mismatch, worker panic,
+//!   malformed stored data).
+//!
+//! There is deliberately no `From<String>` / `From<&str>` conversion: a blanket
+//! string conversion silently reclassified stringified [`CalyxError`]s (and
+//! I/O errors) as usage errors, destroying their typed `code`/`remediation`
+//! and pointing operators at `--help` for storage-state failures (#1145).
+//! Removing the impls makes that misclassification a compile error: every
+//! string-typed failure must name its class via [`CliError::usage`],
+//! [`CliError::io`], or [`CliError::runtime`].
 //!
 //! Stream/exit contract follows POSIX + the dual-consumer guidance in the
 //! references on the card: errors go to stderr, success output to stdout, and a
@@ -30,6 +48,13 @@ pub(crate) const CALYX_CLI_USAGE_ERROR: &str = "CALYX_CLI_USAGE_ERROR";
 /// Remediation for [`CALYX_CLI_USAGE_ERROR`].
 const CLI_USAGE_REMEDIATION: &str =
     "run `calyx --help` and fix the command/flags shown in the message";
+
+/// Sentinel code for a runtime failure (valid command, failed operation) with
+/// no PRD 18 catalog entry.
+pub(crate) const CALYX_CLI_RUNTIME_ERROR: &str = "CALYX_CLI_RUNTIME_ERROR";
+/// Remediation for [`CALYX_CLI_RUNTIME_ERROR`].
+const CLI_RUNTIME_REMEDIATION: &str = "the command and flags were valid; inspect the failure \
+     detail in the message, fix the named state or input, and retry";
 /// Remediation for subsystem-local `CALYX_*` errors that are not PRD 18 entries.
 const CLI_SUBSYSTEM_REMEDIATION: &str =
     "follow the emitted CALYX_* subsystem code and inspect the named source of truth";
@@ -50,6 +75,9 @@ pub(crate) enum CliError {
     Io(String),
     /// A command-misuse failure surfaced under [`CALYX_CLI_USAGE_ERROR`].
     Usage(String),
+    /// A valid command whose operation failed without a catalog entry,
+    /// surfaced under [`CALYX_CLI_RUNTIME_ERROR`].
+    Runtime(String),
 }
 
 /// Private serialization shape — guarantees byte-identical field order
@@ -73,12 +101,18 @@ impl CliError {
         Self::Io(message.into())
     }
 
+    /// Builds a runtime error (valid command, failed operation).
+    pub(crate) fn runtime(message: impl Into<String>) -> Self {
+        Self::Runtime(message.into())
+    }
+
     /// Returns the stable, machine-dispatchable code.
     pub(crate) fn code(&self) -> &'static str {
         match self {
             Self::Calyx(error) => error.code,
             Self::Io(_) => CALYX_CLI_IO_ERROR,
             Self::Usage(_) => CALYX_CLI_USAGE_ERROR,
+            Self::Runtime(_) => CALYX_CLI_RUNTIME_ERROR,
         }
     }
 
@@ -86,7 +120,7 @@ impl CliError {
     pub(crate) fn message(&self) -> &str {
         match self {
             Self::Calyx(error) => &error.message,
-            Self::Io(message) | Self::Usage(message) => message,
+            Self::Io(message) | Self::Usage(message) | Self::Runtime(message) => message,
         }
     }
 
@@ -96,6 +130,7 @@ impl CliError {
             Self::Calyx(error) => error.remediation,
             Self::Io(_) => CLI_IO_REMEDIATION,
             Self::Usage(_) => CLI_USAGE_REMEDIATION,
+            Self::Runtime(_) => CLI_RUNTIME_REMEDIATION,
         }
     }
 
@@ -135,39 +170,49 @@ impl From<io::Error> for CliError {
     }
 }
 
-impl From<String> for CliError {
-    fn from(message: String) -> Self {
-        Self::Usage(message)
+impl From<calyx_oracle::OracleError> for CliError {
+    fn from(error: calyx_oracle::OracleError) -> Self {
+        Self::Calyx(CalyxError::from(error))
     }
 }
 
-impl From<&str> for CliError {
-    fn from(message: &str) -> Self {
-        Self::Usage(message.to_string())
-    }
-}
-
-impl From<serde_json::Error> for CliError {
-    fn from(error: serde_json::Error) -> Self {
-        Self::Usage(error.to_string())
+impl From<calyx_forge::ForgeError> for CliError {
+    fn from(error: calyx_forge::ForgeError) -> Self {
+        subsystem_calyx_error(error.code(), &error.to_string())
     }
 }
 
 impl From<calyx_lodestar::LodestarError> for CliError {
     fn from(error: calyx_lodestar::LodestarError) -> Self {
-        let code = error.code();
-        let text = error.to_string();
-        let message = text
-            .strip_prefix(code)
-            .and_then(|rest| rest.strip_prefix(": "))
-            .unwrap_or(&text)
-            .to_string();
-        Self::Calyx(CalyxError {
-            code,
-            message,
-            remediation: CLI_SUBSYSTEM_REMEDIATION,
-        })
+        subsystem_calyx_error(error.code(), &error.to_string())
     }
+}
+
+impl From<calyx_ward::WardError> for CliError {
+    fn from(error: calyx_ward::WardError) -> Self {
+        subsystem_calyx_error(error.code(), &error.to_string())
+    }
+}
+
+impl From<calyx_paths::PathsError> for CliError {
+    fn from(error: calyx_paths::PathsError) -> Self {
+        subsystem_calyx_error(error.code(), &error.to_string())
+    }
+}
+
+/// Builds a [`CliError::Calyx`] for a subsystem error that carries a stable
+/// `CALYX_*` code but no `&'static` remediation, stripping the `"CODE: "`
+/// prefix its `Display` duplicates into the text.
+fn subsystem_calyx_error(code: &'static str, text: &str) -> CliError {
+    let message = text
+        .strip_prefix(code)
+        .map(|rest| rest.trim_start_matches([':', ' ']).to_string())
+        .unwrap_or_else(|| text.to_string());
+    CliError::Calyx(CalyxError {
+        code,
+        message,
+        remediation: CLI_SUBSYSTEM_REMEDIATION,
+    })
 }
 
 impl std::fmt::Display for CliError {
@@ -226,11 +271,82 @@ mod tests {
     }
 
     #[test]
+    fn runtime_variant_uses_sentinel_code_and_nonempty_remediation() {
+        let error = CliError::runtime("compaction scheduler panicked");
+        let json = error.to_json();
+
+        assert!(
+            json.contains(r#""code":"CALYX_CLI_RUNTIME_ERROR""#),
+            "{json}"
+        );
+        assert!(
+            json.contains(r#""message":"compaction scheduler panicked""#),
+            "{json}"
+        );
+        assert!(!error.remediation().is_empty());
+        assert!(
+            !error.remediation().contains("--help"),
+            "runtime failures must not point operators at --help: {}",
+            error.remediation()
+        );
+    }
+
+    #[test]
+    fn sentinel_codes_are_distinct_and_outside_the_catalog() {
+        let codes = [
+            CliError::usage("x").code(),
+            CliError::io("x").code(),
+            CliError::runtime("x").code(),
+        ];
+        for (index, code) in codes.iter().enumerate() {
+            for other in &codes[index + 1..] {
+                assert_ne!(code, other);
+            }
+            assert!(
+                CALYX_ERROR_CODES.iter().all(|entry| entry.code() != *code),
+                "CLI-local sentinel {code} must not shadow a PRD 18 catalog code"
+            );
+        }
+    }
+
+    #[test]
     fn io_variant_uses_sentinel_code_and_nonempty_remediation() {
         let json = CliError::io("No such file or directory (os error 2)").to_json();
 
         assert!(json.contains(r#""code":"CALYX_CLI_IO_ERROR""#), "{json}");
         assert!(!CliError::io("x").remediation().is_empty());
+    }
+
+    #[test]
+    fn oracle_error_keeps_typed_code_and_remediation() {
+        let oracle = calyx_oracle::OracleError::DomainNotFound;
+        let expected_code = oracle.code();
+        let expected_remediation = oracle.remediation();
+        let cli = CliError::from(oracle);
+
+        assert_eq!(cli.code(), expected_code);
+        assert_eq!(cli.remediation(), expected_remediation);
+        assert_ne!(cli.code(), CALYX_CLI_USAGE_ERROR);
+        assert_ne!(cli.code(), CALYX_CLI_RUNTIME_ERROR);
+    }
+
+    #[test]
+    fn forge_error_keeps_typed_code_with_subsystem_remediation() {
+        let forge = calyx_forge::ForgeError::Unimplemented {
+            op: "matmul".to_string(),
+            remediation: "use the CPU path".to_string(),
+        };
+        let expected_code = forge.code();
+        let cli = CliError::from(forge);
+
+        assert_eq!(cli.code(), expected_code);
+        assert_eq!(cli.remediation(), CLI_SUBSYSTEM_REMEDIATION);
+        assert!(cli.message().contains("matmul"), "{}", cli.message());
+        assert!(
+            !cli.message().starts_with(expected_code),
+            "code must not be duplicated into the message: {}",
+            cli.message()
+        );
     }
 
     #[test]

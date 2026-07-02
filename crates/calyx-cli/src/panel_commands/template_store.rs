@@ -13,9 +13,9 @@ pub(super) use super::template_model::{
     CATALOG_VERSION, MIN_CONTENT_LENSES, OBJECT_VERSION, PanelTemplateCatalog,
     PanelTemplateIndexEntry, PanelTemplateVersionRef, SavedPanelTemplate, TEMPLATE_INVALID,
     TEMPLATE_NOT_FOUND, TemplateDraft, TemplateEnsembleCard, TemplateLensRef,
-    default_time_controls, lens_ref_from_catalog, template_error,
+    default_time_controls, id_for_loaded, lens_ref_from_catalog, object_bytes, template_error,
 };
-use crate::error::CliResult;
+use crate::error::{CliError, CliResult};
 use crate::lens_commands::support::{prepare_manifest_runtime, register_prepared_manifest_runtime};
 
 #[derive(Clone, Debug)]
@@ -251,7 +251,8 @@ impl TemplateStore {
                 templates: Vec::new(),
             });
         }
-        let catalog: PanelTemplateCatalog = serde_json::from_slice(&fs::read(&path)?)?;
+        let catalog: PanelTemplateCatalog = serde_json::from_slice(&fs::read(&path)?)
+            .map_err(|error| CliError::runtime(format!("parse template catalog: {error}")))?;
         if catalog.schema_version != CATALOG_VERSION {
             return Err(template_error(
                 TEMPLATE_INVALID,
@@ -266,7 +267,8 @@ impl TemplateStore {
     }
 
     fn write_catalog(&self, catalog: &PanelTemplateCatalog) -> CliResult {
-        let bytes = serde_json::to_vec_pretty(catalog)?;
+        let bytes = serde_json::to_vec_pretty(catalog)
+            .map_err(|error| CliError::runtime(format!("serialize template catalog: {error}")))?;
         write_atomic(&self.index_path(), &bytes)
     }
 
@@ -318,7 +320,8 @@ impl TemplateStore {
                 "do not edit immutable template objects; re-save the template",
             ));
         }
-        let template: SavedPanelTemplate = serde_json::from_slice(&bytes)?;
+        let template: SavedPanelTemplate = serde_json::from_slice(&bytes)
+            .map_err(|error| CliError::runtime(format!("parse template object: {error}")))?;
         template.validate()?;
         Ok(template)
     }
@@ -453,14 +456,6 @@ use progress::{emit_progress, lens_progress};
 
 #[cfg(test)]
 mod tests;
-
-pub(super) fn id_for_loaded(template: &SavedPanelTemplate) -> CliResult<String> {
-    Ok(blake3::hash(&object_bytes(template)?).to_hex().to_string())
-}
-
-fn object_bytes(template: &SavedPanelTemplate) -> CliResult<Vec<u8>> {
-    Ok(serde_json::to_vec_pretty(template)?)
-}
 
 fn object_rel_path(template_id: &str) -> String {
     format!("objects/{template_id}.json")

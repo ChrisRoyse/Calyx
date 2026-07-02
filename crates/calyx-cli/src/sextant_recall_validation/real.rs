@@ -23,6 +23,7 @@ use super::real_types::{
 };
 use super::request::RecallRequest;
 use super::rerank::{doc_texts_by_cx, rerank_hits};
+use crate::error::{CliError, CliResult};
 
 const INGEST_BATCH_ROWS: usize = 128;
 
@@ -38,7 +39,7 @@ pub(crate) fn run_real_panel(
     request: &RecallRequest,
     data: &ValidationData,
     vault_id: VaultId,
-) -> Result<PanelMetricEvidence, String> {
+) -> CliResult<PanelMetricEvidence> {
     let panel = load_real_panel(request)?;
     let options = VaultOptions {
         panel: Some(panel.panel.clone()),
@@ -49,37 +50,30 @@ pub(crate) fn run_real_panel(
         vault_id,
         request.vault_salt.as_bytes().to_vec(),
         options,
-    )
-    .map_err(|error| error.to_string())?;
-    let before = load_search_docs(&vault).map_err(|error| error.to_string())?;
+    )?;
+    let before = load_search_docs(&vault)?;
     if !before.is_empty() {
-        return Err(format!(
+        return Err(CliError::runtime(format!(
             "CALYX_FSV_SEXTANT_VAULT_NOT_EMPTY: {} stored docs before validation",
             before.len()
-        ));
+        )));
     }
-    persist_vault_panel_state(&request.vault, &panel.panel, &panel.registry)
-        .map_err(|error| error.to_string())?;
-    let state = load_vault_panel_state(&request.vault).map_err(|error| error.to_string())?;
+    persist_vault_panel_state(&request.vault, &panel.panel, &panel.registry)?;
+    let state = load_vault_panel_state(&request.vault)?;
     ingest_corpus(&vault, &state, data)?;
-    rebuild_persistent_indexes(&request.vault, &vault).map_err(|error| error.to_string())?;
-    let docs = load_search_docs(&vault).map_err(|error| error.to_string())?;
+    rebuild_persistent_indexes(&request.vault, &vault)?;
+    let docs = load_search_docs(&vault)?;
     validate_stored_docs(&docs, data, state.panel.slots.len())?;
     let report = evaluate_panel(&vault, &state, request, data, &docs, panel.slots)?;
     write_outputs(&vault, request, report)
 }
 
-fn ingest_corpus(
-    vault: &AsterVault,
-    state: &VaultPanelState,
-    data: &ValidationData,
-) -> Result<(), String> {
+fn ingest_corpus(vault: &AsterVault, state: &VaultPanelState, data: &ValidationData) -> CliResult {
     let mut rows = Vec::with_capacity(INGEST_BATCH_ROWS);
     for (idx, doc) in data.corpus.iter().enumerate() {
         let pointer = format!("beir-scifact:{}", doc.doc_id);
         let input = ingest_text_input(doc.text.clone()).with_pointer(pointer);
-        let mut cx = measure_ingest_constellation(vault, state, input, idx as u64 + 1)
-            .map_err(|error| error.to_string())?;
+        let mut cx = measure_ingest_constellation(vault, state, input, idx as u64 + 1)?;
         cx.cx_id = cx_for_doc_id(&doc.doc_id);
         cx.metadata
             .insert("dataset".to_string(), "beir_scifact".to_string());
@@ -114,15 +108,13 @@ fn flush_ingest_batch(
     rows: &mut Vec<calyx_core::Constellation>,
     measured_docs: usize,
     total_docs: usize,
-) -> Result<(), String> {
+) -> CliResult {
     if rows.is_empty() {
         return Ok(());
     }
     let batch_len = rows.len();
-    vault
-        .put_batch(std::mem::take(rows))
-        .map_err(|error| error.to_string())?;
-    vault.flush().map_err(|error| error.to_string())?;
+    vault.put_batch(std::mem::take(rows))?;
+    vault.flush()?;
     eprintln!(
         "CALYX_FSV_SEXTANT_INGEST_PROGRESS measured_docs={measured_docs} total_docs={total_docs} stored_batch={batch_len} latest_seq={}",
         vault.latest_seq()
@@ -130,7 +122,7 @@ fn flush_ingest_batch(
     Ok(())
 }
 
-fn reject_absent_slots(doc_id: &str, slots: &BTreeMap<SlotId, SlotVector>) -> Result<(), String> {
+fn reject_absent_slots(doc_id: &str, slots: &BTreeMap<SlotId, SlotVector>) -> CliResult {
     let absent = slots
         .iter()
         .filter_map(|(slot, vector)| vector.is_absent().then_some(slot.to_string()))
@@ -138,10 +130,10 @@ fn reject_absent_slots(doc_id: &str, slots: &BTreeMap<SlotId, SlotVector>) -> Re
     if absent.is_empty() {
         Ok(())
     } else {
-        Err(format!(
+        Err(CliError::runtime(format!(
             "CALYX_FSV_SEXTANT_PANEL_ABSENT_SLOT: doc_id={doc_id} slots={}",
             absent.join(",")
-        ))
+        )))
     }
 }
 
@@ -149,24 +141,27 @@ fn validate_stored_docs(
     docs: &BTreeMap<CxId, calyx_core::Constellation>,
     data: &ValidationData,
     expected_slots: usize,
-) -> Result<(), String> {
+) -> CliResult {
     if docs.len() != data.corpus.len() {
-        return Err(format!(
+        return Err(CliError::runtime(format!(
             "CALYX_FSV_SEXTANT_STORED_DOC_COUNT_MISMATCH: stored={} corpus={}",
             docs.len(),
             data.corpus.len()
-        ));
+        )));
     }
     for doc in &data.corpus {
         let cx_id = cx_for_doc_id(&doc.doc_id);
-        let stored = docs
-            .get(&cx_id)
-            .ok_or_else(|| format!("CALYX_FSV_SEXTANT_STORED_DOC_MISSING: {}", doc.doc_id))?;
+        let stored = docs.get(&cx_id).ok_or_else(|| {
+            CliError::runtime(format!(
+                "CALYX_FSV_SEXTANT_STORED_DOC_MISSING: {}",
+                doc.doc_id
+            ))
+        })?;
         if stored.metadata.get("doc_id") != Some(&doc.doc_id) {
-            return Err(format!(
+            return Err(CliError::runtime(format!(
                 "CALYX_FSV_SEXTANT_DOC_ID_MISMATCH: expected {}",
                 doc.doc_id
-            ));
+            )));
         }
         let real_slots = stored
             .slots
@@ -174,10 +169,10 @@ fn validate_stored_docs(
             .filter(|vector| !vector.is_absent())
             .count();
         if real_slots != expected_slots {
-            return Err(format!(
+            return Err(CliError::runtime(format!(
                 "CALYX_FSV_SEXTANT_SLOT_COUNT_MISMATCH: doc_id={} slots={real_slots}/{expected_slots}",
                 doc.doc_id
-            ));
+            )));
         }
     }
     Ok(())
@@ -190,20 +185,19 @@ fn evaluate_panel(
     data: &ValidationData,
     docs: &BTreeMap<CxId, calyx_core::Constellation>,
     panel_slots: Vec<RealPanelSlot>,
-) -> Result<PanelRelevanceReport, String> {
+) -> CliResult<PanelRelevanceReport> {
     let eligible = eligible_qids(data);
     if eligible.is_empty() {
-        return Err("CALYX_FSV_EMPTY_QRELS".to_string());
+        return Err(CliError::runtime("CALYX_FSV_EMPTY_QRELS"));
     }
     let qids = eligible
         .iter()
         .take(request.query_limit)
         .cloned()
         .collect::<Vec<_>>();
-    let indexes =
-        PersistedSearchIndexes::open(&request.vault).map_err(|error| error.to_string())?;
+    let indexes = PersistedSearchIndexes::open(&request.vault)?;
     if indexes.max_len() == 0 {
-        return Err("CALYX_FSV_SEXTANT_EMPTY_INDEX".to_string());
+        return Err(CliError::runtime("CALYX_FSV_SEXTANT_EMPTY_INDEX"));
     }
     let doc_ids = stored_doc_id_map(docs)?;
     let doc_texts = doc_texts_by_cx(docs, data)?;
@@ -233,24 +227,22 @@ fn evaluate_panel(
     for qid in &qids {
         let query = data.queries.get(qid).expect("eligible qid has query");
         let relevant = relevant_for_qid(data, qid, &doc_ids)?;
-        let query_vectors = measure_text_query_vectors(state, query).map_err(|e| e.to_string())?;
+        let query_vectors = measure_text_query_vectors(state, query)?;
         require_query_vectors(&query_vectors, &panel_slots)?;
         let search_k = request.k.max(request.rerank_depth);
         let mut per_slot = BTreeMap::new();
         let mut singles = Vec::new();
         for (slot, vector) in query_vectors {
-            let hits = indexes
-                .search(slot, &vector, search_k)
-                .map_err(|error| error.to_string())?;
+            let hits = indexes.search(slot, &vector, search_k)?;
             let ranking = hits
                 .iter()
                 .take(request.k)
                 .map(|hit| hit.cx_id)
                 .collect::<Vec<_>>();
             let metrics = ranking_metrics(&ranking, &relevant, request.k);
-            let accumulator = accum
-                .get_mut(&slot)
-                .ok_or_else(|| format!("CALYX_FSV_SEXTANT_UNEXPECTED_SLOT: {slot}"))?;
+            let accumulator = accum.get_mut(&slot).ok_or_else(|| {
+                CliError::runtime(format!("CALYX_FSV_SEXTANT_UNEXPECTED_SLOT: {slot}"))
+            })?;
             accumulator.metrics = accumulator.metrics.add(metrics);
             accumulator.hits_examined += hits.len();
             singles.push(QuerySlotEvidence {
@@ -321,10 +313,10 @@ fn evaluate_panel(
     let delta = fused.metrics.ndcg_at_k - best_single.metrics.ndcg_at_k;
     let meets_gate = delta + f64::EPSILON >= request.min_fusion_gain;
     if !meets_gate {
-        return Err(format!(
+        return Err(CliError::runtime(format!(
             "CALYX_FSV_SEXTANT_FUSION_BELOW_BEST_SINGLE: fused_ndcg={:.6} best_single_ndcg={:.6} min_gain={:.6}",
             fused.metrics.ndcg_at_k, best_single.metrics.ndcg_at_k, request.min_fusion_gain
-        ));
+        )));
     }
     Ok(PanelRelevanceReport {
         dataset: request.corpus_jsonl.display().to_string(),
@@ -371,11 +363,13 @@ fn skipped_without_relevance(data: &ValidationData) -> usize {
 
 fn stored_doc_id_map(
     docs: &BTreeMap<CxId, calyx_core::Constellation>,
-) -> Result<BTreeMap<String, CxId>, String> {
+) -> CliResult<BTreeMap<String, CxId>> {
     let mut out = BTreeMap::new();
     for (cx_id, cx) in docs {
         let Some(doc_id) = cx.metadata.get("doc_id") else {
-            return Err(format!("CALYX_FSV_SEXTANT_STORED_DOC_ID_MISSING: {cx_id}"));
+            return Err(CliError::runtime(format!(
+                "CALYX_FSV_SEXTANT_STORED_DOC_ID_MISSING: {cx_id}"
+            )));
         };
         out.insert(doc_id.clone(), *cx_id);
     }
@@ -386,18 +380,18 @@ fn relevant_for_qid(
     data: &ValidationData,
     qid: &str,
     doc_ids: &BTreeMap<String, CxId>,
-) -> Result<BTreeMap<CxId, u32>, String> {
+) -> CliResult<BTreeMap<CxId, u32>> {
     let mut relevant = BTreeMap::<CxId, u32>::new();
     for qrel in data
         .graded_qrels
         .get(qid)
-        .ok_or_else(|| format!("CALYX_FSV_SEXTANT_QREL_QUERY_MISSING: {qid}"))?
+        .ok_or_else(|| CliError::runtime(format!("CALYX_FSV_SEXTANT_QREL_QUERY_MISSING: {qid}")))?
     {
         let cx_id = doc_ids.get(&qrel.doc_id).ok_or_else(|| {
-            format!(
+            CliError::runtime(format!(
                 "CALYX_FSV_SEXTANT_QREL_DOC_MISSING: qid={qid} doc_id={}",
                 qrel.doc_id
-            )
+            ))
         })?;
         relevant
             .entry(*cx_id)
@@ -410,7 +404,7 @@ fn relevant_for_qid(
 fn require_query_vectors(
     query_vectors: &[(SlotId, SlotVector)],
     panel_slots: &[RealPanelSlot],
-) -> Result<(), String> {
+) -> CliResult {
     let measured = query_vectors
         .iter()
         .map(|(slot, _)| *slot)
@@ -423,10 +417,10 @@ fn require_query_vectors(
     if missing.is_empty() {
         Ok(())
     } else {
-        Err(format!(
+        Err(CliError::runtime(format!(
             "CALYX_FSV_SEXTANT_QUERY_VECTOR_MISSING: slots={}",
             missing.join(",")
-        ))
+        )))
     }
 }
 
@@ -455,13 +449,13 @@ fn attach_provenance(
     vault: &AsterVault,
     hits: &mut [Hit],
     docs: &BTreeMap<CxId, calyx_core::Constellation>,
-) -> Result<(), String> {
+) -> CliResult {
     for hit in hits {
         let cx = docs.get(&hit.cx_id).ok_or_else(|| {
-            format!(
+            CliError::runtime(format!(
                 "CALYX_FSV_SEXTANT_HIT_DOC_MISSING: fused hit {} missing from Aster",
                 hit.cx_id
-            )
+            ))
         })?;
         hit.provenance = cx.provenance.clone();
         hit.provenance_source = ProvenanceSource::Stored;
@@ -470,7 +464,7 @@ fn attach_provenance(
     Ok(())
 }
 
-fn best_single(reports: Vec<SlotMetricReport>) -> Result<SlotMetricReport, String> {
+fn best_single(reports: Vec<SlotMetricReport>) -> CliResult<SlotMetricReport> {
     reports
         .into_iter()
         .max_by(|a, b| {
@@ -480,7 +474,7 @@ fn best_single(reports: Vec<SlotMetricReport>) -> Result<SlotMetricReport, Strin
                 .then_with(|| a.metrics.recall_at_k.total_cmp(&b.metrics.recall_at_k))
                 .then_with(|| a.metrics.mrr.total_cmp(&b.metrics.mrr))
         })
-        .ok_or_else(|| "CALYX_FSV_SEXTANT_NO_SINGLE_LENS_METRICS".to_string())
+        .ok_or_else(|| CliError::runtime("CALYX_FSV_SEXTANT_NO_SINGLE_LENS_METRICS"))
 }
 
 fn ids(ranking: &[CxId]) -> Vec<String> {

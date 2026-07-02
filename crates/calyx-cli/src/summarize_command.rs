@@ -46,7 +46,8 @@ pub(crate) fn run(args: &[String]) -> CliResult {
     }
     fs::write(
         &request.out,
-        serde_json::to_vec_pretty(&result).map_err(CliError::from)?,
+        serde_json::to_vec_pretty(&result)
+            .map_err(|error| CliError::runtime(format!("serialize summarize result: {error}")))?,
     )?;
     println!("{result}");
     Ok(())
@@ -191,7 +192,8 @@ fn parse_scope(value: &str) -> CliResult<Scope> {
     } else {
         value.to_string()
     };
-    serde_json::from_str(&text).map_err(CliError::from)
+    serde_json::from_str(&text)
+        .map_err(|error| CliError::usage(format!("invalid --scope JSON: {error}")))
 }
 
 fn value<'a>(args: &'a [String], idx: usize, flag: &str) -> CliResult<&'a str> {

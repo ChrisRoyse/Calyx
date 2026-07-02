@@ -355,7 +355,7 @@ fn malformed_ledger_key_fails_loud() {
         .latest_cf_rows_for_provenance(slot_cf(), &[(b"k1".to_vec(), 100)])
         .unwrap_err();
     assert!(
-        error.contains("non-canonical ledger key"),
+        error.message().contains("non-canonical ledger key"),
         "unexpected error: {error}"
     );
     fs::remove_dir_all(root).ok();

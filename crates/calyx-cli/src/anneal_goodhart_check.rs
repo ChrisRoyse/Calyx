@@ -15,38 +15,44 @@ use calyx_ledger::{ActorId, LedgerAppender};
 use serde::Deserialize;
 use serde_json::json;
 
+use crate::error::CliError;
+
 pub(crate) fn run(args: &[String]) -> crate::error::CliResult {
     let request = Request::parse(args)?;
-    let bytes = fs::read(&request.fixture)
-        .map_err(|error| format!("read fixture {}: {error}", request.fixture.display()))?;
-    let fixture = serde_json::from_slice::<Fixture>(&bytes)
-        .map_err(|error| format!("parse fixture {}: {error}", request.fixture.display()))?;
+    let bytes = fs::read(&request.fixture).map_err(|error| {
+        CliError::io(format!(
+            "read fixture {}: {error}",
+            request.fixture.display()
+        ))
+    })?;
+    let fixture = serde_json::from_slice::<Fixture>(&bytes).map_err(|error| {
+        CliError::runtime(format!(
+            "parse fixture {}: {error}",
+            request.fixture.display()
+        ))
+    })?;
     let vault_id = VaultId::from_str(&request.vault_id)
-        .map_err(|error| format!("invalid --vault-id: {error}"))?;
+        .map_err(|error| CliError::usage(format!("invalid --vault-id: {error}")))?;
     let vault = AsterVault::new_durable(
         &request.vault,
         vault_id,
         request.salt.into_bytes(),
         VaultOptions::default(),
-    )
-    .map_err(|error| error.to_string())?;
+    )?;
     let prior_hash = fixture.prior_ptr_hash.unwrap_or([0x11; 32]);
     let candidate_hash = fixture.candidate_ptr_hash.unwrap_or([0x22; 32]);
-    let state_before = read_goodhart_state_from_vault(&request.vault).map_err(|e| e.to_string())?;
+    let state_before = read_goodhart_state_from_vault(&request.vault)?;
     let checker = fixture.checker()?;
-    let report = checker
-        .check(
-            &fixture.before,
-            &fixture.after,
-            &fixture.lens_contribution_deltas,
-        )
-        .map_err(|error| error.to_string())?;
+    let report = checker.check(
+        &fixture.before,
+        &fixture.after,
+        &fixture.lens_contribution_deltas,
+    )?;
     if fixture.expect_pass != report.passed {
-        return Err(format!(
+        return Err(CliError::runtime(format!(
             "fixture expected passed={} but report passed={}",
             fixture.expect_pass, report.passed
-        )
-        .into());
+        )));
     }
     let clock = FixedClock::new(fixture.ledger_ts);
     let rollback_readback = apply_synthetic_rollback(
@@ -70,12 +76,10 @@ pub(crate) fn run(args: &[String]) -> crate::error::CliResult {
             ts: fixture.ledger_ts,
         },
         &mut ledger,
-    )
-    .map_err(|error| error.to_string())?;
-    vault.flush().map_err(|error| error.to_string())?;
+    )?;
+    vault.flush()?;
     let state_after = if report.p_goodhart_increment > 0.0 {
-        add_goodhart_penalty_to_vault(&request.vault, report.p_goodhart_increment)
-            .map_err(|e| e.to_string())?
+        add_goodhart_penalty_to_vault(&request.vault, report.p_goodhart_increment)?
     } else {
         state_before
     };
@@ -94,7 +98,9 @@ pub(crate) fn run(args: &[String]) -> crate::error::CliResult {
     });
     println!(
         "{}",
-        serde_json::to_string_pretty(&readback).map_err(|e| e.to_string())?
+        serde_json::to_string_pretty(&readback).map_err(|error| CliError::runtime(format!(
+            "serialize goodhart-check readback: {error}"
+        )))?
     );
     Ok(())
 }
@@ -107,7 +113,7 @@ struct Request {
 }
 
 impl Request {
-    fn parse(args: &[String]) -> Result<Self, String> {
+    fn parse(args: &[String]) -> crate::error::CliResult<Self> {
         let mut fixture = None;
         let mut vault = None;
         let mut vault_id = None;
@@ -131,16 +137,20 @@ impl Request {
                     salt = args.get(idx + 1).cloned();
                     idx += 2;
                 }
-                other => return Err(format!("unknown goodhart-check arg: {other}")),
+                other => {
+                    return Err(CliError::usage(format!(
+                        "unknown goodhart-check arg: {other}"
+                    )));
+                }
             }
         }
         Ok(Self {
             fixture: fixture
-                .ok_or_else(|| "goodhart-check requires --fixture <json>".to_string())?,
-            vault: vault.ok_or_else(|| "goodhart-check requires --vault <dir>".to_string())?,
+                .ok_or_else(|| CliError::usage("goodhart-check requires --fixture <json>"))?,
+            vault: vault.ok_or_else(|| CliError::usage("goodhart-check requires --vault <dir>"))?,
             vault_id: vault_id
-                .ok_or_else(|| "goodhart-check requires --vault-id <id>".to_string())?,
-            salt: salt.ok_or_else(|| "goodhart-check requires --salt <s>".to_string())?,
+                .ok_or_else(|| CliError::usage("goodhart-check requires --vault-id <id>"))?,
+            salt: salt.ok_or_else(|| CliError::usage("goodhart-check requires --salt <s>"))?,
         })
     }
 }
@@ -177,7 +187,7 @@ struct Fixture {
 }
 
 impl Fixture {
-    fn checker(&self) -> Result<GoodhartChecker, String> {
+    fn checker(&self) -> crate::error::CliResult<GoodhartChecker> {
         let ward = Arc::new(FixtureWard {
             in_region_frac: self.ward_in_region_frac,
             unavailable: self.ward_unavailable,
@@ -225,41 +235,30 @@ fn apply_synthetic_rollback(
     candidate_hash: [u8; 32],
     artifact_id: &str,
     passed: bool,
-) -> Result<calyx_anneal::RollbackReadback, String> {
-    let store = RollbackStore::open(clock, seed, AsterRollbackStorage::new(vault))
-        .map_err(|error| error.to_string())?;
+) -> crate::error::CliResult<calyx_anneal::RollbackReadback> {
+    let store = RollbackStore::open(clock, seed, AsterRollbackStorage::new(vault))?;
     let key = ArtifactKey::ConfigCache(*blake3::hash(artifact_id.as_bytes()).as_bytes());
-    store
-        .install_live_ptr(key.clone(), ArtifactPtr::ConfigCacheKeyHash(prior_hash))
-        .map_err(|error| error.to_string())?;
-    let change_id = store
-        .prepare_with_description(
-            key,
-            ArtifactPtr::ConfigCacheKeyHash(candidate_hash),
-            "PH48 Goodhart synthetic candidate",
-        )
-        .map_err(|error| error.to_string())?;
+    store.install_live_ptr(key.clone(), ArtifactPtr::ConfigCacheKeyHash(prior_hash))?;
+    let change_id = store.prepare_with_description(
+        key,
+        ArtifactPtr::ConfigCacheKeyHash(candidate_hash),
+        "PH48 Goodhart synthetic candidate",
+    )?;
     if passed {
-        store
-            .promote(change_id)
-            .map_err(|error| error.to_string())?;
+        store.promote(change_id)?;
     } else {
-        store
-            .rollback(change_id)
-            .map_err(|error| error.to_string())?;
+        store.rollback(change_id)?;
     }
-    store.readback(change_id).map_err(|error| error.to_string())
+    Ok(store.readback(change_id)?)
 }
 
 fn open_ledger<'a>(
     vault: &'a AsterVault,
     ts: u64,
-) -> Result<AnnealLedger<AsterAnnealLedgerStore<'a, SystemClock>, FixedClock>, String> {
-    let appender = LedgerAppender::open(AsterAnnealLedgerStore::new(vault), FixedClock::new(ts))
-        .map_err(|error| error.to_string())?;
-    AnnealLedger::new(
+) -> crate::error::CliResult<AnnealLedger<AsterAnnealLedgerStore<'a, SystemClock>, FixedClock>> {
+    let appender = LedgerAppender::open(AsterAnnealLedgerStore::new(vault), FixedClock::new(ts))?;
+    Ok(AnnealLedger::new(
         appender,
         ActorId::Service("calyx-goodhart-check".to_string()),
-    )
-    .map_err(|error| error.to_string())
+    )?)
 }

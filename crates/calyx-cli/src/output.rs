@@ -35,7 +35,7 @@ fn json_line<T: Serialize>(value: &T) -> Result<String, serde_json::Error> {
 /// Prints a single value as compact JSON on stdout.
 pub(crate) fn print_json<T: Serialize>(value: &T) -> CliResult {
     let json = json_line(value)
-        .map_err(|error| CliError::usage(format!("serialize CLI JSON output: {error}")))?;
+        .map_err(|error| CliError::runtime(format!("serialize CLI JSON output: {error}")))?;
     print_line(&json)
 }
 

@@ -10,31 +10,31 @@ use calyx_core::{CalyxError, FixedClock, LensId, Modality, Result as CalyxResult
 use serde::Deserialize;
 use serde_json::json;
 
+use crate::error::CliError;
+
 pub(crate) fn run(args: &[String]) -> crate::error::CliResult {
     let request = DeficitMapRequest::parse(args)?;
     let fixture_bytes = fs::read(&request.fixture).map_err(|error| {
-        format!(
-            "{CALYX_ASSAY_UNAVAILABLE}: read fixture {}: {error}",
+        unavailable(format!(
+            "read fixture {}: {error}",
             request.fixture.display()
-        )
+        ))
     })?;
     let fixture = serde_json::from_slice::<Fixture>(&fixture_bytes).map_err(|error| {
-        format!(
-            "{CALYX_ASSAY_UNAVAILABLE}: parse fixture {}: {error}",
+        unavailable(format!(
+            "parse fixture {}: {error}",
             request.fixture.display()
-        )
+        ))
     })?;
-    let assay = FixtureAssay::from_fixture(fixture).map_err(format_calyx_error)?;
-    let anchor = AnchorId::new(request.anchor).map_err(format_calyx_error)?;
+    let assay = FixtureAssay::from_fixture(fixture)?;
+    let anchor = AnchorId::new(request.anchor)?;
     let clock = FixedClock::new(assay.clock_ts);
     let config = DeficitLocalizerConfig {
         deficit_threshold_bits: request.threshold,
         ..DeficitLocalizerConfig::default()
     };
-    let localizer = DeficitLocalizer::with_config(&clock, config).map_err(format_calyx_error)?;
-    let map = localizer
-        .localize(&assay, &anchor, &assay.panel)
-        .map_err(format_calyx_error)?;
+    let localizer = DeficitLocalizer::with_config(&clock, config)?;
+    let map = localizer.localize(&assay, &anchor, &assay.panel)?;
     let readback = json!({
         "source_of_truth": "fixture JSON bytes read from fixture_path; map recomputed by calyx anneal deficit-map",
         "fixture_path": request.fixture.display().to_string(),
@@ -49,7 +49,9 @@ pub(crate) fn run(args: &[String]) -> crate::error::CliResult {
     });
     println!(
         "{}",
-        serde_json::to_string_pretty(&readback).map_err(|error| error.to_string())?
+        serde_json::to_string_pretty(&readback).map_err(|error| {
+            CliError::runtime(format!("serialize deficit-map readback: {error}"))
+        })?
     );
     Ok(())
 }
@@ -61,7 +63,7 @@ struct DeficitMapRequest {
 }
 
 impl DeficitMapRequest {
-    fn parse(args: &[String]) -> Result<Self, String> {
+    fn parse(args: &[String]) -> crate::error::CliResult<Self> {
         let mut anchor = None;
         let mut fixture = None;
         let mut threshold = DEFAULT_DEFICIT_THRESHOLD_BITS;
@@ -79,18 +81,18 @@ impl DeficitMapRequest {
                 "--threshold" => {
                     let raw = args
                         .get(idx + 1)
-                        .ok_or_else(|| "--threshold requires a value".to_string())?;
-                    threshold = raw
-                        .parse::<f64>()
-                        .map_err(|error| format!("invalid --threshold: {error}"))?;
+                        .ok_or_else(|| CliError::usage("--threshold requires a value"))?;
+                    threshold = raw.parse::<f64>().map_err(|error| {
+                        CliError::usage(format!("invalid --threshold: {error}"))
+                    })?;
                     idx += 2;
                 }
-                other => return Err(format!("unknown deficit-map arg: {other}")),
+                other => return Err(CliError::usage(format!("unknown deficit-map arg: {other}"))),
             }
         }
         Ok(Self {
-            anchor: anchor.ok_or_else(|| "deficit-map requires --anchor".to_string())?,
-            fixture: fixture.ok_or_else(|| "deficit-map requires --fixture".to_string())?,
+            anchor: anchor.ok_or_else(|| CliError::usage("deficit-map requires --anchor"))?,
+            fixture: fixture.ok_or_else(|| CliError::usage("deficit-map requires --fixture"))?,
             threshold,
         })
     }
@@ -199,8 +201,4 @@ fn unavailable(message: impl Into<String>) -> CalyxError {
         message: message.into(),
         remediation: "provide a complete Assay attribution fixture or live Assay readback",
     }
-}
-
-fn format_calyx_error(error: CalyxError) -> String {
-    format!("{}: {} ({})", error.code, error.message, error.remediation)
 }

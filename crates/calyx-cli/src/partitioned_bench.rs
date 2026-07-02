@@ -306,7 +306,8 @@ fn run_search_real(args: &SearchArgs) -> CliResult {
     });
     println!(
         "{}",
-        serde_json::to_string_pretty(&report).map_err(CliError::from)?
+        serde_json::to_string_pretty(&report)
+            .map_err(|error| CliError::runtime(format!("serialize bench report: {error}")))?
     );
     Ok(())
 }
@@ -416,7 +417,8 @@ fn run_search_synthetic(args: &SearchArgs) -> CliResult {
     });
     println!(
         "{}",
-        serde_json::to_string_pretty(&report).map_err(CliError::from)?
+        serde_json::to_string_pretty(&report)
+            .map_err(|error| CliError::runtime(format!("serialize bench report: {error}")))?
     );
     Ok(())
 }

@@ -122,10 +122,16 @@ pub(crate) fn write_marker(report: &VaultHealthReport) -> CliResult<QuarantineWr
         written_at_unix_ms: now_ms(),
         failed_checks,
     };
-    let value = serde_json::to_value(marker)?;
+    let value = serde_json::to_value(marker)
+        .map_err(|error| CliError::runtime(format!("serialize fsv quarantine marker: {error}")))?;
     write_json_value_atomic(&marker_path, &value, "fsv quarantine marker")?;
     let bytes = fs::read(&marker_path)?;
-    let decoded: Value = serde_json::from_slice(&bytes)?;
+    let decoded: Value = serde_json::from_slice(&bytes).map_err(|error| {
+        CliError::runtime(format!(
+            "parse quarantine marker readback {}: {error}",
+            marker_path.display()
+        ))
+    })?;
     if decoded.get("schema").and_then(Value::as_str) != Some(QUARANTINE_SCHEMA) {
         return Err(CliError::Calyx(CalyxError {
             code: QUARANTINE_INVALID_CODE,

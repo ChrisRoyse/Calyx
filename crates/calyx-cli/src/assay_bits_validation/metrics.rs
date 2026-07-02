@@ -5,6 +5,7 @@ use serde::Serialize;
 
 use super::report::AssayBitsReport;
 use super::request::AssayBitsRequest;
+use crate::error::CliError;
 
 #[derive(Clone, Debug, Serialize)]
 pub(crate) struct MetricEvidence {
@@ -27,16 +28,17 @@ pub(crate) struct MetricEvidence {
 pub(crate) fn write_metric_outputs(
     request: &AssayBitsRequest,
     report: &AssayBitsReport,
-) -> Result<MetricEvidence, String> {
+) -> crate::error::CliResult<MetricEvidence> {
     check_finite(report)?;
-    fs::create_dir_all(&request.metrics_dir).map_err(|error| error.to_string())?;
+    fs::create_dir_all(&request.metrics_dir)?;
 
     let abundance = request.metrics_dir.join("assay_abundance.json");
     fs::write(
         &abundance,
-        serde_json::to_vec_pretty(report).map_err(|error| error.to_string())?,
-    )
-    .map_err(|error| error.to_string())?;
+        serde_json::to_vec_pretty(report).map_err(|error| {
+            CliError::runtime(format!("serialize assay abundance report: {error}"))
+        })?,
+    )?;
 
     let bits_per_lens = request.metrics_dir.join("assay_bits_per_lens.txt");
     let mut lens_lines = String::new();
@@ -60,7 +62,7 @@ pub(crate) fn write_metric_outputs(
             lens.admitted
         ));
     }
-    fs::write(&bits_per_lens, lens_lines).map_err(|error| error.to_string())?;
+    fs::write(&bits_per_lens, lens_lines)?;
 
     let rejection_log = request.metrics_dir.join("assay_rejection_log.txt");
     let mut rejection_lines = String::new();
@@ -75,7 +77,7 @@ pub(crate) fn write_metric_outputs(
     if rejection_lines.is_empty() {
         rejection_lines.push_str("no_rejections\n");
     }
-    fs::write(&rejection_log, rejection_lines).map_err(|error| error.to_string())?;
+    fs::write(&rejection_log, rejection_lines)?;
 
     // Signal-density artifact (only when cost was supplied). This is the
     // selection-facing source of truth consumed by the knapsack (#721/#729).
@@ -84,9 +86,10 @@ pub(crate) fn write_metric_outputs(
             let path = request.metrics_dir.join("assay_signal_density.json");
             fs::write(
                 &path,
-                serde_json::to_vec_pretty(density).map_err(|error| error.to_string())?,
-            )
-            .map_err(|error| error.to_string())?;
+                serde_json::to_vec_pretty(density).map_err(|error| {
+                    CliError::runtime(format!("serialize assay signal density: {error}"))
+                })?,
+            )?;
             Some(display(&path))
         }
         None => None,
@@ -96,9 +99,10 @@ pub(crate) fn write_metric_outputs(
             let path = request.metrics_dir.join("assay_packed_panel.json");
             fs::write(
                 &path,
-                serde_json::to_vec_pretty(panel).map_err(|error| error.to_string())?,
-            )
-            .map_err(|error| error.to_string())?;
+                serde_json::to_vec_pretty(panel).map_err(|error| {
+                    CliError::runtime(format!("serialize assay packed panel: {error}"))
+                })?,
+            )?;
             Some(display(&path))
         }
         None => None,
@@ -108,9 +112,10 @@ pub(crate) fn write_metric_outputs(
             let path = request.metrics_dir.join("assay_panel_comparison.json");
             fs::write(
                 &path,
-                serde_json::to_vec_pretty(comparison).map_err(|error| error.to_string())?,
-            )
-            .map_err(|error| error.to_string())?;
+                serde_json::to_vec_pretty(comparison).map_err(|error| {
+                    CliError::runtime(format!("serialize assay panel comparison: {error}"))
+                })?,
+            )?;
             Some(display(&path))
         }
         None => None,
@@ -131,7 +136,7 @@ pub(crate) fn write_metric_outputs(
     })
 }
 
-fn check_finite(report: &AssayBitsReport) -> Result<(), String> {
+fn check_finite(report: &AssayBitsReport) -> crate::error::CliResult<()> {
     let mut values = vec![
         ("anchor_entropy_bits", report.anchor_entropy_bits),
         ("panel.i_panel_anchor", report.panel.i_panel_anchor),
@@ -222,18 +227,28 @@ fn check_finite(report: &AssayBitsReport) -> Result<(), String> {
     }
     for (name, value) in values {
         if !value.is_finite() {
-            return Err(format!("CALYX_FSV_ASSAY_NONFINITE_METRIC: {name}={value}"));
+            return Err(super::assay_runtime_error(format!(
+                "CALYX_FSV_ASSAY_NONFINITE_METRIC: {name}={value}"
+            )));
         }
     }
     Ok(())
 }
 
-fn required_f32(value: Option<f32>, name: &str) -> Result<f32, String> {
-    value.ok_or_else(|| format!("CALYX_FSV_ASSAY_MISSING_VERDICT_METADATA: {name} absent"))
+fn required_f32(value: Option<f32>, name: &str) -> crate::error::CliResult<f32> {
+    value.ok_or_else(|| {
+        super::assay_runtime_error(format!(
+            "CALYX_FSV_ASSAY_MISSING_VERDICT_METADATA: {name} absent"
+        ))
+    })
 }
 
-fn required_str<'a>(value: Option<&'a str>, name: &str) -> Result<&'a str, String> {
-    value.ok_or_else(|| format!("CALYX_FSV_ASSAY_MISSING_VERDICT_METADATA: {name} absent"))
+fn required_str<'a>(value: Option<&'a str>, name: &str) -> crate::error::CliResult<&'a str> {
+    value.ok_or_else(|| {
+        super::assay_runtime_error(format!(
+            "CALYX_FSV_ASSAY_MISSING_VERDICT_METADATA: {name} absent"
+        ))
+    })
 }
 
 fn display(path: &Path) -> String {

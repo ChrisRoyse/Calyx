@@ -10,6 +10,8 @@ use calyx_core::{
 use serde::Deserialize;
 use serde_json::json;
 
+use crate::error::CliError;
+
 const CALYX_ASTER_CF_UNAVAILABLE: &str = "CALYX_ASTER_CF_UNAVAILABLE";
 
 pub(crate) fn run(args: &[String]) -> crate::error::CliResult {
@@ -17,16 +19,16 @@ pub(crate) fn run(args: &[String]) -> crate::error::CliResult {
     let deficit_bytes = read_bytes(&request.deficit, "deficit")?;
     let corpus_bytes = read_bytes(&request.corpus, "corpus")?;
     let deficit = serde_json::from_slice::<DeficitMap>(&deficit_bytes).map_err(|error| {
-        format!(
+        CliError::runtime(format!(
             "{CALYX_ASTER_CF_UNAVAILABLE}: parse deficit fixture {}: {error}",
             request.deficit.display()
-        )
+        ))
     })?;
     let corpus_rows = serde_json::from_slice::<Vec<CorpusRow>>(&corpus_bytes).map_err(|error| {
-        format!(
+        CliError::runtime(format!(
             "{CALYX_ASTER_CF_UNAVAILABLE}: parse corpus fixture {}: {error}",
             request.corpus.display()
-        )
+        ))
     })?;
     let corpus = corpus_rows
         .into_iter()
@@ -39,13 +41,12 @@ pub(crate) fn run(args: &[String]) -> crate::error::CliResult {
         .map(|gap| gap.anchor_class.as_str())
         .unwrap_or("");
     if !top_anchor.is_empty() && top_anchor != request.anchor {
-        return Err(format!(
+        return Err(CliError::runtime(format!(
             "CALYX_ANNEAL_CANDIDATE_INVALID_DEFICIT: requested anchor {} does not match top gap {}",
             request.anchor, top_anchor
-        )
-        .into());
+        )));
     }
-    let candidate = synthesize(&deficit, &corpus).map_err(format_calyx_error)?;
+    let candidate = synthesize(&deficit, &corpus)?;
     let readback = json!({
         "source_of_truth": "deficit and corpus fixture bytes read from paths; candidate recomputed by calyx anneal propose-preview",
         "anchor": request.anchor,
@@ -61,7 +62,9 @@ pub(crate) fn run(args: &[String]) -> crate::error::CliResult {
     });
     println!(
         "{}",
-        serde_json::to_string_pretty(&readback).map_err(|error| error.to_string())?
+        serde_json::to_string_pretty(&readback).map_err(|error| CliError::runtime(format!(
+            "serialize propose-preview readback: {error}"
+        )))?
     );
     Ok(())
 }
@@ -73,7 +76,7 @@ struct ProposePreviewRequest {
 }
 
 impl ProposePreviewRequest {
-    fn parse(args: &[String]) -> Result<Self, String> {
+    fn parse(args: &[String]) -> crate::error::CliResult<Self> {
         let mut anchor = None;
         let mut deficit = None;
         let mut corpus = None;
@@ -92,13 +95,18 @@ impl ProposePreviewRequest {
                     corpus = args.get(idx + 1).map(PathBuf::from);
                     idx += 2;
                 }
-                other => return Err(format!("unknown propose-preview arg: {other}")),
+                other => {
+                    return Err(CliError::usage(format!(
+                        "unknown propose-preview arg: {other}"
+                    )));
+                }
             }
         }
         Ok(Self {
-            anchor: anchor.ok_or_else(|| "propose-preview requires --anchor".to_string())?,
-            deficit: deficit.ok_or_else(|| "propose-preview requires --deficit".to_string())?,
-            corpus: corpus.ok_or_else(|| "propose-preview requires --corpus".to_string())?,
+            anchor: anchor.ok_or_else(|| CliError::usage("propose-preview requires --anchor"))?,
+            deficit: deficit
+                .ok_or_else(|| CliError::usage("propose-preview requires --deficit"))?,
+            corpus: corpus.ok_or_else(|| CliError::usage("propose-preview requires --corpus"))?,
         })
     }
 }
@@ -115,13 +123,14 @@ struct CorpusRow {
 }
 
 impl CorpusRow {
-    fn into_constellation(self, idx: usize) -> Result<Constellation, String> {
-        let id_byte = u8::try_from((idx % 251) + 1).map_err(|error| error.to_string())?;
+    fn into_constellation(self, idx: usize) -> crate::error::CliResult<Constellation> {
+        let id_byte = u8::try_from((idx % 251) + 1)
+            .map_err(|error| CliError::runtime(format!("corpus row {idx} id byte: {error}")))?;
         Ok(Constellation {
             cx_id: self.cx_id,
             vault_id: "01ARZ3NDEKTSV4RRFFQ69G5FAV"
                 .parse::<VaultId>()
-                .map_err(|error| error.to_string())?,
+                .map_err(|error| CliError::runtime(format!("fixture vault id: {error}")))?,
             panel_version: 1,
             created_at: self.created_at,
             input_ref: InputRef {
@@ -149,15 +158,11 @@ impl CorpusRow {
     }
 }
 
-fn read_bytes(path: &PathBuf, label: &str) -> Result<Vec<u8>, String> {
+fn read_bytes(path: &PathBuf, label: &str) -> crate::error::CliResult<Vec<u8>> {
     fs::read(path).map_err(|error| {
-        format!(
+        CliError::io(format!(
             "{CALYX_ASTER_CF_UNAVAILABLE}: read {label} fixture {}: {error}",
             path.display()
-        )
+        ))
     })
-}
-
-fn format_calyx_error(error: calyx_core::CalyxError) -> String {
-    format!("{}: {} ({})", error.code, error.message, error.remediation)
 }

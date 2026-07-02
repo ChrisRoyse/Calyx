@@ -92,7 +92,9 @@ pub(super) fn write(req: Request<'_>) -> CliResult<PathBuf> {
         k: req.k,
     };
     let path = req.vault.join(STATUS_REL);
-    write_bytes_atomic(&path, &serde_json::to_vec_pretty(&status)?)?;
+    let bytes = serde_json::to_vec_pretty(&status)
+        .map_err(|error| CliError::runtime(format!("serialize tuner status: {error}")))?;
+    write_bytes_atomic(&path, &bytes)?;
     Ok(path)
 }
 

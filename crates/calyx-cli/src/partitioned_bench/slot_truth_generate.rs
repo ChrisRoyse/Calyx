@@ -118,7 +118,9 @@ pub(crate) fn run(raw: &[String]) -> CliResult {
             fs::rename(&staging, &args.out_dir).map_err(io_error)?;
             println!(
                 "{}",
-                serde_json::to_string_pretty(&report).map_err(CliError::from)?
+                serde_json::to_string_pretty(&report).map_err(|error| CliError::runtime(
+                    format!("serialize slot-truth generation report: {error}")
+                ))?
             );
             Ok(())
         }
@@ -159,7 +161,9 @@ fn run_staged(args: &Args, staging: &Path) -> CliResult<Value> {
     let manifest_path = staging.join("manifest.json");
     fs::write(
         &manifest_path,
-        serde_json::to_vec_pretty(&manifest).map_err(CliError::from)?,
+        serde_json::to_vec_pretty(&manifest).map_err(|error| {
+            CliError::runtime(format!("serialize slot-truth manifest: {error}"))
+        })?,
     )
     .map_err(io_error)?;
     let report = json!({
@@ -182,7 +186,9 @@ fn run_staged(args: &Args, staging: &Path) -> CliResult<Value> {
     });
     fs::write(
         staging.join("generation_report.json"),
-        serde_json::to_vec_pretty(&report).map_err(CliError::from)?,
+        serde_json::to_vec_pretty(&report).map_err(|error| {
+            CliError::runtime(format!("serialize slot-truth generation report: {error}"))
+        })?,
     )
     .map_err(io_error)?;
     Ok(report)

@@ -54,8 +54,7 @@ pub fn readback_ledger_seq(vault: &Path, seq: u64) -> crate::error::CliResult {
         );
     }
     let key = ledger_key(seq);
-    let bytes = latest_cf_row(vault, ColumnFamily::Ledger, &key)
-        .map_err(CalyxError::ledger_corrupt)?
+    let bytes = latest_cf_row(vault, ColumnFamily::Ledger, &key)?
         .ok_or_else(|| CalyxError::ledger_corrupt(format!("missing ledger row for seq {seq}")))?;
     println!(
         "CF\tledger\tSEQ\t{}\tKEY\t{}\tVALUE\t{}",
@@ -72,24 +71,19 @@ pub fn parse_seq(value: &str) -> Result<u64, String> {
         .map_err(|error| format!("invalid --seq: {error}"))
 }
 
-pub fn parse_verify_range(value: &str) -> Result<Range<u64>, String> {
+pub fn parse_verify_range(value: &str) -> crate::error::CliResult<Range<u64>> {
     parse_range(value)
 }
 
-fn write_quarantine(
-    vault: &Path,
-    range: Range<u64>,
-    at_seq: u64,
-) -> std::result::Result<(), String> {
+fn write_quarantine(vault: &Path, range: Range<u64>, at_seq: u64) -> crate::error::CliResult {
     let detected_at_ts = SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .map_err(|error| format!("system clock before unix epoch: {error}"))?
+        .map_err(|error| {
+            crate::error::CliError::runtime(format!("system clock before unix epoch: {error}"))
+        })?
         .as_secs();
-    let record = QuarantineRecord::new(range.start, range.end, at_seq, detected_at_ts)
-        .map_err(|error| error.to_string())?;
-    ManifestStore::open(vault)
-        .append_quarantine(record)
-        .map_err(|error| error.to_string())?;
+    let record = QuarantineRecord::new(range.start, range.end, at_seq, detected_at_ts)?;
+    ManifestStore::open(vault).append_quarantine(record)?;
     Ok(())
 }
 

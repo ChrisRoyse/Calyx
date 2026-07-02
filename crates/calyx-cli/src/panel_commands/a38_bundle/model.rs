@@ -236,9 +236,9 @@ pub(super) fn base_gate_passed(base: &BaseTemplateRef) -> bool {
 }
 
 pub(super) fn template_id(template: &SavedPanelTemplate) -> CliResult<String> {
-    Ok(blake3::hash(&serde_json::to_vec_pretty(template)?)
-        .to_hex()
-        .to_string())
+    let bytes = serde_json::to_vec_pretty(template)
+        .map_err(|error| CliError::runtime(format!("serialize panel template: {error}")))?;
+    Ok(blake3::hash(&bytes).to_hex().to_string())
 }
 
 pub(super) fn parse_modality(value: &str) -> CliResult<&'static str> {
@@ -258,7 +258,8 @@ pub(super) fn parse_modality(value: &str) -> CliResult<&'static str> {
 }
 
 pub(super) fn object_bytes(bundle: &SavedA38Bundle) -> CliResult<Vec<u8>> {
-    Ok(serde_json::to_vec_pretty(bundle)?)
+    serde_json::to_vec_pretty(bundle)
+        .map_err(|error| CliError::runtime(format!("serialize A38 bundle object: {error}")))
 }
 
 pub(super) fn sha256_hex(bytes: &[u8]) -> String {

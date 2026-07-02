@@ -12,6 +12,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::error::{CliError, CliResult};
 use crate::sextant_bench_guard::require_flat_bench_budget;
+use crate::sextant_bench_io::{print_json, write_json};
 
 const MANIFEST_REL: &str = "bench/bench_manifest.json";
 const SEARCH_REPORT_REL: &str = "bench/search-report.json";
@@ -241,20 +242,9 @@ fn read_manifest(vault: &Path) -> CliResult<BenchManifest> {
     let path = vault.join(MANIFEST_REL);
     let text = fs::read_to_string(&path)
         .map_err(|error| CliError::io(format!("read {}: {error}", path.display())))?;
-    Ok(serde_json::from_str(&text)?)
-}
-
-fn write_json<T: Serialize>(path: &Path, value: &T) -> CliResult {
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)?;
-    }
-    fs::write(path, serde_json::to_vec_pretty(value)?)?;
-    Ok(())
-}
-
-fn print_json<T: Serialize>(value: &T) -> CliResult {
-    println!("{}", serde_json::to_string_pretty(value)?);
-    Ok(())
+    serde_json::from_str(&text).map_err(|error| {
+        CliError::runtime(format!("parse bench manifest {}: {error}", path.display()))
+    })
 }
 
 fn file_readback(root: &Path, relative: &str) -> CliResult<FileReadback> {

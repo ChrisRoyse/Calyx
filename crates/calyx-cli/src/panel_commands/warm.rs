@@ -167,7 +167,8 @@ impl WarmProgressLog {
     }
 
     fn append(&self, record: &WarmProgressRecord) -> CliResult {
-        let line = serde_json::to_string(record)?;
+        let line = serde_json::to_string(record)
+            .map_err(|error| CliError::runtime(format!("serialize warm progress: {error}")))?;
         let mut file = OpenOptions::new()
             .create(true)
             .append(true)
@@ -364,7 +365,9 @@ fn write_report(path: &Path, report: &WarmReport) -> CliResult {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;
     }
-    fs::write(path, serde_json::to_vec_pretty(report)?)?;
+    let bytes = serde_json::to_vec_pretty(report)
+        .map_err(|error| CliError::runtime(format!("serialize warm report: {error}")))?;
+    fs::write(path, bytes)?;
     Ok(())
 }
 

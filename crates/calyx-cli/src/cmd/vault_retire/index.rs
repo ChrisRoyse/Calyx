@@ -7,7 +7,7 @@ use super::support::retire_error;
 use super::{
     ALREADY_RETIRED_CODE, INDEX_CORRUPT_CODE, READBACK_MISMATCH_CODE, VaultRetirementRecord,
 };
-use crate::error::CliResult;
+use crate::error::{CliError, CliResult};
 
 pub(super) fn read_index_value(path: &Path) -> CliResult<(Value, Vec<u8>)> {
     if !path.exists() {
@@ -45,7 +45,12 @@ pub(super) fn push_retired_record(index: &mut Value, record: &VaultRetirementRec
             ),
         ));
     }
-    let record_value = serde_json::to_value(record)?;
+    let record_value = serde_json::to_value(record).map_err(|error| {
+        CliError::runtime(format!(
+            "encode vault retirement record for {}: {error}",
+            record.vault_id
+        ))
+    })?;
     let object = index.as_object_mut().ok_or_else(|| {
         retire_error(INDEX_CORRUPT_CODE, "vault index root must be a JSON object")
     })?;
@@ -87,7 +92,16 @@ pub(super) fn verify_retirement_readback(
             ),
         ));
     }
-    let decoded: VaultRetirementRecord = serde_json::from_value((*matches[0]).clone())?;
+    let decoded: VaultRetirementRecord =
+        serde_json::from_value((*matches[0]).clone()).map_err(|error| {
+            retire_error(
+                READBACK_MISMATCH_CODE,
+                format!(
+                    "vault {} retirement record failed to decode during readback: {error}",
+                    record.vault_id
+                ),
+            )
+        })?;
     if decoded.quarantine_marker.sha256 != record.quarantine_marker.sha256
         || decoded.current_manifest.sha256 != record.current_manifest.sha256
         || decoded.reason != record.reason

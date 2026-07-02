@@ -25,14 +25,18 @@ use engine::evaluate;
 use metrics::write_metric_outputs;
 use request::WardGuardRequest;
 
+use crate::error::CliError;
+
 pub(crate) fn run(args: &[String]) -> crate::error::CliResult {
-    let request = WardGuardRequest::parse(args)?;
-    let corpus = ScoreCorpus::load(&request)?;
+    let request = WardGuardRequest::parse(args).map_err(CliError::usage)?;
+    let corpus = ScoreCorpus::load(&request).map_err(CliError::runtime)?;
     let report = evaluate(&corpus, &request)?;
     let evidence = write_metric_outputs(&request, &report)?;
     println!(
         "{}",
-        serde_json::to_string_pretty(&evidence).map_err(|error| error.to_string())?
+        serde_json::to_string_pretty(&evidence).map_err(|error| {
+            CliError::runtime(format!("serialize ward guard-validate evidence: {error}"))
+        })?
     );
     Ok(())
 }

@@ -63,15 +63,17 @@ enum MetricFixture {
 }
 
 impl MetricFixture {
-    fn value(&self) -> Result<f64, String> {
+    fn value(&self) -> CalyxResult<f64> {
         match self {
             Self::Number(value) => Ok(*value),
             Self::String(value) if value.eq_ignore_ascii_case("nan") => Ok(f64::NAN),
             Self::String(value) if value.eq_ignore_ascii_case("inf") => Ok(f64::INFINITY),
             Self::String(value) if value.eq_ignore_ascii_case("-inf") => Ok(f64::NEG_INFINITY),
-            Self::String(value) => value
-                .parse::<f64>()
-                .map_err(|error| format!("{CALYX_ASSAY_INVALID_METRIC}: parse metric: {error}")),
+            Self::String(value) => value.parse::<f64>().map_err(|error| CalyxError {
+                code: CALYX_ASSAY_INVALID_METRIC,
+                message: format!("parse metric: {error}"),
+                remediation: "repair the fixture metric value",
+            }),
         }
     }
 }
@@ -80,8 +82,8 @@ pub(crate) fn execute_fixture(
     fixture_path: &Path,
     fixture: Fixture,
     fixture_bytes: &[u8],
-) -> Result<serde_json::Value, String> {
-    let anchor = AnchorId::new(fixture.anchor).map_err(format_calyx)?;
+) -> crate::error::CliResult<serde_json::Value> {
+    let anchor = AnchorId::new(fixture.anchor)?;
     let entropy = fixture.entropy.value()?;
     let sufficiency = fixture
         .sufficiency
@@ -102,18 +104,16 @@ pub(crate) fn execute_fixture(
     let mut substrate = FixtureSubstrate::new(fixture.substrate, fixture.clock_ts);
     let mut hot_add = FixtureHotAdder::new(fixture.hot_add);
     let corpus = corpus(fixture.corpus_rows, fixture.clock_ts);
-    let outcome = ProposeLens::new(&clock)
-        .propose_lens(ProposeLensRequest {
-            anchor: &anchor,
-            controller: &mut controller,
-            substrate: &mut substrate,
-            assay: &assay,
-            hot_add: &mut hot_add,
-            profiler: &profiler,
-            nmi: &nmi,
-            corpus: &corpus,
-        })
-        .map_err(format_calyx)?;
+    let outcome = ProposeLens::new(&clock).propose_lens(ProposeLensRequest {
+        anchor: &anchor,
+        controller: &mut controller,
+        substrate: &mut substrate,
+        assay: &assay,
+        hot_add: &mut hot_add,
+        profiler: &profiler,
+        nmi: &nmi,
+        corpus: &corpus,
+    })?;
     Ok(json!({
         "source_of_truth": "fixture JSON bytes plus SwapController panel state after ProposeLens execution",
         "fixture_path": fixture_path.display().to_string(),
@@ -486,8 +486,4 @@ fn default_corpus_rows() -> usize {
 
 fn vault_id() -> VaultId {
     "01ARZ3NDEKTSV4RRFFQ69G5FAV".parse().unwrap()
-}
-
-fn format_calyx(error: CalyxError) -> String {
-    format!("{}: {} ({})", error.code, error.message, error.remediation)
 }

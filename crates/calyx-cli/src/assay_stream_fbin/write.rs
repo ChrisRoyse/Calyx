@@ -146,7 +146,9 @@ fn run_staged(
     };
     fs::write(
         staging.join("stream_fbin_report.json"),
-        serde_json::to_vec_pretty(&evidence).map_err(CliError::from)?,
+        serde_json::to_vec_pretty(&evidence).map_err(|error| {
+            CliError::runtime(format!("serialize stream_fbin_report.json: {error}"))
+        })?,
     )
     .map_err(io_error)?;
     Ok(StagedExport { evidence, progress })
@@ -326,7 +328,7 @@ fn write_timeline_row(
             "query_row": row_idx < query_count,
         }),
     )
-    .map_err(CliError::from)?;
+    .map_err(|error| CliError::runtime(format!("write timeline row {row_idx}: {error}")))?;
     writer.write_all(b"\n").map_err(io_error)
 }
 
@@ -371,7 +373,7 @@ fn write_plan(path: &Path, timeline_path: &str, lenses: &[LensEvidence]) -> CliR
             "streaming_fbin_source": true,
             "slots": slots
         }))
-        .map_err(CliError::from)?,
+        .map_err(|error| CliError::runtime(format!("serialize assay plan: {error}")))?,
     )
     .map_err(io_error)
 }

@@ -6,11 +6,12 @@ use calyx_sextant::{Hit, RerankCandidateText, RerankRequest, RerankerClient};
 
 use super::data::ValidationData;
 use super::request::RecallRequest;
+use crate::error::{CliError, CliResult};
 
 pub(crate) fn doc_texts_by_cx(
     docs: &BTreeMap<CxId, Constellation>,
     data: &ValidationData,
-) -> Result<BTreeMap<CxId, String>, String> {
+) -> CliResult<BTreeMap<CxId, String>> {
     let corpus = data
         .corpus
         .iter()
@@ -19,11 +20,15 @@ pub(crate) fn doc_texts_by_cx(
     let mut out = BTreeMap::new();
     for (cx_id, cx) in docs {
         let doc_id = cx.metadata.get("doc_id").ok_or_else(|| {
-            format!("CALYX_FSV_SEXTANT_STORED_DOC_ID_MISSING_FOR_RERANK: {cx_id}")
+            CliError::runtime(format!(
+                "CALYX_FSV_SEXTANT_STORED_DOC_ID_MISSING_FOR_RERANK: {cx_id}"
+            ))
         })?;
-        let text = corpus
-            .get(doc_id.as_str())
-            .ok_or_else(|| format!("CALYX_FSV_SEXTANT_RERANK_TEXT_MISSING: doc_id={doc_id}"))?;
+        let text = corpus.get(doc_id.as_str()).ok_or_else(|| {
+            CliError::runtime(format!(
+                "CALYX_FSV_SEXTANT_RERANK_TEXT_MISSING: doc_id={doc_id}"
+            ))
+        })?;
         out.insert(*cx_id, (*text).to_string());
     }
     Ok(out)
@@ -34,7 +39,7 @@ pub(crate) fn rerank_hits(
     hits: Vec<Hit>,
     doc_texts: &BTreeMap<CxId, String>,
     request: &RecallRequest,
-) -> Result<Vec<Hit>, String> {
+) -> CliResult<Vec<Hit>> {
     if hits.is_empty() {
         return Ok(hits);
     }
@@ -45,19 +50,22 @@ pub(crate) fn rerank_hits(
                 .get(&hit.cx_id)
                 .cloned()
                 .map(RerankCandidateText::new)
-                .ok_or_else(|| format!("CALYX_FSV_SEXTANT_RERANK_TEXT_MISSING: {}", hit.cx_id))
+                .ok_or_else(|| {
+                    CliError::runtime(format!(
+                        "CALYX_FSV_SEXTANT_RERANK_TEXT_MISSING: {}",
+                        hit.cx_id
+                    ))
+                })
         })
         .collect::<Result<Vec<_>, _>>()?;
     let client = RerankerClient::new(
         request.reranker_endpoint.clone(),
         Duration::from_millis(request.reranker_timeout_ms),
     );
-    let response = client
-        .rerank(&RerankRequest::from_candidate_texts(
-            query.to_string(),
-            candidates,
-        ))
-        .map_err(|error| error.to_string())?;
+    let response = client.rerank(&RerankRequest::from_candidate_texts(
+        query.to_string(),
+        candidates,
+    ))?;
     let mut scored = hits
         .into_iter()
         .zip(response.scores)
@@ -119,7 +127,10 @@ mod tests {
         )
         .unwrap_err();
 
-        assert!(err.contains("CALYX_FSV_SEXTANT_RERANK_TEXT_MISSING"));
+        assert!(
+            err.message()
+                .contains("CALYX_FSV_SEXTANT_RERANK_TEXT_MISSING")
+        );
     }
 
     fn hit(cx_id: CxId) -> Hit {

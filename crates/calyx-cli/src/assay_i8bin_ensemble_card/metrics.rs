@@ -10,7 +10,7 @@ use calyx_core::{AnchorKind, VaultId};
 use serde::Serialize;
 use ulid::Ulid;
 
-use crate::assay_bits_validation::calyx_error_detail;
+use crate::error::{CliError, CliResult};
 
 use super::engine::I8binEnsembleReport;
 use super::request::I8binEnsembleRequest;
@@ -38,38 +38,47 @@ pub(crate) struct I8binEnsembleEvidence {
 pub(crate) fn write_outputs(
     request: &I8binEnsembleRequest,
     report: &I8binEnsembleReport,
-) -> Result<I8binEnsembleEvidence, String> {
-    check_finite(report)?;
-    request.ensure_fresh_outputs()?;
-    fs::create_dir_all(&request.metrics_dir).map_err(|error| error.to_string())?;
+) -> CliResult<I8binEnsembleEvidence> {
+    check_finite(report).map_err(super::i8bin_card_error)?;
+    request
+        .ensure_fresh_outputs()
+        .map_err(super::i8bin_card_error)?;
+    fs::create_dir_all(&request.metrics_dir).map_err(|error| {
+        CliError::io(format!("create {}: {error}", request.metrics_dir.display()))
+    })?;
     let persistence = persist_and_readback(request, &report.card)?;
 
     let a37_report_path = request.metrics_dir.join("a37_i8bin_ensemble_report.json");
     fs::write(
         &a37_report_path,
-        serde_json::to_vec_pretty(report).map_err(|error| error.to_string())?,
+        serde_json::to_vec_pretty(report)
+            .map_err(|error| CliError::runtime(format!("serialize a37 report: {error}")))?,
     )
-    .map_err(|error| error.to_string())?;
+    .map_err(|error| CliError::io(format!("write {}: {error}", a37_report_path.display())))?;
 
     let ensemble_card_path = request.metrics_dir.join("ensemble_card.json");
     fs::write(
         &ensemble_card_path,
-        serde_json::to_vec_pretty(&report.card).map_err(|error| error.to_string())?,
+        serde_json::to_vec_pretty(&report.card)
+            .map_err(|error| CliError::runtime(format!("serialize ensemble card: {error}")))?,
     )
-    .map_err(|error| error.to_string())?;
+    .map_err(|error| CliError::io(format!("write {}: {error}", ensemble_card_path.display())))?;
 
     let lens_values_path = request.metrics_dir.join("ensemble_lens_values.txt");
-    fs::write(&lens_values_path, lens_values(report)).map_err(|error| error.to_string())?;
+    fs::write(&lens_values_path, lens_values(report))
+        .map_err(|error| CliError::io(format!("write {}: {error}", lens_values_path.display())))?;
 
     let pair_values_path = request.metrics_dir.join("ensemble_pair_values.txt");
-    fs::write(&pair_values_path, pair_values(report)).map_err(|error| error.to_string())?;
+    fs::write(&pair_values_path, pair_values(report))
+        .map_err(|error| CliError::io(format!("write {}: {error}", pair_values_path.display())))?;
 
     let matrix_path = request.metrics_dir.join("correlation_nmi_matrix.json");
     fs::write(
         &matrix_path,
-        serde_json::to_vec_pretty(&report.matrix).map_err(|error| error.to_string())?,
+        serde_json::to_vec_pretty(&report.matrix)
+            .map_err(|error| CliError::runtime(format!("serialize nmi matrix: {error}")))?,
     )
-    .map_err(|error| error.to_string())?;
+    .map_err(|error| CliError::io(format!("write {}: {error}", matrix_path.display())))?;
 
     Ok(I8binEnsembleEvidence {
         metrics_dir: request.metrics_dir.display().to_string(),
@@ -137,7 +146,7 @@ struct PersistenceReadback {
 fn persist_and_readback(
     request: &I8binEnsembleRequest,
     card: &EnsembleCard,
-) -> Result<PersistenceReadback, String> {
+) -> CliResult<PersistenceReadback> {
     let key = cache_key(request);
     let mut store = AssayStore::default();
     for (idx, lens) in card.lenses.iter().enumerate() {
@@ -190,7 +199,8 @@ fn persist_and_readback(
         "assay i8bin-ensemble-card anchor entropy",
         2_001,
     );
-    let payload = serde_json::to_value(card).map_err(|error| error.to_string())?;
+    let payload = serde_json::to_value(card)
+        .map_err(|error| CliError::runtime(format!("serialize ensemble card payload: {error}")))?;
     store.put_with_payload(
         key.clone(),
         AssaySubject::EnsembleCard,
@@ -200,33 +210,31 @@ fn persist_and_readback(
         payload,
     );
 
-    let mut router =
-        CfRouter::open(&request.cf_root, CF_MEMTABLE_CAP).map_err(calyx_error_detail)?;
-    let persisted = store
-        .persist_to_aster(&mut router)
-        .map_err(calyx_error_detail)?;
+    let mut router = CfRouter::open(&request.cf_root, CF_MEMTABLE_CAP)?;
+    let persisted = store.persist_to_aster(&mut router)?;
     drop(router);
-    let reopened = CfRouter::open(&request.cf_root, CF_MEMTABLE_CAP).map_err(calyx_error_detail)?;
-    let loaded = AssayStore::load_from_aster(&reopened).map_err(calyx_error_detail)?;
+    let reopened = CfRouter::open(&request.cf_root, CF_MEMTABLE_CAP)?;
+    let loaded = AssayStore::load_from_aster(&reopened)?;
     let row = loaded.get(&key, &AssaySubject::EnsembleCard);
     let card_row_present = row.is_some();
     let card_payload_readback = match row.and_then(|row| row.payload.clone()) {
         Some(payload) => {
-            let readback: EnsembleCard = serde_json::from_value(payload)
-                .map_err(|error| format!("CALYX_FSV_ASSAY_CARD_READBACK_MISMATCH: {error}"))?;
+            let readback: EnsembleCard = serde_json::from_value(payload).map_err(|error| {
+                super::i8bin_card_error(format!("CALYX_FSV_ASSAY_CARD_READBACK_MISMATCH: {error}"))
+            })?;
             if readback != *card {
-                return Err(
+                return Err(super::i8bin_card_error(
                     "CALYX_FSV_ASSAY_CARD_READBACK_MISMATCH: EnsembleCard payload changed after Assay CF readback"
                         .to_string(),
-                );
+                ));
             }
             true
         }
         None => {
-            return Err(
+            return Err(super::i8bin_card_error(
                 "CALYX_FSV_ASSAY_CARD_READBACK_MISSING: EnsembleCard payload absent from Assay CF"
                     .to_string(),
-            );
+            ));
         }
     };
     let rows = loaded.rows();

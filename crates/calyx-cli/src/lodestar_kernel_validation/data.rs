@@ -7,6 +7,8 @@ use calyx_lodestar::RecallQuery;
 use calyx_paths::AssocGraph;
 use serde::Deserialize;
 
+use crate::error::{CliError, CliResult};
+
 const TOKEN_DIM: usize = 64;
 
 #[derive(Clone, Debug)]
@@ -27,22 +29,24 @@ pub(crate) struct GraphCorpus {
 }
 
 impl CorpusSet {
-    pub(crate) fn load(dir: &Path) -> Result<Self, String> {
+    pub(crate) fn load(dir: &Path) -> CliResult<Self> {
         if !dir.is_dir() {
-            return Err(format!("CALYX_DATASET_NOT_FOUND: {}", dir.display()));
+            return Err(CliError::runtime(format!(
+                "CALYX_DATASET_NOT_FOUND: {}",
+                dir.display()
+            )));
         }
         let mut paths = fs::read_dir(dir)
-            .map_err(|error| format!("{}: {error}", dir.display()))?
+            .map_err(|error| CliError::io(format!("{}: {error}", dir.display())))?
             .map(|entry| entry.map(|entry| entry.path()))
-            .collect::<Result<Vec<_>, _>>()
-            .map_err(|error| error.to_string())?;
+            .collect::<Result<Vec<_>, _>>()?;
         paths.retain(|path| path.extension().is_some_and(|ext| ext == "json"));
         paths.sort();
         if paths.is_empty() {
-            return Err(format!(
+            return Err(CliError::runtime(format!(
                 "CALYX_DATASET_NOT_FOUND: no corpus json files in {}",
                 dir.display()
-            ));
+            )));
         }
         let corpora = paths
             .iter()
@@ -53,11 +57,11 @@ impl CorpusSet {
 }
 
 impl GraphCorpus {
-    fn load(path: &Path) -> Result<Self, String> {
-        let text =
-            fs::read_to_string(path).map_err(|error| format!("{}: {error}", path.display()))?;
-        let json: CorpusJson =
-            serde_json::from_str(&text).map_err(|error| format!("{}: {error}", path.display()))?;
+    fn load(path: &Path) -> CliResult<Self> {
+        let text = fs::read_to_string(path)
+            .map_err(|error| CliError::io(format!("{}: {error}", path.display())))?;
+        let json: CorpusJson = serde_json::from_str(&text)
+            .map_err(|error| CliError::runtime(format!("{}: {error}", path.display())))?;
         json.validate(path)?;
         let mut id_map = BTreeMap::<String, CxId>::new();
         let mut rows = Vec::with_capacity(json.nodes.len());
@@ -78,27 +82,23 @@ impl GraphCorpus {
         }
         let mut builder = AssocGraph::builder();
         for row in &rows {
-            builder
-                .add_node(row.cx_id, 1.0)
-                .map_err(|error| error.to_string())?;
+            builder.add_node(row.cx_id, 1.0)?;
         }
         let mut edge_count = 0;
         for edge in &json.edges {
             let src = *id_map.get(&edge[0]).ok_or_else(|| {
-                format!(
+                CliError::runtime(format!(
                     "CALYX_KERNEL_GRAPH_INVALID: corpus={} unknown edge source {}",
                     json.name, edge[0]
-                )
+                ))
             })?;
             let dst = *id_map.get(&edge[1]).ok_or_else(|| {
-                format!(
+                CliError::runtime(format!(
                     "CALYX_KERNEL_GRAPH_INVALID: corpus={} unknown edge target {}",
                     json.name, edge[1]
-                )
+                ))
             })?;
-            builder
-                .add_edge(src, dst, 1.0)
-                .map_err(|error| error.to_string())?;
+            builder.add_edge(src, dst, 1.0)?;
             edge_count += 1;
         }
         if anchors.is_empty() {
@@ -141,33 +141,33 @@ struct NodeJson {
 }
 
 impl CorpusJson {
-    fn validate(&self, path: &Path) -> Result<(), String> {
+    fn validate(&self, path: &Path) -> CliResult {
         if self.name.trim().is_empty()
             || self
                 .name
                 .chars()
                 .any(|ch| !(ch.is_ascii_alphanumeric() || ch == '_' || ch == '-'))
         {
-            return Err(format!(
+            return Err(CliError::runtime(format!(
                 "CALYX_KERNEL_GRAPH_INVALID: {} invalid corpus name {:?}",
                 path.display(),
                 self.name
-            ));
+            )));
         }
         let mut seen = BTreeSet::new();
         for node in &self.nodes {
             if node.id.trim().is_empty() {
-                return Err(format!(
+                return Err(CliError::runtime(format!(
                     "CALYX_KERNEL_GRAPH_INVALID: {} has empty node id",
                     path.display()
-                ));
+                )));
             }
             if !seen.insert(node.id.as_str()) {
-                return Err(format!(
+                return Err(CliError::runtime(format!(
                     "CALYX_KERNEL_GRAPH_INVALID: {} duplicate node {}",
                     path.display(),
                     node.id
-                ));
+                )));
             }
         }
         Ok(())
@@ -179,26 +179,26 @@ fn validate_vector(
     node: &str,
     vector: &[f32],
     expected_dim: &mut Option<usize>,
-) -> Result<(), String> {
+) -> CliResult {
     if vector.is_empty() {
-        return Err(format!(
+        return Err(CliError::runtime(format!(
             "CALYX_KERNEL_GRAPH_INVALID: corpus={corpus} node={node} empty vector"
-        ));
+        )));
     }
     if let Some(dim) = *expected_dim {
         if vector.len() != dim {
-            return Err(format!(
+            return Err(CliError::runtime(format!(
                 "CALYX_KERNEL_DIM_MISMATCH: corpus={corpus} node={node} expected {dim}, got {}",
                 vector.len()
-            ));
+            )));
         }
     } else {
         *expected_dim = Some(vector.len());
     }
     if vector.iter().any(|value| !value.is_finite()) {
-        return Err(format!(
+        return Err(CliError::runtime(format!(
             "CALYX_KERNEL_GRAPH_INVALID: corpus={corpus} node={node} non-finite vector"
-        ));
+        )));
     }
     Ok(())
 }

@@ -24,7 +24,9 @@ impl ConversionLog {
 
     pub(super) fn event(&mut self, value: serde_json::Value) -> CliResult {
         let mut file = OpenOptions::new().append(true).open(&self.path)?;
-        let bytes = serde_json::to_vec(&value)?;
+        let bytes = serde_json::to_vec(&value).map_err(|error| {
+            CliError::runtime(format!("serialize conversion log event: {error}"))
+        })?;
         file.write_all(&bytes)?;
         file.write_all(b"\n")?;
         file.sync_all()?;
@@ -90,7 +92,8 @@ pub(super) fn write_json_file(path: &Path, value: &impl Serialize) -> CliResult 
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;
     }
-    let bytes = serde_json::to_vec_pretty(value)?;
+    let bytes = serde_json::to_vec_pretty(value)
+        .map_err(|error| CliError::runtime(format!("serialize {}: {error}", path.display())))?;
     let mut file = File::create(path)?;
     file.write_all(&bytes)?;
     file.write_all(b"\n")?;

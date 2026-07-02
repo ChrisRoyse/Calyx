@@ -10,6 +10,7 @@ use serde::Serialize;
 
 use super::data::{CorpusSet, GraphCorpus};
 use super::request::LodestarKernelRequest;
+use crate::error::CliError;
 
 const PANEL_VERSION: u64 = 70;
 const KERNEL_TARGET_FRACTION: f32 = 0.10;
@@ -68,16 +69,16 @@ pub(crate) enum RecallPassMode {
 pub(crate) fn evaluate_corpora(
     data: &CorpusSet,
     request: &LodestarKernelRequest,
-) -> Result<LodestarKernelValidationReport, String> {
+) -> crate::error::CliResult<LodestarKernelValidationReport> {
     let mut reports = Vec::new();
     for corpus in &data.corpora {
         reports.push(evaluate_corpus(corpus, request)?);
     }
     if reports.len() < MIN_CORPORA {
-        return Err(format!(
+        return Err(CliError::runtime(format!(
             "CALYX_FSV_LODESTAR_INSUFFICIENT_CORPORA: need >=3, got {}",
             reports.len()
-        ));
+        )));
     }
     let min_observed_ratio = reports
         .iter()
@@ -96,16 +97,16 @@ pub(crate) fn evaluate_corpora(
 fn evaluate_corpus(
     corpus: &GraphCorpus,
     request: &LodestarKernelRequest,
-) -> Result<CorpusReport, String> {
+) -> crate::error::CliResult<CorpusReport> {
     if corpus.rows.len() < 3 {
-        return Err(format!(
+        return Err(CliError::runtime(format!(
             "CALYX_KERNEL_CORPUS_TOO_SMALL: corpus={} nodes={}",
             corpus.name,
             corpus.rows.len()
-        ));
+        )));
     }
     let embeddings = embeddings(&corpus.rows);
-    let full = InMemoryAnnIndex::new(corpus.rows.clone()).map_err(|error| error.to_string())?;
+    let full = InMemoryAnnIndex::new(corpus.rows.clone())?;
     let recall_params = recall_params(corpus.rows.len(), request);
     let mut kernel = initial_kernel(corpus)?;
     let mfvs_size = kernel.members.len();
@@ -134,13 +135,12 @@ fn evaluate_corpus(
     };
     let tuned_passed = passes(&tuned_recall, request.min_ratio);
     if !tuned_passed {
-        return Err(format!(
+        return Err(CliError::runtime(format!(
             "{BELOW_GATE_CODE}: corpus={} ratio={:.6}",
             corpus.name, tuned_recall.ratio
-        ));
+        )));
     }
-    let gaps = grounding_gaps(&final_kernel, &corpus.graph, &corpus.anchors, 2)
-        .map_err(|error| error.to_string())?;
+    let gaps = grounding_gaps(&final_kernel, &corpus.graph, &corpus.anchors, 2)?;
     Ok(CorpusReport {
         corpus: corpus.name.clone(),
         source_path: corpus.source_path.clone(),
@@ -165,7 +165,7 @@ fn evaluate_corpus(
     })
 }
 
-fn initial_kernel(corpus: &GraphCorpus) -> Result<Kernel, String> {
+fn initial_kernel(corpus: &GraphCorpus) -> crate::error::CliResult<Kernel> {
     let params = KernelParams {
         panel_version: PANEL_VERSION,
         anchor_kind: Some(format!("ph70-{}-anchors", corpus.name)),
@@ -178,8 +178,11 @@ fn initial_kernel(corpus: &GraphCorpus) -> Result<Kernel, String> {
         },
         ..KernelParams::default()
     };
-    build_kernel_pipeline(&corpus.graph, &corpus.anchors, &params)
-        .map_err(|error| error.to_string())
+    Ok(build_kernel_pipeline(
+        &corpus.graph,
+        &corpus.anchors,
+        &params,
+    )?)
 }
 
 fn ensure_searchable_members(corpus: &GraphCorpus, kernel: &mut Kernel) {
@@ -201,7 +204,7 @@ fn tune_kernel(
     corpus: &GraphCorpus,
     final_params: &RecallTestParams,
     min_ratio: f32,
-) -> Result<(Kernel, usize, RecallPassMode, RecallReport), String> {
+) -> crate::error::CliResult<(Kernel, usize, RecallPassMode, RecallReport)> {
     let initial_count = kernel.members.len();
     let mut members = kernel.members.iter().copied().collect::<BTreeSet<_>>();
     let mut best = recall_for(&kernel, embeddings, full, corpus, final_params);
@@ -222,8 +225,12 @@ fn tune_kernel(
             break;
         }
     }
-    let report =
-        best.ok_or_else(|| format!("{BELOW_GATE_CODE}: corpus={} ratio=0.000000", corpus.name))?;
+    let report = best.ok_or_else(|| {
+        CliError::runtime(format!(
+            "{BELOW_GATE_CODE}: corpus={} ratio=0.000000",
+            corpus.name
+        ))
+    })?;
     Ok((
         kernel,
         members.len().saturating_sub(initial_count),
@@ -254,12 +261,10 @@ fn add_full_hits(
     full: &InMemoryAnnIndex,
     corpus: &GraphCorpus,
     params: &RecallTestParams,
-) -> std::result::Result<(), String> {
+) -> crate::error::CliResult<()> {
     for ordinal in sample_ordinals(&corpus.rows, params.held_out_fraction, params.rng_seed) {
         let query = &corpus.rows[ordinal];
-        let hits = full
-            .search(&query.vector, params.top_k)
-            .map_err(|error| error.to_string())?;
+        let hits = full.search(&query.vector, params.top_k)?;
         members.extend(hits.into_iter().map(|(cx_id, _)| cx_id));
     }
     Ok(())

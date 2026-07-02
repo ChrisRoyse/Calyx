@@ -3,6 +3,8 @@ use std::path::{Path, PathBuf};
 
 use serde_json::{Value, json};
 
+use crate::error::CliError;
+
 const ARTIFACT_SCHEMA_VERSION: u64 = 1;
 const PH42_ARTIFACT_SOURCE_OF_TRUTH: &str = "PH42 persisted artifact";
 const PH59_ARTIFACT_SOURCE_OF_TRUTH: &str = "PH59 compression report artifact";
@@ -29,18 +31,25 @@ pub fn is_topic(topic: &str) -> bool {
 }
 
 pub fn readback_topic(topic: &str, args: &[String]) -> crate::error::CliResult {
-    let args = parse_args(topic, args)?;
-    let bytes = fs::read(&args.artifact)
-        .map_err(|error| format!("read PH42 artifact {}: {error}", args.artifact.display()))?;
+    let args = parse_args(topic, args).map_err(CliError::usage)?;
+    let bytes = fs::read(&args.artifact).map_err(|error| {
+        CliError::io(format!(
+            "read PH42 artifact {}: {error}",
+            args.artifact.display()
+        ))
+    })?;
     let artifact_json: Value = serde_json::from_slice(&bytes).map_err(|error| {
-        format!(
+        CliError::runtime(format!(
             "parse PH42 artifact {} as JSON: {error}",
             args.artifact.display()
-        )
+        ))
     })?;
-    let schema = validate_artifact_schema(topic, &args.artifact, &artifact_json)?;
+    let schema = validate_artifact_schema(topic, &args.artifact, &artifact_json)
+        .map_err(CliError::runtime)?;
     let selected = match &args.field {
-        Some(field) => select_field(&artifact_json, field)?.clone(),
+        Some(field) => select_field(&artifact_json, field)
+            .map_err(CliError::usage)?
+            .clone(),
         None => artifact_json.clone(),
     };
     let readback = json!({
@@ -55,7 +64,8 @@ pub fn readback_topic(topic: &str, args: &[String]) -> crate::error::CliResult {
     });
     println!(
         "{}",
-        serde_json::to_string_pretty(&readback).map_err(|error| error.to_string())?
+        serde_json::to_string_pretty(&readback)
+            .map_err(|error| CliError::runtime(format!("serialize readback: {error}")))?
     );
     Ok(())
 }

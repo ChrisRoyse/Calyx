@@ -12,6 +12,7 @@ use calyx_ledger::{EntryKind, LedgerCfStore, decode};
 use serde_json::{Value, json};
 
 use crate::cf_read::{hex_bytes as hex, list_sst_files};
+use crate::error::{CliError, CliResult};
 use crate::ledger_store::AsterLedgerCfStore;
 
 pub(crate) fn run(args: &[String]) -> crate::error::CliResult {
@@ -43,7 +44,8 @@ pub(crate) fn run(args: &[String]) -> crate::error::CliResult {
     });
     println!(
         "{}",
-        serde_json::to_string_pretty(&report).map_err(|error| error.to_string())?
+        serde_json::to_string_pretty(&report)
+            .map_err(|error| CliError::runtime(format!("serialize autotune report: {error}")))?
     );
     Ok(())
 }
@@ -57,7 +59,7 @@ struct ReportRequest {
 }
 
 impl ReportRequest {
-    fn parse(args: &[String]) -> Result<Self, String> {
+    fn parse(args: &[String]) -> CliResult<Self> {
         let mut scope = None;
         let mut cache = None;
         let mut vault = None;
@@ -81,49 +83,59 @@ impl ReportRequest {
                 "--last" => {
                     last = Some(
                         args.get(idx + 1)
-                            .ok_or_else(|| "--last requires a value".to_string())?
+                            .ok_or_else(|| CliError::usage("--last requires a value"))?
                             .parse::<usize>()
-                            .map_err(|error| format!("invalid --last: {error}"))?,
+                            .map_err(|error| CliError::usage(format!("invalid --last: {error}")))?,
                     );
                     idx += 2;
                 }
                 "--slot" => {
                     slot = Some(
                         args.get(idx + 1)
-                            .ok_or_else(|| "--slot requires a value".to_string())?
+                            .ok_or_else(|| CliError::usage("--slot requires a value"))?
                             .parse::<u16>()
-                            .map_err(|error| format!("invalid --slot: {error}"))?,
+                            .map_err(|error| CliError::usage(format!("invalid --slot: {error}")))?,
                     );
                     idx += 2;
                 }
-                other => return Err(format!("unknown autotune-report arg: {other}")),
+                other => {
+                    return Err(CliError::usage(format!(
+                        "unknown autotune-report arg: {other}"
+                    )));
+                }
             }
         }
         let last = last.unwrap_or(5);
         if last == 0 {
-            return Err("--last must be positive".to_string());
+            return Err(CliError::usage("--last must be positive"));
         }
         Ok(Self {
-            scope: scope.ok_or_else(|| "autotune-report requires --scope".to_string())?,
-            cache: cache.ok_or_else(|| "autotune-report requires --cache".to_string())?,
-            vault: vault.ok_or_else(|| "autotune-report requires --vault".to_string())?,
+            scope: scope.ok_or_else(|| CliError::usage("autotune-report requires --scope"))?,
+            cache: cache.ok_or_else(|| CliError::usage("autotune-report requires --cache"))?,
+            vault: vault.ok_or_else(|| CliError::usage("autotune-report requires --vault"))?,
             last,
             slot,
         })
     }
 
-    fn validate(&self) -> Result<(), String> {
+    fn validate(&self) -> CliResult {
         match self.scope.as_str() {
             "forge" => Ok(()),
             "storage" if self.slot.is_none() => Ok(()),
-            "storage" => Err("autotune-report --scope storage does not accept --slot".to_string()),
-            "loom" if self.slot.is_none() => Ok(()),
-            "loom" => Err("autotune-report --scope loom does not accept --slot".to_string()),
-            "index" if self.slot.is_some() => Ok(()),
-            "index" => Err("autotune-report --scope index requires --slot".to_string()),
-            other => Err(format!(
-                "autotune-report currently supports --scope forge, --scope index, --scope loom, or --scope storage, got {other}"
+            "storage" => Err(CliError::usage(
+                "autotune-report --scope storage does not accept --slot",
             )),
+            "loom" if self.slot.is_none() => Ok(()),
+            "loom" => Err(CliError::usage(
+                "autotune-report --scope loom does not accept --slot",
+            )),
+            "index" if self.slot.is_some() => Ok(()),
+            "index" => Err(CliError::usage(
+                "autotune-report --scope index requires --slot",
+            )),
+            other => Err(CliError::usage(format!(
+                "autotune-report currently supports --scope forge, --scope index, --scope loom, or --scope storage, got {other}"
+            ))),
         }
     }
 
@@ -143,11 +155,11 @@ struct CacheReport {
     entries: Value,
 }
 
-fn read_cache(path: &Path, request: &ReportRequest) -> Result<CacheReport, String> {
-    let bytes =
-        fs::read(path).map_err(|error| format!("read cache {}: {error}", path.display()))?;
+fn read_cache(path: &Path, request: &ReportRequest) -> CliResult<CacheReport> {
+    let bytes = fs::read(path)
+        .map_err(|error| CliError::io(format!("read cache {}: {error}", path.display())))?;
     let json: Value = serde_json::from_slice(&bytes)
-        .map_err(|error| format!("parse cache {}: {error}", path.display()))?;
+        .map_err(|error| CliError::runtime(format!("parse cache {}: {error}", path.display())))?;
     let entries = json.get("entries").cloned().unwrap_or_else(|| json!([]));
     Ok(CacheReport {
         bytes: bytes.len(),
@@ -187,11 +199,11 @@ fn cache_entry_matches(entry: &Value, request: &ReportRequest) -> bool {
     }
 }
 
-fn read_promotions(vault: &Path, request: &ReportRequest) -> Result<Vec<Value>, String> {
+fn read_promotions(vault: &Path, request: &ReportRequest) -> CliResult<Vec<Value>> {
     read_anneal_entries(vault, request, true)
 }
 
-fn read_recent_ab(vault: &Path, request: &ReportRequest) -> Result<Vec<Value>, String> {
+fn read_recent_ab(vault: &Path, request: &ReportRequest) -> CliResult<Vec<Value>> {
     read_anneal_entries(vault, request, false)
 }
 
@@ -199,16 +211,15 @@ fn read_anneal_entries(
     vault: &Path,
     request: &ReportRequest,
     promotions_only: bool,
-) -> Result<Vec<Value>, String> {
-    let store = AsterLedgerCfStore::open(vault).map_err(|error| error.to_string())?;
+) -> CliResult<Vec<Value>> {
+    let store = AsterLedgerCfStore::open(vault)?;
     let mut rows = Vec::new();
-    for row in store.scan().map_err(|error| error.to_string())? {
-        let entry = decode(&row.bytes).map_err(|error| error.to_string())?;
+    for row in store.scan()? {
+        let entry = decode(&row.bytes)?;
         if entry.kind != EntryKind::Anneal {
             continue;
         }
-        let anneal =
-            decode_anneal_ledger_payload(&entry.payload).map_err(|error| error.to_string())?;
+        let anneal = decode_anneal_ledger_payload(&entry.payload)?;
         let action_matches = if promotions_only {
             anneal.action == AnnealLedgerAction::AutotunePromote
         } else {
@@ -251,7 +262,7 @@ fn storage_plans_summary(
     entries: &Value,
     request: &ReportRequest,
     vault: &Path,
-) -> Result<Value, String> {
+) -> CliResult<Value> {
     if request.scope != "storage" {
         return Ok(Value::Null);
     }
@@ -327,19 +338,17 @@ fn extra_value(extra: &Value, key: &str) -> Value {
     extra.get(key).cloned().unwrap_or(Value::Null)
 }
 
-fn read_bandit_status(vault: &Path, shape_key: &str) -> Result<Value, String> {
+fn read_bandit_status(vault: &Path, shape_key: &str) -> CliResult<Value> {
     let cf = ColumnFamily::AnnealBandit;
     let shape_hash = shape_key_hash(shape_key);
     let wanted_key = bandit_key(shape_hash);
     let mut physical_rows = Vec::new();
     let mut latest = None;
     for file in list_sst_files(&vault.join("cf").join(cf.name()))? {
-        let reader = SstReader::open(&file).map_err(|error| error.to_string())?;
-        for row in reader.iter().map_err(|error| error.to_string())? {
-            let bandit = decode_config_bandit(&row.value).map_err(|error| error.to_string())?;
-            let status = bandit
-                .status(shape_hash)
-                .map_err(|error| error.to_string())?;
+        let reader = SstReader::open(&file)?;
+        for row in reader.iter()? {
+            let bandit = decode_config_bandit(&row.value)?;
+            let status = bandit.status(shape_hash)?;
             let readback = json!({
                 "file": file.display().to_string(),
                 "key_hex": hex(&row.key),
@@ -385,7 +394,11 @@ mod tests {
     fn storage_scope_rejects_slot() {
         let error = request("storage", Some(0)).validate().unwrap_err();
 
-        assert!(error.contains("--scope storage does not accept --slot"));
+        assert!(
+            error
+                .message()
+                .contains("--scope storage does not accept --slot")
+        );
     }
 
     #[test]

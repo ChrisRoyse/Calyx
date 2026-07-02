@@ -5,6 +5,7 @@ use calyx_ledger::{EntryKind, LedgerCfStore, decode};
 use serde_json::json;
 
 use crate::cf_read::hex_bytes as hex;
+use crate::error::CliError;
 use crate::ledger_store::AsterLedgerCfStore;
 
 pub(crate) fn run(args: &[String]) -> crate::error::CliResult {
@@ -18,7 +19,8 @@ pub(crate) fn run(args: &[String]) -> crate::error::CliResult {
     });
     println!(
         "{}",
-        serde_json::to_string_pretty(&report).map_err(|error| error.to_string())?
+        serde_json::to_string_pretty(&report)
+            .map_err(|error| CliError::runtime(format!("serialize ab-log report: {error}")))?
     );
     Ok(())
 }
@@ -29,7 +31,7 @@ struct ABLogRequest {
 }
 
 impl ABLogRequest {
-    fn parse(args: &[String]) -> Result<Self, String> {
+    fn parse(args: &[String]) -> crate::error::CliResult<Self> {
         let mut vault = None;
         let mut last = None;
         let mut idx = 0;
@@ -42,36 +44,35 @@ impl ABLogRequest {
                 "--last" => {
                     last = Some(
                         args.get(idx + 1)
-                            .ok_or_else(|| "--last requires a value".to_string())?
+                            .ok_or_else(|| CliError::usage("--last requires a value"))?
                             .parse::<usize>()
-                            .map_err(|error| format!("invalid --last: {error}"))?,
+                            .map_err(|error| CliError::usage(format!("invalid --last: {error}")))?,
                     );
                     idx += 2;
                 }
-                other => return Err(format!("unknown ab-log arg: {other}")),
+                other => return Err(CliError::usage(format!("unknown ab-log arg: {other}"))),
             }
         }
         let last = last.unwrap_or(5);
         if last == 0 {
-            return Err("--last must be positive".to_string());
+            return Err(CliError::usage("--last must be positive"));
         }
         Ok(Self {
-            vault: vault.ok_or_else(|| "ab-log requires --vault".to_string())?,
+            vault: vault.ok_or_else(|| CliError::usage("ab-log requires --vault"))?,
             last,
         })
     }
 }
 
-fn read_ab_entries(vault: &Path, last: usize) -> Result<Vec<serde_json::Value>, String> {
-    let store = AsterLedgerCfStore::open(vault).map_err(|error| error.to_string())?;
+fn read_ab_entries(vault: &Path, last: usize) -> crate::error::CliResult<Vec<serde_json::Value>> {
+    let store = AsterLedgerCfStore::open(vault)?;
     let mut entries = Vec::new();
-    for row in store.scan().map_err(|error| error.to_string())? {
-        let entry = decode(&row.bytes).map_err(|error| error.to_string())?;
+    for row in store.scan()? {
+        let entry = decode(&row.bytes)?;
         if entry.kind != EntryKind::Anneal {
             continue;
         }
-        let anneal =
-            decode_anneal_ledger_payload(&entry.payload).map_err(|error| error.to_string())?;
+        let anneal = decode_anneal_ledger_payload(&entry.payload)?;
         if !matches!(
             anneal.action,
             AnnealLedgerAction::AutotuneAB

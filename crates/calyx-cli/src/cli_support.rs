@@ -1,7 +1,7 @@
 use std::fs;
 use std::path::Path;
 
-use crate::error::CliResult;
+use crate::error::{CliError, CliResult};
 use crate::output::print_hex_dump;
 use crate::{budget_readback, tripwire_readback};
 
@@ -26,7 +26,7 @@ pub(crate) fn readback_config(name: &str, vault: &Path) -> CliResult {
     match name {
         "tripwire" => tripwire_readback::readback_tripwire_config(vault),
         "budget" => budget_readback::readback_budget_config(vault),
-        _ => Err(format!("unknown config readback: {name}").into()),
+        _ => Err(CliError::usage(format!("unknown config readback: {name}"))),
     }
 }
 

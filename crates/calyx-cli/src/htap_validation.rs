@@ -131,7 +131,8 @@ fn fsv_err(code: &'static str, message: String) -> CliError {
 fn write_json(out: &Path, name: &str, value: &serde_json::Value) -> CliResult<()> {
     std::fs::write(
         out.join(name),
-        serde_json::to_vec_pretty(value).map_err(CliError::from)?,
+        serde_json::to_vec_pretty(value)
+            .map_err(|error| CliError::runtime(format!("serialize {name}: {error}")))?,
     )
     .map_err(|e| CliError::io(format!("write {name}: {e}")))
 }
@@ -314,7 +315,8 @@ pub(crate) fn run(args: &[String]) -> CliResult {
         "sample_rows": sample,
     });
     write_json(&args.out, "htap-report.json", &report)?;
-    let report_bytes = serde_json::to_vec(&report).map_err(CliError::from)?;
+    let report_bytes = serde_json::to_vec(&report)
+        .map_err(|error| CliError::runtime(format!("serialize htap report: {error}")))?;
     write_json(
         &args.out,
         "htap-blake3.json",
@@ -323,7 +325,8 @@ pub(crate) fn run(args: &[String]) -> CliResult {
 
     println!(
         "{}",
-        serde_json::to_string_pretty(&report).map_err(CliError::from)?
+        serde_json::to_string_pretty(&report)
+            .map_err(|error| CliError::runtime(format!("serialize htap report: {error}")))?
     );
     Ok(())
 }

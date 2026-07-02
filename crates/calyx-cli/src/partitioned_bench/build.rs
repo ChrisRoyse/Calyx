@@ -265,7 +265,8 @@ pub(crate) fn run(args: &[String]) -> CliResult {
     }
     println!(
         "{}",
-        serde_json::to_string_pretty(&report).map_err(CliError::from)?
+        serde_json::to_string_pretty(&report)
+            .map_err(|error| CliError::runtime(format!("serialize partition report: {error}")))?
     );
     Ok(())
 }

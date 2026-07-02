@@ -1,7 +1,7 @@
 use std::path::Path;
 
 use crate::cli_support::{parse_i32, parse_i64, readback_hex};
-use crate::error::CliResult;
+use crate::error::{CliError, CliResult};
 use crate::{
     dedup_readback, kernel_health_readback, leapable, manifest_readback, recurrence_readback,
     temporal_readback, vault_tree,
@@ -51,7 +51,10 @@ pub(crate) fn try_run(args: &[String]) -> Option<CliResult> {
                 && tz_flag == "--tz-offset" =>
         {
             Some((|| {
-                temporal_readback::readback_temporal_search(parse_i64(clock)?, parse_i32(tz)?)
+                temporal_readback::readback_temporal_search(
+                    parse_i64(clock).map_err(CliError::usage)?,
+                    parse_i32(tz).map_err(CliError::usage)?,
+                )
             })())
         }
         [

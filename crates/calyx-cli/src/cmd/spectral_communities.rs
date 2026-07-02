@@ -220,7 +220,8 @@ fn persist_report(
     explicit: Option<&Path>,
     report: &SpectralCommunityReport,
 ) -> CliResult<PersistedReport> {
-    let bytes = serde_json::to_vec_pretty(report)?;
+    let bytes = serde_json::to_vec_pretty(report)
+        .map_err(|error| CliError::runtime(format!("serialize spectral report: {error}")))?;
     let report_id = blake3::hash(&bytes).to_hex().to_string();
     let path = explicit.map(Path::to_path_buf).unwrap_or_else(|| {
         vault_dir
@@ -252,7 +253,12 @@ fn persist_report(
             path.display()
         )));
     }
-    let decoded: SpectralCommunityReport = serde_json::from_slice(&readback)?;
+    let decoded: SpectralCommunityReport = serde_json::from_slice(&readback).map_err(|error| {
+        CliError::runtime(format!(
+            "parse spectral community report {}: {error}",
+            path.display()
+        ))
+    })?;
     Ok(PersistedReport {
         path,
         bytes: readback.len() as u64,

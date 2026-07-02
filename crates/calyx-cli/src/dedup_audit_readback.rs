@@ -40,37 +40,37 @@ struct CxListArgs {
 }
 
 pub fn readback_dedup_audit(vault: &Path, cx_id: &str) -> crate::error::CliResult {
-    let cx_id = CxId::from_str(cx_id).map_err(|error| format!("invalid --cx-id: {error}"))?;
+    let cx_id = CxId::from_str(cx_id)
+        .map_err(|error| CliError::usage(format!("invalid --cx-id: {error}")))?;
     let vault_id = vault_id_from_base(vault)?;
     let store = AsterVault::open(
         vault,
         vault_id,
         b"calyx-dedup-audit-readback".to_vec(),
         VaultOptions::default(),
-    )
-    .map_err(|error| error.to_string())?;
-    let report = dedup_audit(&store, cx_id).map_err(|error| error.to_string())?;
+    )?;
+    let report = dedup_audit(&store, cx_id)?;
     println!(
         "{}",
-        serde_json::to_string_pretty(&report).map_err(|error| error.to_string())?
+        serde_json::to_string_pretty(&report)
+            .map_err(|error| CliError::runtime(format!("serialize dedup audit report: {error}")))?
     );
     Ok(())
 }
 
 pub fn readback_dedup_undo(vault: &Path, token: &str) -> crate::error::CliResult {
-    let token: ReversalToken =
-        serde_json::from_str(token).map_err(|error| format!("invalid --token: {error}"))?;
+    let token: ReversalToken = serde_json::from_str(token)
+        .map_err(|error| CliError::usage(format!("invalid --token: {error}")))?;
     let vault_id = vault_id_from_base(vault)?;
     let store = AsterVault::open(
         vault,
         vault_id,
         b"calyx-dedup-audit-readback".to_vec(),
         VaultOptions::default(),
-    )
-    .map_err(|error| error.to_string())?;
+    )?;
     let before = latest_cf_rows(vault, ColumnFamily::Base)?;
-    let restored = dedup_undo(&store, &token).map_err(|error| error.to_string())?;
-    store.flush().map_err(|error| error.to_string())?;
+    let restored = dedup_undo(&store, &token)?;
+    store.flush()?;
     let after = latest_cf_rows(vault, ColumnFamily::Base)?;
     let value = json!({
         "vault": vault.display().to_string(),
@@ -80,7 +80,8 @@ pub fn readback_dedup_undo(vault: &Path, token: &str) -> crate::error::CliResult
     });
     println!(
         "{}",
-        serde_json::to_string_pretty(&value).map_err(|error| error.to_string())?
+        serde_json::to_string_pretty(&value)
+            .map_err(|error| CliError::runtime(format!("serialize dedup undo report: {error}")))?
     );
     Ok(())
 }
@@ -260,7 +261,8 @@ fn render_cx_list(
     progress: &mut ProgressSink,
 ) -> crate::error::CliResult {
     let values = cx_list_rows(vault, rows, include_slots, deadline, progress)?;
-    let json = serde_json::to_string_pretty(&values).map_err(|error| error.to_string())?;
+    let json = serde_json::to_string_pretty(&values)
+        .map_err(|error| CliError::runtime(format!("serialize cx-list rows: {error}")))?;
     print_line(&json)?;
     progress.emit(json!({
         "event": "cx_list.progress",
@@ -286,7 +288,7 @@ fn cx_list_rows(
             decoded.push((key, value, None));
             continue;
         }
-        let cx = decode_constellation_base(&value).map_err(|error| error.to_string())?;
+        let cx = decode_constellation_base(&value)?;
         decoded.push((key, value, Some(cx)));
     }
     let slot_states = if include_slots {

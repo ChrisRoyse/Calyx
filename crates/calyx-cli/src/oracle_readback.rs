@@ -13,6 +13,8 @@ use calyx_oracle::{DomainId, OracleError, check_sufficiency, oracle_self_consist
 use serde::Deserialize;
 use serde_json::json;
 
+use crate::error::CliError;
+
 pub(crate) fn is_topic(topic: &str) -> bool {
     matches!(
         topic,
@@ -33,36 +35,43 @@ pub(crate) fn readback_oracle(topic: &str, args: &[String]) -> crate::error::Cli
         "oracle_expand" => butterfly::readback_oracle_expand(args),
         "reverse_query" => reverse_query::readback_reverse_query(args),
         "super_intelligence" => super_intelligence::readback_super_intelligence(args),
-        _ => Err("unknown oracle readback topic".to_string().into()),
+        _ => Err(CliError::usage("unknown oracle readback topic")),
     }
 }
 
 pub(crate) fn readback_oracle_self_consistency(args: &[String]) -> crate::error::CliResult {
     match args {
-        [vault_flag, vault, domain_flag, domain, vault_id_flag, vault_id, salt_flag, salt]
-            if vault_flag == "--vault"
-                && domain_flag == "--domain"
-                && vault_id_flag == "--vault-id"
-                && salt_flag == "--salt" =>
+        [
+            vault_flag,
+            vault,
+            domain_flag,
+            domain,
+            vault_id_flag,
+            vault_id,
+            salt_flag,
+            salt,
+        ] if vault_flag == "--vault"
+            && domain_flag == "--domain"
+            && vault_id_flag == "--vault-id"
+            && salt_flag == "--salt" =>
         {
-            let vault_id =
-                VaultId::from_str(vault_id).map_err(|error| format!("invalid --vault-id: {error}"))?;
+            let vault_id = VaultId::from_str(vault_id)
+                .map_err(|error| CliError::usage(format!("invalid --vault-id: {error}")))?;
             let vault = AsterVault::new_durable(
                 Path::new(vault),
                 vault_id,
                 salt.as_bytes().to_vec(),
                 VaultOptions::default(),
-            )
-            .map_err(|error| error.to_string())?;
+            )?;
             let clock = SystemClock;
             match oracle_self_consistency(&vault, DomainId::from(domain.clone()), &clock) {
                 Ok(result) => {
-                    vault
-                        .flush()
-                        .map_err(|error| format!("flush oracle ledger row: {error}"))?;
+                    vault.flush()?;
                     println!(
                         "{}",
-                        serde_json::to_string_pretty(&result).map_err(|error| error.to_string())?
+                        serde_json::to_string_pretty(&result).map_err(|error| {
+                            CliError::runtime(format!("serialize readback: {error}"))
+                        })?
                     );
                     Ok(())
                 }
@@ -74,33 +83,44 @@ pub(crate) fn readback_oracle_self_consistency(args: &[String]) -> crate::error:
                             "error_code": error.code(),
                             "error": error.to_string(),
                         }))
-                        .map_err(|error| error.to_string())?
+                        .map_err(|error| {
+                            CliError::runtime(format!("serialize readback: {error}"))
+                        })?
                     );
-                    Err(error.to_string().into())
+                    Err(error.into())
                 }
             }
         }
-        _ => Err("usage: calyx readback oracle_self_consistency --vault <dir> --domain <domain> --vault-id <id> --salt <s>".to_string().into()),
+        _ => Err(CliError::usage(
+            "usage: calyx readback oracle_self_consistency --vault <dir> --domain <domain> --vault-id <id> --salt <s>",
+        )),
     }
 }
 
 fn readback_oracle_sufficiency(args: &[String]) -> crate::error::CliResult {
     match args {
-        [vault_flag, vault, fixture_flag, fixture, vault_id_flag, vault_id, salt_flag, salt]
-            if vault_flag == "--vault"
-                && fixture_flag == "--fixture"
-                && vault_id_flag == "--vault-id"
-                && salt_flag == "--salt" =>
+        [
+            vault_flag,
+            vault,
+            fixture_flag,
+            fixture,
+            vault_id_flag,
+            vault_id,
+            salt_flag,
+            salt,
+        ] if vault_flag == "--vault"
+            && fixture_flag == "--fixture"
+            && vault_id_flag == "--vault-id"
+            && salt_flag == "--salt" =>
         {
-            let vault_id =
-                VaultId::from_str(vault_id).map_err(|error| format!("invalid --vault-id: {error}"))?;
+            let vault_id = VaultId::from_str(vault_id)
+                .map_err(|error| CliError::usage(format!("invalid --vault-id: {error}")))?;
             let vault = AsterVault::new_durable(
                 Path::new(vault),
                 vault_id,
                 salt.as_bytes().to_vec(),
                 VaultOptions::default(),
-            )
-            .map_err(|error| error.to_string())?;
+            )?;
             let fixture = SufficiencyFixture::read(Path::new(fixture))?;
             let rows_written = fixture.persist_assay_rows(&vault)?;
             let clock = FixedClock::new(fixture.clock_ts);
@@ -118,7 +138,9 @@ fn readback_oracle_sufficiency(args: &[String]) -> crate::error::CliResult {
                             "assay_rows_written": rows_written,
                             "bound": bound,
                         }))
-                        .map_err(|error| error.to_string())?
+                        .map_err(|error| {
+                            CliError::runtime(format!("serialize readback: {error}"))
+                        })?
                     );
                     Ok(())
                 }
@@ -130,13 +152,17 @@ fn readback_oracle_sufficiency(args: &[String]) -> crate::error::CliResult {
                             rows_written,
                             &error
                         ))
-                        .map_err(|error| error.to_string())?
+                        .map_err(|error| {
+                            CliError::runtime(format!("serialize readback: {error}"))
+                        })?
                     );
-                    Err(error.to_string().into())
+                    Err(error.into())
                 }
             }
         }
-        _ => Err("usage: calyx readback oracle_sufficiency --vault <dir> --fixture <json> --vault-id <id> --salt <s>".to_string().into()),
+        _ => Err(CliError::usage(
+            "usage: calyx readback oracle_sufficiency --vault <dir> --fixture <json> --vault-id <id> --salt <s>",
+        )),
     }
 }
 
@@ -162,27 +188,30 @@ struct FixtureSlotBits {
 }
 
 impl SufficiencyFixture {
-    fn read(path: &Path) -> Result<Self, String> {
-        let bytes = std::fs::read(path).map_err(|error| format!("read fixture: {error}"))?;
-        let fixture: Self =
-            serde_json::from_slice(&bytes).map_err(|error| format!("parse fixture: {error}"))?;
+    fn read(path: &Path) -> crate::error::CliResult<Self> {
+        let bytes =
+            std::fs::read(path).map_err(|error| CliError::io(format!("read fixture: {error}")))?;
+        let fixture: Self = serde_json::from_slice(&bytes)
+            .map_err(|error| CliError::runtime(format!("parse fixture: {error}")))?;
         fixture.validate()?;
         Ok(fixture)
     }
 
-    fn validate(&self) -> Result<(), String> {
+    fn validate(&self) -> crate::error::CliResult {
         validate_bits(self.panel_bits, "I_panel_oracle")?;
         validate_bits(self.outcome_entropy_bits, "outcome_entropy_bits")?;
         for slot in &self.slot_bits {
             validate_bits(slot.bits, "slot_bits")?;
         }
         if self.n_samples == 0 {
-            return Err("oracle_sufficiency fixture n_samples must be positive".to_string());
+            return Err(CliError::runtime(
+                "oracle_sufficiency fixture n_samples must be positive",
+            ));
         }
         Ok(())
     }
 
-    fn persist_assay_rows(&self, vault: &AsterVault) -> Result<usize, String> {
+    fn persist_assay_rows(&self, vault: &AsterVault) -> crate::error::CliResult<usize> {
         let key = AssayCacheKey::scoped(
             self.panel.version,
             self.domain.clone(),
@@ -213,9 +242,7 @@ impl SufficiencyFixture {
                 self.clock_ts,
             );
         }
-        store
-            .persist_to_vault(vault)
-            .map_err(|error| error.to_string())
+        Ok(store.persist_to_vault(vault)?)
     }
 
     fn estimate(&self, bits: f32, estimator: EstimatorKind) -> MiEstimate {
@@ -223,11 +250,13 @@ impl SufficiencyFixture {
     }
 }
 
-fn validate_bits(value: f32, name: &str) -> Result<(), String> {
+fn validate_bits(value: f32, name: &str) -> crate::error::CliResult {
     if value.is_finite() && value >= 0.0 {
         Ok(())
     } else {
-        Err(format!("{name} must be finite and non-negative"))
+        Err(CliError::runtime(format!(
+            "{name} must be finite and non-negative"
+        )))
     }
 }
 

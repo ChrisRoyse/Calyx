@@ -12,25 +12,23 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use crate::error::{CliError, CliResult};
+
 /// Lists canonical Aster SST files in deterministic readback order, failing
 /// closed on seq-domain-ambiguous layouts (issue #1138): callers fold rows
 /// newest-wins in this order, so an ambiguous order would read stale rows.
-pub(crate) fn list_sst_files(dir: &Path) -> Result<Vec<PathBuf>, String> {
+pub(crate) fn list_sst_files(dir: &Path) -> CliResult<Vec<PathBuf>> {
     let mut files = Vec::new();
     if !dir.exists() {
         return Ok(files);
     }
-    for entry in fs::read_dir(dir).map_err(|error| error.to_string())? {
-        let path = entry.map_err(|error| error.to_string())?.path();
-        if classify_sst(&path)
-            .map_err(|error| error.to_string())?
-            .is_some()
-        {
+    for entry in fs::read_dir(dir)? {
+        let path = entry?.path();
+        if classify_sst(&path)?.is_some() {
             files.push(path);
         }
     }
-    ensure_unambiguous_sst_order(files.iter().map(PathBuf::as_path))
-        .map_err(|error| error.to_string())?;
+    ensure_unambiguous_sst_order(files.iter().map(PathBuf::as_path))?;
     files.sort_by(|left, right| sst_order(left).cmp(&sst_order(right)).then(left.cmp(right)));
     Ok(files)
 }
@@ -47,17 +45,17 @@ pub(crate) fn sst_order(path: &Path) -> SstOrderKey {
 pub(crate) fn latest_cf_rows(
     vault: &Path,
     cf: ColumnFamily,
-) -> Result<BTreeMap<Vec<u8>, Vec<u8>>, String> {
+) -> CliResult<BTreeMap<Vec<u8>, Vec<u8>>> {
     let mut rows = BTreeMap::new();
     for file in list_sst_files(&vault.join("cf").join(cf.name()))? {
-        let reader = SstReader::open(&file).map_err(|error| error.to_string())?;
-        for row in reader.iter().map_err(|error| error.to_string())? {
+        let reader = SstReader::open(&file)?;
+        for row in reader.iter()? {
             rows.insert(row.key, row.value);
         }
     }
     let replay = replay_after_manifest(vault)?;
     for record in replay.records {
-        for row in decode_write_batch(&record.payload).map_err(|error| error.to_string())? {
+        for row in decode_write_batch(&record.payload)? {
             if row.cf == cf {
                 rows.insert(row.key, row.value);
             }
@@ -70,13 +68,13 @@ pub(crate) fn latest_cf_row(
     vault: &Path,
     cf: ColumnFamily,
     key: &[u8],
-) -> Result<Option<Vec<u8>>, String> {
+) -> CliResult<Option<Vec<u8>>> {
     let sst_files = list_sst_files(&vault.join("cf").join(cf.name()))?;
     let level = SstLevel::from_oldest_first(sst_files);
-    let mut value = level.get(key).map_err(|error| error.to_string())?;
+    let mut value = level.get(key)?;
     let replay = replay_after_manifest(vault)?;
     for record in replay.records {
-        for row in decode_write_batch(&record.payload).map_err(|error| error.to_string())? {
+        for row in decode_write_batch(&record.payload)? {
             if row.cf == cf && row.key == key {
                 value = Some(row.value);
             }
@@ -89,19 +87,16 @@ pub(crate) fn latest_cf_rows_for_keys(
     vault: &Path,
     cf: ColumnFamily,
     keys: &[Vec<u8>],
-) -> Result<BTreeMap<Vec<u8>, Option<Vec<u8>>>, String> {
+) -> CliResult<BTreeMap<Vec<u8>, Option<Vec<u8>>>> {
     let sst_files = list_sst_files(&vault.join("cf").join(cf.name()))?;
     let level = SstLevel::from_oldest_first(sst_files);
     let mut rows = BTreeMap::new();
     for key in keys {
-        rows.insert(
-            key.clone(),
-            level.get(key).map_err(|error| error.to_string())?,
-        );
+        rows.insert(key.clone(), level.get(key)?);
     }
     let replay = replay_after_manifest(vault)?;
     for record in replay.records {
-        for row in decode_write_batch(&record.payload).map_err(|error| error.to_string())? {
+        for row in decode_write_batch(&record.payload)? {
             if row.cf == cf && rows.contains_key(&row.key) {
                 rows.insert(row.key, Some(row.value));
             }
@@ -110,32 +105,27 @@ pub(crate) fn latest_cf_rows_for_keys(
     Ok(rows)
 }
 
-pub(crate) fn replay_after_manifest(vault: &Path) -> Result<ReplayOutcome, String> {
+pub(crate) fn replay_after_manifest(vault: &Path) -> CliResult<ReplayOutcome> {
     let floor = wal_replay_floor(vault)?;
-    replay_dir_after(vault.join("wal"), floor).map_err(|error| error.to_string())
+    Ok(replay_dir_after(vault.join("wal"), floor)?)
 }
 
-fn wal_replay_floor(vault: &Path) -> Result<u64, String> {
+fn wal_replay_floor(vault: &Path) -> CliResult<u64> {
     if vault.join("CURRENT").exists() || vault.join("MANIFEST").exists() {
-        return ManifestStore::open(vault)
+        return Ok(ManifestStore::open(vault)
             .load_current()
-            .map(|manifest| manifest.durable_seq)
-            .map_err(|error| error.to_string());
+            .map(|manifest| manifest.durable_seq)?);
     }
     Ok(0)
 }
 
-pub(crate) fn vault_id_from_base(vault: &Path) -> Result<VaultId, String> {
+pub(crate) fn vault_id_from_base(vault: &Path) -> CliResult<VaultId> {
     latest_cf_rows(vault, ColumnFamily::Base)?
         .into_values()
         .next()
-        .map(|bytes| {
-            decode_constellation_base(&bytes)
-                .map(|cx| cx.vault_id)
-                .map_err(|error| error.to_string())
-        })
+        .map(|bytes| decode_constellation_base(&bytes).map(|cx| cx.vault_id))
         .transpose()?
-        .ok_or_else(|| "cannot infer vault id: base CF has no rows".to_string())
+        .ok_or_else(|| CliError::runtime("cannot infer vault id: base CF has no rows"))
 }
 
 pub(crate) fn hex_bytes(bytes: &[u8]) -> String {

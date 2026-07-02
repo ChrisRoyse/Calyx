@@ -76,7 +76,9 @@ pub(crate) fn run(args: &[String]) -> CliResult {
         report.quarantine_marker_sha256 = Some(write.sha256_hex);
     }
     if let Some(path) = &args.out {
-        let value = serde_json::to_value(&report)?;
+        let value = serde_json::to_value(&report).map_err(|error| {
+            CliError::runtime(format!("serialize fsv vault-health report: {error}"))
+        })?;
         write_json_value_atomic(path, &value, "fsv vault-health report")?;
     }
     print_json(&report)?;

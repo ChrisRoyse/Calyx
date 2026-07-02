@@ -10,18 +10,18 @@ pub(crate) mod request;
 mod worker;
 mod write;
 
-use crate::error::CliResult;
+use crate::error::{CliError, CliResult};
 use crate::output::print_json;
 
 pub(crate) fn run(args: &[String]) -> CliResult {
-    let request = request::CorpusBuildRequest::parse(args)?;
+    let request = request::CorpusBuildRequest::parse(args).map_err(CliError::usage)?;
     if request.worker_report.is_some() {
         return worker::run_worker(&request);
     }
-    write::ensure_fresh_output(&request)?;
-    let rows = data::load_rows(&request)?;
-    let measured = worker::measure_requested_lenses(&request, &rows)?;
-    let evidence = write::write_outputs(&request, &rows, &measured)?;
+    write::ensure_fresh_output(&request).map_err(CliError::runtime)?;
+    let rows = data::load_rows(&request).map_err(CliError::runtime)?;
+    let measured = worker::measure_requested_lenses(&request, &rows).map_err(CliError::runtime)?;
+    let evidence = write::write_outputs(&request, &rows, &measured).map_err(CliError::runtime)?;
     print_json(&evidence)
 }
 

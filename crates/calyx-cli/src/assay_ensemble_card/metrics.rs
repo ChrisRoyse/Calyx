@@ -3,6 +3,8 @@ use std::path::Path;
 
 use serde::Serialize;
 
+use crate::error::{CliError, CliResult};
+
 use super::engine::EnsembleCardReport;
 use super::request::EnsembleCardRequest;
 
@@ -23,22 +25,27 @@ pub(crate) struct EnsembleMetricEvidence {
 pub(crate) fn write_outputs(
     request: &EnsembleCardRequest,
     report: &EnsembleCardReport,
-) -> Result<EnsembleMetricEvidence, String> {
-    check_finite(report)?;
-    fs::create_dir_all(&request.metrics_dir).map_err(|error| error.to_string())?;
+) -> CliResult<EnsembleMetricEvidence> {
+    check_finite(report).map_err(super::ensemble_cli_error)?;
+    fs::create_dir_all(&request.metrics_dir).map_err(|error| {
+        CliError::io(format!("create {}: {error}", request.metrics_dir.display()))
+    })?;
 
     let ensemble_card_path = request.metrics_dir.join("ensemble_card.json");
     fs::write(
         &ensemble_card_path,
-        serde_json::to_vec_pretty(&report.card).map_err(|error| error.to_string())?,
+        serde_json::to_vec_pretty(&report.card)
+            .map_err(|error| CliError::runtime(format!("serialize ensemble card: {error}")))?,
     )
-    .map_err(|error| error.to_string())?;
+    .map_err(|error| CliError::io(format!("write {}: {error}", ensemble_card_path.display())))?;
 
     let lens_values_path = request.metrics_dir.join("ensemble_lens_values.txt");
-    fs::write(&lens_values_path, lens_values(report)).map_err(|error| error.to_string())?;
+    fs::write(&lens_values_path, lens_values(report))
+        .map_err(|error| CliError::io(format!("write {}: {error}", lens_values_path.display())))?;
 
     let pair_values_path = request.metrics_dir.join("ensemble_pair_values.txt");
-    fs::write(&pair_values_path, pair_values(report)).map_err(|error| error.to_string())?;
+    fs::write(&pair_values_path, pair_values(report))
+        .map_err(|error| CliError::io(format!("write {}: {error}", pair_values_path.display())))?;
 
     Ok(EnsembleMetricEvidence {
         metrics_dir: request.metrics_dir.display().to_string(),

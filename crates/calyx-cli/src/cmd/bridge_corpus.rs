@@ -371,7 +371,9 @@ fn read_index_value(home: &Path) -> CliResult<Value> {
     if !path.exists() {
         return Ok(json!({ "vaults": [] }));
     }
-    Ok(serde_json::from_slice(&fs::read(path)?)?)
+    serde_json::from_slice(&fs::read(&path)?).map_err(|error| {
+        CliError::runtime(format!("parse vault index {}: {error}", path.display()))
+    })
 }
 
 fn index_path(home: &Path) -> PathBuf {

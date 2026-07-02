@@ -7,7 +7,8 @@ use crate::output::print_json;
 
 pub fn readback_vault_manifest_field(vault: &Path, field: &str) -> CliResult {
     let manifest = ManifestStore::open(vault).load_current()?;
-    let manifest_json = serde_json::to_value(&manifest)?;
+    let manifest_json = serde_json::to_value(&manifest)
+        .map_err(|error| CliError::runtime(format!("serialize vault manifest: {error}")))?;
     let value = manifest_json
         .get(field)
         .ok_or_else(|| CliError::usage(format!("manifest field `{field}` not found")))?;

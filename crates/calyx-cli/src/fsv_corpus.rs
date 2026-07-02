@@ -5,15 +5,15 @@ use std::path::{Component, Path, PathBuf};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
-use crate::error::CliResult;
+use crate::error::{CliError, CliResult};
 use crate::output::print_json;
 
 const SCHEMA: &str = "calyx.multimodal_fsv_corpus.v1";
 const MIN_EDGE_CASES: usize = 3;
 
 pub(crate) fn run(args: &[String]) -> CliResult {
-    let root = parse_root(args)?;
-    let readback = readback(&root)?;
+    let root = parse_root(args).map_err(CliError::usage)?;
+    let readback = readback(&root).map_err(CliError::runtime)?;
     print_json(&readback)
 }
 

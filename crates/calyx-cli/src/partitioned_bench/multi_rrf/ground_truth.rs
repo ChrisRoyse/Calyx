@@ -164,7 +164,8 @@ pub(super) fn write(rows: &[Vec<u64>], ctx: Context<'_>) -> CliResult<Value> {
         "slots": plan_slots(ctx.plan),
         "generator": "calyx bench partitioned-rrf",
     });
-    let manifest_bytes = serde_json::to_vec_pretty(&manifest)?;
+    let manifest_bytes = serde_json::to_vec_pretty(&manifest)
+        .map_err(|error| CliError::runtime(format!("serialize truth manifest: {error}")))?;
     write_atomic(ctx.manifest_file, &manifest_bytes)?;
     Ok(json!({
         "mode": "generated_fused_rrf_i32bin",

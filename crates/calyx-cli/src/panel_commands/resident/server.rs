@@ -148,7 +148,8 @@ fn handle_client(
             "send one JSON object per connection or the resident binary magic line",
         ),
     };
-    serde_json::to_writer(&mut stream, &response)?;
+    serde_json::to_writer(&mut stream, &response)
+        .map_err(|error| CliError::runtime(format!("write resident response JSON: {error}")))?;
     stream.write_all(b"\n")?;
     stream.flush()?;
     let _ = stream.shutdown(Shutdown::Both);

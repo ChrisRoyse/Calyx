@@ -10,7 +10,7 @@ use super::template_model::{
     A37_ADMISSION_VERSION, CARD_VERSION, CapabilityCardRef, SavedPanelTemplate, TEMPLATE_INVALID,
     TemplateA37Admission, TemplateA37CardRef, TemplateEnsembleCard, template_error,
 };
-use crate::error::CliResult;
+use crate::error::{CliError, CliResult};
 
 pub(super) fn ensemble_card_from_capability_cards(
     template: &SavedPanelTemplate,
@@ -22,7 +22,9 @@ pub(super) fn ensemble_card_from_capability_cards(
     for path in card_paths {
         let bytes = fs::read(path)?;
         let hash = blake3::hash(&bytes).to_hex().to_string();
-        let card: CapabilityCard = serde_json::from_slice(&bytes)?;
+        let card: CapabilityCard = serde_json::from_slice(&bytes).map_err(|error| {
+            CliError::runtime(format!("parse capability card {}: {error}", path.display()))
+        })?;
         refs.push(CapabilityCardRef {
             path: path.display().to_string(),
             blake3_hex: hash,

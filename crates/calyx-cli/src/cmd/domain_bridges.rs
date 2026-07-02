@@ -268,7 +268,8 @@ fn persist_report(
     explicit: Option<&Path>,
     report: &DomainBridgeReport,
 ) -> CliResult<PersistedReport> {
-    let bytes = serde_json::to_vec_pretty(report)?;
+    let bytes = serde_json::to_vec_pretty(report)
+        .map_err(|error| CliError::runtime(format!("serialize domain bridge report: {error}")))?;
     let report_id = blake3::hash(&bytes).to_hex().to_string();
     let path = explicit.map(Path::to_path_buf).unwrap_or_else(|| {
         vault_dir
@@ -300,7 +301,12 @@ fn persist_report(
             path.display()
         )));
     }
-    let decoded: DomainBridgeReport = serde_json::from_slice(&readback)?;
+    let decoded: DomainBridgeReport = serde_json::from_slice(&readback).map_err(|error| {
+        CliError::runtime(format!(
+            "parse domain bridge report readback {}: {error}",
+            path.display()
+        ))
+    })?;
     let candidate_count = decoded
         .pair_reports
         .iter()

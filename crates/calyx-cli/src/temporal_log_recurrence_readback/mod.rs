@@ -12,6 +12,8 @@ use calyx_oracle::predict_next_occurrence;
 use serde::Serialize;
 use serde_json::{Value, json};
 
+use crate::error::{CliError, CliResult};
+
 mod artifact;
 mod parse;
 
@@ -32,29 +34,26 @@ const PANEL_VERSION: u32 = 70;
 const CONTENT_SLOT: u16 = 0;
 const EVENT_BYTES: &[u8] = b"temp";
 
-pub fn readback_temporal_log_recurrence(args: &[String]) -> crate::error::CliResult {
-    let args = Args::parse(args)?;
-    let bytes = std::fs::read(&args.log).map_err(|error| error.to_string())?;
-    let text = String::from_utf8(bytes.clone()).map_err(|error| error.to_string())?;
-    let events = parse_events(&text, args.rows)?;
-    let gaps = cadence_gaps(&events)?;
-    assert_expected_cadence(&gaps, args.expected_cadence_secs)?;
+pub fn readback_temporal_log_recurrence(args: &[String]) -> CliResult {
+    let args = Args::parse(args).map_err(CliError::usage)?;
+    let bytes = std::fs::read(&args.log)?;
+    let text = String::from_utf8(bytes.clone())
+        .map_err(|error| CliError::runtime(format!("log file is not valid UTF-8: {error}")))?;
+    let events = parse_events(&text, args.rows).map_err(CliError::runtime)?;
+    let gaps = cadence_gaps(&events).map_err(CliError::runtime)?;
+    assert_expected_cadence(&gaps, args.expected_cadence_secs).map_err(CliError::runtime)?;
     ensure_empty_vault_target(&args.vault)?;
 
-    let writer = AsterVault::new_durable(&args.vault, vault_id()?, SALT.to_vec(), vault_options()?)
-        .map_err(|error| error.to_string())?;
+    let writer =
+        AsterVault::new_durable(&args.vault, vault_id()?, SALT.to_vec(), vault_options()?)?;
     let (cx_id, ingest_results) = ingest_events(&writer, &events, &args)?;
-    writer.flush().map_err(|error| error.to_string())?;
+    writer.flush()?;
     drop(writer);
 
-    let reader = AsterVault::open(&args.vault, vault_id()?, SALT.to_vec(), vault_options()?)
-        .map_err(|error| error.to_string())?;
+    let reader = AsterVault::open(&args.vault, vault_id()?, SALT.to_vec(), vault_options()?)?;
     let store = SeriesStore::new(&reader);
-    let recurrence = store
-        .recurrence_series(cx_id)
-        .map_err(|error| error.to_string())?;
-    let prediction = predict_next_occurrence(&reader, cx_id, args.confidence_ceiling)
-        .map_err(|error| error.to_string())?;
+    let recurrence = store.recurrence_series(cx_id)?;
+    let prediction = predict_next_occurrence(&reader, cx_id, args.confidence_ceiling)?;
     let recall = periodic_recall(&store, &recurrence)?;
     let ledger_payloads = ledger_payloads(&reader)?;
 
@@ -63,7 +62,12 @@ pub fn readback_temporal_log_recurrence(args: &[String]) -> crate::error::CliRes
         .expect("events validated")
         .epoch_secs
         .checked_add(args.expected_cadence_secs)
-        .ok_or_else(|| temporal_error(CALYX_TEMPORAL_LOG_CADENCE_MISMATCH, "next overflow"))?;
+        .ok_or_else(|| {
+            CliError::runtime(temporal_error(
+                CALYX_TEMPORAL_LOG_CADENCE_MISMATCH,
+                "next overflow",
+            ))
+        })?;
     let recurrence_signature_count = ledger_payloads
         .iter()
         .filter(|payload| payload["payload"]["recurrence_signature"] == json!(true))
@@ -125,7 +129,8 @@ pub fn readback_temporal_log_recurrence(args: &[String]) -> crate::error::CliRes
     write_json(&args.out, &artifact)?;
     println!(
         "{}",
-        serde_json::to_string_pretty(&artifact).map_err(|error| error.to_string())?
+        serde_json::to_string_pretty(&artifact)
+            .map_err(|error| CliError::runtime(format!("serialize artifact: {error}")))?
     );
     Ok(())
 }
@@ -134,7 +139,7 @@ fn ingest_events(
     vault: &AsterVault,
     events: &[LogEvent],
     args: &Args,
-) -> Result<(calyx_core::CxId, Vec<Value>), String> {
+) -> CliResult<(calyx_core::CxId, Vec<Value>)> {
     let mut cx_id = None;
     let mut results = Vec::new();
     for (index, event) in events.iter().enumerate() {
@@ -143,17 +148,16 @@ fn ingest_events(
             &input_for_event(event, args),
             EpochSecs(event.epoch_secs),
             None,
-        )
-        .map_err(|error| error.to_string())?;
+        )?;
         match (&result, cx_id) {
             (DedupResult::New(id), None) if index == 0 => cx_id = Some(*id),
             (DedupResult::DedupMerge { into, occurrence }, Some(expected))
                 if *into == expected && occurrence.0 == index as u64 => {}
             _ => {
-                return Err(temporal_error(
+                return Err(CliError::runtime(temporal_error(
                     CALYX_TEMPORAL_LOG_SIGNATURE_MISMATCH,
                     format!("unexpected dedup result at selected row {index}: {result:?}"),
-                ));
+                )));
             }
         }
         results.push(json!({
@@ -164,7 +168,12 @@ fn ingest_events(
         }));
     }
     cx_id
-        .ok_or_else(|| temporal_error(CALYX_TEMPORAL_LOG_EMPTY, "no events ingested"))
+        .ok_or_else(|| {
+            CliError::runtime(temporal_error(
+                CALYX_TEMPORAL_LOG_EMPTY,
+                "no events ingested",
+            ))
+        })
         .map(|id| (id, results))
 }
 
@@ -181,16 +190,15 @@ fn input_for_event(_event: &LogEvent, _args: &Args) -> IngestInput {
 fn periodic_recall(
     store: &SeriesStore<'_, calyx_core::SystemClock>,
     recurrence: &impl Serialize,
-) -> Result<Value, String> {
-    let value = serde_json::to_value(recurrence).map_err(|error| error.to_string())?;
+) -> CliResult<Value> {
+    let value = serde_json::to_value(recurrence)
+        .map_err(|error| CliError::runtime(format!("serialize recurrence: {error}")))?;
     let fit = &value["periodic_fit"];
     let hour = fit["target_hour"].as_u64().map(|value| value as u8);
     let day = fit["target_day_of_week"].as_u64().map(|value| value as u8);
-    let query = PeriodicRecallQuery::new(hour, day).map_err(|error| error.to_string())?;
-    store
-        .periodic_recall_readback(query)
-        .map(|readback| serde_json::to_value(readback).expect("periodic recall json"))
-        .map_err(|error| error.to_string())
+    let query = PeriodicRecallQuery::new(hour, day)?;
+    let readback = store.periodic_recall_readback(query)?;
+    Ok(serde_json::to_value(readback).expect("periodic recall json"))
 }
 
 fn validate_readback(
@@ -200,71 +208,68 @@ fn validate_readback(
     signature_count: usize,
     recurrence: &calyx_loom::recurrence::RecurrenceRead,
     prediction: &calyx_oracle::TimePrediction,
-) -> Result<(), String> {
+) -> CliResult {
     if recurrence.series.occurrences.len() != selected_rows {
-        return Err(temporal_error(
+        return Err(CliError::runtime(temporal_error(
             CALYX_TEMPORAL_LOG_SIGNATURE_MISMATCH,
             "persisted occurrence count does not match selected log rows",
-        ));
+        )));
     }
     if recurrence.series.cadence_secs != Some(expected_cadence as f64)
         || recurrence.periodic_fit.dominant_period_secs != Some(expected_cadence as f64)
     {
-        return Err(temporal_error(
+        return Err(CliError::runtime(temporal_error(
             CALYX_TEMPORAL_LOG_CADENCE_MISMATCH,
             "persisted cadence or periodic fit does not match expected cadence",
-        ));
+        )));
     }
     if prediction.t_hat.0 != expected_next
         || prediction.interval.low.0 > expected_next
         || prediction.interval.high.0 < expected_next
     {
-        return Err(temporal_error(
+        return Err(CliError::runtime(temporal_error(
             CALYX_TEMPORAL_LOG_CADENCE_MISMATCH,
             "Oracle prediction does not match expected next timestamp",
-        ));
+        )));
     }
     if signature_count != selected_rows.saturating_sub(1) {
-        return Err(temporal_error(
+        return Err(CliError::runtime(temporal_error(
             CALYX_TEMPORAL_LOG_SIGNATURE_MISMATCH,
             "ledger recurrence_signature count does not match merge count",
-        ));
+        )));
     }
     Ok(())
 }
 
-fn ensure_empty_vault_target(vault: &Path) -> std::result::Result<(), String> {
+fn ensure_empty_vault_target(vault: &Path) -> CliResult {
     if !vault.exists() {
         return Ok(());
     }
-    let mut entries = std::fs::read_dir(vault).map_err(|error| error.to_string())?;
+    let mut entries = std::fs::read_dir(vault)?;
     if entries.next().is_none() {
         return Ok(());
     }
-    Err(temporal_error(
+    Err(CliError::runtime(temporal_error(
         CALYX_TEMPORAL_LOG_VAULT_NOT_EMPTY,
         format!("vault target is not empty: {}", vault.display()),
-    ))
+    )))
 }
 
-fn vault_options() -> Result<VaultOptions, String> {
+fn vault_options() -> CliResult<VaultOptions> {
     Ok(VaultOptions {
-        dedup_policy: Some(DedupPolicy::TctCosine(
-            TctCosineConfig::new(
-                vec![SlotId::new(CONTENT_SLOT)],
-                TauStrategy::PerSlot(vec![(SlotId::new(CONTENT_SLOT), 0.90)]),
-                DedupAction::RecurrenceSeries,
-            )
-            .map_err(|error| error.to_string())?,
-        )),
+        dedup_policy: Some(DedupPolicy::TctCosine(TctCosineConfig::new(
+            vec![SlotId::new(CONTENT_SLOT)],
+            TauStrategy::PerSlot(vec![(SlotId::new(CONTENT_SLOT), 0.90)]),
+            DedupAction::RecurrenceSeries,
+        )?)),
         ..VaultOptions::default()
     })
 }
 
-fn vault_id() -> Result<VaultId, String> {
+fn vault_id() -> CliResult<VaultId> {
     VAULT_ID
         .parse()
-        .map_err(|error| format!("vault id parse: {error}"))
+        .map_err(|error| CliError::runtime(format!("vault id parse: {error}")))
 }
 
 fn temporal_error(code: &'static str, message: impl Into<String>) -> String {

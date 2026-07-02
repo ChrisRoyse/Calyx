@@ -21,6 +21,7 @@ use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use crate::cf_read::{hex_bytes, list_sst_files};
+use crate::error::{CliError, CliResult};
 use crate::output::{WriteLineResult, print_line_result, print_table};
 
 mod compact;
@@ -29,11 +30,11 @@ pub use compact::compact;
 const SOAK_VALUE_BYTES: usize = 256;
 
 pub fn readback_cf(vault: &Path, cf_name: &str) -> crate::error::CliResult {
-    let cf = parse_cf(cf_name)?;
+    let cf = parse_cf(cf_name).map_err(CliError::usage)?;
     let files = list_sst_files(&vault.join("cf").join(cf.name()))?;
     for file in files {
-        let reader = SstReader::open(&file).map_err(|error| error.to_string())?;
-        for row in reader.iter().map_err(|error| error.to_string())? {
+        let reader = SstReader::open(&file)?;
+        for row in reader.iter()? {
             if print_line_result(&format!(
                 "CF\t{}\tFILE\t{}\tKEY\t{}\tVALUE\t{}",
                 cf.name(),
@@ -50,7 +51,7 @@ pub fn readback_cf(vault: &Path, cf_name: &str) -> crate::error::CliResult {
 }
 
 pub fn readback_wal(vault: &Path) -> crate::error::CliResult {
-    let replay = replay_dir(vault.join("wal")).map_err(|error| error.to_string())?;
+    let replay = replay_dir(vault.join("wal"))?;
     for record in replay.records {
         if print_line_result(&format!(
             "WAL\tSEQ\t{}\tFILE\t{}\tSTART\t{}\tEND\t{}\tPAYLOAD\t{}",
@@ -80,7 +81,7 @@ pub fn readback_wal(vault: &Path) -> crate::error::CliResult {
 }
 
 pub fn compact_watch(vault: &Path, duration: Duration) -> crate::error::CliResult {
-    let catalog = Arc::new(catalog_from_vault_dir(vault).map_err(|error| error.to_string())?);
+    let catalog = Arc::new(catalog_from_vault_dir(vault)?);
     let options = CompactionSchedulerOptions {
         interval_ms: 1,
         debt_trigger_score_milli: 0,
@@ -91,7 +92,7 @@ pub fn compact_watch(vault: &Path, duration: Duration) -> crate::error::CliResul
     thread::sleep(duration);
     scheduler
         .stop()
-        .map_err(|_| "compaction scheduler panicked".to_string())?;
+        .map_err(|_| CliError::runtime("compaction scheduler panicked"))?;
     println!(
         "COMPACT_WATCH_DONE\tVAULT\t{}\tBASE_SHARDS\t{}",
         vault.display(),
@@ -101,22 +102,20 @@ pub fn compact_watch(vault: &Path, duration: Duration) -> crate::error::CliResul
 }
 
 pub fn tier(vault: &Path, cf_name: &str, output: &str) -> crate::error::CliResult {
-    let cf = parse_cf(cf_name)?;
+    let cf = parse_cf(cf_name).map_err(CliError::usage)?;
     let (hot, archive) = tier_roots(vault);
     let policy = TieringPolicy::new(hot, archive, [SlotId::new(0), SlotId::new(1)], 1);
     let panel_version = match output {
         "hot" => 1,
         "cold" => 0,
-        _ => return Err("tier output must be hot or cold".to_string().into()),
+        _ => return Err(CliError::usage("tier output must be hot or cold")),
     };
-    let written = policy
-        .write_tiered_sst(
-            cf,
-            panel_version,
-            &format!("{:020}.sst", 1),
-            [(b"k".as_slice(), b"tier".as_slice())],
-        )
-        .map_err(|error| error.to_string())?;
+    let written = policy.write_tiered_sst(
+        cf,
+        panel_version,
+        &format!("{:020}.sst", 1),
+        [(b"k".as_slice(), b"tier".as_slice())],
+    )?;
     println!(
         "TIER_WRITE\tCF\t{}\tTIER\t{:?}\tPATH\t{}\tBYTES\t{}\tSTAGING_PARENT\t{}",
         cf.name(),
@@ -126,18 +125,24 @@ pub fn tier(vault: &Path, cf_name: &str, output: &str) -> crate::error::CliResul
         written.staging_parent.display()
     );
     if output == "cold" && written.placement.tier != StorageTier::Cold {
-        return Err(format!("{} did not resolve to cold tier", cf.name()).into());
+        return Err(CliError::runtime(format!(
+            "{} did not resolve to cold tier",
+            cf.name()
+        )));
     }
     if output == "hot" && written.placement.tier != StorageTier::Hot {
-        return Err(format!("{} did not resolve to hot tier", cf.name()).into());
+        return Err(CliError::runtime(format!(
+            "{} did not resolve to hot tier",
+            cf.name()
+        )));
     }
     Ok(())
 }
 
 pub fn soak(vault: &Path, ops: usize, threads: usize) -> crate::error::CliResult {
     let fd_before = fd_count();
-    fs::create_dir_all(vault.join("cf/base")).map_err(|error| error.to_string())?;
-    fs::create_dir_all(vault.join("wal")).map_err(|error| error.to_string())?;
+    fs::create_dir_all(vault.join("cf/base"))?;
+    fs::create_dir_all(vault.join("wal"))?;
     if ops == 0 {
         print_table(
             &["metric", "before", "after", "value"],
@@ -172,14 +177,12 @@ pub fn soak(vault: &Path, ops: usize, threads: usize) -> crate::error::CliResult
     for handle in handles {
         handle
             .join()
-            .map_err(|_| "soak worker panicked".to_string())??;
+            .map_err(|_| CliError::runtime("soak worker panicked"))??;
     }
 
-    let mut wal =
-        Wal::open(vault.join("wal"), WalOptions::default()).map_err(|error| error.to_string())?;
+    let mut wal = Wal::open(vault.join("wal"), WalOptions::default())?;
     for op in 0..ops {
-        wal.append(&soak_value(op, 0))
-            .map_err(|error| error.to_string())?;
+        wal.append(&soak_value(op, 0))?;
     }
     drop(wal);
 
@@ -196,35 +199,29 @@ pub fn soak(vault: &Path, ops: usize, threads: usize) -> crate::error::CliResult
 }
 
 pub fn vault_demo(vault: &Path) -> crate::error::CliResult {
-    let vault_id = demo_vault_id()?;
+    let vault_id = demo_vault_id().map_err(CliError::runtime)?;
     let writer = AsterVault::new_durable(
         vault,
         vault_id,
         b"calyx-cli-demo-salt".to_vec(),
         VaultOptions::default(),
-    )
-    .map_err(|error| error.to_string())?;
+    )?;
     let constellation = demo_constellation(&writer, vault_id);
     let id = constellation.cx_id;
 
-    writer
-        .put(constellation.clone())
-        .map_err(|error| error.to_string())?;
-    writer.flush().map_err(|error| error.to_string())?;
+    writer.put(constellation.clone())?;
+    writer.flush()?;
     let reopened = AsterVault::open(
         vault,
         vault_id,
         b"calyx-cli-demo-salt".to_vec(),
         VaultOptions::default(),
-    )
-    .map_err(|error| error.to_string())?;
-    let got = reopened
-        .get(id, reopened.snapshot())
-        .map_err(|error| error.to_string())?;
+    )?;
+    let got = reopened.get(id, reopened.snapshot())?;
     let mut expected = constellation;
     expected.provenance = got.provenance.clone();
     if got != expected {
-        return Err("cold-open constellation mismatch".to_string().into());
+        return Err(CliError::runtime("cold-open constellation mismatch"));
     }
 
     println!(
@@ -239,12 +236,13 @@ pub fn vault_demo(vault: &Path) -> crate::error::CliResult {
 }
 
 pub fn wal_batch_demo(vault: &Path, requests: usize) -> crate::error::CliResult {
-    fs::create_dir_all(vault.join("wal")).map_err(|error| error.to_string())?;
-    let wal = Wal::open(vault.join("wal"), WalOptions::default()).map_err(|e| e.to_string())?;
-    let batcher = Arc::new(
-        GroupCommitBatcher::new(wal, DEFAULT_GROUP_COMMIT_WINDOW, Arc::new(SystemClock))
-            .map_err(|error| error.to_string())?,
-    );
+    fs::create_dir_all(vault.join("wal"))?;
+    let wal = Wal::open(vault.join("wal"), WalOptions::default())?;
+    let batcher = Arc::new(GroupCommitBatcher::new(
+        wal,
+        DEFAULT_GROUP_COMMIT_WINDOW,
+        Arc::new(SystemClock),
+    )?);
     let mut handles = Vec::with_capacity(requests);
     for index in 0..requests {
         let batcher = batcher.clone();
@@ -257,11 +255,10 @@ pub fn wal_batch_demo(vault: &Path, requests: usize) -> crate::error::CliResult 
         acks.push(
             handle
                 .join()
-                .map_err(|_| "batch submitter panicked".to_string())?
-                .map_err(|error| error.to_string())?,
+                .map_err(|_| CliError::runtime("batch submitter panicked"))??,
         );
     }
-    batcher.flush_sync().map_err(|error| error.to_string())?;
+    batcher.flush_sync()?;
     acks.sort_by_key(|ack| ack.seq);
     for ack in &acks {
         println!(
@@ -281,32 +278,28 @@ pub fn parse_duration(value: &str) -> Result<Duration, String> {
         return ms
             .parse::<u64>()
             .map(Duration::from_millis)
-            .map_err(|error| error.to_string());
+            .map_err(|error| format!("invalid duration {value}: {error}"));
     }
     if let Some(seconds) = value.strip_suffix('s') {
         return seconds
             .parse::<u64>()
             .map(Duration::from_secs)
-            .map_err(|error| error.to_string());
+            .map_err(|error| format!("invalid duration {value}: {error}"));
     }
     value
         .parse::<u64>()
         .map(Duration::from_secs)
-        .map_err(|error| error.to_string())
+        .map_err(|error| format!("invalid duration {value}: {error}"))
 }
 
-fn write_entries(
-    path: PathBuf,
-    mut entries: Vec<(Vec<u8>, Vec<u8>)>,
-) -> std::result::Result<(), String> {
+fn write_entries(path: PathBuf, mut entries: Vec<(Vec<u8>, Vec<u8>)>) -> CliResult {
     entries.sort_by(|left, right| left.0.cmp(&right.0));
     let refs: Vec<_> = entries
         .iter()
         .map(|(key, value)| (key.as_slice(), value.as_slice()))
         .collect();
-    write_sst(path, refs)
-        .map(|_| ())
-        .map_err(|error| error.to_string())
+    write_sst(path, refs)?;
+    Ok(())
 }
 
 fn soak_entries(worker: usize, workers: usize, ops: usize) -> Vec<(Vec<u8>, Vec<u8>)> {

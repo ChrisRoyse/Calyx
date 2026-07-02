@@ -12,17 +12,20 @@ use calyx_loom::recurrence::{PeriodicRecallQuery, periodic_fit};
 use serde_json::{Value, json};
 
 use crate::cf_read::{hex_bytes, latest_cf_rows};
+use crate::error::{CliError, CliResult};
 
 pub fn readback_recurrence_series(vault: &Path, cx_id: &str) -> crate::error::CliResult {
-    let cx_id = CxId::from_str(cx_id).map_err(|error| format!("invalid --cx-id: {error}"))?;
+    let cx_id = CxId::from_str(cx_id)
+        .map_err(|error| CliError::usage(format!("invalid --cx-id: {error}")))?;
     let recurrence_rows = latest_cf_rows(vault, ColumnFamily::Recurrence)?;
     let base_rows = latest_cf_rows(vault, ColumnFamily::Base)?;
     let series = read_series_rows(cx_id, &recurrence_rows, &base_rows)?;
 
     println!(
         "{}",
-        serde_json::to_string_pretty(&series_json(vault, cx_id, &series))
-            .map_err(|error| error.to_string())?
+        serde_json::to_string_pretty(&series_json(vault, cx_id, &series)).map_err(|error| {
+            CliError::runtime(format!("serialize recurrence series readback: {error}"))
+        })?
     );
     Ok(())
 }
@@ -31,7 +34,7 @@ pub fn readback_periodic_recall(args: &[String]) -> crate::error::CliResult {
     let args = PeriodicRecallArgs::parse(args)?;
     let recurrence_rows = latest_cf_rows(&args.vault, ColumnFamily::Recurrence)?;
     let base_rows = latest_cf_rows(&args.vault, ColumnFamily::Base)?;
-    let query = PeriodicRecallQuery::new(args.hour, args.day).map_err(|error| error.to_string())?;
+    let query = PeriodicRecallQuery::new(args.hour, args.day)?;
     let mut hits = Vec::new();
     for cx_id in recurrence_cx_ids(&recurrence_rows) {
         let series = read_series_rows(cx_id, &recurrence_rows, &base_rows)?;
@@ -58,7 +61,9 @@ pub fn readback_periodic_recall(args: &[String]) -> crate::error::CliResult {
     });
     println!(
         "{}",
-        serde_json::to_string_pretty(&value).map_err(|error| error.to_string())?
+        serde_json::to_string_pretty(&value).map_err(|error| CliError::runtime(format!(
+            "serialize periodic-recall readback: {error}"
+        )))?
     );
     Ok(())
 }
@@ -75,15 +80,12 @@ fn read_series_rows(
     cx_id: CxId,
     recurrence_rows: &BTreeMap<Vec<u8>, Vec<u8>>,
     base_rows: &BTreeMap<Vec<u8>, Vec<u8>>,
-) -> Result<SeriesRows, String> {
+) -> CliResult<SeriesRows> {
     let base = base_rows
         .get(&base_key(cx_id))
-        .map(|bytes| decode_constellation_base(bytes).map_err(|error| error.to_string()))
+        .map(|bytes| decode_constellation_base(bytes))
         .transpose()?;
-    let base_frequency = base
-        .as_ref()
-        .map_or(Ok(0), recurrence_frequency)
-        .map_err(|error| error.to_string())?;
+    let base_frequency = base.as_ref().map_or(Ok(0), recurrence_frequency)?;
 
     let range = recurrence_prefix_range(cx_id);
     let mut occurrences = Vec::new();
@@ -94,7 +96,7 @@ fn read_series_rows(
         if !range.contains(key) {
             continue;
         }
-        match decode_recurrence_row(value).map_err(|error| error.to_string())? {
+        match decode_recurrence_row(value)? {
             StoredRecurrenceRow::Occurrence(occurrence) => occurrences.push(occurrence),
             StoredRecurrenceRow::RollupSummary(summary) => rollup_summary = Some(summary),
             StoredRecurrenceRow::RolledOccurrence { id, rolled_into } => {
@@ -210,33 +212,41 @@ struct PeriodicRecallArgs {
 }
 
 impl PeriodicRecallArgs {
-    fn parse(args: &[String]) -> Result<Self, String> {
+    fn parse(args: &[String]) -> CliResult<Self> {
         let mut vault = None;
         let mut hour = None;
         let mut day = None;
         let mut index = 0;
         while index < args.len() {
             let Some(value) = args.get(index + 1) else {
-                return Err(format!("missing value for {}", args[index]));
+                return Err(CliError::usage(format!(
+                    "missing value for {}",
+                    args[index]
+                )));
             };
             match args[index].as_str() {
                 "--vault" => vault = Some(PathBuf::from(value)),
                 "--hour" => hour = Some(parse_u8(value, "--hour")?),
                 "--day" => day = Some(parse_u8(value, "--day")?),
-                other => return Err(format!("unknown periodic-recall flag {other}")),
+                other => {
+                    return Err(CliError::usage(format!(
+                        "unknown periodic-recall flag {other}"
+                    )));
+                }
             }
             index += 2;
         }
         Ok(Self {
-            vault: vault.ok_or_else(|| "periodic-recall requires --vault <dir>".to_string())?,
+            vault: vault
+                .ok_or_else(|| CliError::usage("periodic-recall requires --vault <dir>"))?,
             hour,
             day,
         })
     }
 }
 
-fn parse_u8(value: &str, flag: &str) -> Result<u8, String> {
+fn parse_u8(value: &str, flag: &str) -> CliResult<u8> {
     value
         .parse::<u8>()
-        .map_err(|error| format!("invalid {flag}: {error}"))
+        .map_err(|error| CliError::usage(format!("invalid {flag}: {error}")))
 }

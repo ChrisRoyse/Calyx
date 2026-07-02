@@ -301,13 +301,7 @@ fn classify_chunk(
         .iter()
         .map(|cx| (slot_key(cx.cx_id), cx.provenance.seq))
         .collect::<Vec<_>>();
-    let batch = read_context
-        .latest_cf_rows_for_provenance(ColumnFamily::slot(slot), &keys)
-        .map_err(|error| {
-            CliError::io(format!(
-                "weave-loom dense coverage grouped readback failed for slot {slot}: {error}"
-            ))
-        })?;
+    let batch = read_context.latest_cf_rows_for_provenance(ColumnFamily::slot(slot), &keys)?;
     accumulator.read_stats.accumulate(batch.stats);
     for (candidate_index, cx) in chunk.iter().enumerate() {
         if candidate_index == 0 || (candidate_index + 1) % 256 == 0 {

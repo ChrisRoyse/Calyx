@@ -4,11 +4,13 @@ use std::path::Path;
 use calyx_anneal::{budget_config_path, read_budget_config_from_vault};
 use serde_json::json;
 
+use crate::error::CliError;
+
 pub fn readback_budget_config(vault: &Path) -> crate::error::CliResult {
     let config_path = budget_config_path(vault);
     let bytes = fs::read(&config_path)
-        .map_err(|error| format!("read {}: {error}", config_path.display()))?;
-    let parsed = read_budget_config_from_vault(vault).map_err(|error| error.to_string())?;
+        .map_err(|error| CliError::io(format!("read {}: {error}", config_path.display())))?;
+    let parsed = read_budget_config_from_vault(vault)?;
     let readback = json!({
         "surface": "config.budget",
         "source_of_truth": "vault .anneal/budget.toml",
@@ -19,7 +21,9 @@ pub fn readback_budget_config(vault: &Path) -> crate::error::CliResult {
     });
     println!(
         "{}",
-        serde_json::to_string_pretty(&readback).map_err(|error| error.to_string())?
+        serde_json::to_string_pretty(&readback).map_err(|error| CliError::runtime(format!(
+            "serialize budget config readback: {error}"
+        )))?
     );
     Ok(())
 }

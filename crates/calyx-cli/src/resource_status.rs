@@ -7,6 +7,8 @@ use calyx_aster::resource::VramBudgetStatus;
 use calyx_aster::vault::{AsterVault, VaultOptions};
 use calyx_core::{CalyxError, SystemClock};
 
+use crate::error::CliError;
+
 pub(crate) const RESOURCE_VAULT_ID: &str = "01ARZ3NDEKTSV4RRFFQ69G5FAV";
 pub(crate) const RESOURCE_VAULT_SALT: &[u8] = b"calyx-resource-status";
 
@@ -39,13 +41,13 @@ pub(crate) fn run_resource_status(
     }
     let store = open_resource_vault(vault, VaultOptions::default())?;
     let vram = vram_status_from_vault(vault)?;
-    let status = store
-        .resource_status(vault, vram)
-        .map_err(|error| error.to_string())?;
+    let status = store.resource_status(vault, vram)?;
     match format {
         ResourceStatusFormat::Json => println!(
             "{}",
-            serde_json::to_string_pretty(&status).map_err(|error| error.to_string())?
+            serde_json::to_string_pretty(&status).map_err(|error| CliError::runtime(format!(
+                "serialize resource status: {error}"
+            )))?
         ),
         ResourceStatusFormat::Metrics => print!("{}", status.to_metrics_text(&vault_label(vault))),
     }
@@ -56,12 +58,16 @@ pub(crate) fn run_resource_status(
 pub(crate) fn open_resource_vault(
     vault: &Path,
     options: VaultOptions,
-) -> Result<AsterVault, String> {
+) -> crate::error::CliResult<AsterVault> {
     let vault_id = RESOURCE_VAULT_ID
         .parse()
-        .map_err(|error| format!("parse resource vault id: {error}"))?;
-    AsterVault::open(vault, vault_id, RESOURCE_VAULT_SALT.to_vec(), options)
-        .map_err(|error| error.to_string())
+        .map_err(|error| CliError::runtime(format!("parse resource vault id: {error}")))?;
+    Ok(AsterVault::open(
+        vault,
+        vault_id,
+        RESOURCE_VAULT_SALT.to_vec(),
+        options,
+    )?)
 }
 
 /// Builds the VRAM budget section from the vault Anneal budget config.
@@ -70,11 +76,11 @@ pub(crate) fn open_resource_vault(
 /// materializes the default `.anneal/budget.toml` exactly as Anneal would.
 /// Probe degradation (e.g. NVML unavailable) surfaces in `probe_warning` —
 /// never as a silent zero.
-pub(crate) fn vram_status_from_vault(vault: &Path) -> Result<VramBudgetStatus, String> {
-    let config = BudgetConfig::load_from_vault(vault).map_err(|error| error.to_string())?;
+pub(crate) fn vram_status_from_vault(vault: &Path) -> crate::error::CliResult<VramBudgetStatus> {
+    let config = BudgetConfig::load_from_vault(vault)?;
     let clock = SystemClock;
-    let enforcer = BudgetEnforcer::new(config, &clock).map_err(|error| error.to_string())?;
-    let status = enforcer.tick().map_err(|error| error.to_string())?;
+    let enforcer = BudgetEnforcer::new(config, &clock)?;
+    let status = enforcer.tick()?;
     Ok(VramBudgetStatus {
         budget_bytes: config.vram_bytes,
         used_bytes: status.vram_used_bytes,

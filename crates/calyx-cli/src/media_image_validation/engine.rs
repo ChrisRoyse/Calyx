@@ -9,6 +9,7 @@ use serde::Serialize;
 
 use super::data::{ClassSample, CrossModalSample, ValidationData};
 use super::request::MediaImageRequest;
+use crate::error::{CliError, CliResult};
 
 pub(crate) const MEDIA_PANEL_VERSION: u32 = 10;
 pub(crate) const IMAGE_CLIP_SLOT: SlotId = SlotId::new(1);
@@ -46,27 +47,25 @@ pub(crate) struct CrossModalAgreement {
 pub(crate) fn evaluate_media_image(
     data: &ValidationData,
     request: &MediaImageRequest,
-) -> Result<MediaImageReport, String> {
+) -> CliResult<MediaImageReport> {
     let class = class_view(&data.class_samples)?;
     let cross = cross_view(&data.cross_modal_samples)?;
     let anchor = grounded_anchor();
     let image_class_bits =
-        ksg_mi_continuous_discrete_with_anchor(&class.features, &class.labels, request.k, &anchor)
-            .map_err(|error| error.to_string())?;
+        ksg_mi_continuous_discrete_with_anchor(&class.features, &class.labels, request.k, &anchor)?;
     if image_class_bits.bits + f32::EPSILON < request.min_image_bits {
-        return Err(format!(
+        return Err(CliError::runtime(format!(
             "CALYX_FSV_MEDIA_IMAGE_BITS_BELOW_THRESHOLD: bits={:.6} threshold={:.6}",
             image_class_bits.bits, request.min_image_bits
-        ));
+        )));
     }
     let cross_modal_bits =
-        ksg_mi_continuous_with_anchor(&cross.image, &cross.caption, request.k, &anchor)
-            .map_err(|error| error.to_string())?;
+        ksg_mi_continuous_with_anchor(&cross.image, &cross.caption, request.k, &anchor)?;
     if cross_modal_bits.bits + f32::EPSILON < request.min_cross_modal_bits {
-        return Err(format!(
+        return Err(CliError::runtime(format!(
             "CALYX_FSV_MEDIA_CROSS_MODAL_BELOW_THRESHOLD: bits={:.6} threshold={:.6}",
             cross_modal_bits.bits, request.min_cross_modal_bits
-        ));
+        )));
     }
     Ok(MediaImageReport {
         sample_rows: data.total_rows,
@@ -107,12 +106,12 @@ pub(crate) fn panel_estimate(report: &MediaImageReport) -> MiEstimate {
     )
 }
 
-fn class_view(samples: &[ClassSample]) -> Result<ClassView, String> {
+fn class_view(samples: &[ClassSample]) -> CliResult<ClassView> {
     if samples.len() < 50 {
-        return Err(format!(
+        return Err(CliError::runtime(format!(
             "CALYX_FSV_MEDIA_LABEL_DOMAIN_MISMATCH: need at least 50 class samples; got {}",
             samples.len()
-        ));
+        )));
     }
     let feature_dim = rectangular_dim(
         samples
@@ -126,10 +125,9 @@ fn class_view(samples: &[ClassSample]) -> Result<ClassView, String> {
         .collect::<Vec<_>>();
     let label_count = labels.iter().copied().collect::<BTreeSet<_>>().len();
     if label_count < 2 {
-        return Err(
-            "CALYX_FSV_MEDIA_LABEL_DOMAIN_MISMATCH: class labels must contain at least two values"
-                .to_string(),
-        );
+        return Err(CliError::runtime(
+            "CALYX_FSV_MEDIA_LABEL_DOMAIN_MISMATCH: class labels must contain at least two values",
+        ));
     }
     Ok(ClassView {
         features: samples
@@ -142,12 +140,12 @@ fn class_view(samples: &[ClassSample]) -> Result<ClassView, String> {
     })
 }
 
-fn cross_view(samples: &[CrossModalSample]) -> Result<CrossView, String> {
+fn cross_view(samples: &[CrossModalSample]) -> CliResult<CrossView> {
     if samples.len() < 50 {
-        return Err(format!(
+        return Err(CliError::runtime(format!(
             "CALYX_FSV_MEDIA_CAPTION_INTEGRITY_MISMATCH: need at least 50 cross-modal samples; got {}",
             samples.len()
-        ));
+        )));
     }
     let image_dim = rectangular_dim(
         samples
@@ -162,9 +160,9 @@ fn cross_view(samples: &[CrossModalSample]) -> Result<CrossView, String> {
         "caption features",
     )?;
     if image_dim != caption_dim {
-        return Err(format!(
+        return Err(CliError::runtime(format!(
             "CALYX_FSV_MEDIA_CAPTION_INTEGRITY_MISMATCH: image dim {image_dim} != caption dim {caption_dim}"
-        ));
+        )));
     }
     let image = samples
         .iter()
@@ -181,8 +179,7 @@ fn cross_view(samples: &[CrossModalSample]) -> Result<CrossView, String> {
         .zip(&caption_axis)
         .filter(|(left, right)| left == right)
         .count();
-    let nmi = partitioned_histogram_nmi(&image_axis, &caption_axis, 20)
-        .map_err(|error| error.to_string())?;
+    let nmi = partitioned_histogram_nmi(&image_axis, &caption_axis, 20)?;
     Ok(CrossView {
         image,
         caption,
@@ -195,24 +192,23 @@ fn cross_view(samples: &[CrossModalSample]) -> Result<CrossView, String> {
     })
 }
 
-fn rectangular_dim<'a>(
-    mut rows: impl Iterator<Item = &'a [f32]>,
-    name: &str,
-) -> Result<usize, String> {
+fn rectangular_dim<'a>(mut rows: impl Iterator<Item = &'a [f32]>, name: &str) -> CliResult<usize> {
     let Some(first) = rows.next() else {
-        return Err(format!("CALYX_FSV_MEDIA_INVALID_FEATURE: {name} is empty"));
+        return Err(CliError::runtime(format!(
+            "CALYX_FSV_MEDIA_INVALID_FEATURE: {name} is empty"
+        )));
     };
     let dim = first.len();
     if dim == 0 {
-        return Err(format!(
+        return Err(CliError::runtime(format!(
             "CALYX_FSV_MEDIA_INVALID_FEATURE: {name} dim is zero"
-        ));
+        )));
     }
     for row in rows {
         if row.len() != dim {
-            return Err(format!(
+            return Err(CliError::runtime(format!(
                 "CALYX_FSV_MEDIA_INVALID_FEATURE: {name} is not rectangular"
-            ));
+            )));
         }
     }
     Ok(dim)

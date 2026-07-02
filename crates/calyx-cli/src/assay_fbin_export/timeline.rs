@@ -124,7 +124,8 @@ pub(super) fn open_writer(path: &Path) -> CliResult<BufWriter<File>> {
 }
 
 pub(super) fn write_row(writer: &mut BufWriter<File>, row: &TimelineRow) -> CliResult {
-    serde_json::to_writer(&mut *writer, row).map_err(CliError::from)?;
+    serde_json::to_writer(&mut *writer, row)
+        .map_err(|error| CliError::runtime(format!("serialize timeline row: {error}")))?;
     writer.write_all(b"\n").map_err(super::io_error)
 }
 

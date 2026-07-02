@@ -46,6 +46,8 @@ pub(crate) fn run(topic: &str, args: &[String]) -> crate::error::CliResult {
         "verify-round-trip" => round_trip_verifier::run_verify_round_trip(args),
         "shadow-open" => shadow_harness_cli::run_shadow_open(args),
         "shadow-readback" => shadow_harness_cli::run_shadow_readback(args),
-        _ => Err(format!("unknown leapable command: {topic}").into()),
+        _ => Err(crate::error::CliError::usage(format!(
+            "unknown leapable command: {topic}"
+        ))),
     }
 }

@@ -14,6 +14,7 @@ use calyx_registry::{
 use serde::{Deserialize, Serialize};
 
 use super::request::RecallRequest;
+use crate::error::{CliError, CliResult};
 
 const DEFAULT_LENS_CATALOG: &str = "/var/lib/calyx/lenses/registry.json";
 const REAL_PANEL_VERSION: u32 = 727;
@@ -66,28 +67,28 @@ struct CatalogLens {
     manifest: PathBuf,
 }
 
-pub(crate) fn load_real_panel(request: &RecallRequest) -> Result<RealPanel, String> {
+pub(crate) fn load_real_panel(request: &RecallRequest) -> CliResult<RealPanel> {
     let packed_path = request
         .packed_panel_json
         .as_ref()
-        .ok_or_else(|| "CALYX_FSV_SEXTANT_PANEL_REQUIRED".to_string())?;
+        .ok_or_else(|| CliError::usage("CALYX_FSV_SEXTANT_PANEL_REQUIRED"))?;
     let packed = read_json::<PackedPanel>(packed_path)?;
     if packed.selected.is_empty() {
-        return Err("CALYX_FSV_SEXTANT_EMPTY_PANEL".to_string());
+        return Err(CliError::runtime("CALYX_FSV_SEXTANT_EMPTY_PANEL"));
     }
     let mut names = BTreeSet::new();
     for selected in &packed.selected {
         if selected.lens.trim().is_empty() || !names.insert(selected.lens.clone()) {
-            return Err(format!(
+            return Err(CliError::runtime(format!(
                 "CALYX_FSV_SEXTANT_PANEL_INVALID: duplicate or empty lens `{}`",
                 selected.lens
-            ));
+            )));
         }
         if !selected.signal_bits.is_finite() || selected.signal_bits <= 0.0 {
-            return Err(format!(
+            return Err(CliError::runtime(format!(
                 "CALYX_FSV_SEXTANT_PANEL_INVALID: lens {} has non-positive signal_bits",
                 selected.lens
-            ));
+            )));
         }
     }
     let catalog_path = request
@@ -107,18 +108,18 @@ pub(crate) fn load_real_panel(request: &RecallRequest) -> Result<RealPanel, Stri
     let mut panel_slots = Vec::new();
     for (idx, selected) in packed.selected.iter().enumerate() {
         let manifest = manifests.get(&selected.lens).ok_or_else(|| {
-            format!(
+            CliError::runtime(format!(
                 "CALYX_FSV_SEXTANT_PANEL_LENS_MISSING: {} not found in {}",
                 selected.lens,
                 catalog_path.display()
-            )
+            ))
         })?;
-        let spec = lens_spec_from_manifest_path(manifest).map_err(|error| error.to_string())?;
+        let spec = lens_spec_from_manifest_path(manifest)?;
         if spec.modality != Modality::Text {
-            return Err(format!(
+            return Err(CliError::runtime(format!(
                 "CALYX_FSV_SEXTANT_PANEL_INVALID: {} is {:?}, expected text",
                 spec.name, spec.modality
-            ));
+            )));
         }
         let lens_id = register_lens(&mut registry, spec.clone())?;
         let slot_id = SlotId::new(idx as u16);
@@ -164,60 +165,48 @@ pub(crate) fn load_real_panel(request: &RecallRequest) -> Result<RealPanel, Stri
     })
 }
 
-fn register_lens(registry: &mut Registry, spec: LensSpec) -> Result<LensId, String> {
+fn register_lens(registry: &mut Registry, spec: LensSpec) -> CliResult<LensId> {
     match &spec.runtime {
         LensRuntime::Onnx { .. } => {
-            let lens = OnnxLens::from_lens_spec(&spec).map_err(|error| error.to_string())?;
+            let lens = OnnxLens::from_lens_spec(&spec)?;
             let contract = lens.contract().clone();
-            registry
-                .register_frozen_with_spec(lens, contract, spec)
-                .map_err(|error| error.to_string())
+            Ok(registry.register_frozen_with_spec(lens, contract, spec)?)
         }
         LensRuntime::OnnxColbert { .. } => {
-            let lens = OnnxColbertLens::from_lens_spec(&spec).map_err(|error| error.to_string())?;
+            let lens = OnnxColbertLens::from_lens_spec(&spec)?;
             let contract = lens.contract().clone();
-            registry
-                .register_frozen_with_spec(lens, contract, spec)
-                .map_err(|error| error.to_string())
+            Ok(registry.register_frozen_with_spec(lens, contract, spec)?)
         }
         LensRuntime::StaticLookup { .. } => {
-            let lens =
-                StaticLookupLens::from_lens_spec(&spec).map_err(|error| error.to_string())?;
+            let lens = StaticLookupLens::from_lens_spec(&spec)?;
             let contract = lens.contract().clone();
-            registry
-                .register_frozen_with_spec(lens, contract, spec)
-                .map_err(|error| error.to_string())
+            Ok(registry.register_frozen_with_spec(lens, contract, spec)?)
         }
         LensRuntime::FastembedQwen3 { .. } => {
-            let lens =
-                FastembedQwen3Lens::from_lens_spec(&spec).map_err(|error| error.to_string())?;
+            let lens = FastembedQwen3Lens::from_lens_spec(&spec)?;
             let contract = lens.contract().clone();
-            registry
-                .register_frozen_with_spec(lens, contract, spec)
-                .map_err(|error| error.to_string())
+            Ok(registry.register_frozen_with_spec(lens, contract, spec)?)
         }
         LensRuntime::TeiHttp { endpoint } => {
             let dim = dense_dim(spec.output)?;
             let contract = FrozenLensContract::tei_http(&spec.name, endpoint, spec.modality, dim);
             let lens = TeiHttpLens::new(&spec.name, endpoint, spec.modality, dim);
-            registry
-                .register_frozen_with_spec(lens, contract, spec)
-                .map_err(|error| error.to_string())
+            Ok(registry.register_frozen_with_spec(lens, contract, spec)?)
         }
-        other => Err(format!(
+        other => Err(CliError::runtime(format!(
             "CALYX_FSV_SEXTANT_PANEL_RUNTIME_UNSUPPORTED: {:?}",
             other
-        )),
+        ))),
     }
 }
 
-fn dense_dim(shape: SlotShape) -> Result<u32, String> {
+fn dense_dim(shape: SlotShape) -> CliResult<u32> {
     match shape {
         SlotShape::Dense(dim) => Ok(dim),
-        other => Err(format!(
+        other => Err(CliError::runtime(format!(
             "CALYX_FSV_SEXTANT_PANEL_INVALID: TEI requires dense output, got {:?}",
             other
-        )),
+        ))),
     }
 }
 
@@ -248,7 +237,9 @@ fn signal(bits: f32) -> Signal {
     }
 }
 
-fn read_json<T: for<'de> Deserialize<'de>>(path: &Path) -> Result<T, String> {
-    let bytes = fs::read(path).map_err(|error| format!("{}: {error}", path.display()))?;
-    serde_json::from_slice(&bytes).map_err(|error| format!("{}: {error}", path.display()))
+fn read_json<T: for<'de> Deserialize<'de>>(path: &Path) -> CliResult<T> {
+    let bytes =
+        fs::read(path).map_err(|error| CliError::io(format!("{}: {error}", path.display())))?;
+    serde_json::from_slice(&bytes)
+        .map_err(|error| CliError::runtime(format!("{}: {error}", path.display())))
 }

@@ -19,6 +19,8 @@ use calyx_paths::AssocGraphBuilder;
 use calyx_sextant::{HnswIndex, SearchEngine, SextantIndex, SlotIndexMap};
 use serde::Deserialize;
 
+use crate::error::{CliError, CliResult};
+
 /// Stable synthetic vault id for CLI-synthesized constellation docs. The
 /// navigation primitives key only on `cx_id`, so the vault id is a constant.
 const NAV_SPEC_VAULT_ULID: &str = "01ARZ3NDEKTSV4RRFFQ69G5FAV";
@@ -87,7 +89,7 @@ pub struct NodeSpec {
 /// vector shape, every constellation that appears in any lens becomes a doc so
 /// `constellation_ids()` is complete, and the association graph is only attached
 /// when edges/nodes are present.
-pub fn build_engine(spec: &NavSpec) -> Result<SearchEngine, String> {
+pub fn build_engine(spec: &NavSpec) -> CliResult<SearchEngine> {
     let indexes = SlotIndexMap::new();
     let mut doc_ids: BTreeSet<CxId> = BTreeSet::new();
     for index_spec in &spec.indexes {
@@ -97,20 +99,16 @@ pub fn build_engine(spec: &NavSpec) -> Result<SearchEngine, String> {
                 dim: index_spec.dim,
                 data: entry.vector.clone(),
             };
-            index
-                .insert(entry.cx, vector, entry.seq)
-                .map_err(|error| format!("{}: {}", error.code, error.message))?;
+            index.insert(entry.cx, vector, entry.seq)?;
             doc_ids.insert(entry.cx);
         }
-        indexes
-            .register(index)
-            .map_err(|error| format!("{}: {}", error.code, error.message))?;
+        indexes.register(index)?;
     }
 
     let mut engine = SearchEngine::new(indexes);
-    let vault_id = NAV_SPEC_VAULT_ULID
-        .parse::<VaultId>()
-        .map_err(|error| format!("internal nav-spec vault id is invalid: {error}"))?;
+    let vault_id = NAV_SPEC_VAULT_ULID.parse::<VaultId>().map_err(|error| {
+        CliError::runtime(format!("internal nav-spec vault id is invalid: {error}"))
+    })?;
     for (seq, cx_id) in doc_ids.iter().enumerate() {
         engine.put_constellation(synthetic_doc(*cx_id, vault_id, seq as u64 + 1));
     }
@@ -122,14 +120,14 @@ pub fn build_engine(spec: &NavSpec) -> Result<SearchEngine, String> {
 }
 
 /// Builds the association graph, declaring every referenced node before any edge.
-fn build_graph(spec: &NavSpec) -> Result<calyx_paths::AssocGraph, String> {
+fn build_graph(spec: &NavSpec) -> CliResult<calyx_paths::AssocGraph> {
     let mut weights: BTreeMap<CxId, f32> = BTreeMap::new();
     for node in &spec.nodes {
         if weights.insert(node.cx, node.weight).is_some() {
-            return Err(format!(
+            return Err(CliError::runtime(format!(
                 "CALYX_NAVIGATE_DUPLICATE_NODE: node {} declared twice",
                 node.cx
-            ));
+            )));
         }
     }
     for edge in &spec.edges {
@@ -138,14 +136,10 @@ fn build_graph(spec: &NavSpec) -> Result<calyx_paths::AssocGraph, String> {
     }
     let mut builder = AssocGraphBuilder::default();
     for (cx_id, weight) in &weights {
-        builder
-            .add_node(*cx_id, *weight)
-            .map_err(|error| error.to_string())?;
+        builder.add_node(*cx_id, *weight)?;
     }
     for edge in &spec.edges {
-        builder
-            .add_edge(edge.src, edge.dst, edge.weight)
-            .map_err(|error| error.to_string())?;
+        builder.add_edge(edge.src, edge.dst, edge.weight)?;
     }
     Ok(builder.build())
 }

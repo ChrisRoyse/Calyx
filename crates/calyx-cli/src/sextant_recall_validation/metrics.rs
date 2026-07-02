@@ -6,6 +6,7 @@ use serde::Serialize;
 
 use super::engine::RecallReport;
 use super::request::RecallRequest;
+use crate::error::{CliError, CliResult};
 
 const METRIC_KEY: &[u8] = b"ph70/sextant/recall/scifact";
 
@@ -26,8 +27,8 @@ pub(crate) fn write_metric_outputs(
     vault: &AsterVault,
     request: &RecallRequest,
     report: RecallReport,
-) -> Result<MetricEvidence, String> {
-    fs::create_dir_all(&request.metrics_dir).map_err(|error| error.to_string())?;
+) -> CliResult<MetricEvidence> {
+    fs::create_dir_all(&request.metrics_dir)?;
     let single = request.metrics_dir.join("sextant_single_recall.txt");
     let multi = request.metrics_dir.join("sextant_multi_recall.txt");
     let delta = request.metrics_dir.join("sextant_recall_delta.txt");
@@ -35,12 +36,11 @@ pub(crate) fn write_metric_outputs(
     write_float(&single, report.single_recall_at_10)?;
     write_float(&multi, report.multi_recall_at_10)?;
     write_float(&delta, report.delta)?;
-    let value = serde_json::to_vec_pretty(&report).map_err(|error| error.to_string())?;
-    fs::write(&summary, &value).map_err(|error| error.to_string())?;
-    let seq = vault
-        .write_cf(ColumnFamily::Online, METRIC_KEY.to_vec(), value.clone())
-        .map_err(|error| error.to_string())?;
-    vault.flush().map_err(|error| error.to_string())?;
+    let value = serde_json::to_vec_pretty(&report)
+        .map_err(|error| CliError::runtime(format!("serialize recall summary: {error}")))?;
+    fs::write(&summary, &value)?;
+    let seq = vault.write_cf(ColumnFamily::Online, METRIC_KEY.to_vec(), value.clone())?;
+    vault.flush()?;
     Ok(MetricEvidence {
         single_recall_path: single.display().to_string(),
         multi_recall_path: multi.display().to_string(),
@@ -54,14 +54,14 @@ pub(crate) fn write_metric_outputs(
     })
 }
 
-fn write_float(path: &std::path::Path, value: f64) -> std::result::Result<(), String> {
+fn write_float(path: &std::path::Path, value: f64) -> CliResult {
     if !value.is_finite() {
-        return Err(format!(
+        return Err(CliError::runtime(format!(
             "CALYX_FSV_SEXTANT_NONFINITE_METRIC: {}",
             path.display()
-        ));
+        )));
     }
-    fs::write(path, format!("{value:.6}\n")).map_err(|error| error.to_string())
+    Ok(fs::write(path, format!("{value:.6}\n"))?)
 }
 
 fn hex(bytes: &[u8]) -> String {

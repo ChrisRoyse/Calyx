@@ -286,7 +286,9 @@ pub(crate) fn run_worker(args: &Args) -> CliResult<StreamWorkerReport> {
     }
     fs::write(
         report_path,
-        serde_json::to_vec(&report).map_err(crate::error::CliError::from)?,
+        serde_json::to_vec(&report).map_err(|error| {
+            crate::error::CliError::runtime(format!("serialize worker report: {error}"))
+        })?,
     )
     .map_err(io_error)?;
     Ok(report)

@@ -24,12 +24,13 @@ use calyx_core::Clock;
 use serde_json::json;
 
 use crate::cf_read::vault_id_from_base;
+use crate::error::CliError;
 
 /// `readback time-index --vault <PATH>`: print every `time_index` entry in
 /// `(millis, seqno)` order.
 pub fn readback_time_index(vault: &Path) -> crate::error::CliResult {
     let store = open_vault(vault)?;
-    let entries = read_all(&store).map_err(|error| error.to_string())?;
+    let entries = read_all(&store)?;
     let rows: Vec<_> = entries
         .iter()
         .map(|entry| json!({ "millis": entry.millis, "seqno": entry.seqno }))
@@ -41,7 +42,9 @@ pub fn readback_time_index(vault: &Path) -> crate::error::CliResult {
     });
     println!(
         "{}",
-        serde_json::to_string_pretty(&value).map_err(|error| error.to_string())?
+        serde_json::to_string_pretty(&value).map_err(|error| CliError::runtime(format!(
+            "serialize time-index readback: {error}"
+        )))?
     );
     Ok(())
 }
@@ -51,23 +54,21 @@ pub fn readback_time_index(vault: &Path) -> crate::error::CliResult {
 pub fn readback_as_of(vault: &Path, t_millis: &str) -> crate::error::CliResult {
     let t_millis: u64 = t_millis
         .parse()
-        .map_err(|error| format!("invalid --t-millis: {error}"))?;
+        .map_err(|error| CliError::usage(format!("invalid --t-millis: {error}")))?;
     let store = open_vault(vault)?;
     // Readback is an integrity surface: validate the physical time-index CF
     // before printing a snapshot so malformed keys are never masked.
-    read_all(&store).map_err(|error| error.to_string())?;
-    let snapshot = store.as_of(t_millis).map_err(|error| error.to_string())?;
+    read_all(&store)?;
+    let snapshot = store.as_of(t_millis)?;
 
     // The cx universe is every Base row visible at the vault's latest sequence;
     // probing each at the historical snapshot keeps only those ingested by then.
     let latest = store.latest_seq();
-    let base_rows = store
-        .scan_cf_at(latest, ColumnFamily::Base)
-        .map_err(|error| error.to_string())?;
+    let base_rows = store.scan_cf_at(latest, ColumnFamily::Base)?;
 
     let mut present = Vec::new();
     for (_key, value) in &base_rows {
-        let cx = decode_constellation_base(value).map_err(|error| error.to_string())?;
+        let cx = decode_constellation_base(value)?;
         if snapshot.get_cx(cx.cx_id).is_ok() {
             present.push(json!({
                 "cx_id": cx.cx_id,
@@ -86,7 +87,8 @@ pub fn readback_as_of(vault: &Path, t_millis: &str) -> crate::error::CliResult {
     });
     println!(
         "{}",
-        serde_json::to_string_pretty(&value).map_err(|error| error.to_string())?
+        serde_json::to_string_pretty(&value)
+            .map_err(|error| CliError::runtime(format!("serialize as-of readback: {error}")))?
     );
     Ok(())
 }
@@ -94,13 +96,12 @@ pub fn readback_as_of(vault: &Path, t_millis: &str) -> crate::error::CliResult {
 /// Opens the vault read-only, inferring its `VaultId` from a committed Base row
 /// (a vault cannot be opened without its id because of the per-vault keyspace
 /// guard). Fails loud if the vault has no constellations to infer the id from.
-fn open_vault(vault: &Path) -> Result<AsterVault<impl Clock>, String> {
+fn open_vault(vault: &Path) -> crate::error::CliResult<AsterVault<impl Clock>> {
     let vault_id = vault_id_from_base(vault)?;
-    AsterVault::open(
+    Ok(AsterVault::open(
         vault,
         vault_id,
         b"calyx-timetravel-readback".to_vec(),
         VaultOptions::default(),
-    )
-    .map_err(|error| error.to_string())
+    )?)
 }

@@ -10,8 +10,8 @@ use calyx_aster::recurrence::{
 use calyx_aster::vault::encode;
 use calyx_aster::vault::{AsterVault, VaultOptions};
 use calyx_core::{
-    AnchorValue, Clock, Constellation, CxFlags, CxId, FixedClock, InputRef, LedgerRef, Modality,
-    VaultId, content_address,
+    AnchorValue, CalyxError, Clock, Constellation, CxFlags, CxId, FixedClock, InputRef, LedgerRef,
+    Modality, VaultId, content_address,
 };
 use calyx_oracle::{
     Consequence, ConsequenceTree, DomainId, HOP_ATTENUATION, MAX_DEPTH, MIN_CONFIDENCE_THRESHOLD,
@@ -21,22 +21,21 @@ use calyx_oracle::{
 use serde::Deserialize;
 use serde_json::json;
 
+use crate::error::{CliError, CliResult};
+
 pub(crate) fn readback_oracle_expand(args: &[String]) -> crate::error::CliResult {
     let args = ExpandArgs::parse(args)?;
     let vault_id = VaultId::from_str(&args.vault_id)
-        .map_err(|error| format!("invalid --vault-id: {error}"))?;
+        .map_err(|error| CliError::usage(format!("invalid --vault-id: {error}")))?;
     let vault = AsterVault::new_durable(
         Path::new(&args.vault),
         vault_id,
         args.salt.as_bytes().to_vec(),
         VaultOptions::default(),
-    )
-    .map_err(|error| error.to_string())?;
+    )?;
     let fixture = ButterflyFixture::read(Path::new(&args.fixture))?;
     let rows_written = fixture.persist_rows(&vault)?;
-    vault
-        .flush()
-        .map_err(|error| format!("flush oracle expand fixture rows: {error}"))?;
+    vault.flush()?;
     let clock = FixedClock::new(fixture.clock_ts);
     match build_tree(&vault, fixture.root(), &clock) {
         Ok(tree) => {
@@ -47,9 +46,7 @@ pub(crate) fn readback_oracle_expand(args: &[String]) -> crate::error::CliResult
                 .as_ref()
                 .and_then(|desired| select(&tree, desired))
                 .map(|node| node.root.clone());
-            vault
-                .flush()
-                .map_err(|error| format!("flush oracle expand ledger row: {error}"))?;
+            vault.flush()?;
             println!(
                 "{}",
                 serde_json::to_string_pretty(&json!({
@@ -66,7 +63,9 @@ pub(crate) fn readback_oracle_expand(args: &[String]) -> crate::error::CliResult
                     "selected": selected,
                     "tree": tree,
                 }))
-                .map_err(|error| error.to_string())?
+                .map_err(|error| CliError::runtime(format!(
+                    "serialize oracle_expand readback: {error}"
+                )))?
             );
             Ok(())
         }
@@ -81,9 +80,11 @@ pub(crate) fn readback_oracle_expand(args: &[String]) -> crate::error::CliResult
                     "error": error.to_string(),
                     "remediation": error.remediation(),
                 }))
-                .map_err(|error| error.to_string())?
+                .map_err(|error| CliError::runtime(format!(
+                    "serialize oracle_expand error readback: {error}"
+                )))?
             );
-            Err(error.to_string().into())
+            Err(CalyxError::from(error).into())
         }
     }
 }
@@ -97,13 +98,21 @@ struct ExpandArgs {
 }
 
 impl ExpandArgs {
-    fn parse(args: &[String]) -> Result<Self, String> {
+    fn parse(args: &[String]) -> CliResult<Self> {
         match args {
-            [vault_flag, vault, fixture_flag, fixture, vault_id_flag, vault_id, salt_flag, salt]
-                if vault_flag == "--vault"
-                    && fixture_flag == "--fixture"
-                    && vault_id_flag == "--vault-id"
-                    && salt_flag == "--salt" =>
+            [
+                vault_flag,
+                vault,
+                fixture_flag,
+                fixture,
+                vault_id_flag,
+                vault_id,
+                salt_flag,
+                salt,
+            ] if vault_flag == "--vault"
+                && fixture_flag == "--fixture"
+                && vault_id_flag == "--vault-id"
+                && salt_flag == "--salt" =>
             {
                 Ok(Self {
                     vault: vault.clone(),
@@ -132,9 +141,11 @@ impl ExpandArgs {
             {
                 let depth = depth
                     .parse::<u8>()
-                    .map_err(|error| format!("invalid --depth: {error}"))?;
+                    .map_err(|error| CliError::usage(format!("invalid --depth: {error}")))?;
                 if depth > MAX_DEPTH {
-                    return Err(format!("oracle_expand --depth must be <= {MAX_DEPTH}"));
+                    return Err(CliError::usage(format!(
+                        "oracle_expand --depth must be <= {MAX_DEPTH}"
+                    )));
                 }
                 Ok(Self {
                     vault: vault.clone(),
@@ -144,7 +155,9 @@ impl ExpandArgs {
                     depth,
                 })
             }
-            _ => Err("usage: calyx readback oracle_expand --vault <dir> --fixture <json> --vault-id <id> --salt <s> [--depth <0-4>]".to_string()),
+            _ => Err(CliError::usage(
+                "usage: calyx readback oracle_expand --vault <dir> --fixture <json> --vault-id <id> --salt <s> [--depth <0-4>]",
+            )),
         }
     }
 }
@@ -179,32 +192,41 @@ struct FixtureEdge {
 }
 
 impl ButterflyFixture {
-    fn read(path: &Path) -> Result<Self, String> {
-        let bytes = std::fs::read(path).map_err(|error| format!("read fixture: {error}"))?;
-        let fixture: Self =
-            serde_json::from_slice(&bytes).map_err(|error| format!("parse fixture: {error}"))?;
+    fn read(path: &Path) -> CliResult<Self> {
+        let bytes =
+            std::fs::read(path).map_err(|error| CliError::io(format!("read fixture: {error}")))?;
+        let fixture: Self = serde_json::from_slice(&bytes)
+            .map_err(|error| CliError::runtime(format!("parse fixture: {error}")))?;
         fixture.validate()?;
         Ok(fixture)
     }
 
-    fn validate(&self) -> Result<(), String> {
+    fn validate(&self) -> CliResult {
         if self.domain.trim().is_empty() {
-            return Err("oracle_expand fixture domain must be non-empty".to_string());
+            return Err(CliError::runtime(
+                "oracle_expand fixture domain must be non-empty",
+            ));
         }
         if self.root_action.trim().is_empty() {
-            return Err("oracle_expand fixture root_action must be non-empty".to_string());
+            return Err(CliError::runtime(
+                "oracle_expand fixture root_action must be non-empty",
+            ));
         }
         if !self.root_confidence.is_finite() || !(0.0..=1.0).contains(&self.root_confidence) {
-            return Err("oracle_expand fixture root_confidence must be in [0,1]".to_string());
+            return Err(CliError::runtime(
+                "oracle_expand fixture root_confidence must be in [0,1]",
+            ));
         }
         if self.root_hop > MAX_DEPTH {
-            return Err(format!(
+            return Err(CliError::runtime(format!(
                 "oracle_expand fixture root_hop must be <= {MAX_DEPTH}"
-            ));
+            )));
         }
         for edge in &self.edges {
             if edge.from.trim().is_empty() || edge.to.trim().is_empty() {
-                return Err("oracle_expand fixture edge endpoints must be non-empty".to_string());
+                return Err(CliError::runtime(
+                    "oracle_expand fixture edge endpoints must be non-empty",
+                ));
             }
         }
         Ok(())
@@ -224,7 +246,7 @@ impl ButterflyFixture {
         }
     }
 
-    fn persist_rows<C>(&self, vault: &AsterVault<C>) -> Result<usize, String>
+    fn persist_rows<C>(&self, vault: &AsterVault<C>) -> CliResult<usize>
     where
         C: Clock,
     {
@@ -241,39 +263,32 @@ fn write_edge<C>(
     domain: &str,
     edge: &FixtureEdge,
     index: usize,
-) -> Result<usize, String>
+) -> CliResult<usize>
 where
     C: Clock,
 {
     let series_key = format!("{index}-{}-{}", edge.from, edge.to);
     let cx_id = cx_id(domain, &edge.from, &series_key);
-    vault
-        .write_cf(
-            ColumnFamily::Base,
-            base_key(cx_id),
-            encode::encode_constellation_base(&fixture_constellation(
-                vault.vault_id(),
-                cx_id,
-                domain,
-                &edge.from,
-            ))
-            .map_err(|error| error.to_string())?,
-        )
-        .map_err(|error| error.to_string())?;
+    vault.write_cf(
+        ColumnFamily::Base,
+        base_key(cx_id),
+        encode::encode_constellation_base(&fixture_constellation(
+            vault.vault_id(),
+            cx_id,
+            domain,
+            &edge.from,
+        ))?,
+    )?;
     let occurrence = Occurrence {
         id: OccurrenceId(0),
         t_k: EpochSecs(1_000 + index as i64),
-        context: OccurrenceContext::new(edge_context_bytes(domain, edge))
-            .map_err(|error| error.to_string())?,
+        context: OccurrenceContext::new(edge_context_bytes(domain, edge))?,
     };
-    vault
-        .write_cf(
-            ColumnFamily::Recurrence,
-            recurrence_key(cx_id, 0),
-            encode_recurrence_row(&StoredRecurrenceRow::Occurrence(occurrence))
-                .map_err(|error| error.to_string())?,
-        )
-        .map_err(|error| error.to_string())?;
+    vault.write_cf(
+        ColumnFamily::Recurrence,
+        recurrence_key(cx_id, 0),
+        encode_recurrence_row(&StoredRecurrenceRow::Occurrence(occurrence))?,
+    )?;
     Ok(2)
 }
 

@@ -8,7 +8,8 @@ use serde_json::Value;
 use crate::error::{CliError, CliResult};
 
 pub(crate) fn write_json_value_atomic(path: &Path, value: &Value, label: &str) -> CliResult {
-    let mut bytes = serde_json::to_vec_pretty(value)?;
+    let mut bytes = serde_json::to_vec_pretty(value)
+        .map_err(|error| CliError::runtime(format!("serialize {label}: {error}")))?;
     bytes.push(10);
     write_bytes_atomic(path, &bytes, label)
 }

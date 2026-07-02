@@ -5,6 +5,7 @@ use serde::Serialize;
 
 use super::engine::WardGuardReport;
 use super::request::WardGuardRequest;
+use crate::error::{CliError, CliResult};
 
 #[derive(Clone, Debug, Serialize)]
 pub(crate) struct MetricEvidence {
@@ -22,9 +23,9 @@ pub(crate) struct MetricEvidence {
 pub(crate) fn write_metric_outputs(
     request: &WardGuardRequest,
     report: &WardGuardReport,
-) -> Result<MetricEvidence, String> {
+) -> CliResult<MetricEvidence> {
     check_finite(report)?;
-    fs::create_dir_all(&request.metrics_dir).map_err(|error| error.to_string())?;
+    fs::create_dir_all(&request.metrics_dir)?;
 
     let tau_path = request.metrics_dir.join("ward_tau.txt");
     write_float(&tau_path, report.tau)?;
@@ -45,15 +46,15 @@ pub(crate) fn write_metric_outputs(
             "routed={} action=new_region novel_regions={}\n",
             report.novelty.routed, report.novelty.novel_regions
         ),
-    )
-    .map_err(|error| error.to_string())?;
+    )?;
 
     let report_path = request.metrics_dir.join("ward_guard_validate.json");
     fs::write(
         &report_path,
-        serde_json::to_vec_pretty(report).map_err(|error| error.to_string())?,
-    )
-    .map_err(|error| error.to_string())?;
+        serde_json::to_vec_pretty(report).map_err(|error| {
+            CliError::runtime(format!("serialize {}: {error}", report_path.display()))
+        })?,
+    )?;
 
     Ok(MetricEvidence {
         metrics_dir: request.metrics_dir.display().to_string(),
@@ -68,11 +69,11 @@ pub(crate) fn write_metric_outputs(
     })
 }
 
-fn write_float(path: &Path, value: f32) -> Result<(), String> {
-    fs::write(path, format!("{value:.6}\n")).map_err(|error| error.to_string())
+fn write_float(path: &Path, value: f32) -> CliResult<()> {
+    Ok(fs::write(path, format!("{value:.6}\n"))?)
 }
 
-fn check_finite(report: &WardGuardReport) -> Result<(), String> {
+fn check_finite(report: &WardGuardReport) -> CliResult<()> {
     let values = [
         ("tau", report.tau),
         ("calibration.meta_far", report.calibration.meta_far),
@@ -84,7 +85,9 @@ fn check_finite(report: &WardGuardReport) -> Result<(), String> {
     ];
     for (name, value) in values {
         if !value.is_finite() {
-            return Err(format!("CALYX_FSV_WARD_NONFINITE_METRIC: {name}={value}"));
+            return Err(CliError::runtime(format!(
+                "CALYX_FSV_WARD_NONFINITE_METRIC: {name}={value}"
+            )));
         }
     }
     Ok(())

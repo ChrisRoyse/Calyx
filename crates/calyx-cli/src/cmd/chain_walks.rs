@@ -263,7 +263,9 @@ pub(crate) fn parse_chain_walks(rest: &[String]) -> CliResult<Subcommand> {
 fn load_seed_file(path: &Path) -> CliResult<Vec<ChainWalkSeed>> {
     let text = fs::read_to_string(path)
         .map_err(|error| CliError::io(format!("read --seed-file {}: {error}", path.display())))?;
-    let seeds: Vec<ChainWalkSeed> = serde_json::from_str(&text)?;
+    let seeds: Vec<ChainWalkSeed> = serde_json::from_str(&text).map_err(|error| {
+        CliError::runtime(format!("parse --seed-file {}: {error}", path.display()))
+    })?;
     if seeds.is_empty() {
         return Err(CliError::usage(format!(
             "--seed-file {} did not contain any seeds",
@@ -356,7 +358,8 @@ fn persist_report(
     explicit: Option<&Path>,
     artifact: &ChainWalksArtifact,
 ) -> CliResult<PersistedReport> {
-    let bytes = serde_json::to_vec_pretty(artifact)?;
+    let bytes = serde_json::to_vec_pretty(artifact)
+        .map_err(|error| CliError::runtime(format!("serialize chain-walk artifact: {error}")))?;
     let report_id = blake3::hash(&bytes).to_hex().to_string();
     let path = explicit.map(Path::to_path_buf).unwrap_or_else(|| {
         vault_dir
@@ -388,7 +391,12 @@ fn persist_report(
             path.display()
         )));
     }
-    let decoded: ChainWalksArtifact = serde_json::from_slice(&readback)?;
+    let decoded: ChainWalksArtifact = serde_json::from_slice(&readback).map_err(|error| {
+        CliError::runtime(format!(
+            "parse chain-walk report readback {}: {error}",
+            path.display()
+        ))
+    })?;
     Ok(PersistedReport {
         path,
         bytes: readback.len() as u64,

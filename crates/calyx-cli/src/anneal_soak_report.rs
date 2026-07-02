@@ -7,13 +7,15 @@ use calyx_aster::sst::SstReader;
 use serde_json::json;
 
 use crate::cf_read::{hex_bytes, list_sst_files};
+use crate::error::{CliError, CliResult};
 
 pub(crate) fn run(args: &[String]) -> crate::error::CliResult {
     let request = SoakReportRequest::parse(args)?;
     let readback = read_soak_rows(&request.vault, request.last)?;
     println!(
         "{}",
-        serde_json::to_string_pretty(&readback).map_err(|error| error.to_string())?
+        serde_json::to_string_pretty(&readback)
+            .map_err(|error| CliError::runtime(format!("serialize soak report: {error}")))?
     );
     Ok(())
 }
@@ -24,7 +26,7 @@ struct SoakReportRequest {
 }
 
 impl SoakReportRequest {
-    fn parse(args: &[String]) -> Result<Self, String> {
+    fn parse(args: &[String]) -> CliResult<Self> {
         let mut vault = None;
         let mut last = None;
         let mut idx = 0;
@@ -37,36 +39,36 @@ impl SoakReportRequest {
                 "--last" => {
                     last = Some(
                         args.get(idx + 1)
-                            .ok_or_else(|| "--last requires a value".to_string())?
+                            .ok_or_else(|| CliError::usage("--last requires a value"))?
                             .parse::<usize>()
-                            .map_err(|error| format!("invalid --last: {error}"))?,
+                            .map_err(|error| CliError::usage(format!("invalid --last: {error}")))?,
                     );
                     idx += 2;
                 }
-                other => return Err(format!("unknown soak-report arg: {other}")),
+                other => return Err(CliError::usage(format!("unknown soak-report arg: {other}"))),
             }
         }
         let last = last.unwrap_or(1);
         if last == 0 {
-            return Err("--last must be positive".to_string());
+            return Err(CliError::usage("--last must be positive"));
         }
         Ok(Self {
-            vault: vault.ok_or_else(|| "soak-report requires --vault".to_string())?,
+            vault: vault.ok_or_else(|| CliError::usage("soak-report requires --vault"))?,
             last,
         })
     }
 }
 
-fn read_soak_rows(vault: &Path, last: usize) -> Result<serde_json::Value, String> {
+fn read_soak_rows(vault: &Path, last: usize) -> CliResult<serde_json::Value> {
     let cf = ColumnFamily::AnnealSoak;
     let mut reports = Vec::new();
     let mut samples = Vec::new();
     let mut physical_rows = Vec::new();
     let mut logical_rows = BTreeMap::new();
     for file in list_sst_files(&vault.join("cf").join(cf.name()))? {
-        let reader = SstReader::open(&file).map_err(|error| error.to_string())?;
-        for row in reader.iter().map_err(|error| error.to_string())? {
-            let decoded = decode_soak_row(&row.value).map_err(|error| error.to_string())?;
+        let reader = SstReader::open(&file)?;
+        for row in reader.iter()? {
+            let decoded = decode_soak_row(&row.value)?;
             let physical = json!({
                 "file": file.display().to_string(),
                 "key_hex": hex_bytes(&row.key),

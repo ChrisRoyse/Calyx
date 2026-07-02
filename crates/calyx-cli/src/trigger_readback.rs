@@ -8,20 +8,21 @@ use calyx_loom::{
 use serde_json::json;
 
 use crate::cf_read::{hex_bytes, latest_cf_rows};
+use crate::error::CliError;
 use crate::output::print_json;
 
 pub fn readback_trigger_audit(vault: &Path, sub_id: &str) -> crate::error::CliResult {
     let trigger_id: calyx_loom::TriggerId = sub_id
         .parse()
-        .map_err(|error| format!("invalid trigger id: {error}"))?;
+        .map_err(|error| CliError::usage(format!("invalid trigger id: {error}")))?;
     let prefix = reactive_audit_prefix(trigger_id);
     let mut rows = Vec::new();
     for (key, value) in latest_cf_rows(vault, ColumnFamily::Reactive)? {
         if !key.starts_with(&prefix) {
             continue;
         }
-        let parts = reactive_row_key(&key).map_err(|error| error.to_string())?;
-        let entry = decode_audit_entry(&value).map_err(|error| error.to_string())?;
+        let parts = reactive_row_key(&key)?;
+        let entry = decode_audit_entry(&value)?;
         rows.push(json!({
             "row_kind": kind_name(parts.kind),
             "key_hex": hex_bytes(&key),
@@ -41,11 +42,11 @@ pub fn readback_trigger_audit(vault: &Path, sub_id: &str) -> crate::error::CliRe
 pub fn readback_trigger_fired(vault: &Path) -> crate::error::CliResult {
     let mut rows = Vec::new();
     for (key, value) in latest_cf_rows(vault, ColumnFamily::Reactive)? {
-        let parts = reactive_row_key(&key).map_err(|error| error.to_string())?;
+        let parts = reactive_row_key(&key)?;
         if parts.kind != ReactiveRowKind::Fired {
             continue;
         }
-        let event = decode_trigger_fired(&value).map_err(|error| error.to_string())?;
+        let event = decode_trigger_fired(&value)?;
         rows.push(json!({
             "row_kind": kind_name(parts.kind),
             "key_hex": hex_bytes(&key),

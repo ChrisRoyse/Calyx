@@ -64,7 +64,10 @@ fn single_class_domain_fails_closed() {
     let data = ValidationData::load(&request.samples).unwrap();
 
     let err = evaluate_media_image(&data, &request).unwrap_err();
-    assert!(err.contains("CALYX_FSV_MEDIA_LABEL_DOMAIN_MISMATCH"));
+    assert!(
+        err.message()
+            .contains("CALYX_FSV_MEDIA_LABEL_DOMAIN_MISMATCH")
+    );
     let _ = fs::remove_dir_all(root);
 }
 
@@ -76,7 +79,10 @@ fn missing_caption_pairs_fail_closed() {
     let data = ValidationData::load(&request.samples).unwrap();
 
     let err = evaluate_media_image(&data, &request).unwrap_err();
-    assert!(err.contains("CALYX_FSV_MEDIA_CAPTION_INTEGRITY_MISMATCH"));
+    assert!(
+        err.message()
+            .contains("CALYX_FSV_MEDIA_CAPTION_INTEGRITY_MISMATCH")
+    );
     let _ = fs::remove_dir_all(root);
 }
 
@@ -88,7 +94,10 @@ fn threshold_gate_fails_closed() {
     let data = ValidationData::load(&request.samples).unwrap();
 
     let err = evaluate_media_image(&data, &request).unwrap_err();
-    assert!(err.contains("CALYX_FSV_MEDIA_IMAGE_BITS_BELOW_THRESHOLD"));
+    assert!(
+        err.message()
+            .contains("CALYX_FSV_MEDIA_IMAGE_BITS_BELOW_THRESHOLD")
+    );
     let _ = fs::remove_dir_all(root);
 }
 

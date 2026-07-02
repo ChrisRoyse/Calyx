@@ -10,6 +10,8 @@ use calyx_sextant::index::{
 };
 use serde::Serialize;
 
+use crate::error::{CliError, CliResult};
+
 #[derive(Clone, Debug)]
 struct Request {
     root: PathBuf,
@@ -79,16 +81,14 @@ pub(super) fn run(args: &[String]) -> crate::error::CliResult {
         &token_rows,
         params,
         search,
-    )
-    .map_err(|error| error.to_string())?;
-    let concat = ConcatCrossTermDiskAnn::build(&paths.concat_root, &concat_rows, params, search)
-        .map_err(|error| error.to_string())?;
+    )?;
+    let concat = ConcatCrossTermDiskAnn::build(&paths.concat_root, &concat_rows, params, search)?;
     let mut hits = String::from("kind\tquery_id\trecall\ttop_id\tlatency_us\n");
     let (token_recall, _token_latency) = token_recall(&request, &token, &token_rows, &mut hits)?;
     let (concat_recall, _concat_latency) =
         concat_recall(&request, &concat, &concat_rows, &mut hits)?;
     let hits_path = paths.metrics_dir.join("issue604_hits.tsv");
-    fs::write(&hits_path, hits).map_err(|error| error.to_string())?;
+    fs::write(&hits_path, hits)?;
     let edge_path = paths.metrics_dir.join("issue604_edges.json");
     write_json(&edge_path, &run_edges(&paths.edge_root, &request)?)?;
     let summary = Summary {
@@ -124,16 +124,17 @@ pub(super) fn run(args: &[String]) -> crate::error::CliResult {
     if summary.token_recall_min < request.recall_target
         || summary.concat_recall_min < request.recall_target
     {
-        return Err(format!(
+        return Err(CliError::runtime(format!(
             "recall below target: token_min={} concat_min={} target={}",
             summary.token_recall_min, summary.concat_recall_min, request.recall_target
-        )
-        .into());
+        )));
     }
     write_json(&paths.metrics_dir.join("issue604_summary.json"), &summary)?;
     println!(
         "{}",
-        serde_json::to_string_pretty(&summary).map_err(|error| error.to_string())?
+        serde_json::to_string_pretty(&summary).map_err(|error| {
+            CliError::runtime(format!("serialize issue604 summary: {error}"))
+        })?
     );
     Ok(())
 }
@@ -143,22 +144,20 @@ fn token_recall(
     index: &TokenDiskAnnMaxSim,
     rows: &[(CxId, Vec<Vec<f32>>)],
     hits: &mut String,
-) -> Result<(Vec<f64>, Vec<u128>), String> {
+) -> CliResult<(Vec<f64>, Vec<u128>)> {
     let mut recalls = Vec::new();
     let mut latencies = Vec::new();
     for q in query_ids(request.queries, rows.len()) {
         let exact = exact_token(rows, q, request.k);
         let started = Instant::now();
-        let got = index
-            .search(
-                &SlotVector::Multi {
-                    token_dim: request.dim as u32,
-                    tokens: rows[q].1.clone(),
-                },
-                request.k,
-                Some(request.ef_search),
-            )
-            .map_err(|error| error.to_string())?;
+        let got = index.search(
+            &SlotVector::Multi {
+                token_dim: request.dim as u32,
+                tokens: rows[q].1.clone(),
+            },
+            request.k,
+            Some(request.ef_search),
+        )?;
         latencies.push(started.elapsed().as_micros());
         let got_ids: BTreeSet<_> = got.iter().map(|hit| hit.cx_id).collect();
         let recall = overlap(&exact, &got_ids);
@@ -179,15 +178,13 @@ fn concat_recall(
     index: &ConcatCrossTermDiskAnn,
     rows: &[(ConcatCrossTermKey, Vec<f32>)],
     hits: &mut String,
-) -> Result<(Vec<f64>, Vec<u128>), String> {
+) -> CliResult<(Vec<f64>, Vec<u128>)> {
     let mut recalls = Vec::new();
     let mut latencies = Vec::new();
     for q in query_ids(request.queries, rows.len()) {
         let exact = exact_concat(rows, q, request.k);
         let started = Instant::now();
-        let got = index
-            .search_terms(&rows[q].1, request.k, Some(request.ef_search))
-            .map_err(|error| error.to_string())?;
+        let got = index.search_terms(&rows[q].1, request.k, Some(request.ef_search))?;
         latencies.push(started.elapsed().as_micros());
         let got_ids: BTreeSet<_> = got.iter().map(|hit| hit.key.cx_id).collect();
         let recall = overlap(&exact, &got_ids);
@@ -203,9 +200,9 @@ fn concat_recall(
     Ok((recalls, latencies))
 }
 
-fn run_edges(root: &Path, request: &Request) -> Result<Vec<EdgeReport>, String> {
+fn run_edges(root: &Path, request: &Request) -> CliResult<Vec<EdgeReport>> {
     let mut reports = Vec::new();
-    fs::create_dir_all(root).map_err(|error| error.to_string())?;
+    fs::create_dir_all(root)?;
     let empty_root = root.join("empty-token");
     let before = empty_root.join("graph.cda").exists();
     let empty = TokenDiskAnnMaxSim::build(
@@ -231,8 +228,7 @@ fn run_edges(root: &Path, request: &Request) -> Result<Vec<EdgeReport>, String> 
         &rows,
         build_params(request),
         search_params(request),
-    )
-    .map_err(|error| error.to_string())?;
+    )?;
     let dim = token
         .search(
             &SlotVector::Multi {
@@ -250,7 +246,7 @@ fn run_edges(root: &Path, request: &Request) -> Result<Vec<EdgeReport>, String> 
         "CALYX_SEXTANT_VECTOR_SHAPE",
         &dim,
     ));
-    fs::remove_file(dim_root.join("tokens.f32")).map_err(|error| error.to_string())?;
+    fs::remove_file(dim_root.join("tokens.f32"))?;
     let missing = TokenDiskAnnMaxSim::open(SlotId::new(0), &dim_root, search_params(request), 8)
         .expect_err("missing token sidecar fails");
     reports.push(edge(
@@ -370,7 +366,7 @@ fn search_params(request: &Request) -> DiskAnnSearchParams {
 }
 
 impl Request {
-    fn parse(args: &[String]) -> Result<Self, String> {
+    fn parse(args: &[String]) -> CliResult<Self> {
         let root = required_path(args, "--root")?;
         let docs = number(args, "--docs", 1000)?;
         let k = number(args, "--k", 10)?;
@@ -398,14 +394,14 @@ struct Paths {
 }
 
 impl Paths {
-    fn create(root: &Path) -> Result<Self, String> {
+    fn create(root: &Path) -> CliResult<Self> {
         let paths = Self {
             token_root: root.join("idx/slot_00.token.ann"),
             concat_root: root.join("idx/xterm.concat.ann"),
             metrics_dir: root.join("metrics"),
             edge_root: root.join("edges"),
         };
-        fs::create_dir_all(&paths.metrics_dir).map_err(|error| error.to_string())?;
+        fs::create_dir_all(&paths.metrics_dir)?;
         Ok(paths)
     }
 }
@@ -426,24 +422,21 @@ fn file_len(path: &Path) -> u64 {
     fs::metadata(path).map(|meta| meta.len()).unwrap_or(0)
 }
 
-fn dir_bytes(path: &Path) -> Result<u64, String> {
-    fs::read_dir(path)
-        .map_err(|error| error.to_string())?
-        .map(|entry| {
-            entry
-                .map_err(|error| error.to_string())
-                .and_then(|entry| entry.metadata().map_err(|error| error.to_string()))
-                .map(|meta| meta.len())
-        })
-        .sum()
+fn dir_bytes(path: &Path) -> CliResult<u64> {
+    let mut total = 0;
+    for entry in fs::read_dir(path)? {
+        total += entry?.metadata()?.len();
+    }
+    Ok(total)
 }
 
-fn write_json<T: Serialize>(path: &Path, value: &T) -> std::result::Result<(), String> {
+fn write_json<T: Serialize>(path: &Path, value: &T) -> CliResult {
     fs::write(
         path,
-        serde_json::to_string_pretty(value).map_err(|e| e.to_string())?,
-    )
-    .map_err(|e| e.to_string())
+        serde_json::to_string_pretty(value)
+            .map_err(|error| CliError::runtime(format!("serialize {}: {error}", path.display())))?,
+    )?;
+    Ok(())
 }
 
 fn cx(idx: usize) -> CxId {
@@ -452,36 +445,38 @@ fn cx(idx: usize) -> CxId {
     CxId::from_bytes(bytes)
 }
 
-fn required_path(args: &[String], flag: &str) -> Result<PathBuf, String> {
+fn required_path(args: &[String], flag: &str) -> CliResult<PathBuf> {
     value(args, flag)
         .map(PathBuf::from)
-        .ok_or_else(|| format!("{flag} is required"))
+        .ok_or_else(|| CliError::usage(format!("{flag} is required")))
 }
 
-fn number(args: &[String], flag: &str, default: usize) -> Result<usize, String> {
+fn number(args: &[String], flag: &str, default: usize) -> CliResult<usize> {
     value(args, flag)
         .map(str::parse::<usize>)
         .transpose()
-        .map_err(|error| format!("{flag}: {error}"))?
+        .map_err(|error| CliError::usage(format!("{flag}: {error}")))?
         .map_or(Ok(default), |n| {
             if n == 0 {
-                Err(format!("{flag} must be positive"))
+                Err(CliError::usage(format!("{flag} must be positive")))
             } else {
                 Ok(n)
             }
         })
 }
 
-fn float(args: &[String], flag: &str, default: f64) -> Result<f64, String> {
+fn float(args: &[String], flag: &str, default: f64) -> CliResult<f64> {
     value(args, flag)
         .map(str::parse::<f64>)
         .transpose()
-        .map_err(|error| format!("{flag}: {error}"))?
+        .map_err(|error| CliError::usage(format!("{flag}: {error}")))?
         .map_or(Ok(default), |n| {
             if n.is_finite() && n > 0.0 {
                 Ok(n)
             } else {
-                Err(format!("{flag} must be positive and finite"))
+                Err(CliError::usage(format!(
+                    "{flag} must be positive and finite"
+                )))
             }
         })
 }
