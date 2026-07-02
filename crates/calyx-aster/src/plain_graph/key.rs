@@ -14,6 +14,7 @@ const KIND_EDGE_OUT: u8 = 1;
 const KIND_EDGE_IN: u8 = 2;
 const KIND_CSR: u8 = 3;
 const KIND_METADATA: u8 = 4;
+const KIND_CSR_SEGMENT: u8 = 5;
 const MAX_COLLECTION_BYTES: usize = 256;
 const MAX_EDGE_TYPE_BYTES: usize = 128;
 const MAX_VALUE_BYTES: usize = 1 << 20;
@@ -60,6 +61,15 @@ impl GraphKeyspace {
 
     pub(super) fn csr_key(&self) -> Vec<u8> {
         self.kind_prefix(KIND_CSR)
+    }
+
+    /// Key for one byte-segment of a sharded CSR projection (#996): large
+    /// graphs cannot persist as a single CF row, so the CSR row holds a
+    /// manifest and the JSON bytes live in ordered segment rows.
+    pub(super) fn csr_segment_key(&self, ordinal: u32) -> Vec<u8> {
+        let mut key = self.kind_prefix(KIND_CSR_SEGMENT);
+        key.extend_from_slice(&ordinal.to_be_bytes());
+        key
     }
 
     pub(super) fn metadata_key(&self, name: &str) -> Result<Vec<u8>> {

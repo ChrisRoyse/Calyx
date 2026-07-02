@@ -4,6 +4,7 @@ mod chain_walks;
 mod discovery_chain;
 mod domain_bridges;
 mod erase;
+mod graph_csr;
 mod healthcheck;
 mod hypothesis_evaluate;
 mod hypothesis_rank;
@@ -43,7 +44,7 @@ create-vault add-lens retire-lens park-lens retire-vault list-panel profile-lens
 ingest ingest-status anchor measure erase search kernel-answer bits kernel guard abundance \
 propose-lens provenance verify-chain reproduce anneal-status rebuild-search-index kernel-build \
 weave-loom domain-bridges materialize-bridge-corpus discovery-chain chain-walks probe-matrix \
-spectral-communities";
+spectral-communities materialize-graph-csr";
 
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) enum Subcommand {
@@ -79,6 +80,7 @@ pub(crate) enum Subcommand {
     ChainWalks(chain_walks::ChainWalksArgs),
     ProbeMatrix(probe_matrix::ProbeMatrixArgs),
     SpectralCommunities(spectral_communities::SpectralCommunitiesArgs),
+    MaterializeGraphCsr(graph_csr::MaterializeGraphCsrArgs),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -225,6 +227,7 @@ fn run(command: Subcommand) -> CliResult {
         Subcommand::ChainWalks(_) => chain_walks::run(command),
         Subcommand::ProbeMatrix(_) => probe_matrix::run(command),
         Subcommand::SpectralCommunities(_) => spectral_communities::run(command),
+        Subcommand::MaterializeGraphCsr(_) => graph_csr::run(command),
     }
 }
 
@@ -265,6 +268,7 @@ pub(crate) fn parse(args: &[String]) -> CliResult<Subcommand> {
         "chain-walks" => chain_walks::parse_chain_walks(rest),
         "probe-matrix" => probe_matrix::parse_probe_matrix(rest),
         "spectral-communities" => spectral_communities::parse_spectral_communities(rest),
+        "materialize-graph-csr" => graph_csr::parse_materialize_graph_csr(rest),
         other => Err(CliError::usage(format!("unknown PH62 command {other}"))),
     }
 }
