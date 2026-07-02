@@ -4,10 +4,12 @@ mod discovery_chain;
 mod domain_bridges;
 mod erase;
 mod healthcheck;
+mod hypothesis_evaluate;
 mod ingest;
 mod intelligence;
 mod kernel_build;
 mod lens;
+mod panel_templates;
 mod probe_matrix;
 mod provenance;
 mod readback;
@@ -34,15 +36,7 @@ use calyx_core::Modality;
 
 use crate::error::{CliError, CliResult};
 
-pub(crate) const PANEL_TEMPLATES: &[&str] = &[
-    "text-default",
-    "code-default",
-    "civic-default",
-    "legal-default",
-    "medical-default",
-    "bio-default",
-    "media-default",
-];
+pub(crate) use panel_templates::PANEL_TEMPLATES;
 
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) enum Subcommand {
@@ -155,6 +149,9 @@ pub(crate) fn try_run(args: &[String]) -> Option<CliResult> {
         return Some(result);
     }
     if let Some(result) = build_info::try_run(args) {
+        return Some(result);
+    }
+    if let Some(result) = hypothesis_evaluate::try_run(args) {
         return Some(result);
     }
     if !args.first().is_some_and(|command| is_cmd(command)) {
