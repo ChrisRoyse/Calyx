@@ -30,7 +30,12 @@ Two divergent read paths, both in `crates/calyx-cli`:
   the same read path weave-loom dense coverage uses. Base placeholders are
   never reported as slot state.
 - Near-seq misses retry against the full SST set (including compacted files)
-  plus WAL via `latest_cf_rows_for_keys`, labeled `slot_cf_full_set`.
+  plus WAL via `latest_cf_rows_for_keys`, labeled `slot_cf_full_set`. This
+  retry is a correctness backstop, not just a compaction path: bulk
+  group-committed ingest packs many provenance seqs into one durable-batch
+  SST whose file seq does not align with each row's provenance seq, so
+  near-seq point reads miss on such vaults (verified on the 80G aiwonder
+  corpus vault: all slot payloads resolved via `slot_cf_full_set`).
 - Undecodable slot CF bytes fall through to the `slot_raw_XX` CF (compression
   persists opaque compressed bytes in `slot_XX` and the decodable payload in
   `slot_raw_XX`), labeled `slot_raw_cf`.
