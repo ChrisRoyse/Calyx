@@ -85,6 +85,36 @@ fn cx_list_progress_and_budget_parse() {
 }
 
 #[test]
+fn slot_summary_counts_physical_states_including_tombstones() {
+    let states = [
+        PhysicalSlotState::Vector {
+            vector: SlotVector::Dense {
+                dim: 2,
+                data: vec![1.0, 2.0],
+            },
+            payload_source: "slot_cf",
+        },
+        PhysicalSlotState::Vector {
+            vector: SlotVector::Absent {
+                reason: calyx_core::AbsentReason::LensInactive,
+            },
+            payload_source: "slot_cf",
+        },
+        PhysicalSlotState::Tombstoned {
+            payload_source: "slot_cf_tombstone",
+        },
+    ];
+
+    let summary = slot_summary(states.iter());
+
+    assert_eq!(summary["slot_count"], 3);
+    assert_eq!(summary["dense_slots"], 1);
+    assert_eq!(summary["absent_slots"], 1);
+    assert_eq!(summary["tombstoned_slots"], 1);
+    assert_eq!(summary["absent_reasons"]["lens_inactive"], 1);
+}
+
+#[test]
 fn cx_list_tombstone_row_reports_tombstoned_not_corrupt() {
     let cx_id = CxId::from_bytes([0x17; 16]);
     let row = tombstone_row(&base_key(cx_id));
