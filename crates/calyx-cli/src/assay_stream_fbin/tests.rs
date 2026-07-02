@@ -314,6 +314,47 @@ fn stream_fbin_pre_gate_refuses_before_row_scan() {
 }
 
 #[test]
+fn stream_fbin_pre_gate_fails_closed_on_missing_anchor_audit() {
+    // #1140: a bits report with no anchor_audit (e.g. produced from rows that
+    // predate the audit machinery) must refuse gate mode, not default to
+    // eligible.
+    let fixture = Fixture::new("stream-fbin-pre-gate-no-audit", 10, 10, 50);
+    strip_bits_anchor_audit(&fixture.bits);
+    let args = fixture.args(8);
+
+    let error = write::run(&args).unwrap_err();
+
+    assert_eq!(error.code(), "CALYX_FSV_ASSAY_TRIVIAL_ANCHOR");
+    assert!(!fixture.out.exists());
+    assert!(!staging_dir(&fixture).exists());
+    let _ = fs::remove_dir_all(fixture.root);
+}
+
+#[test]
+fn stream_fbin_pre_gate_accepts_power_adjusted_sufficiency() {
+    // #1140: the estimator's planted-perfect ceiling (power recovery 0.9)
+    // bounds what any panel can measure; a basis of 0.95 >= 1.0 * 0.9 is
+    // sufficient even though it is below the raw anchor entropy.
+    let fixture = Fixture::new("stream-fbin-pre-gate-power-adjusted", 10, 10, 50);
+    write_bits_with_gate(&fixture.bits, 10, 10, 0.95, "passed", 0.9);
+    let args = fixture.args(8);
+
+    write::run(&args).unwrap();
+
+    let report: Value =
+        serde_json::from_slice(&fs::read(fixture.out.join("stream_fbin_report.json")).unwrap())
+            .unwrap();
+    assert_eq!(report["pre_encode_gate"]["sufficient"], true);
+    assert_eq!(report["pre_encode_gate"]["diagnostic_only"], false);
+    let target = report["pre_encode_gate"]["power_adjusted_target_bits"]
+        .as_f64()
+        .unwrap();
+    assert!((target - 0.9).abs() < 0.000001);
+    assert_eq!(report["pre_encode_gate"]["deficit_bits"], 0.0);
+    let _ = fs::remove_dir_all(fixture.root);
+}
+
+#[test]
 fn stream_fbin_pre_gate_fails_closed_on_legacy_bits_report() {
     let fixture = Fixture::new("stream-fbin-pre-gate-missing", 10, 10, 50);
     write_legacy_bits(&fixture.bits, 10, 10);
@@ -370,6 +411,12 @@ fn stream_fbin_pre_gate_rejects_mismatched_panel() {
     assert!(!fixture.out.exists());
     assert!(!staging_dir(&fixture).exists());
     let _ = fs::remove_dir_all(fixture.root);
+}
+
+fn strip_bits_anchor_audit(path: &std::path::Path) {
+    let mut report: Value = serde_json::from_slice(&fs::read(path).unwrap()).unwrap();
+    report.as_object_mut().unwrap().remove("anchor_audit");
+    fs::write(path, serde_json::to_vec_pretty(&report).unwrap()).unwrap();
 }
 
 fn mark_bits_as_leaked(path: &std::path::Path) {

@@ -87,6 +87,7 @@ pub(super) fn validate_before_full_encode(args: &Args) -> CliResult<PreEncodeGat
         bits_report: display(&args.bits_report),
         anchor_entropy_bits: gate.anchor_entropy_bits,
         sufficiency_basis_bits: gate.sufficiency_basis_bits,
+        power_adjusted_target_bits: power_adjusted_target_bits(&gate),
         deficit_bits,
         estimate_bound: gate.estimate_bound,
         power_calibration_status: gate.power_calibration_status,
@@ -258,20 +259,33 @@ fn validate_sufficiency(gate: &GateInputs, mode: StreamMode) -> CliResult<(bool,
             "regenerate the bits report with a valid panel lower bound",
         ));
     }
-    let deficit_bits = (gate.anchor_entropy_bits - gate.sufficiency_basis_bits).max(0.0);
+    // #1140: the sufficiency target is power-adjusted. The same estimator that
+    // measured the panel also measured a planted perfect signal on identical
+    // data/dims (power calibration); its recovery ratio is the estimator's
+    // ceiling. Comparing the raw lower bound against the full anchor entropy
+    // is unreachable even for a perfect panel. validate_power (which runs
+    // first) has already proven the ratio is finite and above the floor.
+    let target_bits = power_adjusted_target_bits(gate);
+    let deficit_bits = (target_bits - gate.sufficiency_basis_bits).max(0.0);
     if deficit_bits > 0.0 && mode.requires_gate() {
         return Err(local_error(
             "CALYX_FSV_ASSAY_STREAM_FBIN_PRE_GATE_REFUSED",
             format!(
-                "panel lower-bound sufficiency {:.6} bits is below anchor entropy {:.6} bits; deficit {:.6}",
+                "panel lower-bound sufficiency {:.6} bits is below the power-adjusted target {:.6} bits (anchor entropy {:.6} x power recovery {:.6}); deficit {:.6}",
                 gate.sufficiency_basis_bits,
+                target_bits,
                 gate.anchor_entropy_bits,
-                gate.anchor_entropy_bits - gate.sufficiency_basis_bits
+                gate.power_recovery_ratio,
+                deficit_bits
             ),
             "acquire or admit stronger grounded content lenses before full encode",
         ));
     }
     Ok((deficit_bits == 0.0, deficit_bits))
+}
+
+fn power_adjusted_target_bits(gate: &GateInputs) -> f32 {
+    gate.anchor_entropy_bits * gate.power_recovery_ratio.min(1.0)
 }
 
 fn is_grounded_gate_eligible(audit: &AnchorAudit) -> bool {
