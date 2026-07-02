@@ -3,6 +3,41 @@ set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
+is_wsl_shell() {
+  if [[ -n "${WSL_DISTRO_NAME:-}" || -n "${WSL_INTEROP:-}" ]]; then
+    return 0
+  fi
+
+  local uname_release
+  uname_release="$(uname -r 2>/dev/null || true)"
+  [[ "$uname_release" == *Microsoft* || "$uname_release" == *microsoft* ]]
+}
+
+guard_wsl_windows_gitdir() {
+  local git_file="$repo_root/.git"
+  [[ -f "$git_file" ]] || return 0
+
+  local gitdir
+  gitdir="$(sed -n 's/^gitdir:[[:space:]]*//p' "$git_file" | head -n 1 | tr -d '\r')"
+  [[ -n "$gitdir" ]] || return 0
+
+  case "$gitdir" in
+    [A-Za-z]:/* | [A-Za-z]:\\*) ;;
+    *) return 0 ;;
+  esac
+
+  if is_wsl_shell || [[ "$repo_root" == /mnt/[A-Za-z]/* ]]; then
+    echo "ERROR: CALYX_WSL_WINDOWS_WORKTREE_GITDIR: scripts/check.sh is running under WSL from a Windows-created git worktree." >&2
+    echo "ERROR: .git points to '${gitdir}', which WSL git interprets relative to '${repo_root}' and cannot use." >&2
+    echo "ERROR: remove this worktree and recreate it from WSL, for example:" >&2
+    echo "ERROR:   git -C /mnt/c/code/Calyx-Dev worktree add /mnt/c/code/Calyx-Dev-issue1127 origin/main" >&2
+    echo "ERROR: or run the gate from a checkout whose .git file uses a WSL/Linux gitdir path." >&2
+    exit 1
+  fi
+}
+
+guard_wsl_windows_gitdir
+
 source "$HOME/.cargo/env"
 cd "$repo_root"
 
