@@ -574,12 +574,9 @@ fn physical_raw_row(
     key: &[u8],
     seq: u64,
 ) -> CliResult<Option<(Vec<u8>, &'static str)>> {
-    let near = latest_cf_rows_near_seqs(
-        vault,
-        ColumnFamily::slot_raw(slot),
-        &[(key.to_vec(), seq)],
-    )
-    .map_err(|error| slot_readback_io_error(slot, "slot_raw near-seq", &error))?;
+    let near =
+        latest_cf_rows_near_seqs(vault, ColumnFamily::slot_raw(slot), &[(key.to_vec(), seq)])
+            .map_err(|error| slot_readback_io_error(slot, "slot_raw near-seq", &error))?;
     if let Some(Some(bytes)) = near.get(key) {
         return Ok(Some((bytes.clone(), "slot_raw_cf")));
     }

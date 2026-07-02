@@ -35,12 +35,22 @@ fn cx_list_include_slots_reports_physical_slot_payloads() {
     let vault_dir = root.join("vault");
     let vault = durable_vault(&vault_dir);
     let first = new_cx_id(
-        ingest_at(&vault, &probe_input("cx-list-a", 0.25), EpochSecs(100), None)
-            .expect("ingest first"),
+        ingest_at(
+            &vault,
+            &probe_input("cx-list-a", 0.25),
+            EpochSecs(100),
+            None,
+        )
+        .expect("ingest first"),
     );
     let second = new_cx_id(
-        ingest_at(&vault, &probe_input("cx-list-b", 0.75), EpochSecs(200), None)
-            .expect("ingest second"),
+        ingest_at(
+            &vault,
+            &probe_input("cx-list-b", 0.75),
+            EpochSecs(200),
+            None,
+        )
+        .expect("ingest second"),
     );
     vault.flush().expect("flush durable vault");
     drop(vault);
@@ -109,7 +119,10 @@ fn cx_list_without_include_slots_stays_base_only() {
     let row = &rows.as_array().expect("array")[0];
     assert_eq!(row["slot_payloads_decoded"], false);
     assert_eq!(row["slot_payload_decode_mode"], "base_only");
-    assert!(row.get("slots").is_none(), "base-only must not claim slot state");
+    assert!(
+        row.get("slots").is_none(),
+        "base-only must not claim slot state"
+    );
 
     fs::remove_dir_all(root).ok();
 }
@@ -130,7 +143,13 @@ fn cx_list_include_slots_empty_vault_renders_empty_list() {
 fn cx_list_include_slots_fails_closed_when_physical_slot_rows_missing() {
     let root = temp_root("cx-list-missing-slot-rows");
     let vault_dir = root.join("vault");
-    let cx = synthetic_constellation(7, SlotVector::Dense { dim: 2, data: vec![1.0, 2.0] });
+    let cx = synthetic_constellation(
+        7,
+        SlotVector::Dense {
+            dim: 2,
+            data: vec![1.0, 2.0],
+        },
+    );
     write_base_only(&vault_dir, &cx);
 
     let output = run_cx_list(&vault_dir, &["--include-slots"]);
@@ -140,8 +159,14 @@ fn cx_list_include_slots_fails_closed_when_physical_slot_rows_missing() {
         String::from_utf8_lossy(&output.stdout)
     );
     let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(stderr.contains("CALYX_ASTER_CORRUPT_SHARD"), "stderr: {stderr}");
-    assert!(stderr.contains("slot 7"), "stderr must name the slot: {stderr}");
+    assert!(
+        stderr.contains("CALYX_ASTER_CORRUPT_SHARD"),
+        "stderr: {stderr}"
+    );
+    assert!(
+        stderr.contains("slot 7"),
+        "stderr must name the slot: {stderr}"
+    );
     assert!(
         stderr.contains(&cx.cx_id.to_string()),
         "stderr must name the cx: {stderr}"
@@ -158,7 +183,13 @@ fn cx_list_include_slots_fails_closed_when_physical_slot_rows_missing() {
 fn cx_list_include_slots_reads_slot_raw_for_undecodable_slot_rows() {
     let root = temp_root("cx-list-slot-raw");
     let vault_dir = root.join("vault");
-    let cx = synthetic_constellation(8, SlotVector::Dense { dim: 2, data: vec![0.5, 0.25] });
+    let cx = synthetic_constellation(
+        8,
+        SlotVector::Dense {
+            dim: 2,
+            data: vec![0.5, 0.25],
+        },
+    );
     write_base_only(&vault_dir, &cx);
     // Compressed-slot shape: opaque bytes in slot CF, decodable payload in slot_raw.
     write_cf_sst(
@@ -171,8 +202,11 @@ fn cx_list_include_slots_reads_slot_raw_for_undecodable_slot_rows() {
         &vault_dir,
         ColumnFamily::slot_raw(SlotId::new(8)),
         &slot_key(cx.cx_id),
-        &encode_slot_vector(&SlotVector::Dense { dim: 2, data: vec![0.5, 0.25] })
-            .expect("encode raw payload"),
+        &encode_slot_vector(&SlotVector::Dense {
+            dim: 2,
+            data: vec![0.5, 0.25],
+        })
+        .expect("encode raw payload"),
     );
 
     let rows = stdout_json(run_cx_list(&vault_dir, &["--include-slots"]));
@@ -187,7 +221,13 @@ fn cx_list_include_slots_reads_slot_raw_for_undecodable_slot_rows() {
 fn cx_list_include_slots_fails_closed_when_slot_row_undecodable_and_no_raw() {
     let root = temp_root("cx-list-undecodable");
     let vault_dir = root.join("vault");
-    let cx = synthetic_constellation(9, SlotVector::Dense { dim: 2, data: vec![1.0, 0.0] });
+    let cx = synthetic_constellation(
+        9,
+        SlotVector::Dense {
+            dim: 2,
+            data: vec![1.0, 0.0],
+        },
+    );
     write_base_only(&vault_dir, &cx);
     write_cf_sst(
         &vault_dir,
@@ -197,9 +237,15 @@ fn cx_list_include_slots_fails_closed_when_slot_row_undecodable_and_no_raw() {
     );
 
     let output = run_cx_list(&vault_dir, &["--include-slots"]);
-    assert!(!output.status.success(), "undecodable slot row must fail closed");
+    assert!(
+        !output.status.success(),
+        "undecodable slot row must fail closed"
+    );
     let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(stderr.contains("CALYX_ASTER_CORRUPT_SHARD"), "stderr: {stderr}");
+    assert!(
+        stderr.contains("CALYX_ASTER_CORRUPT_SHARD"),
+        "stderr: {stderr}"
+    );
     assert!(stderr.contains("not decodable"), "stderr: {stderr}");
 
     fs::remove_dir_all(root).ok();
@@ -209,7 +255,13 @@ fn cx_list_include_slots_fails_closed_when_slot_row_undecodable_and_no_raw() {
 fn cx_list_include_slots_reports_tombstoned_slot_rows() {
     let root = temp_root("cx-list-tombstoned");
     let vault_dir = root.join("vault");
-    let cx = synthetic_constellation(4, SlotVector::Dense { dim: 2, data: vec![1.0, 2.0] });
+    let cx = synthetic_constellation(
+        4,
+        SlotVector::Dense {
+            dim: 2,
+            data: vec![1.0, 2.0],
+        },
+    );
     write_base_only(&vault_dir, &cx);
     write_cf_sst(
         &vault_dir,
@@ -277,7 +329,10 @@ fn synthetic_constellation(slot: u16, vector: SlotVector) -> Constellation {
         scalars: std::collections::BTreeMap::new(),
         metadata: std::collections::BTreeMap::new(),
         anchors: Vec::new(),
-        provenance: LedgerRef { seq: 1, hash: [7; 32] },
+        provenance: LedgerRef {
+            seq: 1,
+            hash: [7; 32],
+        },
         flags: CxFlags {
             ungrounded: true,
             ..CxFlags::default()
