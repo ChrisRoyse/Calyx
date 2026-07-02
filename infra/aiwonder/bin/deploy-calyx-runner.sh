@@ -149,13 +149,15 @@ verify_identity() {
       "$context: $path does not answer build-info; it predates #1108 or is not a Calyx binary"
   sha="$(jq -er '.git_sha' <<<"$report")" \
     || die CALYX_DEPLOY_IDENTITY_UNREADABLE "$context: $path build-info JSON lacks git_sha: $report"
-  dirty="$(jq -er '.git_dirty' <<<"$report")" \
+  # tostring keeps jq -e from treating a legitimate `false` value as failure;
+  # a missing key becomes the string "null" and fails the equality gate below.
+  dirty="$(jq -er '.git_dirty | tostring' <<<"$report")" \
     || die CALYX_DEPLOY_IDENTITY_UNREADABLE "$context: $path build-info JSON lacks git_dirty: $report"
   [[ "$sha" == "$head_sha" ]] \
     || die CALYX_DEPLOY_IDENTITY_MISMATCH \
       "$context: $path reports git_sha=$sha, expected $head_sha; the build did not come from this checkout state"
   [[ "$dirty" == "false" ]] \
-    || die CALYX_DEPLOY_IDENTITY_MISMATCH "$context: $path reports git_dirty=true; rebuild from a clean checkout"
+    || die CALYX_DEPLOY_IDENTITY_MISMATCH "$context: $path reports git_dirty=$dirty; rebuild from a clean checkout"
   echo "[deploy] $context: $name identity verified git_sha=$sha"
 }
 
