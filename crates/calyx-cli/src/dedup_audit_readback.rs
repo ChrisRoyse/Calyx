@@ -335,7 +335,7 @@ fn cx_list_rows(
             row["slots"] = json!(
                 states
                     .iter()
-                    .map(|(slot, state)| slot_row_json(*slot, *state))
+                    .map(|(slot, state)| slot_row_json(*slot, state))
                     .collect::<Vec<_>>()
             );
         }
