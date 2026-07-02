@@ -5,6 +5,7 @@ mod domain_bridges;
 mod erase;
 mod healthcheck;
 mod hypothesis_evaluate;
+mod hypothesis_rank;
 mod ingest;
 mod intelligence;
 mod kernel_build;
@@ -152,6 +153,9 @@ pub(crate) fn try_run(args: &[String]) -> Option<CliResult> {
         return Some(result);
     }
     if let Some(result) = hypothesis_evaluate::try_run(args) {
+        return Some(result);
+    }
+    if let Some(result) = hypothesis_rank::try_run(args) {
         return Some(result);
     }
     if !args.first().is_some_and(|command| is_cmd(command)) {

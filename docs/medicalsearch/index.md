@@ -39,9 +39,9 @@ still requires experimental confirmation.
 | `13_chain_walks_spectral-bridge-4-src.md` | #880 real chain walk seed `spectral-bridge-4-src` | real corpus per-seed readback |
 | `13_chain_walks_operator-centrality-1.md` | #880 real chain walk seed `operator-centrality-1` | real corpus per-seed readback |
 | `13_chain_walks_operator-centrality-2.md` | #880 real chain walk seed `operator-centrality-2` | real corpus per-seed readback |
-| `14_hypothesis_evaluation.md` | #881 transparent multi-prompt hypothesis evaluation report | implementation slice + synthetic FSV; real evaluator runs pending |
-| `15_ranked_hypotheses.md` | #882 ranked traceable hypothesis list | implementation slice + synthetic FSV; real ranked list pending |
-| `16_refusal_driven_expansion.md` | #883 refusal-expansion planner and before/after verifier | implementation slice + synthetic FSV; real evidence addition pending |
+| `14_hypothesis_evaluation.md` | #881 transparent multi-prompt hypothesis evaluation report | done + real GitHub Models evaluator FSV |
+| `15_ranked_hypotheses.md` | #882 ranked traceable hypothesis list | done + real #881 evaluator ranking FSV |
+| `16_refusal_driven_expansion.md` | #883 refusal-expansion planner and before/after verifier | done + real regrounding FSV |
 | `17_discovery_vault_molecular.md` | #884 molecular discovery vault source-data preflight | preflight + FSV |
 | `18_oracle_event_structuring.md` | #885 Oracle event/domain structuring for recurrence reverse-query | done + FSV |
 | (added as work proceeds) | | |
