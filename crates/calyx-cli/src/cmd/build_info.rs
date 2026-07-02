@@ -46,7 +46,7 @@ fn run(rest: &[String]) -> CliResult {
     })?;
     print_json(&BuildInfoReport {
         binary: "calyx",
-        info: calyx_buildinfo::build_info!(),
+        info: calyx_buildinfo::build_info!(capabilities: crate::capabilities::COMPILED),
         executable: executable.display().to_string(),
     })
 }
@@ -74,10 +74,38 @@ mod tests {
 
     #[test]
     fn embedded_identity_matches_this_checkout() {
-        let info: BuildInfo = calyx_buildinfo::build_info!();
+        let info: BuildInfo =
+            calyx_buildinfo::build_info!(capabilities: crate::capabilities::COMPILED);
         let computed = calyx_buildinfo::compute_for_dir(env!("CARGO_MANIFEST_DIR"))
             .expect("compute identity in the real checkout");
         assert_eq!(info.git_sha, computed.git_sha);
         assert_eq!(info.package, "calyx-cli");
+    }
+
+    /// #1130 invariant: with the unified `cuda` feature, either the whole GPU
+    /// surface is compiled in or none of it is — a partial surface (e.g.
+    /// forge-cuda without sextant-cuvs on the Linux deploy target) is exactly
+    /// the blind spot that shipped. Non-Linux targets legitimately compile
+    /// forge/registry CUDA without cuVS (RAPIDS is Linux-only, #1016), so the
+    /// all-or-nothing assertion is Linux-scoped.
+    #[test]
+    fn capabilities_are_all_or_nothing_for_the_unified_cuda_feature() {
+        let info: BuildInfo =
+            calyx_buildinfo::build_info!(capabilities: crate::capabilities::COMPILED);
+        let cuda_requested = info.features.iter().any(|feature| *feature == "cuda");
+        for (name, compiled) in [
+            ("forge-cuda", true),
+            ("registry-candle-cuda", true),
+            ("sextant-cuvs", cfg!(target_os = "linux")),
+        ] {
+            let expected = cuda_requested && compiled;
+            assert_eq!(
+                info.capabilities.get(name),
+                Some(&expected),
+                "capability {name}: features={:?} capabilities={:?}",
+                info.features,
+                info.capabilities
+            );
+        }
     }
 }

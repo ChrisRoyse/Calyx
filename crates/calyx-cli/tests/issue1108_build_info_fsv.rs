@@ -54,15 +54,46 @@ fn build_info_reports_the_checkout_head() {
             "feature names must be lowercase hyphenated: {name:?}"
         );
     }
+    let expected = calyx_buildinfo::build_info!(capabilities: EXPECTED_CAPABILITIES);
     assert_eq!(
         features
             .iter()
             .map(|feature| feature.as_str().expect("string"))
             .collect::<Vec<_>>(),
-        calyx_buildinfo::build_info!().features,
+        expected.features,
         "binary-reported features must match the features this test was compiled with"
     );
+
+    // #1130: the binary must report the resolved capability map — what the
+    // dependency crates actually compiled — so deploy gates can assert
+    // reality instead of feature spellings. This test process links the same
+    // crate instances as the spawned binary (same cargo invocation, same
+    // feature resolution), so the maps must be identical.
+    let capabilities = report["capabilities"]
+        .as_object()
+        .expect("build-info must report a capabilities object");
+    assert_eq!(
+        capabilities.len(),
+        expected.capabilities.len(),
+        "capability key sets must match: reported={capabilities:?}"
+    );
+    for (name, compiled) in &expected.capabilities {
+        assert_eq!(
+            capabilities.get(*name).and_then(|value| value.as_bool()),
+            Some(*compiled),
+            "capability {name}: reported={capabilities:?}"
+        );
+    }
 }
+
+/// Mirror of the binary's capability table (crates/calyx-cli/src/capabilities.rs);
+/// integration tests cannot import bin-crate modules, and duplicating the
+/// table here means a drift in either copy fails this FSV loudly.
+const EXPECTED_CAPABILITIES: &[(&str, bool)] = &[
+    ("forge-cuda", calyx_forge::CUDA_COMPILED),
+    ("registry-candle-cuda", calyx_registry::CANDLE_CUDA_COMPILED),
+    ("sextant-cuvs", calyx_sextant::CUVS_COMPILED),
+];
 
 #[test]
 fn build_info_rejects_extra_arguments() {

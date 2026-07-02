@@ -1,5 +1,28 @@
 //! Sextant search and navigation for Calyx retrieval.
 
+/// True when this build compiled the cuVS GPU index paths (cagra graph build
+/// and brute-force parity): the `cuda` feature was enabled on a target where
+/// libcuvs exists (Linux, `cfg(sextant_cuvs)` from build.rs). Exported for
+/// build-info capability readback (#1130) — deploy gates must assert this
+/// resolved value, never a feature spelling, because a top-level feature name
+/// cannot prove what a dependency crate actually compiled.
+pub const CUVS_COMPILED: bool = cfg!(sextant_cuvs);
+
+/// Explains, for a fail-closed stub, exactly why the cuVS GPU path is absent
+/// from this binary and how to get it (#1130): feature off vs a target OS
+/// where RAPIDS ships no libcuvs (#1016).
+pub fn cuvs_unavailable_reason(what: &str) -> String {
+    if cfg!(feature = "cuda") {
+        format!(
+            "{what} requires cuVS, which is compiled out of this binary: RAPIDS ships \
+             libcuvs for Linux only (no native Windows/macOS packages, #1016); rebuild \
+             on a Linux host (or WSL2) with --features cuda"
+        )
+    } else {
+        format!("{what} requires building calyx-sextant with --features cuda")
+    }
+}
+
 pub mod error;
 pub mod fusion;
 pub mod guarded;

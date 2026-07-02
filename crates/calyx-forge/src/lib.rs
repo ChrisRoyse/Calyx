@@ -1,5 +1,10 @@
 //! Forge math runtime skeleton for CPU, CUDA, and quantized kernels.
 
+/// True when this build compiled the CUDA kernel backend (`cuda` feature).
+/// Exported for build-info capability readback (#1130): deploy gates assert
+/// this resolved value, not a top-level feature spelling.
+pub const CUDA_COMPILED: bool = cfg!(feature = "cuda");
+
 pub mod autotune;
 mod backend;
 pub mod compression_report;

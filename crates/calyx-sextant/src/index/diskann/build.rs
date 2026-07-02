@@ -29,9 +29,9 @@ use super::graph::{
 };
 
 pub use metric::DiskAnnBuildMetric;
-#[cfg(feature = "cuda")]
+#[cfg(sextant_cuvs)]
 pub(super) use metric::normalize;
-#[cfg(feature = "cuda")]
+#[cfg(sextant_cuvs)]
 pub(super) use vamana::medoid;
 use vamana::vamana;
 
@@ -261,7 +261,7 @@ pub(super) fn validate_build_input(
     Ok(())
 }
 
-#[cfg(feature = "cuda")]
+#[cfg(sextant_cuvs)]
 pub(super) fn write_graph_from_adjacency(
     path: &Path,
     vectors: &[(u32, Vec<f32>)],
@@ -302,7 +302,7 @@ where
     )
 }
 
-#[cfg(feature = "cuda")]
+#[cfg(sextant_cuvs)]
 pub(super) fn write_graph_from_adjacency_f32(
     path: &Path,
     vectors: &[(u32, Vec<f32>)],
@@ -399,7 +399,7 @@ where
     ))
 }
 
-#[cfg(feature = "cuda")]
+#[cfg(sextant_cuvs)]
 fn build_diskann_graph_cuvs_cagra(
     path: &Path,
     vectors: &[(u32, Vec<f32>)],
@@ -409,16 +409,16 @@ fn build_diskann_graph_cuvs_cagra(
     super::cuvs_cagra::build_diskann_graph_cuvs_cagra(path, vectors, params, metric)
 }
 
-#[cfg(not(feature = "cuda"))]
+#[cfg(not(sextant_cuvs))]
 fn build_diskann_graph_cuvs_cagra(
     _path: &Path,
     _vectors: &[(u32, Vec<f32>)],
     _params: DiskAnnBuildParams,
     _metric: DiskAnnBuildMetric,
 ) -> Result<()> {
-    Err(invalid(
-        "cuvs-cagra backend requires building calyx-sextant with --features cuda",
-    ))
+    Err(invalid(crate::cuvs_unavailable_reason(
+        "cuvs-cagra backend",
+    )))
 }
 
 #[cfg(test)]

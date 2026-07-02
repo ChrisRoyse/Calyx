@@ -33,6 +33,7 @@ mod assay_stream_fbin;
 mod assay_verdict_metadata;
 mod bounded_progress;
 mod budget_readback;
+mod capabilities;
 mod cf_read;
 mod cli_support;
 mod cmd;

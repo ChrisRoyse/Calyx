@@ -12,8 +12,14 @@ path = "src/main.rs"
 
 [features]
 default = []
-cuda = ["calyx-forge/cuda", "calyx-registry/candle-cuda"]
-cuda-sextant = ["cuda", "calyx-sextant/cuda"]
+# `cuda` means the WHOLE GPU surface (#1130) — forge kernels, candle/fastembed
+# embedders, and the sextant cuVS index paths. Never split a sub-surface out
+# of this list again: #941 did (cuda-sextant) and produced binaries that
+# passed the #1116 deploy feature gate yet had the partitioned GPU path
+# compiled out. Platform limits belong in the owning crate (calyx-sextant
+# target-gates cuVS to Linux), and what actually got compiled is proven via
+# build-info `capabilities`, not feature names.
+cuda = ["calyx-forge/cuda", "calyx-registry/candle-cuda", "calyx-sextant/cuda"]
 
 [build-dependencies]
 calyx-buildinfo = { path = "../calyx-buildinfo" }

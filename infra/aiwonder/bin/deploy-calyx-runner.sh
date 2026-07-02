@@ -41,6 +41,16 @@ set -euo pipefail
 #      include the required features
 # Both fail CALYX_DEPLOY_FEATURE_MISMATCH. A binary whose build-info lacks
 # the `features` field predates #1116 and fails CALYX_DEPLOY_IDENTITY_UNREADABLE.
+#
+# Capability gate (#1130): feature names cannot prove what a DEPENDENCY crate
+# compiled — a `cuda` calyx passed gate b while calyx-sextant's cuVS path was
+# compiled out (the pre-#1130 cuda/cuda-sextant split) and failed at runtime.
+# Gate c asserts the binary's self-reported resolved capability map
+# (build-info `capabilities`, cfg!-derived consts from the owning crates):
+# every capability in required_capabilities_for must be present and true.
+# Failures: CALYX_DEPLOY_CAPABILITY_MISSING (compiled out),
+# CALYX_DEPLOY_CAPABILITY_UNKNOWN (gate/binary schema drift), or
+# CALYX_DEPLOY_IDENTITY_UNREADABLE (binary predates #1130).
 
 repo="/home/croyse/calyx/repo"
 dest="/home/croyse/calyx/target/release"
@@ -96,6 +106,21 @@ done
 required_features_for() {
   case "$1" in
     calyx|calyxd) echo "cuda" ;;
+    calyx-mcp) echo "" ;;
+  esac
+}
+
+# Per-binary required compiled capabilities on the aiwonder runner (#1130).
+# These are resolved cfg! truths self-reported by the binary (build-info
+# `capabilities`), so they prove what dependency crates actually compiled —
+# the feature gate above cannot (see #1130: `cuda` without sextant cuVS).
+# aiwonder is a Linux CUDA host, so the full GPU surface is required.
+# Names must match crates/calyx-cli/src/capabilities.rs (and calyxd's
+# CAPABILITIES table).
+required_capabilities_for() {
+  case "$1" in
+    calyx) echo "forge-cuda registry-candle-cuda sextant-cuvs" ;;
+    calyxd) echo "forge-cuda" ;;
     calyx-mcp) echo "" ;;
   esac
 }
@@ -180,7 +205,7 @@ build_info_json() {
 
 verify_identity() {
   local name="$1" path="$2" context="$3"
-  local report sha dirty binary_features required
+  local report sha dirty binary_features binary_capabilities state required
   report="$(build_info_json "$name" "$path")" \
     || die CALYX_DEPLOY_IDENTITY_UNREADABLE \
       "$context: $path does not answer build-info; it predates #1108 or is not a Calyx binary"
@@ -205,7 +230,33 @@ verify_identity() {
       || die CALYX_DEPLOY_FEATURE_MISMATCH \
         "$context: $path was built with features=[$binary_features] but $name requires '$required' on this host; rebuild with --features $required"
   done
-  echo "[deploy] $context: $name identity verified git_sha=$sha features=[$binary_features]"
+  # #1130 gate c: features are the binary crate's own feature spellings and
+  # cannot prove what a DEPENDENCY crate compiled — a `cuda` calyx whose
+  # calyx-sextant cuVS path was compiled out passed gate b and failed at
+  # runtime. The binary self-reports a resolved capability map (name ->
+  # compiled bool, from cfg! consts in the owning crates); every required
+  # capability must be present AND true. Three distinct failures:
+  #   - no capabilities object  -> binary predates #1130       (UNREADABLE)
+  #   - key absent              -> gate/binary schema mismatch (CAPABILITY_UNKNOWN)
+  #   - key false               -> surface compiled out        (CAPABILITY_MISSING)
+  binary_capabilities="$(jq -ce '.capabilities | if type == "object" then . else error("capabilities is not an object") end' <<<"$report")" \
+    || die CALYX_DEPLOY_IDENTITY_UNREADABLE \
+      "$context: $path build-info JSON lacks a capabilities object (predates #1130); rebuild from origin/main: $report"
+  for required in $(required_capabilities_for "$name"); do
+    state="$(jq -r --arg c "$required" '.capabilities[$c] | tostring' <<<"$report")"
+    case "$state" in
+      true) ;;
+      false)
+        die CALYX_DEPLOY_CAPABILITY_MISSING \
+          "$context: $path was compiled WITHOUT capability '$required' (capabilities=$binary_capabilities); the requested features did not reach the owning crate — rebuild from origin/main with --features cuda"
+        ;;
+      *)
+        die CALYX_DEPLOY_CAPABILITY_UNKNOWN \
+          "$context: $path does not know capability '$required' (capabilities=$binary_capabilities); this gate and the binary disagree on the capability schema — align required_capabilities_for with crates/calyx-cli/src/capabilities.rs at origin/main"
+        ;;
+    esac
+  done
+  echo "[deploy] $context: $name identity verified git_sha=$sha features=[$binary_features] capabilities=$binary_capabilities"
 }
 
 # Prints the deployed binary's embedded feature list as a JSON array, for the
@@ -214,6 +265,14 @@ deployed_features_json() {
   local name="$1" path="$2"
   build_info_json "$name" "$path" | jq -ce '.features' \
     || die CALYX_DEPLOY_IDENTITY_UNREADABLE "manifest: $path stopped answering build-info features"
+}
+
+# Prints the deployed binary's resolved capability map as a JSON object, for
+# the deploy manifest (#1130). Already verified by verify_identity.
+deployed_capabilities_json() {
+  local name="$1" path="$2"
+  build_info_json "$name" "$path" | jq -ce '.capabilities' \
+    || die CALYX_DEPLOY_IDENTITY_UNREADABLE "manifest: $path stopped answering build-info capabilities"
 }
 
 crate_for() {
@@ -271,6 +330,7 @@ for name in "${binaries[@]}"; do
   mv -f "$staged" "$target"
   verify_identity "$name" "$target" "deployed"
   features_json="$(deployed_features_json "$name" "$target")"
+  capabilities_json="$(deployed_capabilities_json "$name" "$target")"
   jq -n \
     --arg binary "$name" \
     --arg git_sha "$head_sha" \
@@ -278,11 +338,12 @@ for name in "${binaries[@]}"; do
     --arg target "$target" \
     --argjson deployed_at_unix_secs "$deployed_at" \
     --argjson features "$features_json" \
+    --argjson capabilities "$capabilities_json" \
     '{binary: $binary, git_sha: $git_sha, source_repo: $source_repo,
       target: $target, deployed_at_unix_secs: $deployed_at_unix_secs,
-      features: $features}' \
+      features: $features, capabilities: $capabilities}' \
     > "$dest/$name.deploy.json"
-  jq -e '.git_sha == "'"$head_sha"'" and (.features | type == "array")' "$dest/$name.deploy.json" >/dev/null \
+  jq -e '.git_sha == "'"$head_sha"'" and (.features | type == "array") and (.capabilities | type == "object")' "$dest/$name.deploy.json" >/dev/null \
     || die CALYX_DEPLOY_MANIFEST_UNREADABLE "readback of $dest/$name.deploy.json failed"
   stat -c "[deploy] installed %n size=%s mtime=%y" "$target"
   echo "[deploy] manifest written: $dest/$name.deploy.json"

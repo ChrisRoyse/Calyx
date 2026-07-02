@@ -1,5 +1,10 @@
 //! Registry runtimes for frozen Calyx lenses.
 
+/// True when this build compiled the candle/fastembed CUDA embedder paths
+/// (`candle-cuda` feature). Exported for build-info capability readback
+/// (#1130): deploy gates assert this resolved value, not a feature spelling.
+pub const CANDLE_CUDA_COMPILED: bool = cfg!(feature = "candle-cuda");
+
 pub mod backfill;
 pub mod commission;
 pub mod compression;

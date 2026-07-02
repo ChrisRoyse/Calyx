@@ -20,6 +20,7 @@
 //! The dirty flag is recomputed only when the build script reruns (HEAD or
 //! index changes); the deploy gate independently refuses dirty worktrees.
 
+use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::process::Command;
 
@@ -48,15 +49,36 @@ pub struct BuildInfo {
     /// and `-` are indistinguishable here; names are reported in hyphen form
     /// (every Calyx feature uses hyphens).
     pub features: Vec<&'static str>,
+    /// Resolved compile-time capabilities (#1130): what dependency crates
+    /// ACTUALLY compiled into this binary, keyed by capability name (e.g.
+    /// `sextant-cuvs`), each `true` (compiled in) or `false` (compiled out).
+    ///
+    /// `features` above lists the binary crate's own feature spellings, which
+    /// cannot prove what a dependency compiled — #1130 shipped a `cuda`
+    /// binary whose calyx-sextant GPU path was compiled out and it passed
+    /// the #1116 feature gate. Each value here is a `cfg!`-derived const
+    /// exported by the owning crate (e.g. `calyx_sextant::CUVS_COMPILED`),
+    /// so it reflects the exact cfg resolution of the linked crate instance.
+    /// Deploy gates assert these values; a key a gate expects but the binary
+    /// does not report is itself a loud failure (unknown capability), never
+    /// treated as `false`.
+    pub capabilities: BTreeMap<&'static str, bool>,
 }
 
 /// Constructs the [`BuildInfo`] embedded by this crate's [`emit`] build step.
+///
+/// Every binary must declare its resolved capability map explicitly (#1130):
+/// `build_info!(capabilities: CAPS)` where `CAPS` is a
+/// `&'static [(&'static str, bool)]` of `(name, compiled)` pairs sourced from
+/// dependency-crate `cfg!` consts (empty slice for binaries with no
+/// capability surface, e.g. calyx-mcp). There is deliberately no zero-arg
+/// form: forgetting the declaration must not compile.
 ///
 /// Panics (with the underlying validation message) if the embedded values are
 /// malformed — that can only happen if a binary bypassed [`emit`].
 #[macro_export]
 macro_rules! build_info {
-    () => {
+    (capabilities: $capabilities:expr) => {
         $crate::BuildInfo::from_embedded(
             env!("CARGO_PKG_NAME"),
             env!("CARGO_PKG_VERSION"),
@@ -64,6 +86,7 @@ macro_rules! build_info {
             env!("CALYX_BUILD_GIT_DIRTY"),
             env!("CALYX_BUILD_GIT_COMMIT_UNIX_SECS"),
             env!("CALYX_BUILD_FEATURES"),
+            $capabilities,
         )
         .expect("CALYX_BUILD_INFO_INVALID: embedded build identity is malformed")
     };
@@ -78,6 +101,7 @@ impl BuildInfo {
         git_dirty: &'static str,
         git_commit_unix_secs: &'static str,
         features: &'static str,
+        capabilities: &'static [(&'static str, bool)],
     ) -> Result<Self, String> {
         validate_sha(git_sha)?;
         let git_dirty = match git_dirty {
@@ -99,8 +123,36 @@ impl BuildInfo {
             git_dirty,
             git_commit_unix_secs,
             features: parse_embedded_features(features)?,
+            capabilities: validate_capabilities(capabilities)?,
         })
     }
+}
+
+/// Validates the binary-declared capability map (#1130): names must use the
+/// same lowercase-hyphen charset as features, and duplicates are rejected —
+/// a duplicated name means two call sites disagree about one capability and
+/// the report would silently keep one of them.
+fn validate_capabilities(
+    capabilities: &'static [(&'static str, bool)],
+) -> Result<BTreeMap<&'static str, bool>, String> {
+    let mut map = BTreeMap::new();
+    for (name, compiled) in capabilities {
+        let valid = !name.is_empty()
+            && name
+                .chars()
+                .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-');
+        if !valid {
+            return Err(format!(
+                "CALYX_BUILD_INFO_INVALID: capability name must be lowercase hyphenated ascii, got {name:?}"
+            ));
+        }
+        if map.insert(*name, *compiled).is_some() {
+            return Err(format!(
+                "CALYX_BUILD_INFO_INVALID: capability {name:?} declared twice"
+            ));
+        }
+    }
+    Ok(map)
 }
 
 /// Parses the comma-joined feature list embedded by [`emit`]. Empty input
