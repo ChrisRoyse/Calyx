@@ -82,16 +82,7 @@ pub(super) fn collect(
     Ok(out)
 }
 
-pub(super) fn write(
-    vault_dir: &Path,
-    root: &Path,
-    slot: SlotId,
-    rows: MultiSlotRows,
-    base_seq: u64,
-    previous: Option<&SearchIndexEntry>,
-) -> CliResult<SearchIndexEntry> {
-    segments::write(vault_dir, root, slot, rows, base_seq, previous)
-}
+pub(super) use segments::write;
 
 pub(super) fn search(
     vault_dir: &Path,

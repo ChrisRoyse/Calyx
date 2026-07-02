@@ -9,6 +9,8 @@ use super::*;
 #[path = "mixed_tests/helpers.rs"]
 mod helpers;
 use helpers::*;
+#[path = "mixed_tests/missing_prior_sidecar.rs"]
+mod missing_prior_sidecar;
 #[path = "mixed_tests/pinned_semantics.rs"]
 mod pinned_semantics;
 #[path = "mixed_tests/segment_edges.rs"]

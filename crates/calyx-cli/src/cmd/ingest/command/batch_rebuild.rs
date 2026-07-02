@@ -83,9 +83,14 @@ fn log_batch_index_rebuild_progress(event: calyx_search::RebuildProgress<'_>) {
         .manifest_path
         .map(|path| path.display().to_string())
         .unwrap_or_else(|| "-".to_string());
+    let detail = event
+        .detail
+        .as_deref()
+        .map(json_string)
+        .unwrap_or_else(|| "-".to_string());
     ingest_runtime_log(format_args!(
-        "phase=batch_index_rebuild_{} slot={} rows={} base_seq={} manifest_path={}",
-        event.phase, slot, rows, base_seq, manifest_path
+        "phase=batch_index_rebuild_{} slot={} rows={} base_seq={} manifest_path={} detail={}",
+        event.phase, slot, rows, base_seq, manifest_path, detail
     ));
 }
 

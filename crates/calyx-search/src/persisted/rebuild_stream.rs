@@ -333,7 +333,16 @@ where
                     .find(|entry| entry.slot == plan.slot.get())
             });
             OptionalSearchIndexEntry::Some(multi::write(
-                vault_dir, root, plan.slot, rows, base_seq, previous,
+                vault_dir,
+                root,
+                plan.slot,
+                rows,
+                base_seq,
+                previous,
+                &mut |event| match progress {
+                    Some(progress) => emit_shared_progress(progress, event),
+                    None => Ok(()),
+                },
             )?)
         }
         SlotRows::AbsentOnly => OptionalSearchIndexEntry::None {

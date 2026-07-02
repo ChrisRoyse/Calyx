@@ -6,13 +6,16 @@ use rayon::prelude::*;
 
 use super::*;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RebuildProgress<'a> {
     pub phase: &'static str,
     pub slot: Option<SlotId>,
     pub rows: Option<usize>,
     pub base_seq: Option<u64>,
     pub manifest_path: Option<&'a Path>,
+    /// Free-form context for exceptional events, e.g. why prior-segment
+    /// reuse was declined during a rebuild (#1109).
+    pub detail: Option<String>,
 }
 
 impl<'a> RebuildProgress<'a> {
@@ -23,6 +26,7 @@ impl<'a> RebuildProgress<'a> {
             rows: None,
             base_seq: None,
             manifest_path: None,
+            detail: None,
         }
     }
 
@@ -38,6 +42,14 @@ impl<'a> RebuildProgress<'a> {
             rows,
             base_seq,
             manifest_path: None,
+            detail: None,
+        }
+    }
+
+    pub(super) fn slot_detail(phase: &'static str, slot: SlotId, detail: String) -> Self {
+        Self {
+            detail: Some(detail),
+            ..Self::slot(phase, slot, None, None)
         }
     }
 
@@ -48,6 +60,7 @@ impl<'a> RebuildProgress<'a> {
             rows: None,
             base_seq: Some(base_seq),
             manifest_path: Some(manifest_path),
+            detail: None,
         }
     }
 }
@@ -107,7 +120,13 @@ pub(super) fn rebuild_from_docs(
             .as_ref()
             .and_then(|manifest| manifest.slots.iter().find(|entry| entry.slot == slot.get()));
         entries.push(multi::write(
-            vault_dir, &root, slot, rows, base_seq, previous,
+            vault_dir,
+            &root,
+            slot,
+            rows,
+            base_seq,
+            previous,
+            &mut |_| Ok(()),
         )?);
     }
     entries.sort_by_key(|entry| entry.slot);

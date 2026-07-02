@@ -1,5 +1,7 @@
 use super::*;
 
+use crate::persisted::RebuildProgress;
+
 #[path = "segments/path.rs"]
 mod path;
 use path::{checked_rel, checked_segment_path};
@@ -8,9 +10,12 @@ mod manifest;
 use manifest::validate_segments_manifest_shape;
 #[path = "segments/bounds.rs"]
 mod bounds;
+#[path = "segments/reuse.rs"]
+mod reuse;
 #[path = "segments/search.rs"]
 mod search;
 pub(super) use bounds::ensure_entry_bounded;
+use reuse::reusable_segments;
 pub(super) use search::search_segments;
 
 const MULTI_SEGMENTS_FORMAT: &str = "calyx-search-multi-maxsim-segments-v1";
@@ -52,13 +57,14 @@ struct SegmentManifestBuild {
     segments: Vec<MultiSegmentRef>,
 }
 
-pub(super) fn write(
+pub(in crate::persisted) fn write(
     vault_dir: &Path,
     root: &Path,
     slot: SlotId,
     rows: MultiSlotRows,
     base_seq: u64,
     previous: Option<&SearchIndexEntry>,
+    on_event: &mut dyn FnMut(RebuildProgress<'_>) -> CliResult,
 ) -> CliResult<SearchIndexEntry> {
     let row_count = rows.rows.len();
     let token_count = rows.rows.iter().map(|row| row.1.len()).sum::<usize>();
@@ -67,9 +73,14 @@ pub(super) fn write(
         .iter()
         .map(|(cx_id, _)| *cx_id)
         .collect::<BTreeSet<_>>();
-    if let Some(reused) =
-        reusable_segments(vault_dir, slot, rows.token_dim, &current_ids, previous)?
-    {
+    if let Some(reused) = reusable_segments(
+        vault_dir,
+        slot,
+        rows.token_dim,
+        &current_ids,
+        previous,
+        on_event,
+    )? {
         let mut refs = reused.refs;
         let mut segment_token_count = reused.token_count;
         let missing = rows
@@ -145,85 +156,6 @@ pub(super) fn referenced_segment_artifacts(
         .iter()
         .map(|segment| checked_segment_path(vault_dir, &segment.index_rel, slot))
         .collect()
-}
-
-fn reusable_segments(
-    vault_dir: &Path,
-    slot: SlotId,
-    token_dim: u32,
-    current_ids: &BTreeSet<CxId>,
-    previous: Option<&SearchIndexEntry>,
-) -> CliResult<Option<ReusedMultiSegments>> {
-    let Some(previous) = previous else {
-        return Ok(None);
-    };
-    if previous.slot != slot.get() {
-        return Err(stale(format!(
-            "previous persistent multi slot {} cannot be reused for slot {slot}",
-            previous.slot
-        )));
-    }
-    match previous.kind.as_str() {
-        "multi_maxsim" => {
-            let token_count = previous.token_count.unwrap_or_default();
-            if bounds::ensure_entry_bounded(
-                slot,
-                previous.require_index_rel(slot)?,
-                token_dim,
-                previous.len,
-                token_count,
-            )
-            .is_err()
-            {
-                return Ok(None);
-            }
-            let summary = binary::summarize_binary_entry(vault_dir, previous, slot)?;
-            if summary.ids.iter().any(|cx_id| !current_ids.contains(cx_id)) {
-                return Ok(None);
-            }
-            let row_count = usize::try_from(summary.row_count).map_err(|_| {
-                stale(format!(
-                    "persistent binary multi sidecar row_count {} does not fit usize",
-                    summary.row_count
-                ))
-            })?;
-            let token_count = usize::try_from(summary.token_count).map_err(|_| {
-                stale(format!(
-                    "persistent binary multi sidecar token_count {} does not fit usize",
-                    summary.token_count
-                ))
-            })?;
-            Ok(Some(ReusedMultiSegments {
-                refs: vec![MultiSegmentRef {
-                    index_rel: previous.require_index_rel(slot)?.to_string(),
-                    sha256: summary.sha256,
-                    base_seq: summary.base_seq,
-                    row_count,
-                    token_count,
-                    ids: summary.ids.iter().copied().collect(),
-                }],
-                ids: summary.ids,
-                token_count,
-            }))
-        }
-        "multi_maxsim_segments" => {
-            let manifest =
-                read_segments_manifest(vault_dir, previous, previous.built_at_seq, slot)?;
-            if manifest
-                .segments
-                .iter()
-                .any(|segment| !bounds::segment_ref_is_bounded(slot, token_dim, segment))
-            {
-                return Ok(None);
-            }
-            let reused = summarize_segment_files(vault_dir, slot, token_dim, &manifest, false)?;
-            if reused.ids.iter().any(|cx_id| !current_ids.contains(cx_id)) {
-                return Ok(None);
-            }
-            Ok(Some(reused))
-        }
-        _ => Ok(None),
-    }
 }
 
 fn write_binary_segments(
