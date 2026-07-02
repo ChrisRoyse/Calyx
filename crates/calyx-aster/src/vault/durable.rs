@@ -335,6 +335,14 @@ impl DurableVault {
             .min(durable_seq)
     }
 
+    /// Adopts a foreign writer's checkpointed watermark (picked up from the
+    /// on-disk manifest under the commit lock) so later manifest writes from
+    /// this handle vouch for content it did not checkpoint itself (#1100).
+    pub(in crate::vault) fn advance_derived_content_watermark_to_at_least(&self, seq: u64) {
+        self.checkpointed_derived_content_seq
+            .fetch_max(seq, Ordering::AcqRel);
+    }
+
     pub(super) fn stage_checkpoint_batch(&self, seq: u64, rows: &[WriteRow]) -> Result<()> {
         self.pending_checkpoint
             .lock()

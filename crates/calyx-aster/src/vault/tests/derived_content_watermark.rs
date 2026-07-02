@@ -93,6 +93,55 @@ fn uncheckpointed_neutral_appends_replay_without_advancing_watermark() {
 }
 
 #[test]
+fn neutral_manifest_write_never_regresses_a_foreign_content_watermark() {
+    let dir = test_dir("derived-watermark-foreign");
+    let template = AsterVault::with_clock(vault_id(), b"salt".to_vec(), FixedClock::new(123));
+
+    // Long-lived local handle: checkpoints its own content at some seq.
+    let local =
+        AsterVault::new_durable(&dir, vault_id(), b"salt".to_vec(), VaultOptions::default())
+            .expect("open local handle");
+    local
+        .put(sample_constellation(&template))
+        .expect("local content");
+    local.flush().expect("flush local content");
+    let local_content_seq = local.latest_seq();
+
+    // Foreign writer: a second handle on the same vault directory ingests
+    // content and checkpoints; the manifest now vouches for foreign_seq.
+    let foreign = AsterVault::open(&dir, vault_id(), b"salt".to_vec(), VaultOptions::default())
+        .expect("open foreign handle");
+    let input = b"foreign-input";
+    let mut cx = sample_constellation(&template);
+    cx.cx_id = foreign.cx_id_for_input(input, 7);
+    cx.input_ref.hash = [0_u8; 32];
+    cx.input_ref.hash[..input.len()].copy_from_slice(input);
+    cx.input_ref.pointer = Some("synthetic://foreign-input".to_string());
+    foreign.put(cx).expect("foreign content");
+    foreign.flush().expect("flush foreign content");
+    let foreign_seq = ManifestStore::open(&dir)
+        .load_current()
+        .expect("manifest after foreign content")
+        .effective_derived_content_seq();
+    assert!(foreign_seq > local_content_seq);
+
+    // Content-neutral write + flush from the local handle. Its atomic never
+    // saw the foreign checkpoint; the rewritten manifest must not regress the
+    // watermark below foreign_seq, or a stale index would pass freshness.
+    neutral_ledger_append(&local);
+    local.flush().expect("flush neutral append");
+    let manifest = ManifestStore::open(&dir)
+        .load_current()
+        .expect("manifest after neutral write");
+    assert!(
+        manifest.effective_derived_content_seq() >= foreign_seq,
+        "neutral write regressed the derived-content watermark: manifest vouches for {} but foreign content is at {foreign_seq}",
+        manifest.effective_derived_content_seq()
+    );
+    cleanup(dir);
+}
+
+#[test]
 fn legacy_manifest_without_watermark_fails_closed_to_durable_seq() {
     let dir = test_dir("derived-watermark-legacy");
     let vault =
