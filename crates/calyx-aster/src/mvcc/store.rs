@@ -269,8 +269,14 @@ impl VersionedCfStore {
 
         let mut table = self.rows.write().expect("mvcc row table poisoned");
         if let Some(router) = self.router.write().expect("mvcc router poisoned").as_mut() {
+            // Rows written here belong to the seq allocated below (current + 1,
+            // exact because all allocations happen under the row write lock
+            // held here). A memtable flush triggered by these puts must carry
+            // that commit watermark so the flush SST orders correctly against
+            // durable batches (issue #1138).
+            let commit_watermark = self.current_seq() + 1;
             for (cf, key, value) in &rows {
-                router.put(*cf, key, value)?;
+                router.put_at(*cf, key, value, commit_watermark)?;
             }
         }
         // Advance the derived-content watermark BEFORE allocating the seq:
@@ -334,11 +340,17 @@ impl VersionedCfStore {
     }
 
     pub fn flush_all_cfs(&self) -> Result<Vec<SstSummary>> {
-        self.router
-            .write()
-            .expect("mvcc router poisoned")
-            .as_mut()
-            .map_or(Ok(Vec::new()), CfRouter::flush_pending)
+        let mut router = self.router.write().expect("mvcc router poisoned");
+        let Some(router) = router.as_mut() else {
+            return Ok(Vec::new());
+        };
+        // Read the watermark while holding the router lock: every commit at or
+        // below `current_seq()` has already routed its rows into the memtables
+        // (puts happen before seq allocation), and an in-flight commit whose
+        // seq is not yet allocated only understates the watermark, which is
+        // the safe direction (issue #1138).
+        let commit_watermark = self.current_seq();
+        router.flush_pending_at(commit_watermark)
     }
 
     pub fn install_read_barrier(&self, barrier: ReadBarrier) {

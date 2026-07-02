@@ -240,8 +240,11 @@ fn catalog_reports_shard_count_for_one_cf() {
 #[test]
 fn scheduler_compacts_debt_and_stops_cleanly() {
     let dir = test_dir("scheduler");
-    let first = dir.join("l0-a.sst");
-    let second = dir.join("l0-b.sst");
+    // Canonical legacy flush names: the scheduler classifies its inputs to
+    // derive a commit-domain output name (issue #1137) and fails closed on
+    // non-canonical input names.
+    let first = dir.join("00000000000000000001.sst");
+    let second = dir.join("00000000000000000002.sst");
     write_sst(&first, [(b"a".as_slice(), b"one".as_slice())]).expect("write first");
     write_sst(&second, [(b"b".as_slice(), b"two".as_slice())]).expect("write second");
     let catalog = Arc::new(CompactionCatalog::new(vec![

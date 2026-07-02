@@ -55,6 +55,12 @@ pub struct BasePageIndexEntry {
 pub enum BasePageIndexSource {
     Sst {
         path: String,
+        /// Seq-domain epoch of the order key (issue #1138): 0 for legacy
+        /// flush-ordinal names, 1 for commit-domain names. Manifests written
+        /// before this field existed default to 0 (their order fields were
+        /// computed in the pre-epoch single domain).
+        #[serde(default)]
+        order_epoch: u8,
         order_seq: u64,
         order_class_rank: u8,
         order_index: usize,

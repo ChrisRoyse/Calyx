@@ -27,16 +27,32 @@ fn durable_vault_flushes_router_ssts_alongside_manifest_checkpoint() {
     let base_names = sst_names(&base_dir);
     let reopened = AsterVault::open(&dir, vault_id(), b"salt", VaultOptions::default()).unwrap();
 
+    // Router flushes carry their commit watermark in the file name (issue
+    // #1138): `flush-{watermark:020}-{ordinal:04}.sst` with a nonzero
+    // watermark on a durable vault.
+    let is_commit_anchored_flush = |name: &str| {
+        matches!(
+            crate::storage_names::classify_sst(Path::new(name)),
+            Ok(Some(crate::storage_names::SstName::Flush { watermark, ordinal: 1 }))
+                if watermark > 0
+        )
+    };
     assert!(summaries.iter().any(|summary| {
         summary.path.parent() == Some(base_dir.as_path())
-            && summary.path.file_name().unwrap() == "00000000000000000001.sst"
+            && is_commit_anchored_flush(summary.path.file_name().unwrap().to_str().unwrap())
     }));
     assert!(
-        base_names
-            .iter()
-            .any(|name| name == "00000000000000000001.sst")
+        base_names.iter().any(|name| is_commit_anchored_flush(name)),
+        "{base_names:?}"
     );
-    assert!(base_names.iter().any(|name| name.contains("-0001.sst")));
+    // Durable group-commit batch SSTs land alongside the flush.
+    assert!(
+        base_names.iter().any(|name| matches!(
+            crate::storage_names::classify_sst(Path::new(name)),
+            Ok(Some(crate::storage_names::SstName::DurableBatch { .. }))
+        )),
+        "{base_names:?}"
+    );
     assert_recovered_matches(cx, reopened.get(id, reopened.snapshot()).unwrap());
     cleanup(dir);
 }
@@ -72,12 +88,83 @@ fn vault_compaction_scheduler_compacts_flushed_cf_catalog() {
     scheduler.stop().unwrap();
     let reopened = AsterVault::open(&dir, vault_id(), b"salt", VaultOptions::default()).unwrap();
 
+    // Issue #1137 regression: the scheduler output must be named in the
+    // commit domain (an adoption slot at the max input commit seq, covered by
+    // the manifest), never a run-counter `compacted-{run_id}` name that
+    // full-restore readback would restore at commit seq ~1.
+    let durable_seq = crate::manifest::ManifestStore::open(&dir)
+        .load_current()
+        .unwrap()
+        .durable_seq;
+    let base_names = sst_names(&dir.join("cf/base"));
     assert!(
-        sst_names(&dir.join("cf/base"))
+        base_names
             .iter()
-            .any(|name| { name.starts_with("compacted-") && name.ends_with(".sst") })
+            .any(|name| name == &format!("{durable_seq:020}-9999.sst")),
+        "expected adoption slot at durable_seq {durable_seq}: {base_names:?}"
+    );
+    assert!(
+        !base_names.iter().any(|name| name.starts_with("compacted-")),
+        "run-counter compacted name leaked into the vault CF dir: {base_names:?}"
     );
     assert_recovered_matches(cx, reopened.get(id, reopened.snapshot()).unwrap());
+    cleanup(dir);
+}
+
+/// Issue #1137 regression, end to end: background-scheduler compaction
+/// outputs must never rewrite commit history. Pre-fix, the scheduler named
+/// its first output `compacted-{run_id=1}` inside the vault CF dir, so
+/// full-restore readback restored the merged latest state at commit seq 1
+/// and a historical read pinned at seq 1 saw rows committed at seq 2.
+#[test]
+fn vault_scheduler_compaction_preserves_commit_history() {
+    let dir = test_dir("scheduler-history");
+    let vault =
+        AsterVault::new_durable(&dir, vault_id(), b"salt", VaultOptions::default()).unwrap();
+    vault
+        .write_cf_batch([(ColumnFamily::Kv, b"k1".to_vec(), b"v1".to_vec())])
+        .unwrap(); // commit seq 1
+    vault
+        .write_cf_batch([(ColumnFamily::Kv, b"k2".to_vec(), b"v2".to_vec())])
+        .unwrap(); // commit seq 2
+    vault.flush().unwrap();
+
+    let options = CompactionSchedulerOptions {
+        interval_ms: 1,
+        debt_trigger_score_milli: 0,
+        output_root: dir.join("cf"),
+        ..CompactionSchedulerOptions::default()
+    };
+    let scheduler = vault.start_compaction_scheduler(options).unwrap().unwrap();
+    let deadline = Instant::now() + Duration::from_secs(2);
+    while scheduler.shard_count_for_cf(ColumnFamily::Kv) != 1 {
+        assert!(
+            Instant::now() < deadline,
+            "vault scheduler did not compact kv before deadline"
+        );
+        std::thread::yield_now();
+    }
+    scheduler.stop().unwrap();
+    drop(vault);
+
+    let reopened = AsterVault::open(&dir, vault_id(), b"salt", VaultOptions::default()).unwrap();
+    assert_eq!(
+        reopened.read_cf_at(1, ColumnFamily::Kv, b"k2").unwrap(),
+        None,
+        "row committed at seq 2 is visible at seq 1: the scheduler output was restored at the \
+         wrong commit seq (issue #1137)"
+    );
+    assert_eq!(
+        reopened.read_cf_at(2, ColumnFamily::Kv, b"k2").unwrap(),
+        Some(b"v2".to_vec())
+    );
+    assert_eq!(
+        reopened
+            .read_cf_at(reopened.snapshot(), ColumnFamily::Kv, b"k1")
+            .unwrap(),
+        Some(b"v1".to_vec())
+    );
+    drop(reopened);
     cleanup(dir);
 }
 

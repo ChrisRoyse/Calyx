@@ -44,8 +44,9 @@ layout (`src/vault/durable.rs`, `src/cf/router.rs`, `src/manifest/mod.rs`).
 | `wal/{index:020}.wal` | `wal::Wal` | WAL segment files (`src/wal/segment.rs::segment_path`). |
 | `wal/.append.lock` | `wal::Wal::open`/`append_batch` | Exclusive append lock (`file_lock::FileLockGuard`). |
 | `cf/<family>/` | `CfRouter`, `DurableVault` | Per-column-family SSTable directory. `<family>` is `ColumnFamily::name()`. |
-| `cf/<family>/{seq:020}.sst` | `CfRouter::flush_cf` | LSM router memtable flush. |
-| `cf/<family>/{seq:020}-{index:04}.sst` | `DurableVault::write_rows` | Durable group-commit batch checkpoint. |
+| `cf/<family>/flush-{watermark:020}-{ordinal:04}.sst` | `CfRouter::flush_cf_at` | LSM router memtable flush, commit-anchored (issue #1138). `watermark` is the highest commit seq whose rows can be in the file; `ordinal` is the per-CF flush counter. |
+| `cf/<family>/{ordinal:020}.sst` | pre-#1138 `CfRouter::flush_cf` | Legacy LSM router memtable flush (read-only compatibility; no longer written by durable vaults). |
+| `cf/<family>/{seq:020}-{index:04}.sst` | `DurableVault::write_rows`, compaction adoption slots (`index` `9000..=9999`) | Durable group-commit batch checkpoint / commit-domain compaction output. |
 | `cf/<family>/compacted-{seq:020}.sst` | compaction | Compaction output. |
 | `CURRENT` | `ManifestStore::write_current` | UTF-8 pointer to the active `manifest-*.json`. |
 | `MANIFEST` | `ManifestStore::write_current` | Mirror copy of the active manifest bytes. |
@@ -62,16 +63,29 @@ shapes raises `CALYX_ASTER_CORRUPT_SHARD` rather than being silently skipped
 during recovery/scan (`classify_sst`, `wal_segment_index`,
 `unrecognized_name`).
 
-| SST name class | Pattern | `SstName` variant | `class_rank` (sort) |
+| SST name class | Pattern | `SstName` variant | `(epoch, class_rank)` (sort) |
 |---|---|---|---|
-| Router flush | `{seq:020}.sst` | `Router { seq }` | 1 |
-| Durable batch | `{seq:020}-{index:04}.sst` | `DurableBatch { seq, index }` | 2 |
-| Compaction | `compacted-{seq:020}.sst` | `Compacted { seq }` | 3 |
+| Legacy router flush | `{ordinal:020}.sst` | `RouterLegacy { ordinal }` | (0, 0) |
+| Router flush | `flush-{watermark:020}-{ordinal:04}.sst` | `Flush { watermark, ordinal }` | (1, 1) |
+| Durable batch | `{seq:020}-{index:04}.sst` | `DurableBatch { seq, index }` | (1, 2) |
+| Compaction | `compacted-{seq:020}.sst` | `Compacted { seq }` | (1, 3) |
 
 `canonical_seq` accepts *exactly* 20 ASCII digits parseable as `u64` (a 20-digit
-string above `u64::MAX` is rejected). `SstOrderKey` orders by `(seq, class_rank,
-index)`, so within one seq the router flush precedes the durable batch which
-precedes the compaction output.
+string above `u64::MAX` is rejected). `SstOrderKey` orders by `(epoch, seq,
+class_rank, index)` where `seq` is the flush ordinal for epoch 0 and the commit
+seq/watermark for epoch 1 (issues #1137/#1138): legacy flush ordinals and
+commit seqs are incomparable domains, so legacy files sort first (sound under
+the durable-coverage invariant of #1132/#1139), commit-domain files order by
+commit seq, and within one seq the router flush precedes the durable batch
+which precedes the compaction output. When a legacy ordinal numerically
+exceeds a commit-domain seq in the same CF, every ordering consumer fails
+closed with `CALYX_ASTER_SST_ORDER_AMBIGUOUS` (`ensure_unambiguous_sst_order`);
+the CLI `compact` command is the sanctioned repair path that adopts the legacy
+files into the commit domain. Compaction outputs inside vault CF directories
+are always named from the commit domain: `compact_cf_once`/purge use the
+verified manifest `durable_seq`, and the background `CompactionScheduler`
+derives the max commit-domain seq of its inputs
+(`commit_domain_output_path`) — never a run counter.
 
 ---
 
@@ -350,14 +364,21 @@ vault's read path cannot structurally reach another's key range.
 `CfRouter` owns per-CF `Memtable`, `SstLevel`, and a next-file counter.
 `DEFAULT_MEMTABLE_BYTES = 8 MiB` (used when the cap is 0). `open_with_tiering`
 creates `cf/` (and per-tier `cf/` roots), `ensure_cf`s every `STATIC` family,
-then `load_existing`. `put`: write to the memtable; on `CALYX_BACKPRESSURE`,
-`flush_cf` and retry once (counting absorbed/rejected on `ResourceCounters`); if
-the ack reports `flush_triggered`, flush. `flush_cf` swaps in a fresh memtable,
-freezes the old one, and writes `{seq:020}.sst`. `get` checks the memtable then
-the level; `range`/`iter_cf` merge level + memtable into a `BTreeMap` (memtable
-overwrites, i.e. wins). `load_existing` scans all CF roots, parses dir names,
-sorts SSTs by `SstOrderKey`, and seeds the next-file counter from the max
-`Router{seq}` only (durable/compaction names use disjoint shapes).
+then `load_existing`. `put_at(cf, key, value, commit_watermark)`: write to the
+memtable; on `CALYX_BACKPRESSURE`, `flush_cf_at` and retry once (counting
+absorbed/rejected on `ResourceCounters`); if the ack reports `flush_triggered`,
+flush. The MVCC commit path passes `current_seq() + 1` as the watermark (exact
+under the row write lock); raw users call `put`/`flush_cf` which pass
+`NO_COMMIT_DOMAIN` (0). `flush_cf_at` swaps in a fresh memtable, freezes the
+old one, and writes `flush-{watermark:020}-{ordinal:04}.sst` — understating
+the watermark is safe (the file sorts earlier and committed rows keep their
+durable-batch home), overstating it can shadow newer durable batches. `get`
+checks the memtable then the level; `range`/`iter_cf` merge level + memtable
+into a `BTreeMap` (memtable overwrites, i.e. wins). `load_existing` scans all
+CF roots, parses dir names, gates each CF set through
+`ensure_unambiguous_sst_order`, sorts SSTs by `SstOrderKey`, and seeds the
+next-file ordinal counter from the max over `RouterLegacy{ordinal}` and
+`Flush{ordinal}` (durable/compaction names use disjoint shapes).
 
 ---
 

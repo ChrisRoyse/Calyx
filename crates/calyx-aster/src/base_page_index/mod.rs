@@ -81,6 +81,7 @@ pub fn build_base_page_index(
         })?;
         let source = BasePageIndexSource::Sst {
             path: relative_path(vault, file),
+            order_epoch: order.epoch,
             order_seq: order.seq,
             order_class_rank: order.class_rank,
             order_index: order.index,

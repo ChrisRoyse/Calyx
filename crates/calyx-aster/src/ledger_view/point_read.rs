@@ -213,8 +213,13 @@ fn named_ledger_sst_candidates(
             let Some(name) = classify_sst(&path)? else {
                 continue;
             };
+            // Candidate-selection heuristic only: a miss falls through to the
+            // complete tier and every hit is byte-verified, so treating a
+            // legacy flush ordinal as a candidate seq costs at most a probe.
             let seq = match name {
-                SstName::Router { seq } | SstName::DurableBatch { seq, .. } => seq,
+                SstName::RouterLegacy { ordinal } => ordinal,
+                SstName::Flush { watermark, .. } => watermark,
+                SstName::DurableBatch { seq, .. } => seq,
                 SstName::Compacted { .. } => continue,
             };
             if !wanted.contains(&seq) {
@@ -397,7 +402,7 @@ fn push_ledger_sst_candidate(
         return Ok(());
     };
     match name {
-        SstName::Router { .. } | SstName::DurableBatch { .. } => {}
+        SstName::RouterLegacy { .. } | SstName::Flush { .. } | SstName::DurableBatch { .. } => {}
         SstName::Compacted { .. } => {
             return Err(CalyxError::aster_corrupt_shard(format!(
                 "targeted ledger point read reached compacted ledger SST {}; add a compacted ledger row index before using point verification on compacted ledger layouts",
