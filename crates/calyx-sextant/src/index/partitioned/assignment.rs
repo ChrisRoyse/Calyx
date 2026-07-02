@@ -11,7 +11,7 @@ use crate::error::{
 use crate::index::SpannCentroidIndex;
 use crate::index::distance::l2_sq;
 
-use super::{VectorSource, ids_rel};
+use super::{ClosureAssignmentStats, VectorSource, ids_rel};
 
 #[derive(Debug, Clone)]
 pub(super) struct AssignmentRegion {
@@ -55,6 +55,12 @@ pub(super) struct BoundedAssignmentConfig {
     /// than the row is — the replica would duplicate boundary coverage the
     /// selected region already provides.
     pub apply_rng_rule: bool,
+    /// SPTAG `RNGFactor` parity (#1129): skip when
+    /// `rng_factor * d²(c_sel, c_cand) < d²(x, c_cand)`. 1.0 is the strict
+    /// paper rule; larger values keep more replicas. At coarse Calyx
+    /// geometries the point-to-centroid distance exceeds the inter-centroid
+    /// spacing for ~all rows, so 1.0 prunes essentially every replica.
+    pub rng_factor: f32,
 }
 
 pub(super) fn stream_assign_to_ids_with_routing(
@@ -119,7 +125,7 @@ pub(super) fn stream_assign_to_ids_bounded(
     source: &dyn VectorSource,
     chunk: usize,
     config: BoundedAssignmentConfig,
-) -> Result<Vec<AssignmentRegion>> {
+) -> Result<(Vec<AssignmentRegion>, ClosureAssignmentStats)> {
     let r = centroids.centroid_count();
     let n = source.len();
     if config.cap == 0
@@ -127,10 +133,12 @@ pub(super) fn stream_assign_to_ids_bounded(
         || config.max_replication == 0
         || !config.boundary_epsilon.is_finite()
         || config.boundary_epsilon < 0.0
+        || !config.rng_factor.is_finite()
+        || config.rng_factor <= 0.0
     {
         return Err(sextant_error(
             CALYX_INDEX_INVALID_PARAMS,
-            "bounded assignment requires cap > 0, routing_probe > 0, max_replication > 0, and finite nonnegative boundary_epsilon",
+            "bounded assignment requires cap > 0, routing_probe > 0, max_replication > 0, finite nonnegative boundary_epsilon, and finite positive rng_factor",
         ));
     }
     let total_capacity = (config.cap as u128) * (r as u128);
@@ -145,6 +153,7 @@ pub(super) fn stream_assign_to_ids_bounded(
     let mut primary_counts = vec![0usize; r];
     let mut stored_counts = vec![0usize; r];
     let mut duplicate_budget = usize::try_from(total_capacity - n as u128).unwrap_or(usize::MAX);
+    let mut stats = ClosureAssignmentStats::default();
     clear_stale_ids(root, sink, r)?;
     let mut start = 0u64;
     while start < n {
@@ -173,7 +182,8 @@ pub(super) fn stream_assign_to_ids_bounded(
                 config.boundary_epsilon,
                 config.max_replication,
                 duplicate_budget,
-                config.apply_rng_rule.then_some(centroids),
+                config.apply_rng_rule.then_some((centroids, config.rng_factor)),
+                &mut stats,
             )
             .ok_or_else(|| {
                 sextant_error(
@@ -196,7 +206,7 @@ pub(super) fn stream_assign_to_ids_bounded(
         append_assigned_chunk(root, sink, &mut assigned)?;
         start = end;
     }
-    Ok(stored_counts
+    let regions = stored_counts
         .into_iter()
         .enumerate()
         .filter(|(_, count)| *count > 0)
@@ -205,7 +215,8 @@ pub(super) fn stream_assign_to_ids_bounded(
             count,
             ids_rel: assignment_ids_rel(sink, region as u32),
         })
-        .collect())
+        .collect();
+    Ok((regions, stats))
 }
 
 fn score_candidates(
@@ -236,7 +247,8 @@ fn choose_bounded_regions(
     boundary_epsilon: f32,
     max_replication: usize,
     duplicate_budget: usize,
-    rng_rule_centroids: Option<&SpannCentroidIndex>,
+    rng_rule: Option<(&SpannCentroidIndex, f32)>,
+    stats: &mut ClosureAssignmentStats,
 ) -> Option<Vec<usize>> {
     let &(primary, primary_distance) = candidates.iter().find(|(region, _)| {
         primary_counts
@@ -255,32 +267,48 @@ fn choose_bounded_regions(
             break;
         }
         if selected.len() > duplicate_budget {
+            stats.budget_stopped_rows += 1;
             break;
         }
-        if region == primary || distance > threshold {
+        if region == primary {
+            continue;
+        }
+        if distance > threshold {
+            stats.epsilon_filtered += 1;
             continue;
         }
         let duplicates = stored_counts[region].saturating_sub(primary_counts[region]);
-        if stored_counts[region] < cap
-            && duplicates < duplicate_cap
-            && !rng_rule_skips(rng_rule_centroids, &selected, region, distance)
-        {
-            selected.push(region);
+        if stored_counts[region] >= cap || duplicates >= duplicate_cap {
+            stats.cap_skipped += 1;
+            continue;
         }
+        if rng_rule_skips(rng_rule, &selected, region, distance) {
+            stats.rng_skipped += 1;
+            continue;
+        }
+        selected.push(region);
     }
+    stats.rows += 1;
+    stats.replicas_stored += selected.len() as u64 - 1;
+    let bucket = selected.len() - 1;
+    if stats.replica_histogram.len() <= bucket {
+        stats.replica_histogram.resize(bucket + 1, 0);
+    }
+    stats.replica_histogram[bucket] += 1;
     Some(selected)
 }
 
 /// SPANN RNG rule: replica candidate `region` (squared distance `distance_sq`
 /// from the row) is redundant when some already-selected region's centroid is
-/// closer to the candidate's centroid than the row itself is.
+/// closer to the candidate's centroid than the row itself is. `rng_factor`
+/// relaxes the comparison on the squared scale (SPTAG `RNGFactor` parity).
 fn rng_rule_skips(
-    centroids: Option<&SpannCentroidIndex>,
+    rng_rule: Option<(&SpannCentroidIndex, f32)>,
     selected: &[usize],
     region: usize,
     distance_sq: f32,
 ) -> bool {
-    let Some(index) = centroids else {
+    let Some((index, rng_factor)) = rng_rule else {
         return false;
     };
     let all = index.centroids();
@@ -289,7 +317,7 @@ fn rng_rule_skips(
     };
     selected.iter().any(|&chosen| {
         all.get(chosen)
-            .is_some_and(|centroid| l2_sq(centroid, candidate) < distance_sq)
+            .is_some_and(|centroid| rng_factor * l2_sq(centroid, candidate) < distance_sq)
     })
 }
 

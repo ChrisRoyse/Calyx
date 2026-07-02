@@ -51,12 +51,15 @@ fn partitioned_build_parses_spann_closure_flags_and_rejects_bad_values() {
         "4",
         "--rng-rule",
         "false",
+        "--rng-factor",
+        "4.0",
     ]);
     let parsed = BuildArgs::parse(&args).unwrap();
     assert_eq!(parsed.p.balance_cap, Some(256));
     assert_eq!(parsed.p.assignment_boundary_epsilon, 1.5);
     assert_eq!(parsed.p.assignment_max_replication, 4);
     assert!(!parsed.p.assignment_rng_rule);
+    assert_eq!(parsed.p.assignment_rng_factor, 4.0);
 
     let defaults = BuildArgs::parse(&strings([
         "--vault",
@@ -69,8 +72,12 @@ fn partitioned_build_parses_spann_closure_flags_and_rejects_bad_values() {
     .unwrap();
     assert_eq!(defaults.p.balance_cap, None);
     assert_eq!(defaults.p.assignment_boundary_epsilon, 0.10);
-    assert_eq!(defaults.p.assignment_max_replication, 2);
+    // Replication defaults OFF (#1129): measured no-op under the strict RNG
+    // rule at real SpaceV geometries; opt in explicitly when trading bytes
+    // for probes.
+    assert_eq!(defaults.p.assignment_max_replication, 1);
     assert!(defaults.p.assignment_rng_rule);
+    assert_eq!(defaults.p.assignment_rng_factor, 1.0);
 
     for (flag, value, expect) in [
         ("--balance-cap", "0", "--balance-cap must be > 0"),
@@ -81,6 +88,9 @@ fn partitioned_build_parses_spann_closure_flags_and_rejects_bad_values() {
         ),
         ("--max-replication", "0", "--max-replication must be >= 1"),
         ("--rng-rule", "yes", "--rng-rule expects true or false"),
+        ("--rng-factor", "0", "--rng-factor must be finite and > 0"),
+        ("--rng-factor", "-2", "--rng-factor must be finite and > 0"),
+        ("--rng-factor", "NaN", "--rng-factor must be finite and > 0"),
     ] {
         let args = strings([
             "--vault",

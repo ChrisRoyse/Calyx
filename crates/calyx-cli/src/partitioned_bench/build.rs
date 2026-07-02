@@ -45,6 +45,7 @@ impl BuildArgs {
         let mut assignment_epsilon: Option<f32> = None;
         let mut max_replication: Option<usize> = None;
         let mut rng_rule = true;
+        let mut rng_factor: Option<f32> = None;
         let mut backend = DiskAnnBuildBackend::CpuVamana;
         let mut distance_metric = PartitionDistanceMetric::UnitL2;
         let mut progress_file = None;
@@ -93,6 +94,7 @@ impl BuildArgs {
                         }
                     }
                 }
+                "--rng-factor" => rng_factor = Some(parse(&next()?, "--rng-factor")?),
                 "--build-backend" => {
                     backend = next()?.parse().map_err(CliError::usage)?;
                 }
@@ -126,6 +128,11 @@ impl BuildArgs {
         if max_replication == Some(0) {
             return Err(CliError::usage("--max-replication must be >= 1"));
         }
+        if let Some(factor) = rng_factor
+            && (!factor.is_finite() || factor <= 0.0)
+        {
+            return Err(CliError::usage("--rng-factor must be finite and > 0"));
+        }
         if vectors.is_none() && n_cx == 0 {
             return Err(CliError::usage(
                 "provide --vectors <file.fbin|file.i8bin> (real embeddings) or --n-cx (synthetic)",
@@ -151,6 +158,7 @@ impl BuildArgs {
             assignment_max_replication: max_replication
                 .unwrap_or(defaults.assignment_max_replication),
             assignment_rng_rule: rng_rule,
+            assignment_rng_factor: rng_factor.unwrap_or(defaults.assignment_rng_factor),
         };
         Ok(Self {
             vault,
@@ -221,11 +229,27 @@ pub(crate) fn run(args: &[String]) -> CliResult {
         "final_assignment_boundary_epsilon": manifest.final_assignment_boundary_epsilon,
         "final_assignment_max_replication": manifest.final_assignment_max_replication,
         "final_assignment_rng_rule": manifest.final_assignment_rng_rule,
+        "final_assignment_rng_factor": manifest.final_assignment_rng_factor,
+        "final_assignment_closure": manifest.final_assignment_closure,
         "region_balance_cap": manifest.region_balance_cap,
         "root_graph_rel": manifest.root_graph_rel,
         "centroids_rel": manifest.centroids_rel,
         "build_seconds": build_secs,
     });
+    if manifest.final_assignment_max_replication > 1
+        && let Some(closure) = &manifest.final_assignment_closure
+        && closure.replicas_stored == 0
+    {
+        eprintln!(
+            "WARN: closure replication is a no-op: max_replication={} stored 0 replicas \
+             (rng_skipped={}, epsilon_filtered={}, cap_skipped={}); at coarse geometries the \
+             RNG rule prunes all boundary replicas — raise --rng-factor or use --max-replication 1 (#1129)",
+            manifest.final_assignment_max_replication,
+            closure.rng_skipped,
+            closure.epsilon_filtered,
+            closure.cap_skipped,
+        );
+    }
     if total < manifest.n_cx as usize
         || total > max_total
         || total != manifest.stored_region_members

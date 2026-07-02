@@ -62,7 +62,7 @@ fn bounded_assignment_cap_is_hard_stored_region_cap() {
         rows: vec![vec![5.0, 0.0]; 4],
     };
 
-    let regions = stream_assign_to_ids_bounded(
+    let (regions, _) = stream_assign_to_ids_bounded(
         &dir,
         AssignmentSink::Final,
         &centroids,
@@ -75,6 +75,7 @@ fn bounded_assignment_cap_is_hard_stored_region_cap() {
             boundary_epsilon: 3.0,
             max_replication: 2,
             apply_rng_rule: false,
+            rng_factor: 1.0,
         },
     )
     .expect("bounded assignment");
@@ -194,7 +195,8 @@ fn balance_cap_drives_hierarchical_region_granularity_and_rejects_zero() {
 fn rng_rule_skips_redundant_replica_but_keeps_boundary_replica() {
     // Row at [3,0]: primary centroid [1,0] (d_sq 4), replica candidate [0,0]
     // (d_sq 9). The centroids are 1 apart (l2_sq 1 < 9), so the RNG rule must
-    // skip the replica; with the rule off the loose epsilon keeps it.
+    // skip the replica; with the rule off the loose epsilon keeps it, and an
+    // rng_factor >= 9 relaxes the squared-scale comparison enough to keep it.
     let centroids = SpannCentroidIndex::from_parts(
         2,
         vec![vec![0.0, 0.0], vec![1.0, 0.0]],
@@ -212,11 +214,12 @@ fn rng_rule_skips_redundant_replica_but_keeps_boundary_replica() {
         boundary_epsilon: 4.0,
         max_replication: 2,
         apply_rng_rule: true,
+        rng_factor: 1.0,
     };
 
     let dir = std::env::temp_dir().join(format!("calyx-part-rng-on-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
-    let regions =
+    let (regions, stats) =
         stream_assign_to_ids_bounded(&dir, AssignmentSink::Final, &centroids, &source, 1, config)
             .expect("rng-on assignment");
     assert_eq!(
@@ -224,12 +227,18 @@ fn rng_rule_skips_redundant_replica_but_keeps_boundary_replica() {
         1,
         "RNG rule must skip the redundant replica"
     );
+    assert_eq!(
+        stats.rng_skipped, 1,
+        "skip must be attributed to the RNG rule"
+    );
+    assert_eq!(stats.replicas_stored, 0);
+    assert_eq!(stats.replica_histogram, vec![1]);
     let _ = std::fs::remove_dir_all(&dir);
 
     let dir = std::env::temp_dir().join(format!("calyx-part-rng-off-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     config.apply_rng_rule = false;
-    let regions =
+    let (regions, stats) =
         stream_assign_to_ids_bounded(&dir, AssignmentSink::Final, &centroids, &source, 1, config)
             .expect("rng-off assignment");
     assert_eq!(
@@ -237,7 +246,44 @@ fn rng_rule_skips_redundant_replica_but_keeps_boundary_replica() {
         2,
         "without the RNG rule the loose epsilon keeps the replica"
     );
+    assert_eq!(stats.rng_skipped, 0);
+    assert_eq!(stats.replicas_stored, 1);
+    assert_eq!(stats.replica_histogram, vec![0, 1]);
     let _ = std::fs::remove_dir_all(&dir);
+
+    // SPTAG RNGFactor parity: candidate kept iff factor * s_sq >= d_sq, here
+    // factor * 1 >= 9. Factor 8.9 still skips; factor 9.0 keeps.
+    for (factor, expected_total) in [(8.9f32, 1usize), (9.0, 2)] {
+        let dir = std::env::temp_dir().join(format!(
+            "calyx-part-rng-factor-{factor}-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        config.apply_rng_rule = true;
+        config.rng_factor = factor;
+        let (regions, _) = stream_assign_to_ids_bounded(
+            &dir,
+            AssignmentSink::Final,
+            &centroids,
+            &source,
+            1,
+            config,
+        )
+        .expect("rng-factor assignment");
+        assert_eq!(
+            regions.iter().map(|region| region.count).sum::<usize>(),
+            expected_total,
+            "rng_factor {factor} must store {expected_total} copies"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    let dir = std::env::temp_dir().join(format!("calyx-part-rng-bad-{}", std::process::id()));
+    config.rng_factor = 0.0;
+    let error =
+        stream_assign_to_ids_bounded(&dir, AssignmentSink::Final, &centroids, &source, 1, config)
+            .expect_err("rng_factor 0 must fail");
+    assert_eq!(error.code, crate::error::CALYX_INDEX_INVALID_PARAMS);
 }
 
 fn params(seed: u64) -> PartitionBuildParams {
@@ -257,6 +303,7 @@ fn params(seed: u64) -> PartitionBuildParams {
         assignment_boundary_epsilon: 0.10,
         assignment_max_replication: 2,
         assignment_rng_rule: true,
+        assignment_rng_factor: 1.0,
     }
 }
 
