@@ -160,19 +160,41 @@ pub struct Snapshot {
     seq: Seq,
     freshness: Freshness,
     lease: ReaderLease,
+    derived_content_seq: Seq,
 }
 
 impl Snapshot {
+    /// Builds a snapshot whose derived-content watermark defaults to `seq`
+    /// itself — the fail-closed assumption that every committed seq up to the
+    /// pin changed derived-search inputs (pre-#1100 exact-equality behavior).
+    /// Store-backed pins override it via [`Self::with_derived_content_seq`].
     pub const fn new(seq: Seq, freshness: Freshness, lease: ReaderLease) -> Self {
         Self {
             seq,
             freshness,
             lease,
+            derived_content_seq: seq,
         }
+    }
+
+    /// Attaches the vault's derived-content watermark observed at pin time.
+    /// Callers must clamp it to `seq` (the store pin paths do); a watermark
+    /// above the pinned seq would claim knowledge of commits after the pin.
+    pub const fn with_derived_content_seq(mut self, derived_content_seq: Seq) -> Self {
+        self.derived_content_seq = derived_content_seq;
+        self
     }
 
     pub const fn seq(self) -> Seq {
         self.seq
+    }
+
+    /// Max seq at or below [`Self::seq`] whose commit wrote at least one row
+    /// in a CF that feeds derived search content (issue #1100). Content-neutral
+    /// commits (idempotency-ledger appends, time-index sentinels) advance
+    /// [`Self::seq`] but not this watermark.
+    pub const fn derived_content_seq(self) -> Seq {
+        self.derived_content_seq
     }
 
     pub const fn freshness(self) -> Freshness {

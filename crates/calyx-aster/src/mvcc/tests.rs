@@ -11,6 +11,7 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 mod allocator;
+mod derived_content;
 mod freshness;
 mod isolation;
 mod read_barrier;

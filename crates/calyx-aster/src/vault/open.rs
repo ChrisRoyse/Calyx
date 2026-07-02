@@ -46,6 +46,10 @@ where
         } else {
             VersionedCfStore::new_with_router(recovery.last_recovered_seq, router)
         };
+        // Derived-content watermark (issue #1100): the manifest floor vouches
+        // for checkpointed seqs; replayed batches below re-derive the rest
+        // from their CFs.
+        rows.advance_derived_content_seq_to_at_least(recovery.derived_content_floor_seq);
         for batch in recovery.batches {
             let rows_at_seq = batch
                 .rows

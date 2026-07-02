@@ -35,6 +35,42 @@ fn manifest_swap_uses_current_pointer_atomically() {
 }
 
 #[test]
+fn derived_content_seq_roundtrips_and_fails_closed_when_absent_or_ahead() {
+    let dir = test_dir("derived-content-seq");
+    write_manifest_assets(&dir);
+    let store = ManifestStore::open(&dir);
+
+    // Legacy manifest bytes (field absent) decode to None and fail closed to
+    // durable_seq.
+    let legacy = manifest(1, 10);
+    assert_eq!(legacy.derived_content_seq, None);
+    assert_eq!(legacy.effective_derived_content_seq(), 10);
+    store.write_current(&legacy).expect("write legacy");
+    let loaded = store.load_current().expect("load legacy");
+    assert_eq!(loaded.derived_content_seq, None);
+    assert_eq!(loaded.effective_derived_content_seq(), 10);
+
+    // Recorded watermark round-trips through the durable MANIFEST bytes.
+    let mut recorded = manifest(2, 10);
+    recorded.derived_content_seq = Some(7);
+    store.write_current(&recorded).expect("write recorded");
+    let loaded = store.load_current().expect("load recorded");
+    assert_eq!(loaded.derived_content_seq, Some(7));
+    assert_eq!(loaded.effective_derived_content_seq(), 7);
+
+    // A watermark ahead of durable_seq vouches for uncheckpointed seqs:
+    // corrupt, refuse to write or load.
+    let mut ahead = manifest(3, 10);
+    ahead.derived_content_seq = Some(11);
+    let err = ahead
+        .validate()
+        .expect_err("watermark ahead of durable_seq");
+    assert_eq!(err.code, "CALYX_ASTER_CORRUPT_SHARD");
+    assert!(err.message.contains("derived_content_seq 11"));
+    cleanup(dir);
+}
+
+#[test]
 fn recovery_replays_wal_after_manifest_durable_seq() {
     let dir = test_dir("recover-after-manifest");
     write_manifest_assets(&dir);

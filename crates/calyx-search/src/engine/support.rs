@@ -14,11 +14,12 @@ use crate::persisted::{PersistedSearchIndexes, load_docs_at};
 pub(super) fn index_freshness_tag(
     indexes: &PersistedSearchIndexes,
     pinned_seq: u64,
+    derived_content_seq: u64,
     freshness: SearchFreshness,
 ) -> CliResult<FreshnessTag> {
     match freshness {
         SearchFreshness::Fresh => {
-            indexes.ensure_fresh_at_snapshot(pinned_seq)?;
+            indexes.ensure_fresh_at_snapshot(pinned_seq, derived_content_seq)?;
             Ok(FreshnessTag::fresh(pinned_seq))
         }
         SearchFreshness::StaleOk => {
@@ -53,6 +54,12 @@ impl<'a> SearchReadSnapshot<'a> {
 
     pub(super) fn seq(&self) -> u64 {
         self.snapshot.seq()
+    }
+
+    /// Derived-content watermark observed at pin time, clamped to the pinned
+    /// seq by the MVCC store (issue #1100).
+    pub(super) fn derived_content_seq(&self) -> u64 {
+        self.snapshot.derived_content_seq()
     }
 
     pub(super) fn lease_id(&self) -> u64 {

@@ -169,7 +169,12 @@ fn build_report(vault_ref: &str, resolved: &ResolvedVault) -> CliResult<VaultHea
     })
 }
 
-fn open_latest_seq(resolved: &ResolvedVault) -> Result<u64, CliError> {
+struct VaultSeqReadback {
+    latest_seq: u64,
+    derived_content_seq: u64,
+}
+
+fn open_latest_seq(resolved: &ResolvedVault) -> Result<VaultSeqReadback, CliError> {
     let vault = AsterVault::open(
         &resolved.path,
         resolved.vault_id,
@@ -182,7 +187,10 @@ fn open_latest_seq(resolved: &ResolvedVault) -> Result<u64, CliError> {
             ..VaultOptions::default()
         },
     )?;
-    Ok(vault.latest_seq())
+    Ok(VaultSeqReadback {
+        latest_seq: vault.latest_seq(),
+        derived_content_seq: vault.derived_content_seq(),
+    })
 }
 
 fn check_manifest(result: &calyx_core::Result<VaultManifest>) -> VaultHealthCheck {
@@ -252,10 +260,10 @@ fn check_registry_contracts(vault_dir: &Path) -> VaultHealthCheck {
 
 fn check_search_index(
     vault_dir: &Path,
-    latest_seq_result: Result<u64, CliError>,
+    latest_seq_result: Result<VaultSeqReadback, CliError>,
 ) -> VaultHealthCheck {
-    let latest_seq = match latest_seq_result {
-        Ok(seq) => seq,
+    let seqs = match latest_seq_result {
+        Ok(seqs) => seqs,
         Err(error) => {
             return failed_from_cli(
                 "search_index_freshness",
@@ -264,6 +272,7 @@ fn check_search_index(
             );
         }
     };
+    let (latest_seq, derived_content_seq) = (seqs.latest_seq, seqs.derived_content_seq);
     let indexes = match PersistedSearchIndexes::open(vault_dir) {
         Ok(indexes) => indexes,
         Err(error) => {
@@ -278,21 +287,35 @@ fn check_search_index(
         }
     };
     let base_seq = indexes.base_seq();
-    if base_seq == latest_seq {
+    let details = json!({
+        "search_manifest_base_seq": base_seq,
+        "pinned_vault_seq": latest_seq,
+        "derived_content_seq": derived_content_seq,
+    });
+    // Same Fresh doctrine as PersistedSearchIndexes::ensure_fresh_at_snapshot
+    // (issue #1100): fresh iff derived_content_seq <= base_seq <= latest_seq.
+    if derived_content_seq <= base_seq && base_seq <= latest_seq {
         return ok(
             "search_index_freshness",
-            "persistent search index is fresh for the pinned vault sequence",
-            json!({"search_manifest_base_seq": base_seq, "pinned_vault_seq": latest_seq}),
+            "persistent search index covers every derived-content commit at the pinned vault sequence",
+            details,
         );
     }
+    let message = if base_seq > latest_seq {
+        format!(
+            "persistent search manifest base seq {base_seq} is ahead of pinned vault seq {latest_seq}"
+        )
+    } else {
+        format!(
+            "persistent search manifest base seq {base_seq} is behind derived content seq {derived_content_seq} (pinned vault seq {latest_seq})"
+        )
+    };
     failed(
         "search_index_freshness",
         "CALYX_STALE_DERIVED",
-        format!(
-            "persistent search manifest base seq {base_seq} does not match pinned vault seq {latest_seq}"
-        ),
+        message,
         "run `calyx rebuild-search-index <vault>` and rerun vault-health before search or FSV",
-        json!({"search_manifest_base_seq": base_seq, "pinned_vault_seq": latest_seq}),
+        details,
     )
 }
 

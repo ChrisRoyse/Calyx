@@ -182,19 +182,39 @@ fn missing_manifest_fails_closed() {
 }
 
 #[test]
-fn manifest_seq_must_match_pinned_snapshot() {
+fn manifest_seq_must_cover_derived_content_seq() {
     let root = scratch("manifest-seq");
     rebuild_from_docs(&root, &docs([(1, vec![1.0, 0.0])]), 42).expect("rebuild");
     let indexes = PersistedSearchIndexes::open(&root).expect("open");
 
     indexes
-        .ensure_fresh_at_snapshot(42)
-        .expect("matching manifest seq is fresh");
-    let err = indexes.ensure_fresh_at_snapshot(43).unwrap_err();
+        .ensure_fresh_at_snapshot(42, 42)
+        .expect("manifest at the pinned seq is fresh");
+    // Content-neutral commits (idempotency-ledger appends) advance the pinned
+    // seq but not the derived-content watermark: still fresh (issue #1100).
+    indexes
+        .ensure_fresh_at_snapshot(43, 42)
+        .expect("content-neutral seq advance keeps Fresh available");
+    indexes
+        .ensure_fresh_at_snapshot(43, 40)
+        .expect("watermark below manifest base seq is fresh");
 
+    // A commit that changed derived-search inputs after the rebuild: stale.
+    let err = indexes.ensure_fresh_at_snapshot(43, 43).unwrap_err();
     assert_eq!(err.code(), "CALYX_STALE_DERIVED");
     assert!(err.message().contains("base seq 42"));
+    assert!(err.message().contains("derived content seq 43"));
     assert!(err.message().contains("pinned vault seq 43"));
+
+    // Manifest built after the pinned snapshot: fail closed.
+    let err = indexes.ensure_fresh_at_snapshot(41, 41).unwrap_err();
+    assert_eq!(err.code(), "CALYX_STALE_DERIVED");
+    assert!(err.message().contains("ahead of pinned vault seq 41"));
+
+    // Unclamped watermark (above the pin) is a caller bug: fail closed.
+    let err = indexes.ensure_fresh_at_snapshot(43, 44).unwrap_err();
+    assert_eq!(err.code(), "CALYX_STALE_DERIVED");
+    assert!(err.message().contains("was not clamped"));
     fs::remove_dir_all(root).ok();
 }
 

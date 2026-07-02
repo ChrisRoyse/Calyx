@@ -70,6 +70,7 @@ impl DurableVault {
             self.temporal_policy,
             self.dedup_policy.clone(),
         )?;
+        manifest.derived_content_seq = Some(self.derived_content_seq_for_manifest(durable_seq));
         manifest.retention_horizon = horizon.clone();
         manifest.registry_ref = current.and_then(|manifest| manifest.registry_ref);
         manifest.validate()?;

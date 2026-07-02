@@ -227,6 +227,13 @@ where
         self.rows.current_seq()
     }
 
+    /// Latest committed seq whose batch wrote derived-search-content inputs
+    /// (issue #1100). Content-neutral commits (idempotency-ledger appends,
+    /// time-index sentinels) advance [`Self::latest_seq`] but not this.
+    pub fn derived_content_seq(&self) -> Seq {
+        self.rows.derived_content_seq()
+    }
+
     pub fn recovery_report(&self) -> &VaultRecoveryReport {
         &self.recovery_report
     }

@@ -169,6 +169,7 @@ fn router_failure_vault(dir: &Path) -> AsterVault<FixedClock> {
             batches: Vec::new(),
             last_recovered_seq: 0,
             wal_replay_floor_seq: 0,
+            derived_content_floor_seq: 0,
             torn_tail: None,
             temporal_policy: None,
             dedup_policy: None,

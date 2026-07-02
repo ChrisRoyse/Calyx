@@ -94,6 +94,56 @@ fn replay_only_batch_leaves_foreign_marker_in_place() {
 }
 
 #[test]
+fn replay_only_batch_keeps_fresh_search_available() {
+    // Issue #1100 regression: a replay-only idempotent batch appends
+    // content-neutral ledger rows (durable seq advances) and skips the
+    // rebuild; Fresh search must remain available because the derived-content
+    // watermark does not move.
+    let (root, resolved) = test_vault_with_registered_dense_lens("issue1100-replay-fresh");
+    let jsonl = resolved.path.join("replay-fresh.jsonl");
+    fs::write(
+        &jsonl,
+        "{\"text\":\"issue1100 gamma row\"}\n{\"text\":\"issue1100 delta row\"}\n",
+    )
+    .unwrap();
+    ingest_batch_streaming(&resolved, &jsonl).unwrap();
+
+    let replay = ingest_batch_streaming(&resolved, &jsonl).unwrap();
+    assert_eq!(replay.new_count, 0);
+    assert_eq!(replay.already_count, 2);
+
+    let vault = open_vault(&resolved).unwrap();
+    let latest_seq = vault.snapshot();
+    let derived_content_seq = vault.derived_content_seq();
+    let indexes = PersistedSearchIndexes::open(&resolved.path).unwrap();
+    assert!(
+        latest_seq > indexes.base_seq(),
+        "replay-only batch must reproduce the #1100 trigger: durable seq {latest_seq} past manifest base seq {}",
+        indexes.base_seq()
+    );
+    assert!(
+        derived_content_seq <= indexes.base_seq(),
+        "replay-only batch must not advance the derived-content watermark: watermark {derived_content_seq}, manifest base seq {}",
+        indexes.base_seq()
+    );
+    indexes
+        .ensure_fresh_at_snapshot(latest_seq, derived_content_seq)
+        .expect("Fresh search must stay available after a replay-only batch");
+    println!(
+        "ISSUE1100_REPLAY_FRESH_FSV {}",
+        json!({
+            "source_of_truth": "durable vault seq + derived-content watermark readback vs idx/search/manifest.json base_seq",
+            "vault_latest_seq": latest_seq,
+            "derived_content_seq": derived_content_seq,
+            "manifest_base_seq": indexes.base_seq(),
+            "replay_new_count": replay.new_count,
+            "replay_already_count": replay.already_count,
+        })
+    );
+    fs::remove_dir_all(root).ok();
+}
+
+#[test]
 fn failed_post_commit_rebuild_leaves_marker_recording_committed_seq() {
     let (root, resolved) = test_vault_with_registered_dense_lens("issue1089-marker-fail");
     let jsonl = resolved.path.join("marker-fail.jsonl");
