@@ -172,7 +172,7 @@ pub fn emit() {
         info.git_commit_unix_secs
     );
     // #1116: embed the enabled cargo feature set so deploy gates can verify
-    // the artifact configuration (e.g. calyxd on aiwonder REQUIRES cuda).
+    // the artifact configuration (e.g. calyxd on gpuhost REQUIRES cuda).
     // Cargo re-runs build scripts when the feature set changes, so this
     // stays consistent with the compiled binary.
     println!(
