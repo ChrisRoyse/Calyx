@@ -102,6 +102,7 @@ pub(super) fn subcommand_tokens(command: &Subcommand) -> Vec<String> {
         Subcommand::WeaveLoom(args) => weave_loom_tokens(args),
         Subcommand::DomainBridges(args) => domain_bridges_tokens(args),
         Subcommand::DiscoveryChain(args) => discovery_chain_tokens(args),
+        Subcommand::ChainWalks(args) => chain_walks_tokens(args),
         Subcommand::ProbeMatrix(args) => probe_matrix_tokens(args),
         Subcommand::SpectralCommunities(args) => spectral_communities_tokens(args),
         Subcommand::ProfileLens(args) => profile_lens_tokens(args),
@@ -168,6 +169,28 @@ fn probe_matrix_guard_tau_round_trips_through_tokens() {
     assert_eq!(parse(&tokens).unwrap(), command);
 }
 
+#[test]
+fn chain_walks_round_trips_through_tokens() {
+    let command = Subcommand::ChainWalks(chain_walks::ChainWalksArgs {
+        vault: "corpus".to_string(),
+        seed_file: "seeds.json".into(),
+        anchors: vec!["00000000000000000000000000000000".parse().unwrap()],
+        anchor_files: vec!["anchors.txt".into()],
+        max_hops: 4,
+        branch_width: 8,
+        probe_width: 16,
+        max_groundedness_distance: 2,
+        min_gate_confidence: 0.5,
+        novelty_weight: 0.25,
+        max_hypotheses_per_seed: 3,
+        min_terminal_confidence: 0.5,
+        out: Some("target/chain-walks.json".into()),
+    });
+    let tokens = subcommand_tokens(&command);
+    assert!(tokens.iter().any(|token| token == "--seed-file"));
+    assert_eq!(parse(&tokens).unwrap(), command);
+}
+
 fn discovery_chain_tokens(args: &discovery_chain::DiscoveryChainArgs) -> Vec<String> {
     let mut out = vec!["discovery-chain".to_string(), args.vault.clone()];
     for start in &args.starts {
@@ -192,6 +215,41 @@ fn discovery_chain_tokens(args: &discovery_chain::DiscoveryChainArgs) -> Vec<Str
         args.min_gate_confidence.to_string(),
         "--novelty-weight".to_string(),
         args.novelty_weight.to_string(),
+    ]);
+    push_opt(
+        &mut out,
+        "--out",
+        args.out.as_ref().and_then(|p| p.to_str()),
+    );
+    out
+}
+
+fn chain_walks_tokens(args: &chain_walks::ChainWalksArgs) -> Vec<String> {
+    let mut out = vec!["chain-walks".to_string(), args.vault.clone()];
+    push_opt(&mut out, "--seed-file", args.seed_file.to_str());
+    for anchor in &args.anchors {
+        out.extend(["--anchor".to_string(), anchor.to_string()]);
+    }
+    for path in &args.anchor_files {
+        push_opt(&mut out, "--anchor-file", path.to_str());
+    }
+    out.extend([
+        "--max-hops".to_string(),
+        args.max_hops.to_string(),
+        "--branch-width".to_string(),
+        args.branch_width.to_string(),
+        "--probe-width".to_string(),
+        args.probe_width.to_string(),
+        "--max-groundedness-distance".to_string(),
+        args.max_groundedness_distance.to_string(),
+        "--min-gate-confidence".to_string(),
+        args.min_gate_confidence.to_string(),
+        "--novelty-weight".to_string(),
+        args.novelty_weight.to_string(),
+        "--max-hypotheses-per-seed".to_string(),
+        args.max_hypotheses_per_seed.to_string(),
+        "--min-terminal-confidence".to_string(),
+        args.min_terminal_confidence.to_string(),
     ]);
     push_opt(
         &mut out,

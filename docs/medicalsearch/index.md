@@ -32,7 +32,13 @@ still requires experimental confirmation.
 | `10_spectral_communities.md` | #877 spectral community and inter-community bridge report | done + real clinical-corpus FSV |
 | `11_discovery_harness.md` | #878 gated discovery chain harness | done + real clinical-corpus 100-hop FSV |
 | `12_probe_matrix.md` | #879 physical probe matrix harness and productive-combination log | done + real physical-vault FSV; large-corpus blockers split to #1000/#1001 |
-| `13_chain_walks_synthetic.md` | #880 grounded chain-walk report for static/operator seeds | implementation slice + synthetic FSV; corpus chain walks pending |
+| `13_chain_walks_synthetic.md` | #880 grounded chain-walk report for static/operator seeds | synthetic FSV + real clinical-corpus FSV; final repo gate pending |
+| `13_chain_walks_spectral-bridge-1-src.md` | #880 real chain walk seed `spectral-bridge-1-src` | real corpus per-seed readback |
+| `13_chain_walks_spectral-bridge-2-src.md` | #880 real chain walk seed `spectral-bridge-2-src` | real corpus per-seed readback |
+| `13_chain_walks_spectral-bridge-3-src.md` | #880 real chain walk seed `spectral-bridge-3-src` | real corpus per-seed readback |
+| `13_chain_walks_spectral-bridge-4-src.md` | #880 real chain walk seed `spectral-bridge-4-src` | real corpus per-seed readback |
+| `13_chain_walks_operator-centrality-1.md` | #880 real chain walk seed `operator-centrality-1` | real corpus per-seed readback |
+| `13_chain_walks_operator-centrality-2.md` | #880 real chain walk seed `operator-centrality-2` | real corpus per-seed readback |
 | `14_hypothesis_evaluation.md` | #881 transparent multi-prompt hypothesis evaluation report | implementation slice + synthetic FSV; real evaluator runs pending |
 | `15_ranked_hypotheses.md` | #882 ranked traceable hypothesis list | implementation slice + synthetic FSV; real ranked list pending |
 | `16_refusal_driven_expansion.md` | #883 refusal-expansion planner and before/after verifier | implementation slice + synthetic FSV; real evidence addition pending |
