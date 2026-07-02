@@ -7,7 +7,7 @@ use calyx_aster::cf::ColumnFamily;
 use calyx_core::{CalyxError, Constellation, CxId, SlotId};
 use calyx_ward::{
     CalibrationInput, GuardId, GuardPolicy, GuardProfile, NoveltyAction, SlotKind, WardError,
-    calibrate, guard,
+    calibrate, guard, validate_calibration_slots,
 };
 use serde::Deserialize;
 
@@ -70,6 +70,10 @@ fn calibrate_command(vault_name: &str, domain: &str, set: &Path, target_far: f32
             target_far,
         })
         .collect::<Vec<_>>();
+    // #1120: fail closed before calibrating — every calibration slot must be
+    // an active dense panel slot, or the persisted profile could never pass a
+    // guarded query.
+    validate_calibration_slots(&inputs, &ctx.state.panel).map_err(ward_to_cli)?;
     let corpus_size = inputs
         .iter()
         .map(|input| input.good_scores.len() + input.bad_scores.len())
@@ -292,6 +296,11 @@ fn ward_to_cli(error: WardError) -> CliError {
         remediation: match code {
             "CALYX_GUARD_PROVISIONAL" => "calibrate before high-stakes use",
             "CALYX_GUARD_OOD" => "new-region or reject per policy",
+            "CALYX_GUARD_CALIBRATION_SLOT_SHAPE"
+            | "CALYX_GUARD_CALIBRATION_SLOT_UNKNOWN"
+            | "CALYX_GUARD_CALIBRATION_SLOT_STATE" => {
+                "calibrate active dense panel slots only; run `calyx list-panel <vault>` to see slot shapes and states"
+            }
             _ => "inspect guard calibration inputs and required slots",
         },
     })

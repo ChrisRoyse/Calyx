@@ -2,7 +2,7 @@
 
 use std::collections::BTreeMap;
 
-use calyx_core::{Clock, SlotId};
+use calyx_core::{Clock, Panel, SlotId, SlotShape, SlotState};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
@@ -49,6 +49,57 @@ pub struct CalibrationInput {
     pub bad_scores: Vec<f32>,
     pub slot_kind: SlotKind,
     pub target_far: f32,
+}
+
+/// Fail-closed gate that every calibration input names a slot the calibrated
+/// profile can actually guard (#1120). `calibrate` copies every input slot
+/// into `required_slots`, and the Ward guard compares dense vectors only, so
+/// a sparse/multi, unknown, or non-active slot would persist a profile that
+/// fails every guarded query at query time instead of failing here.
+///
+/// Callers that persist a profile for a concrete vault panel (CLI and MCP
+/// `guard calibrate`) must call this before `calibrate`.
+pub fn validate_calibration_slots(
+    inputs: &[CalibrationInput],
+    panel: &Panel,
+) -> Result<(), WardError> {
+    for input in inputs {
+        let slot = panel
+            .slots
+            .iter()
+            .find(|slot| slot.slot_id == input.slot)
+            .ok_or(WardError::CalibrationSlotUnknown {
+                slot: input.slot,
+                panel_version: panel.version,
+            })?;
+        let inactive = match slot.state {
+            SlotState::Active => None,
+            SlotState::Parked => Some("parked"),
+            SlotState::Retired => Some("retired"),
+        };
+        if let Some(state) = inactive {
+            return Err(WardError::CalibrationSlotState {
+                slot: input.slot,
+                state: state.to_string(),
+            });
+        }
+        match slot.shape {
+            SlotShape::Dense(_) => {}
+            SlotShape::Sparse(dim) => {
+                return Err(WardError::CalibrationSlotShape {
+                    slot: input.slot,
+                    shape: format!("sparse({dim})"),
+                });
+            }
+            SlotShape::Multi { token_dim } => {
+                return Err(WardError::CalibrationSlotShape {
+                    slot: input.slot,
+                    shape: format!("multi(token_dim={token_dim})"),
+                });
+            }
+        }
+    }
+    Ok(())
 }
 
 /// Calibrates one slot's tau from known-bad scores and reports achieved FAR/FRR.
