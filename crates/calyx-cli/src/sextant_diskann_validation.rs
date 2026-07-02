@@ -12,6 +12,7 @@ use calyx_sextant::index::{
 };
 use serde::Serialize;
 
+use crate::error::CliError;
 use support::{
     Mode, Paths, Request, approx_rows, build_params, cx, dir_bytes, exact_top_k, file_len,
     percentile, rank_of, raw_vectors, search_params, write_json, write_raw_sidecar,
@@ -72,7 +73,7 @@ pub(crate) fn run(args: &[String]) -> crate::error::CliResult {
     if issue604::is_issue604(args) {
         return issue604::run(args);
     }
-    let request = Request::parse(args)?;
+    let request = Request::parse(args).map_err(CliError::usage)?;
     match request.mode {
         Mode::Happy => run_happy(&request),
         Mode::Empty => run_empty_edge(&request),
@@ -97,9 +98,7 @@ fn run_happy(request: &Request) -> crate::error::CliResult {
         let exact = exact_top_k(&raw, query_id, request.k);
         let exact_ids: BTreeSet<_> = exact.iter().map(|(id, _)| *id).collect();
         let started = Instant::now();
-        let hits = index
-            .search_ids(&raw[query_id].1, request.k, &search_params(request))
-            .map_err(|error| error.to_string())?;
+        let hits = index.search_ids(&raw[query_id].1, request.k, &search_params(request))?;
         latencies.push(started.elapsed().as_micros());
         let got_ids: BTreeSet<_> = hits.iter().map(|(id, _)| *id).collect();
         let overlap = got_ids.intersection(&exact_ids).count();
@@ -112,21 +111,17 @@ fn run_happy(request: &Request) -> crate::error::CliResult {
             ));
         }
     }
-    let node7 = index
-        .search_ids(&raw[7].1, request.k, &search_params(request))
-        .map_err(|error| error.to_string())?;
-    let trait_hits = index
-        .search(
-            &SlotVector::Dense {
-                dim: request.dim as u32,
-                data: raw[7].1.clone(),
-            },
-            request.k,
-            Some(request.ef_search),
-        )
-        .map_err(|error| error.to_string())?;
+    let node7 = index.search_ids(&raw[7].1, request.k, &search_params(request))?;
+    let trait_hits = index.search(
+        &SlotVector::Dense {
+            dim: request.dim as u32,
+            data: raw[7].1.clone(),
+        },
+        request.k,
+        Some(request.ef_search),
+    )?;
     let hits_path = paths.metrics_dir.join("diskann_hits.tsv");
-    fs::write(&hits_path, hits_tsv).map_err(|error| error.to_string())?;
+    fs::write(&hits_path, hits_tsv)?;
     let summary = Summary {
         mode: "happy".to_string(),
         build_backend: request.build_backend.as_str().to_string(),
@@ -162,9 +157,7 @@ fn run_happy(request: &Request) -> crate::error::CliResult {
             .map(|hit| hit.cx_id.to_string())
             .unwrap_or_else(|| "none".to_string()),
         graph_bytes: file_len(&paths.graph_path).unwrap_or(0),
-        raw_file_count: fs::read_dir(&paths.raw_dir)
-            .map_err(|error| error.to_string())?
-            .count(),
+        raw_file_count: fs::read_dir(&paths.raw_dir)?.count(),
         raw_bytes_total: dir_bytes(&paths.raw_dir)?,
         pq_bytes: file_len(&paths.pq_path),
         pq_ram_bytes: index.pq_ram_bytes(),
@@ -177,7 +170,8 @@ fn run_happy(request: &Request) -> crate::error::CliResult {
     enforce_recall_floor(&summary, request.recall_floor, &summary_path, &hits_path)?;
     println!(
         "{}",
-        serde_json::to_string_pretty(&summary).map_err(|error| error.to_string())?
+        serde_json::to_string_pretty(&summary)
+            .map_err(|error| CliError::runtime(format!("serialize summary: {error}")))?
     );
     Ok(())
 }
@@ -192,14 +186,13 @@ fn enforce_recall_floor(
         return Ok(());
     };
     if summary.recall_at_10_min + f64::EPSILON < floor {
-        return Err(format!(
+        return Err(CliError::runtime(format!(
             "CALYX_FSV_DISKANN_RECALL_BELOW_FLOOR: recall_at_10_min={:.6} recall_floor={:.6} summary={} hits={}",
             summary.recall_at_10_min,
             floor,
             summary_path.display(),
             hits_path.display()
-        )
-        .into());
+        )));
     }
     Ok(())
 }
@@ -260,10 +253,8 @@ fn run_truncated_edge(request: &Request) -> crate::error::CliResult {
     let before = file_len(&paths.graph_path);
     OpenOptions::new()
         .write(true)
-        .open(&paths.graph_path)
-        .map_err(|error| error.to_string())?
-        .set_len(before.unwrap_or(0) / 2)
-        .map_err(|error| error.to_string())?;
+        .open(&paths.graph_path)?
+        .set_len(before.unwrap_or(0) / 2)?;
     let err = DiskAnnSearch::open(
         SLOT,
         &paths.graph_path,
@@ -287,7 +278,7 @@ fn run_missing_raw_edge(request: &Request) -> crate::error::CliResult {
     let paths = Paths::create(&request.root)?;
     let raw = raw_vectors(32, request.dim);
     write_raw_sidecar(&paths.raw_dir, &raw)?;
-    fs::remove_file(paths.raw_dir.join("7")).map_err(|error| error.to_string())?;
+    fs::remove_file(paths.raw_dir.join("7"))?;
     let index = build_edge_index(request, &paths, &raw)?;
     let before = file_len(&paths.graph_path);
     let err = index
@@ -308,7 +299,7 @@ fn build_edge_index(
     request: &Request,
     paths: &Paths,
     raw: &[(CxId, Vec<f32>)],
-) -> Result<DiskAnnSearch, String> {
+) -> crate::error::CliResult<DiskAnnSearch> {
     build_index(request, paths, &approx_rows(raw))
 }
 
@@ -316,9 +307,9 @@ fn build_index(
     request: &Request,
     paths: &Paths,
     approx: &[(CxId, Vec<f32>)],
-) -> Result<DiskAnnSearch, String> {
+) -> crate::error::CliResult<DiskAnnSearch> {
     if let Some(pq) = request.pq {
-        return DiskAnnSearch::build_with_pq_plan(
+        return Ok(DiskAnnSearch::build_with_pq_plan(
             SLOT,
             &paths.graph_path,
             approx,
@@ -329,10 +320,9 @@ fn build_index(
                 pq,
                 backend: request.build_backend,
             },
-        )
-        .map_err(|error| error.to_string());
+        )?);
     }
-    DiskAnnSearch::build_with_backend(
+    Ok(DiskAnnSearch::build_with_backend(
         SLOT,
         &paths.graph_path,
         approx,
@@ -340,8 +330,7 @@ fn build_index(
         Some(paths.raw_dir.clone()),
         search_params(request),
         request.build_backend,
-    )
-    .map_err(|error| error.to_string())
+    )?)
 }
 
 fn run_corrupt_pq_edge(request: &Request) -> crate::error::CliResult {
@@ -358,7 +347,7 @@ fn run_corrupt_pq_edge(request: &Request) -> crate::error::CliResult {
     }
     let _ = build_edge_index(&build_request, &paths, &raw)?;
     let before = file_len(&paths.graph_path);
-    fs::write(&paths.pq_path, b"not-a-pq").map_err(|error| error.to_string())?;
+    fs::write(&paths.pq_path, b"not-a-pq")?;
     let err = DiskAnnSearch::open(
         SLOT,
         &paths.graph_path,
@@ -405,7 +394,8 @@ fn write_edge(
     write_json(&path, &report)?;
     println!(
         "{}",
-        serde_json::to_string_pretty(&report).map_err(|error| error.to_string())?
+        serde_json::to_string_pretty(&report)
+            .map_err(|error| CliError::runtime(format!("serialize edge report: {error}")))?
     );
     Ok(())
 }

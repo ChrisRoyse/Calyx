@@ -8,18 +8,17 @@ use serde_json::json;
 use super::data::{self, BuildRows};
 use super::lens::{self, MeasuredLens};
 use super::request::CorpusBuildRequest;
-use crate::error::CliResult;
+use crate::error::{CliError, CliResult};
 use crate::output::print_json;
 
 pub(crate) fn run_worker(request: &CorpusBuildRequest) -> CliResult {
-    let rows = data::load_rows(request)?;
-    let mut measured = lens::measure_requested_lenses(request, &rows)?;
+    let rows = data::load_rows(request).map_err(CliError::runtime)?;
+    let mut measured = lens::measure_requested_lenses(request, &rows).map_err(CliError::runtime)?;
     let Some(mut lens) = measured.pop() else {
-        return Err(worker_error(
+        return Err(CliError::runtime(worker_error(
             "CALYX_FSV_ASSAY_CORPUS_BUILD_WORKER_EMPTY",
             "worker measured no lens".to_string(),
-        )
-        .into());
+        )));
     };
     lens.worker_pid = Some(std::process::id());
     let report = request
@@ -27,9 +26,13 @@ pub(crate) fn run_worker(request: &CorpusBuildRequest) -> CliResult {
         .as_ref()
         .expect("worker_report checked by request validation");
     if let Some(parent) = report.parent() {
-        fs::create_dir_all(parent).map_err(io_error)?;
+        fs::create_dir_all(parent)?;
     }
-    fs::write(report, serde_json::to_vec(&lens).map_err(json_error)?).map_err(io_error)?;
+    fs::write(
+        report,
+        serde_json::to_vec(&lens)
+            .map_err(|error| CliError::runtime(format!("serialize worker report: {error}")))?,
+    )?;
     print_json(&json!({
         "worker_report": report,
         "worker_pid": std::process::id(),
@@ -205,9 +208,5 @@ fn worker_error(code: &'static str, message: String) -> String {
 }
 
 fn io_error(error: std::io::Error) -> String {
-    error.to_string()
-}
-
-fn json_error(error: serde_json::Error) -> String {
     error.to_string()
 }

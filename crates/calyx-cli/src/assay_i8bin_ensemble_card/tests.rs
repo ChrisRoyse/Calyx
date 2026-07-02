@@ -120,7 +120,7 @@ fn existing_metrics_dir_fails_closed_before_overwrite() {
 
     let error = write_outputs(&request, &report).unwrap_err();
 
-    assert!(error.starts_with("CALYX_FSV_ASSAY_I8BIN_CARD_OUTPUT_EXISTS"));
+    assert_eq!(error.code(), "CALYX_FSV_ASSAY_I8BIN_CARD_OUTPUT_EXISTS");
     assert_eq!(
         fs::read_to_string(request.metrics_dir.join("sentinel.txt")).unwrap(),
         "preserve"
@@ -143,7 +143,7 @@ fn existing_cf_root_fails_closed_before_mixing_rows() {
 
     let error = write_outputs(&request, &report).unwrap_err();
 
-    assert!(error.starts_with("CALYX_FSV_ASSAY_I8BIN_CARD_OUTPUT_EXISTS"));
+    assert_eq!(error.code(), "CALYX_FSV_ASSAY_I8BIN_CARD_OUTPUT_EXISTS");
     assert_eq!(
         fs::read_to_string(request.cf_root.join("sentinel.txt")).unwrap(),
         "preserve-cf"

@@ -70,6 +70,9 @@ pub(crate) fn run(topic: &str, rest: &[String]) -> crate::error::CliResult {
         {
             anneal_status::status_faults(Path::new(vault), anneal_status::parse_last(last)?)
         }
-        _ => Err(format!("unknown anneal command: {topic} {}", rest.join(" ")).into()),
+        _ => Err(crate::error::CliError::usage(format!(
+            "unknown anneal command: {topic} {}",
+            rest.join(" ")
+        ))),
     }
 }

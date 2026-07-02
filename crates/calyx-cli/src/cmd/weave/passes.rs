@@ -32,7 +32,7 @@ use serde::Serialize;
 
 use super::super::PersistedSearchIndexes;
 use super::coverage::DenseSlotPreflight;
-use crate::error::CliResult;
+use crate::error::{CliError, CliResult};
 
 pub(super) const EDGE_TYPE: &str = "knn";
 const LOOM_CACHE_CAP: usize = 16;
@@ -273,7 +273,8 @@ pub(super) fn build_between_doc_graph<C: Clock>(
             let value = serde_json::to_vec(&EdgeValue {
                 cosine: hit.score,
                 rank: hit.rank,
-            })?;
+            })
+            .map_err(|error| CliError::runtime(format!("serialize edge value: {error}")))?;
             edge_rows.push((ColumnFamily::Graph, out_key.clone(), value));
             edge_rows.push((ColumnFamily::Graph, in_key, out_key));
             builder

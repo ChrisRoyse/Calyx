@@ -10,7 +10,7 @@ use super::model::{
     mib_to_bytes, modality_counts, object_bytes,
 };
 use super::{A38_BUNDLE_INVALID, bundle_error};
-use crate::error::CliResult;
+use crate::error::{CliError, CliResult};
 
 #[derive(Clone, Debug)]
 pub(super) struct A38BundleStore {
@@ -138,7 +138,13 @@ impl A38BundleStore {
                 bundles: Vec::new(),
             });
         }
-        let catalog: A38BundleCatalog = serde_json::from_slice(&fs::read(&path)?)?;
+        let catalog: A38BundleCatalog =
+            serde_json::from_slice(&fs::read(&path)?).map_err(|error| {
+                CliError::runtime(format!(
+                    "parse A38 bundle catalog {}: {error}",
+                    path.display()
+                ))
+            })?;
         if catalog.schema_version != BUNDLE_CATALOG_VERSION {
             return Err(bundle_error(
                 A38_BUNDLE_INVALID,
@@ -154,7 +160,8 @@ impl A38BundleStore {
     }
 
     fn write_catalog(&self, catalog: &A38BundleCatalog) -> CliResult {
-        let bytes = serde_json::to_vec_pretty(catalog)?;
+        let bytes = serde_json::to_vec_pretty(catalog)
+            .map_err(|error| CliError::runtime(format!("serialize A38 bundle catalog: {error}")))?;
         write_atomic(&self.index_path(), &bytes)
     }
 
@@ -206,7 +213,12 @@ impl A38BundleStore {
                 "do not edit immutable A38 bundle objects; save a new bundle version",
             ));
         }
-        let bundle: SavedA38Bundle = serde_json::from_slice(&bytes)?;
+        let bundle: SavedA38Bundle = serde_json::from_slice(&bytes).map_err(|error| {
+            CliError::runtime(format!(
+                "parse A38 bundle object {}: {error}",
+                path.display()
+            ))
+        })?;
         bundle.validate()?;
         Ok(bundle)
     }

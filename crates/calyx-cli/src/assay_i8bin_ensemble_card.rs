@@ -18,15 +18,29 @@ const FSV_REMEDIATION: &str =
 
 pub(crate) fn run(args: &[String]) -> CliResult {
     let request = I8binEnsembleRequest::parse(args).map_err(i8bin_card_error)?;
-    request.ensure_fresh_outputs().map_err(i8bin_card_error)?;
-    let report = evaluate(&request).map_err(i8bin_card_error)?;
-    enforce_a37_mode(&request, &report).map_err(i8bin_card_error)?;
-    let evidence = write_outputs(&request, &report).map_err(i8bin_card_error)?;
+    request
+        .ensure_fresh_outputs()
+        .map_err(i8bin_card_runtime_error)?;
+    let report = evaluate(&request).map_err(i8bin_card_runtime_error)?;
+    enforce_a37_mode(&request, &report).map_err(i8bin_card_runtime_error)?;
+    let evidence = write_outputs(&request, &report)?;
     println!(
         "{}",
-        serde_json::to_string_pretty(&evidence).map_err(CliError::from)?
+        serde_json::to_string_pretty(&evidence).map_err(|error| CliError::runtime(format!(
+            "serialize i8bin ensemble card evidence: {error}"
+        )))?
     );
     Ok(())
+}
+
+/// Same code recovery as [`i8bin_card_error`], but uncoded strings classify as
+/// runtime failures: these call sites run after argument parsing succeeded,
+/// so `--help` can never be the remedy (issue #1145).
+fn i8bin_card_runtime_error(error: String) -> CliError {
+    match i8bin_card_error(error) {
+        CliError::Usage(message) => CliError::runtime(message),
+        typed => typed,
+    }
 }
 
 fn i8bin_card_error(error: String) -> CliError {

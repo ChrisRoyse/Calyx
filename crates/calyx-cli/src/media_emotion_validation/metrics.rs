@@ -8,6 +8,7 @@ use serde::Serialize;
 
 use super::engine::{AUDIO_EMOTION_SLOT, EmotionReport, MEDIA_PANEL_VERSION, panel_estimate};
 use super::request::EmotionRequest;
+use crate::error::{CliError, CliResult};
 
 const METRIC_KEY: &[u8] = b"ph70/media/audio_emotion";
 
@@ -29,21 +30,19 @@ pub(crate) fn write_metric_outputs(
     vault: &AsterVault,
     request: &EmotionRequest,
     report: EmotionReport,
-) -> Result<MetricEvidence, String> {
-    fs::create_dir_all(&request.metrics_dir).map_err(|error| error.to_string())?;
+) -> CliResult<MetricEvidence> {
+    fs::create_dir_all(&request.metrics_dir)?;
     let emotion_bits = request.metrics_dir.join("media_audio_emotion_bits.txt");
     let summary = request.metrics_dir.join("media_audio_emotion_summary.json");
     write_float(&emotion_bits, report.emotion_bits.bits)?;
-    let value = serde_json::to_vec_pretty(&report).map_err(|error| error.to_string())?;
-    fs::write(&summary, &value).map_err(|error| error.to_string())?;
+    let value = serde_json::to_vec_pretty(&report).map_err(|error| {
+        CliError::runtime(format!("serialize media audio-emotion summary: {error}"))
+    })?;
+    fs::write(&summary, &value)?;
     let assay_rows_persisted = persist_assay_rows(vault, &report)?;
-    let assay_rows_loaded = AssayStore::load_from_vault(vault)
-        .map_err(|error| error.to_string())?
-        .len();
-    let seq = vault
-        .write_cf(ColumnFamily::Online, METRIC_KEY.to_vec(), value.clone())
-        .map_err(|error| error.to_string())?;
-    vault.flush().map_err(|error| error.to_string())?;
+    let assay_rows_loaded = AssayStore::load_from_vault(vault)?.len();
+    let seq = vault.write_cf(ColumnFamily::Online, METRIC_KEY.to_vec(), value.clone())?;
+    vault.flush()?;
     Ok(MetricEvidence {
         emotion_bits_path: emotion_bits.display().to_string(),
         summary_path: summary.display().to_string(),
@@ -58,7 +57,7 @@ pub(crate) fn write_metric_outputs(
     })
 }
 
-fn persist_assay_rows(vault: &AsterVault, report: &EmotionReport) -> Result<usize, String> {
+fn persist_assay_rows(vault: &AsterVault, report: &EmotionReport) -> CliResult<usize> {
     let key = AssayCacheKey::scoped(
         MEDIA_PANEL_VERSION,
         "ph70-media-audio-emotion",
@@ -82,19 +81,17 @@ fn persist_assay_rows(vault: &AsterVault, report: &EmotionReport) -> Result<usiz
         "PH70 media panel sufficiency summary for verified audio-emotion anchors",
         6061,
     );
-    store
-        .persist_to_vault(vault)
-        .map_err(|error| error.to_string())
+    Ok(store.persist_to_vault(vault)?)
 }
 
-fn write_float(path: &std::path::Path, value: f32) -> std::result::Result<(), String> {
+fn write_float(path: &std::path::Path, value: f32) -> CliResult {
     if !value.is_finite() {
-        return Err(format!(
+        return Err(CliError::runtime(format!(
             "CALYX_FSV_MEDIA_EMOTION_NONFINITE_METRIC: {}",
             path.display()
-        ));
+        )));
     }
-    fs::write(path, format!("{value:.6}\n")).map_err(|error| error.to_string())
+    Ok(fs::write(path, format!("{value:.6}\n"))?)
 }
 
 fn hex(bytes: &[u8]) -> String {

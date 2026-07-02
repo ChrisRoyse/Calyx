@@ -130,7 +130,9 @@ pub(super) fn find_preferred(
 
 pub(super) fn read_hidden_size(config: &Path) -> CliResult<u32> {
     let bytes = fs::read(config)?;
-    let value: serde_json::Value = serde_json::from_slice(&bytes)?;
+    let value: serde_json::Value = serde_json::from_slice(&bytes).map_err(|error| {
+        CliError::runtime(format!("parse lens config {}: {error}", config.display()))
+    })?;
     let raw = value
         .get("hidden_size")
         .or_else(|| value.get("dim"))

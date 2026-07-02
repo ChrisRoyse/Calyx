@@ -3,17 +3,21 @@ use std::path::Path;
 use calyx_anneal::{FileWardTauStore, WardTauStore};
 use calyx_core::SlotId;
 
+use crate::error::CliError;
+
 pub(crate) fn readback_ward_tau(vault: &Path, slot: &str) -> crate::error::CliResult {
     if !vault.is_dir() {
-        return Err(format!("--vault path {} is not a directory", vault.display()).into());
+        return Err(CliError::usage(format!(
+            "--vault path {} is not a directory",
+            vault.display()
+        )));
     }
     let slot_id = slot
         .parse::<SlotId>()
-        .map_err(|error| format!("invalid --slot: {error}"))?;
-    let store = FileWardTauStore::open(vault).map_err(|error| error.to_string())?;
+        .map_err(|error| CliError::usage(format!("invalid --slot: {error}")))?;
+    let store = FileWardTauStore::open(vault)?;
     let Some(row) = store
-        .readback()
-        .map_err(|error| error.to_string())?
+        .readback()?
         .into_iter()
         .find(|row| row.slot_id == slot_id)
     else {

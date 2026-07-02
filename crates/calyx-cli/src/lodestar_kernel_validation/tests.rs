@@ -45,7 +45,10 @@ fn insufficient_corpora_fails_closed_before_metrics() {
 
     let err = evaluate_corpora(&data, &request).unwrap_err();
 
-    assert!(err.starts_with("CALYX_FSV_LODESTAR_INSUFFICIENT_CORPORA"));
+    assert!(
+        err.message()
+            .starts_with("CALYX_FSV_LODESTAR_INSUFFICIENT_CORPORA")
+    );
     assert!(!request.metrics_dir.exists());
     let _ = fs::remove_dir_all(root);
 }
@@ -63,7 +66,7 @@ fn too_small_corpus_fails_closed() {
 
     let err = evaluate_corpora(&data, &request).unwrap_err();
 
-    assert!(err.starts_with("CALYX_KERNEL_CORPUS_TOO_SMALL"));
+    assert!(err.message().starts_with("CALYX_KERNEL_CORPUS_TOO_SMALL"));
     assert!(!request.metrics_dir.exists());
     let _ = fs::remove_dir_all(root);
 }
@@ -75,7 +78,7 @@ fn missing_corpora_dir_reports_dataset_not_found() {
 
     let err = CorpusSet::load(&request.corpora_dir).unwrap_err();
 
-    assert!(err.starts_with("CALYX_DATASET_NOT_FOUND"));
+    assert!(err.message().starts_with("CALYX_DATASET_NOT_FOUND"));
     let _ = fs::remove_dir_all(root);
 }
 

@@ -439,3 +439,12 @@ fn slug(value: &str) -> String {
 
 #[cfg(test)]
 mod tests;
+
+pub(super) fn id_for_loaded(template: &SavedPanelTemplate) -> CliResult<String> {
+    Ok(blake3::hash(&object_bytes(template)?).to_hex().to_string())
+}
+
+pub(super) fn object_bytes(template: &SavedPanelTemplate) -> CliResult<Vec<u8>> {
+    serde_json::to_vec_pretty(template)
+        .map_err(|error| CliError::runtime(format!("serialize template object: {error}")))
+}

@@ -376,7 +376,9 @@ fn read_index(home: &Path) -> CliResult<VaultIndex> {
     if !path.exists() {
         return Ok(VaultIndex::default());
     }
-    Ok(serde_json::from_slice(&fs::read(path)?)?)
+    serde_json::from_slice(&fs::read(&path)?).map_err(|error| {
+        CliError::runtime(format!("parse vault index {}: {error}", path.display()))
+    })
 }
 
 fn write_index(home: &Path, index: &VaultIndex) -> CliResult {
@@ -384,7 +386,8 @@ fn write_index(home: &Path, index: &VaultIndex) -> CliResult {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;
     }
-    let value = serde_json::to_value(index)?;
+    let value = serde_json::to_value(index)
+        .map_err(|error| CliError::runtime(format!("serialize vault index: {error}")))?;
     crate::durable_write::write_json_value_atomic(&path, &value, "vault index")
 }
 

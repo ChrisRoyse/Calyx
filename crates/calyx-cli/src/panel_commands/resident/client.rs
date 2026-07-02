@@ -5,7 +5,10 @@ pub(crate) fn client_command(args: &[String], op: &str) -> CliResult {
     let flags = parse_client_flags(args, op)?;
     let mut request = json!({ "op": op });
     if op == "measure" {
-        request["modality"] = serde_json::to_value(flags.modality.expect("parsed modality"))?;
+        request["modality"] = serde_json::to_value(flags.modality.expect("parsed modality"))
+            .map_err(|error| {
+                CliError::runtime(format!("serialize resident measure modality: {error}"))
+            })?;
         match flags.input.expect("parsed input") {
             ClientMeasureInput::Utf8(input) => request["input"] = json!(input),
             ClientMeasureInput::Hex(input_hex) => request["input_hex"] = json!(input_hex),
@@ -36,12 +39,14 @@ fn send_request(addr: SocketAddr, request: Value) -> CliResult<Value> {
     let timeout = Some(Duration::from_secs(CLIENT_TIMEOUT_SECS));
     stream.set_read_timeout(timeout)?;
     stream.set_write_timeout(timeout)?;
-    serde_json::to_writer(&mut stream, &request)?;
+    serde_json::to_writer(&mut stream, &request)
+        .map_err(|error| CliError::runtime(format!("write resident request to {addr}: {error}")))?;
     stream.write_all(b"\n")?;
     stream.flush()?;
     let mut response = String::new();
     BufReader::new(stream).read_line(&mut response)?;
-    Ok(serde_json::from_str(&response)?)
+    serde_json::from_str(&response)
+        .map_err(|error| CliError::runtime(format!("parse resident response from {addr}: {error}")))
 }
 
 pub(crate) fn measure_batch_at(

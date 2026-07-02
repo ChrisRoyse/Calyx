@@ -14,6 +14,7 @@ use calyx_registry::AlgorithmicLens;
 use serde::Serialize;
 use serde_json::json;
 
+use crate::error::CliError;
 use crate::raw_media::{
     RetainedMediaInput, hex, media_metadata, retain_media_input, retained_pointer_path,
     verify_retained_pointer,
@@ -94,9 +95,9 @@ pub(crate) fn validate_video_corpus(
     vault.flush()?;
     let readback = readback_vault(&vault, &request.vault)?;
     if readback.video_rows < ids.len() {
-        return Err(
-            "CALYX_FSV_MEDIA_VIDEO_READBACK_MISMATCH: fewer video rows than ingested".into(),
-        );
+        return Err(CliError::runtime(
+            "CALYX_FSV_MEDIA_VIDEO_READBACK_MISMATCH: fewer video rows than ingested",
+        ));
     }
     let summary = json!({
         "trigger": "calyx media video-validate on verified media_fsv_mini videos",
@@ -109,7 +110,8 @@ pub(crate) fn validate_video_corpus(
         "slot": VIDEO_SLOT.get(),
         "vector_dim": 16,
     });
-    let summary_bytes = serde_json::to_vec_pretty(&summary)?;
+    let summary_bytes = serde_json::to_vec_pretty(&summary)
+        .map_err(|error| CliError::runtime(format!("serialize ingest summary: {error}")))?;
     fs::create_dir_all(&request.metrics_dir)?;
     let summary_path = request.metrics_dir.join("media_video_ingest_summary.json");
     fs::write(&summary_path, &summary_bytes)?;
@@ -243,13 +245,21 @@ fn readback_vault(
             .metadata
             .get("media.source_sha256")
             .cloned()
-            .ok_or("CALYX_FSV_MEDIA_VIDEO_READBACK_MISMATCH: missing source sha256")?;
+            .ok_or_else(|| {
+                CliError::runtime("CALYX_FSV_MEDIA_VIDEO_READBACK_MISMATCH: missing source sha256")
+            })?;
         let expected_bytes = cx
             .metadata
             .get("media.bytes")
-            .ok_or("CALYX_FSV_MEDIA_VIDEO_READBACK_MISMATCH: missing retained byte count")?
+            .ok_or_else(|| {
+                CliError::runtime(
+                    "CALYX_FSV_MEDIA_VIDEO_READBACK_MISMATCH: missing retained byte count",
+                )
+            })?
             .parse::<usize>()
-            .map_err(|error| format!("CALYX_FSV_MEDIA_VIDEO_READBACK_MISMATCH: {error}"))?;
+            .map_err(|error| {
+                CliError::runtime(format!("CALYX_FSV_MEDIA_VIDEO_READBACK_MISMATCH: {error}"))
+            })?;
         verify_retained_pointer(vault_dir, &pointer, &sha, expected_bytes)?;
         let slot_bytes = vault
             .read_cf_at(
@@ -258,20 +268,19 @@ fn readback_vault(
                 &slot_key(cx.cx_id),
             )?
             .ok_or_else(|| {
-                format!(
+                CliError::runtime(format!(
                     "CALYX_FSV_MEDIA_VIDEO_READBACK_MISMATCH: missing slot row for {}",
                     cx.cx_id
-                )
+                ))
             })?;
         match decode_slot_vector(&slot_bytes)? {
             SlotVector::Dense { dim: 16, data } if data.iter().all(|value| value.is_finite()) => {
                 slot_rows += 1;
             }
             other => {
-                return Err(format!(
+                return Err(CliError::runtime(format!(
                     "CALYX_FSV_MEDIA_VIDEO_READBACK_MISMATCH: invalid video slot vector {other:?}"
-                )
-                .into());
+                )));
             }
         }
         retained_bytes += fs::metadata(retained_pointer_path(vault_dir, &pointer)?)?.len();
@@ -295,18 +304,16 @@ fn ensure_metadata_matches(
     retained: &RetainedMediaInput,
 ) -> crate::error::CliResult {
     if retained.source_sha256 != row.sha256 {
-        return Err(format!(
+        return Err(CliError::runtime(format!(
             "CALYX_FSV_MEDIA_VIDEO_SOURCE_SHA_MISMATCH: {} != {}",
             retained.source_sha256, row.sha256
-        )
-        .into());
+        )));
     }
     if retained.bytes as u64 != row.bytes {
-        return Err(format!(
+        return Err(CliError::runtime(format!(
             "CALYX_FSV_MEDIA_VIDEO_SOURCE_SIZE_MISMATCH: {} != {}",
             retained.bytes, row.bytes
-        )
-        .into());
+        )));
     }
     let probe = &retained.probe;
     if probe.frame_count != Some(row.frame_count)
@@ -316,11 +323,10 @@ fn ensure_metadata_matches(
         || probe.container != row.container
         || probe.fps.is_none_or(|fps| (fps - row.fps).abs() > 0.001)
     {
-        return Err(format!(
+        return Err(CliError::runtime(format!(
             "CALYX_FSV_MEDIA_VIDEO_DECODE_METADATA_MISMATCH: {}",
             row.path
-        )
-        .into());
+        )));
     }
     Ok(())
 }
@@ -334,7 +340,9 @@ fn dataset_root(request: &VideoValidateRequest) -> crate::error::CliResult<PathB
         .parent()
         .and_then(Path::parent)
         .map(Path::to_path_buf)
-        .ok_or_else(|| "CALYX_FSV_MEDIA_VIDEO_INVALID_CONFIG: cannot derive dataset root".into())
+        .ok_or_else(|| {
+            CliError::usage("CALYX_FSV_MEDIA_VIDEO_INVALID_CONFIG: cannot derive dataset root")
+        })
 }
 
 fn checked_dataset_path(root: &Path, rel: &str) -> crate::error::CliResult<PathBuf> {
@@ -345,9 +353,9 @@ fn checked_dataset_path(root: &Path, rel: &str) -> crate::error::CliResult<PathB
             Component::ParentDir | Component::RootDir | Component::Prefix(_)
         )
     }) {
-        return Err(
-            format!("CALYX_FSV_MEDIA_VIDEO_INVALID_PATH: {rel} escapes dataset root").into(),
-        );
+        return Err(CliError::runtime(format!(
+            "CALYX_FSV_MEDIA_VIDEO_INVALID_PATH: {rel} escapes dataset root"
+        )));
     }
     Ok(root.join(rel_path))
 }
@@ -379,7 +387,7 @@ fn video_panel(lens: &AlgorithmicLens) -> Panel {
 
 fn parse_vault_id(raw: &str) -> crate::error::CliResult<VaultId> {
     raw.parse::<VaultId>()
-        .map_err(|error| format!("CALYX_FSV_MEDIA_VIDEO_INVALID_CONFIG: {error}").into())
+        .map_err(|error| CliError::usage(format!("CALYX_FSV_MEDIA_VIDEO_INVALID_CONFIG: {error}")))
 }
 
 fn now_ms() -> u64 {

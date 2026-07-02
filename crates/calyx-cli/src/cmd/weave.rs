@@ -487,7 +487,9 @@ fn write_fsv_readback(output: &serde_json::Value) -> CliResult {
     let dir = root.join("weave-loom");
     fs::create_dir_all(&dir)?;
     let path = dir.join("weave_loom_report.json");
-    fs::write(&path, serde_json::to_vec_pretty(output)?)?;
+    let bytes = serde_json::to_vec_pretty(output)
+        .map_err(|error| CliError::runtime(format!("serialize {}: {error}", path.display())))?;
+    fs::write(&path, bytes)?;
     eprintln!("WEAVE_LOOM_READBACK={}", path.display());
     Ok(())
 }

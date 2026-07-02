@@ -211,7 +211,10 @@ pub(crate) fn run(args: Vec<String>) -> CliResult {
                 && vault_flag == "--vault"
                 && seq_flag == "--seq" =>
         {
-            verify::readback_ledger_seq(Path::new(vault), verify::parse_seq(seq)?)
+            verify::readback_ledger_seq(
+                Path::new(vault),
+                verify::parse_seq(seq).map_err(CliError::usage)?,
+            )
         }
         [command, flag, vault_flag, vault]
             if command == "readback" && flag == "--wal" && vault_flag == "--vault" =>
@@ -261,7 +264,7 @@ pub(crate) fn run(args: Vec<String>) -> CliResult {
         {
             let last = last
                 .parse::<usize>()
-                .map_err(|error| format!("invalid --last: {error}"))?;
+                .map_err(|error| CliError::usage(format!("invalid --last: {error}")))?;
             scan::tail_ledger_vault(Path::new(vault), last)
         }
         [command, vault_flag, vault, cx_flag, cx]
@@ -291,7 +294,10 @@ pub(crate) fn run(args: Vec<String>) -> CliResult {
                 && vault_flag == "--vault"
                 && duration_flag == "--duration" =>
         {
-            ops::compact_watch(Path::new(vault), ops::parse_duration(duration)?)
+            ops::compact_watch(
+                Path::new(vault),
+                ops::parse_duration(duration).map_err(CliError::usage)?,
+            )
         }
         [
             command,
@@ -308,10 +314,10 @@ pub(crate) fn run(args: Vec<String>) -> CliResult {
         {
             let ops = ops
                 .parse::<usize>()
-                .map_err(|error| format!("invalid --ops: {error}"))?;
+                .map_err(|error| CliError::usage(format!("invalid --ops: {error}")))?;
             let threads = threads
                 .parse::<usize>()
-                .map_err(|error| format!("invalid --threads: {error}"))?;
+                .map_err(|error| CliError::usage(format!("invalid --threads: {error}")))?;
             ops::soak(Path::new(vault), ops, threads)
         }
         [command, vault_flag, vault, cf_flag, cf, output_flag, output]
@@ -360,16 +366,16 @@ pub(crate) fn run(args: Vec<String>) -> CliResult {
             let args = resource_drill::ResourceDrillArgs {
                 ops: ops
                     .parse::<u64>()
-                    .map_err(|error| format!("invalid --ops: {error}"))?,
+                    .map_err(|error| CliError::usage(format!("invalid --ops: {error}")))?,
                 value_bytes: value_bytes
                     .parse::<usize>()
-                    .map_err(|error| format!("invalid --value-bytes: {error}"))?,
+                    .map_err(|error| CliError::usage(format!("invalid --value-bytes: {error}")))?,
                 memtable_cap: memtable_cap
                     .parse::<usize>()
-                    .map_err(|error| format!("invalid --memtable-cap: {error}"))?,
-                pin_max_age_ms: pin_max_age_ms
-                    .parse::<u64>()
-                    .map_err(|error| format!("invalid --pin-max-age-ms: {error}"))?,
+                    .map_err(|error| CliError::usage(format!("invalid --memtable-cap: {error}")))?,
+                pin_max_age_ms: pin_max_age_ms.parse::<u64>().map_err(|error| {
+                    CliError::usage(format!("invalid --pin-max-age-ms: {error}"))
+                })?,
             };
             resource_drill::run_resource_drill(Path::new(vault), args)
         }
@@ -390,7 +396,7 @@ pub(crate) fn run(args: Vec<String>) -> CliResult {
         {
             let records = records
                 .parse::<usize>()
-                .map_err(|error| format!("invalid --records: {error}"))?;
+                .map_err(|error| CliError::usage(format!("invalid --records: {error}")))?;
             fsv::wal_drill(Path::new(vault), records)
         }
         [command, wal_dir] if command == "wal-replay" => fsv::wal_replay(Path::new(wal_dir)),
@@ -409,17 +415,21 @@ pub(crate) fn run(args: Vec<String>) -> CliResult {
         {
             let pause_ms = pause_ms
                 .parse::<u64>()
-                .map_err(|error| format!("invalid --pause-ms: {error}"))?;
+                .map_err(|error| CliError::usage(format!("invalid --pause-ms: {error}")))?;
             crash::crash_drill(
                 Path::new(vault),
-                crash::CrashPoint::parse(point)?,
+                crash::CrashPoint::parse(point).map_err(CliError::usage)?,
                 Some(pause_ms),
             )
         }
         [command, vault_flag, vault, point_flag, point]
             if command == "crash-drill" && vault_flag == "--vault" && point_flag == "--point" =>
         {
-            crash::crash_drill(Path::new(vault), crash::CrashPoint::parse(point)?, None)
+            crash::crash_drill(
+                Path::new(vault),
+                crash::CrashPoint::parse(point).map_err(CliError::usage)?,
+                None,
+            )
         }
         [command, vault_flag, vault] if command == "recover" && vault_flag == "--vault" => {
             crash::recover(Path::new(vault))
@@ -429,7 +439,7 @@ pub(crate) fn run(args: Vec<String>) -> CliResult {
         {
             let index = index
                 .parse::<u8>()
-                .map_err(|error| format!("invalid --index: {error}"))?;
+                .map_err(|error| CliError::usage(format!("invalid --index: {error}")))?;
             crash::open_check(Path::new(vault), index)
         }
         [command, vault_flag, vault, cf_flag, cf, offset_flag, offset]
@@ -440,7 +450,7 @@ pub(crate) fn run(args: Vec<String>) -> CliResult {
         {
             let offset = offset
                 .parse::<u64>()
-                .map_err(|error| format!("invalid --byte-offset: {error}"))?;
+                .map_err(|error| CliError::usage(format!("invalid --byte-offset: {error}")))?;
             fsv::corrupt_shard(Path::new(vault), cf, offset)
         }
         [command, vault_flag, vault, requests_flag, requests]
@@ -450,7 +460,7 @@ pub(crate) fn run(args: Vec<String>) -> CliResult {
         {
             let requests = requests
                 .parse::<usize>()
-                .map_err(|error| format!("invalid --requests: {error}"))?;
+                .map_err(|error| CliError::usage(format!("invalid --requests: {error}")))?;
             ops::wal_batch_demo(Path::new(vault), requests)
         }
         [] | [_]

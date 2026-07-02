@@ -31,14 +31,26 @@ const FSV_REMEDIATION: &str = "inspect the oracle corpus, metrics files, and Ass
 
 pub(crate) fn run(args: &[String]) -> CliResult {
     let request = OracleSufficiencyRequest::parse(args).map_err(oracle_cli_error)?;
-    let corpus = OracleCorpus::load(&request).map_err(oracle_cli_error)?;
-    let report = evaluate_corpus(&corpus, &request).map_err(oracle_cli_error)?;
-    let evidence = write_metric_outputs(&request, &report).map_err(oracle_cli_error)?;
+    let corpus = OracleCorpus::load(&request).map_err(oracle_runtime_error)?;
+    let report = evaluate_corpus(&corpus, &request).map_err(oracle_runtime_error)?;
+    let evidence = write_metric_outputs(&request, &report)?;
     println!(
         "{}",
-        serde_json::to_string_pretty(&evidence).map_err(|error| error.to_string())?
+        serde_json::to_string_pretty(&evidence).map_err(|error| {
+            CliError::runtime(format!("serialize oracle sufficiency evidence: {error}"))
+        })?
     );
     Ok(())
+}
+
+/// Same code recovery as [`oracle_cli_error`], but uncoded strings classify as
+/// runtime failures: these call sites run after argument parsing succeeded,
+/// so `--help` can never be the remedy (issue #1145).
+fn oracle_runtime_error(error: String) -> CliError {
+    match oracle_cli_error(error) {
+        CliError::Usage(message) => CliError::runtime(message),
+        typed => typed,
+    }
 }
 
 fn oracle_cli_error(error: String) -> CliError {

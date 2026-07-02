@@ -330,7 +330,7 @@ workspace:
 | Oracle | `CALYX_ORACLE_*` |
 | Mincut / Paths | `CALYX_SCC_*`, `CALYX_BETWEENNESS_*`, `CALYX_MINCUT_*`, `CALYX_GRAPH_*`, `CALYX_PATHS_*` |
 | MCP | JSON-RPC codes + `CALYX_MCP_JSONRPC_INVALID`, `CALYX_MCP_TOOL_DUPLICATE` |
-| CLI | `CALYX_CLI_USAGE_ERROR`, `CALYX_CLI_IO_ERROR` |
+| CLI | `CALYX_CLI_USAGE_ERROR`, `CALYX_CLI_IO_ERROR`, `CALYX_CLI_RUNTIME_ERROR` |
 | Daemon | `CALYX_DAEMON_{BIND_FAILED,CONFIG_INVALID,HEALTH_FAIL,FRAME_INVALID,CONN_PANIC}` |
 
 ---
@@ -10651,6 +10651,9 @@ Every CLI failure serializes to a stable JSON envelope on **stderr** and exits w
 | `Calyx(CalyxError)` | the catalog `code` (PRD 18), carried verbatim | catalog `remediation` |
 | `Io(String)` | `CALYX_CLI_IO_ERROR` | "check the path/permissions in the message and retry" |
 | `Usage(String)` | `CALYX_CLI_USAGE_ERROR` | "run `calyx --help` and fix the command/flags shown in the message" |
+| `Runtime(String)` | `CALYX_CLI_RUNTIME_ERROR` | "the command and flags were valid; inspect the failure detail in the message, fix the named state or input, and retry" |
+
+Classification is explicit at every failure site (issue #1145): `Usage` is reserved for argument/flag parse failures, `Io` for OS-refused file/path operations, and `Runtime` for valid commands whose operation failed without a PRD 18 catalog entry. `CliError` deliberately has **no** `From<String>`/`From<&str>` conversion — a blanket string conversion used to reclassify stringified `CalyxError`s as usage errors, destroying their typed `code`/`remediation`. A typed `CalyxError` always propagates verbatim via `?`.
 
 `LodestarError` is mapped to `Calyx(...)` with the subsystem code preserved. `verify-restore`, `healthcheck --config`, and a few FSV tools bypass this envelope and print `error: …` to stderr with their own exit codes (noted per command).
 

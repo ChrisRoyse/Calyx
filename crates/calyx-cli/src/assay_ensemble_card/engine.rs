@@ -159,7 +159,9 @@ fn persist_and_readback(
         "assay ensemble-card anchor entropy",
         2_001,
     );
-    let payload = serde_json::to_value(card).map_err(|error| error.to_string())?;
+    let payload = serde_json::to_value(card).map_err(|error| {
+        format!("CALYX_FSV_ASSAY_NONFINITE_METRIC: serialize ensemble card payload: {error}")
+    })?;
     store.put_with_payload(
         key.clone(),
         AssaySubject::EnsembleCard,

@@ -41,27 +41,39 @@ const INVALID_RESOURCE_REMEDIATION: &str = "fix the non-finite or negative resou
 
 pub(crate) fn run(args: &[String]) -> CliResult {
     let request = AssayBitsRequest::parse(args).map_err(assay_cli_error)?;
-    let corpus = AssayCorpus::load(&request).map_err(assay_cli_error)?;
+    let corpus = AssayCorpus::load(&request).map_err(assay_runtime_error)?;
     let cost = match &request.cost_json {
-        Some(path) => Some(LensCostMap::load(path).map_err(assay_cli_error)?),
+        Some(path) => Some(LensCostMap::load(path).map_err(assay_runtime_error)?),
         None => None,
     };
     let panel_budget = match &request.panel_budget_json {
-        Some(path) => Some(PanelBudgetConfig::load(path).map_err(assay_cli_error)?),
+        Some(path) => Some(PanelBudgetConfig::load(path).map_err(assay_runtime_error)?),
         None => None,
     };
-    let report =
-        evaluate_corpus(&corpus, &request, cost.as_ref(), panel_budget).map_err(assay_cli_error)?;
-    let evidence = write_metric_outputs(&request, &report).map_err(assay_cli_error)?;
+    let report = evaluate_corpus(&corpus, &request, cost.as_ref(), panel_budget)
+        .map_err(assay_runtime_error)?;
+    let evidence = write_metric_outputs(&request, &report)?;
     println!(
         "{}",
-        serde_json::to_string_pretty(&evidence).map_err(CliError::from)?
+        serde_json::to_string_pretty(&evidence).map_err(|error| CliError::runtime(format!(
+            "serialize assay bits evidence: {error}"
+        )))?
     );
     Ok(())
 }
 
 pub(crate) fn calyx_error_detail(error: CalyxError) -> String {
     format!("{}: {}", error.code, error.message)
+}
+
+/// Same code recovery as [`assay_cli_error`], but uncoded strings classify as
+/// runtime failures: these call sites run after argument parsing succeeded,
+/// so `--help` can never be the remedy (issue #1145).
+fn assay_runtime_error(error: String) -> CliError {
+    match assay_cli_error(error) {
+        CliError::Usage(message) => CliError::runtime(message),
+        typed => typed,
+    }
 }
 
 fn assay_cli_error(error: String) -> CliError {

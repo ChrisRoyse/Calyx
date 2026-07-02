@@ -13,26 +13,28 @@ use engine::evaluate_emotion;
 use metrics::write_metric_outputs;
 use request::EmotionRequest;
 
+use crate::error::CliError;
+
 pub(crate) fn run(args: &[String]) -> crate::error::CliResult {
-    let request = EmotionRequest::parse(args)?;
-    fs::create_dir_all(&request.metrics_dir).map_err(|error| error.to_string())?;
-    let vault_id = request
-        .vault_id
-        .parse::<VaultId>()
-        .map_err(|error| format!("CALYX_FSV_MEDIA_EMOTION_INVALID_CONFIG: {error}"))?;
+    let request = EmotionRequest::parse(args).map_err(CliError::usage)?;
+    fs::create_dir_all(&request.metrics_dir)?;
+    let vault_id = request.vault_id.parse::<VaultId>().map_err(|error| {
+        CliError::usage(format!("CALYX_FSV_MEDIA_EMOTION_INVALID_CONFIG: {error}"))
+    })?;
     let vault = AsterVault::new_durable(
         &request.vault,
         vault_id,
         request.vault_salt.as_bytes().to_vec(),
         VaultOptions::default(),
-    )
-    .map_err(|error| error.to_string())?;
-    let data = ValidationData::load(&request.samples)?;
+    )?;
+    let data = ValidationData::load(&request.samples).map_err(CliError::runtime)?;
     let report = evaluate_emotion(&data, &request)?;
     let evidence = write_metric_outputs(&vault, &request, report)?;
     println!(
         "{}",
-        serde_json::to_string_pretty(&evidence).map_err(|error| error.to_string())?
+        serde_json::to_string_pretty(&evidence).map_err(|error| CliError::runtime(format!(
+            "serialize media emotion validation evidence: {error}"
+        )))?
     );
     Ok(())
 }

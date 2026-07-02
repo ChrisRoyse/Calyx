@@ -41,6 +41,8 @@ use calyx_aster::sst::level::SstLevel;
 use calyx_aster::storage_names::{SstName, SstOrderKey, classify_sst, sst_order_key};
 use calyx_aster::vault::encode::{WriteRow, decode_write_batch};
 
+use crate::error::{CliError, CliResult};
+
 /// Which resolution stage produced a row value.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -125,7 +127,7 @@ impl VaultReadContext {
         &mut self,
         cf: ColumnFamily,
         keys: &[(Vec<u8>, u64)],
-    ) -> Result<ProvenanceReadBatch, String> {
+    ) -> CliResult<ProvenanceReadBatch> {
         let mut rows: BTreeMap<Vec<u8>, Option<ResolvedRow>> =
             keys.iter().map(|(key, _)| (key.clone(), None)).collect();
         if rows.is_empty() {
@@ -165,7 +167,7 @@ impl VaultReadContext {
         cf: &ColumnFamily,
         keys: &[(Vec<u8>, u64)],
         rows: &mut BTreeMap<Vec<u8>, Option<ResolvedRow>>,
-    ) -> Result<(), String> {
+    ) -> CliResult {
         let mut keys_by_commit_seq = BTreeMap::<u64, Vec<&[u8]>>::new();
         for (key, provenance_seq) in keys {
             let Some(commit_seq) = self.ledger_index()?.resolve(*provenance_seq)? else {
@@ -182,14 +184,9 @@ impl VaultReadContext {
         let listing = self.cf_listing(cf)?;
         for (commit_seq, seq_keys) in keys_by_commit_seq {
             for path in listing.durable_batch_files_for_seq(commit_seq) {
-                let reader = SstReader::open(path).map_err(|error| {
-                    format!("open commit-batch SST {}: {error}", path.display())
-                })?;
+                let reader = SstReader::open(path)?;
                 for key in &seq_keys {
-                    if let Some(value) = reader
-                        .get(key)
-                        .map_err(|error| format!("read {}: {error}", path.display()))?
-                    {
+                    if let Some(value) = reader.get(key)? {
                         rows.insert(
                             key.to_vec(),
                             Some(ResolvedRow {
@@ -210,7 +207,7 @@ impl VaultReadContext {
         &mut self,
         cf: &ColumnFamily,
         rows: &mut BTreeMap<Vec<u8>, Option<ResolvedRow>>,
-    ) -> Result<(), String> {
+    ) -> CliResult {
         let unresolved: Vec<Vec<u8>> = rows
             .iter()
             .filter(|(_, row)| row.is_none())
@@ -221,10 +218,7 @@ impl VaultReadContext {
         }
         let level = self.cf_full_level(cf)?;
         for key in unresolved {
-            if let Some(value) = level
-                .get(&key)
-                .map_err(|error| format!("full-level read of CF {}: {error}", cf.name()))?
-            {
+            if let Some(value) = level.get(&key)? {
                 rows.insert(
                     key,
                     Some(ResolvedRow {
@@ -242,14 +236,12 @@ impl VaultReadContext {
         &mut self,
         cf: &ColumnFamily,
         rows: &mut BTreeMap<Vec<u8>, Option<ResolvedRow>>,
-    ) -> Result<(), String> {
+    ) -> CliResult {
         if self.wal_tail.is_none() {
             let replay = crate::cf_read::replay_after_manifest(&self.vault)?;
             let mut tail = Vec::new();
             for record in replay.records {
-                tail.extend(
-                    decode_write_batch(&record.payload).map_err(|error| error.to_string())?,
-                );
+                tail.extend(decode_write_batch(&record.payload)?);
             }
             self.wal_tail = Some(tail);
         }
@@ -267,14 +259,14 @@ impl VaultReadContext {
         Ok(())
     }
 
-    fn ledger_index(&mut self) -> Result<&mut LedgerProvenanceIndex, String> {
+    fn ledger_index(&mut self) -> CliResult<&mut LedgerProvenanceIndex> {
         if self.ledger.is_none() {
             self.ledger = Some(LedgerProvenanceIndex::open(&self.vault)?);
         }
         Ok(self.ledger.as_mut().expect("ledger index cached"))
     }
 
-    fn cf_listing(&mut self, cf: &ColumnFamily) -> Result<&CfFiles, String> {
+    fn cf_listing(&mut self, cf: &ColumnFamily) -> CliResult<&CfFiles> {
         let name = cf.name().to_string();
         if !self.cf_files.contains_key(&name) {
             let listing = CfFiles::list(&self.vault, cf)?;
@@ -283,7 +275,7 @@ impl VaultReadContext {
         Ok(self.cf_files.get(&name).expect("cf listing cached"))
     }
 
-    fn cf_full_level(&mut self, cf: &ColumnFamily) -> Result<&SstLevel, String> {
+    fn cf_full_level(&mut self, cf: &ColumnFamily) -> CliResult<&SstLevel> {
         let name = cf.name().to_string();
         self.cf_listing(cf)?;
         let needs_level = self
@@ -301,8 +293,7 @@ impl VaultReadContext {
                 .iter()
                 .map(|(_, _, path)| path.clone())
                 .collect();
-            let level = SstLevel::from_oldest_first_with_lookup(paths)
-                .map_err(|error| format!("build lookup level for CF {}: {error}", cf.name()))?;
+            let level = SstLevel::from_oldest_first_with_lookup(paths)?;
             self.cf_files
                 .get_mut(&name)
                 .expect("cf listing cached")
@@ -325,26 +316,31 @@ struct CfFiles {
 }
 
 impl CfFiles {
-    fn list(vault: &Path, cf: &ColumnFamily) -> Result<Self, String> {
+    fn list(vault: &Path, cf: &ColumnFamily) -> CliResult<Self> {
         let dir = vault.join("cf").join(cf.name());
         let mut files = Vec::new();
         let mut has_compacted = false;
         if dir.exists() {
             for entry in fs::read_dir(&dir)
-                .map_err(|error| format!("read CF dir {}: {error}", dir.display()))?
+                .map_err(|error| CliError::io(format!("read CF dir {}: {error}", dir.display())))?
             {
                 let path = entry
-                    .map_err(|error| format!("read CF dir entry in {}: {error}", dir.display()))?
+                    .map_err(|error| {
+                        CliError::io(format!("read CF dir entry in {}: {error}", dir.display()))
+                    })?
                     .path();
-                let Some(name) = classify_sst(&path).map_err(|error| error.to_string())? else {
+                let Some(name) = classify_sst(&path)? else {
                     continue;
                 };
                 if matches!(name, SstName::Compacted { .. }) {
                     has_compacted = true;
                 }
-                let order = sst_order_key(&path)
-                    .map_err(|error| error.to_string())?
-                    .ok_or_else(|| format!("classified SST {} has no order key", path.display()))?;
+                let order = sst_order_key(&path)?.ok_or_else(|| {
+                    CliError::runtime(format!(
+                        "classified SST {} has no order key",
+                        path.display()
+                    ))
+                })?;
                 files.push((order, name, path));
             }
         }
@@ -382,7 +378,7 @@ struct LedgerFile {
 }
 
 impl LedgerProvenanceIndex {
-    fn open(vault: &Path) -> Result<Self, String> {
+    fn open(vault: &Path) -> CliResult<Self> {
         let listing = CfFiles::list(vault, &ColumnFamily::Ledger)?;
         let files = listing
             .files
@@ -407,7 +403,7 @@ impl LedgerProvenanceIndex {
     /// Maps a provenance seq to the commit seq of the batch that wrote it, or
     /// `None` when no durable-batch ledger SST covers the seq (the caller
     /// then reads through the full level, which stays authoritative).
-    fn resolve(&mut self, provenance_seq: u64) -> Result<Option<u64>, String> {
+    fn resolve(&mut self, provenance_seq: u64) -> CliResult<Option<u64>> {
         let mut lo = 0usize;
         let mut hi = self.files.len();
         while lo < hi {
@@ -424,18 +420,17 @@ impl LedgerProvenanceIndex {
         Ok(None)
     }
 
-    fn range(&mut self, index: usize) -> Result<(u64, u64), String> {
+    fn range(&mut self, index: usize) -> CliResult<(u64, u64)> {
         if let Some(range) = self.files[index].range {
             return Ok(range);
         }
         let path = &self.files[index].path;
-        let reader = SstReader::open(path)
-            .map_err(|error| format!("open ledger SST {}: {error}", path.display()))?;
+        let reader = SstReader::open(path)?;
         let (first_key, last_key) = reader.key_range().ok_or_else(|| {
-            format!(
+            CliError::runtime(format!(
                 "ledger SST {} has no keys; refusing to use an empty ledger file as a provenance index",
                 path.display()
-            )
+            ))
         })?;
         let range = (
             decode_ledger_seq(path, first_key)?,
@@ -446,15 +441,15 @@ impl LedgerProvenanceIndex {
     }
 }
 
-fn decode_ledger_seq(path: &Path, key: &[u8]) -> Result<u64, String> {
+fn decode_ledger_seq(path: &Path, key: &[u8]) -> CliResult<u64> {
     let bytes: [u8; 8] = key.try_into().map_err(|_| {
-        format!(
+        CliError::runtime(format!(
             "ledger SST {} contains a non-canonical ledger key ({} bytes, expected the 8-byte \
              big-endian seq written by ledger_key); the ledger CF cannot serve as a provenance \
              index for this vault",
             path.display(),
             key.len()
-        )
+        ))
     })?;
     Ok(u64::from_be_bytes(bytes))
 }

@@ -425,7 +425,8 @@ pub(crate) fn run(raw: &[String]) -> CliResult {
         "recall_floor": args.recall_floor,
         "tuner_status_path": tuner_status_path,
     });
-    let bytes = serde_json::to_vec_pretty(&report)?;
+    let bytes = serde_json::to_vec_pretty(&report)
+        .map_err(|error| CliError::runtime(format!("serialize partitioned-rrf report: {error}")))?;
     if let Some(path) = &args.out {
         io::write_bytes_atomic(path, &bytes)?;
     }
@@ -434,7 +435,9 @@ pub(crate) fn run(raw: &[String]) -> CliResult {
 }
 
 fn load_plan(path: &Path) -> CliResult<Plan> {
-    let plan: Plan = serde_json::from_slice(&std::fs::read(path)?)?;
+    let plan: Plan = serde_json::from_slice(&std::fs::read(path)?).map_err(|error| {
+        CliError::runtime(format!("parse rrf plan {}: {error}", path.display()))
+    })?;
     let mut seen = std::collections::BTreeSet::new();
     for slot in &plan.slots {
         if !seen.insert(slot.slot) {

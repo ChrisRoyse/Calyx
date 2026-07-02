@@ -321,7 +321,8 @@ fn write_fsv_report(fsv_out: Option<&Path>, report: &EraseReport) -> CliResult<E
     {
         fs::create_dir_all(parent)?;
     }
-    let bytes = serde_json::to_vec_pretty(&report)?;
+    let bytes = serde_json::to_vec_pretty(&report)
+        .map_err(|error| CliError::runtime(format!("serialize FSV erase report: {error}")))?;
     fs::write(path, &bytes)?;
     let readback = fs::read(path)?;
     if readback != bytes {

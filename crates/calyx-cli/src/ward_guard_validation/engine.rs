@@ -14,6 +14,7 @@ use serde::Serialize;
 
 use super::data::ScoreCorpus;
 use super::request::WardGuardRequest;
+use crate::error::{CliError, CliResult};
 
 const SLOT: SlotId = SlotId::new(1);
 /// Cosine at which the synthetic OOD slot vector sits to its trusted vector.
@@ -75,7 +76,7 @@ pub(crate) struct NoveltyReport {
 pub(crate) fn evaluate(
     corpus: &ScoreCorpus,
     request: &WardGuardRequest,
-) -> Result<WardGuardReport, String> {
+) -> CliResult<WardGuardReport> {
     let clock = SystemClock;
 
     // 1. Real Ward conformal tau-calibration on the calibration subset.
@@ -91,7 +92,7 @@ pub(crate) fn evaluate(
         target_far: request.target_far,
     };
     let (tau, meta) = calyx_ward::calibrate_slot(&input, request.alpha, &clock)
-        .map_err(|error| error.code().to_string())?;
+        .map_err(|error| CliError::runtime(error.code().to_string()))?;
 
     // 2. Held-out metrics under the guard convention (blocked iff score < tau).
     let injection_total = corpus.heldout.iter().filter(|r| r.label == 1).count();
@@ -120,14 +121,14 @@ pub(crate) fn evaluate(
     let block_pass = block_rate >= request.required_block_rate;
     let frr_pass = benign_frr <= request.max_frr;
     if !block_pass {
-        return Err(format!(
+        return Err(CliError::runtime(format!(
             "CALYX_FSV_WARD_BLOCK_RATE_BELOW_99PCT: rate={block_rate:.6}"
-        ));
+        )));
     }
     if !frr_pass {
-        return Err(format!(
+        return Err(CliError::runtime(format!(
             "CALYX_FSV_WARD_FRR_ABOVE_TARGET: frr={benign_frr:.6}"
-        ));
+        )));
     }
 
     // 4. Novelty routing demonstration: an OOD slot vector must be routed to a
@@ -169,8 +170,8 @@ fn persist_verdicts(
     request: &WardGuardRequest,
     corpus: &ScoreCorpus,
     tau: f32,
-) -> Result<PathBuf, String> {
-    std::fs::create_dir_all(&request.metrics_dir).map_err(|error| error.to_string())?;
+) -> CliResult<PathBuf> {
+    std::fs::create_dir_all(&request.metrics_dir)?;
     let path = request.metrics_dir.join("ward_guard_verdicts.jsonl");
     let mut out = String::new();
     for row in &corpus.heldout {
@@ -180,7 +181,7 @@ fn persist_verdicts(
             row.row, row.label, row.benign_score, tau, blocked
         ));
     }
-    std::fs::write(&path, out).map_err(|error| error.to_string())?;
+    std::fs::write(&path, out)?;
     Ok(path)
 }
 
@@ -191,10 +192,12 @@ fn persist_verdicts(
 fn demonstrate_novelty(
     request: &WardGuardRequest,
     meta: &CalibrationMeta,
-) -> Result<NoveltyReport, String> {
+) -> CliResult<NoveltyReport> {
     let profile = GuardProfile {
         guard_id: GUARD_UUID.parse().map_err(|error| {
-            format!("CALYX_FSV_WARD_INVALID_CONFIG: guard id parse failed: {error}")
+            CliError::runtime(format!(
+                "CALYX_FSV_WARD_INVALID_CONFIG: guard id parse failed: {error}"
+            ))
         })?,
         panel_version: 70_004,
         domain: "injection_guard".to_string(),
@@ -212,10 +215,9 @@ fn demonstrate_novelty(
 
     let verdict = guard(&profile, &produced, &matched, false).map_err(ward_code)?;
     if verdict.overall_pass {
-        return Err(
-            "CALYX_FSV_WARD_INVALID_CONFIG: synthetic OOD vector unexpectedly passed guard"
-                .to_string(),
-        );
+        return Err(CliError::runtime(
+            "CALYX_FSV_WARD_INVALID_CONFIG: synthetic OOD vector unexpectedly passed guard",
+        ));
     }
 
     let sink = FileVault::new(request.metrics_dir.join("ward_novel_regions.jsonl"));
@@ -232,12 +234,12 @@ fn demonstrate_novelty(
     })
 }
 
-fn ward_code(error: WardError) -> String {
-    error.code().to_string()
+fn ward_code(error: WardError) -> CliError {
+    error.into()
 }
 
-fn novelty_err(detail: &str) -> String {
-    format!("CALYX_FSV_WARD_INVALID_CONFIG: {detail}")
+fn novelty_err(detail: &str) -> CliError {
+    CliError::runtime(format!("CALYX_FSV_WARD_INVALID_CONFIG: {detail}"))
 }
 
 /// File-backed `VaultSink` mirroring the PH38 FSV `FileVault`: appends one JSON

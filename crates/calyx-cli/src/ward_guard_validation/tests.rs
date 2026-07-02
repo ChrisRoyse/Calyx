@@ -95,8 +95,9 @@ fn overlapping_injections_fail_closed_not_a_hollow_gate() {
     let corpus = ScoreCorpus::load(&req).expect("load");
     let err = evaluate(&corpus, &req).expect_err("degenerate must fail closed");
     assert!(
-        err.contains("CALYX_FSV_WARD_BLOCK_RATE_BELOW_99PCT")
-            || err.contains("CALYX_FSV_WARD_FRR_ABOVE_TARGET"),
+        err.message()
+            .contains("CALYX_FSV_WARD_BLOCK_RATE_BELOW_99PCT")
+            || err.message().contains("CALYX_FSV_WARD_FRR_ABOVE_TARGET"),
         "unexpected error: {err}"
     );
 }

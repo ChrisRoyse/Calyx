@@ -75,6 +75,7 @@ pub(super) fn with_persisted_artifact_error(
         }
         CliError::Io(_) => CliError::io(detail),
         CliError::Usage(_) => CliError::usage(detail),
+        CliError::Runtime(_) => CliError::runtime(detail),
     }
 }
 

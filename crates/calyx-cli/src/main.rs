@@ -95,6 +95,7 @@ mod resource_status;
 mod scan;
 mod sextant_bench;
 mod sextant_bench_guard;
+mod sextant_bench_io;
 mod sextant_commands;
 mod sextant_diskann_validation;
 mod sextant_recall_validation;

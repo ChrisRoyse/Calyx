@@ -124,7 +124,9 @@ fn run_kernel_build_with_home(home: &Path, args: KernelBuildArgs) -> CliResult {
     let parsed_props = node_props
         .into_par_iter()
         .map(|(id, bytes)| -> CliResult<KernelBuildNodeProps> {
-            let props: AsterAssocNodeProps = serde_json::from_slice(&bytes)?;
+            let props: AsterAssocNodeProps = serde_json::from_slice(&bytes).map_err(|error| {
+                CliError::runtime(format!("parse graph node {id} props: {error}"))
+            })?;
             let embedding = props.embedding.ok_or_else(|| {
                 CliError::usage(format!(
                     "graph node {id} has no embedding in its props; re-run weave-loom"

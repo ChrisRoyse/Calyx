@@ -130,9 +130,7 @@ pub(super) fn physical_slot_states(
             .iter()
             .map(|(_, key, seq)| (key.clone(), *seq))
             .collect::<Vec<_>>();
-        let batch = read_context
-            .latest_cf_rows_for_provenance(ColumnFamily::slot(slot), &pairs)
-            .map_err(|error| slot_readback_io_error(slot, "provenance-resolved", &error))?;
+        let batch = read_context.latest_cf_rows_for_provenance(ColumnFamily::slot(slot), &pairs)?;
         progress.emit(json!({
             "event": "cx_list.progress",
             "phase": "slot_lookup_resolved",
@@ -257,8 +255,7 @@ fn physical_raw_row(
     seq: u64,
 ) -> CliResult<Option<(Vec<u8>, &'static str)>> {
     let batch = read_context
-        .latest_cf_rows_for_provenance(ColumnFamily::slot_raw(slot), &[(key.to_vec(), seq)])
-        .map_err(|error| slot_readback_io_error(slot, "slot_raw provenance-resolved", &error))?;
+        .latest_cf_rows_for_provenance(ColumnFamily::slot_raw(slot), &[(key.to_vec(), seq)])?;
     Ok(batch.rows.get(key).and_then(Option::as_ref).map(|row| {
         let source = match row.source {
             RowSource::CommitBatch | RowSource::WalTail => "slot_raw_cf",
@@ -266,13 +263,6 @@ fn physical_raw_row(
         };
         (row.value.clone(), source)
     }))
-}
-
-fn slot_readback_io_error(slot: SlotId, phase: &str, error: &str) -> CliError {
-    CliError::io(format!(
-        "cx-list physical slot readback ({phase}) failed for slot {}: {error}",
-        slot.get()
-    ))
 }
 
 fn missing_slot_row_error(

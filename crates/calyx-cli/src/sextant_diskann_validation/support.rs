@@ -7,6 +7,8 @@ use calyx_sextant::index::{
 };
 use serde::Serialize;
 
+use crate::error::{CliError, CliResult};
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) enum Mode {
     Happy,
@@ -51,13 +53,13 @@ impl Paths {
         }
     }
 
-    pub(super) fn create(root: &Path) -> Result<Self, String> {
+    pub(super) fn create(root: &Path) -> CliResult<Self> {
         let paths = Self::for_root(root);
         if let Some(parent) = paths.graph_path.parent() {
-            fs::create_dir_all(parent).map_err(|error| error.to_string())?;
+            fs::create_dir_all(parent)?;
         }
-        fs::create_dir_all(&paths.raw_dir).map_err(|error| error.to_string())?;
-        fs::create_dir_all(&paths.metrics_dir).map_err(|error| error.to_string())?;
+        fs::create_dir_all(&paths.raw_dir)?;
+        fs::create_dir_all(&paths.metrics_dir)?;
         Ok(paths)
     }
 }
@@ -123,16 +125,13 @@ pub(super) fn approx_rows(raw: &[(CxId, Vec<f32>)]) -> Vec<(CxId, Vec<f32>)> {
         .collect()
 }
 
-pub(super) fn write_raw_sidecar(
-    raw_dir: &Path,
-    raw: &[(CxId, Vec<f32>)],
-) -> std::result::Result<(), String> {
+pub(super) fn write_raw_sidecar(raw_dir: &Path, raw: &[(CxId, Vec<f32>)]) -> CliResult {
     for (id, (_, vector)) in raw.iter().enumerate() {
         let bytes: Vec<_> = vector
             .iter()
             .flat_map(|value| value.to_le_bytes())
             .collect();
-        fs::write(raw_dir.join(id.to_string()), bytes).map_err(|error| error.to_string())?;
+        fs::write(raw_dir.join(id.to_string()), bytes)?;
     }
     Ok(())
 }
@@ -205,21 +204,16 @@ pub(super) fn file_len(path: &Path) -> Option<u64> {
     fs::metadata(path).ok().map(|metadata| metadata.len())
 }
 
-pub(super) fn dir_bytes(path: &Path) -> Result<u64, String> {
-    fs::read_dir(path)
-        .map_err(|error| error.to_string())?
-        .map(|entry| {
-            entry
-                .map_err(|error| error.to_string())
-                .and_then(|entry| entry.metadata().map_err(|error| error.to_string()))
-                .map(|metadata| metadata.len())
-        })
+pub(super) fn dir_bytes(path: &Path) -> CliResult<u64> {
+    fs::read_dir(path)?
+        .map(|entry| -> CliResult<u64> { Ok(entry?.metadata()?.len()) })
         .sum()
 }
 
-pub(super) fn write_json<T: Serialize>(path: &Path, value: &T) -> std::result::Result<(), String> {
-    let json = serde_json::to_string_pretty(value).map_err(|error| error.to_string())?;
-    fs::write(path, json).map_err(|error| error.to_string())
+pub(super) fn write_json<T: Serialize>(path: &Path, value: &T) -> CliResult {
+    let json = serde_json::to_string_pretty(value)
+        .map_err(|error| CliError::runtime(format!("serialize {}: {error}", path.display())))?;
+    Ok(fs::write(path, json)?)
 }
 
 fn required_path(args: &[String], flag: &str) -> Result<PathBuf, String> {

@@ -4,24 +4,24 @@ use calyx_anneal::{AnnealLedgerAction, decode_anneal_ledger_payload};
 use calyx_ledger::{EntryKind, LedgerCfStore, decode};
 use serde_json::json;
 
+use crate::error::CliError;
 use crate::{cf_read::hex_bytes, ledger_store::AsterLedgerCfStore};
 
 pub(crate) fn run(args: &[String]) -> crate::error::CliResult {
     let request = Request::parse(args)?;
     if request.kind != "Anneal" {
-        return Err("readback ledger --kind currently supports only Anneal"
-            .to_string()
-            .into());
+        return Err(CliError::usage(
+            "readback ledger --kind currently supports only Anneal",
+        ));
     }
-    let store = AsterLedgerCfStore::open(&request.vault).map_err(|error| error.to_string())?;
+    let store = AsterLedgerCfStore::open(&request.vault)?;
     let mut matches = Vec::new();
-    for row in store.scan().map_err(|error| error.to_string())? {
-        let raw = decode(&row.bytes).map_err(|error| error.to_string())?;
+    for row in store.scan()? {
+        let raw = decode(&row.bytes)?;
         if raw.kind != EntryKind::Anneal {
             continue;
         }
-        let entry =
-            decode_anneal_ledger_payload(&raw.payload).map_err(|error| error.to_string())?;
+        let entry = decode_anneal_ledger_payload(&raw.payload)?;
         if entry.action != request.action {
             continue;
         }
@@ -47,7 +47,9 @@ pub(crate) fn run(args: &[String]) -> crate::error::CliResult {
     });
     println!(
         "{}",
-        serde_json::to_string_pretty(&readback).map_err(|e| e.to_string())?
+        serde_json::to_string_pretty(&readback).map_err(|error| {
+            CliError::runtime(format!("serialize ledger readback: {error}"))
+        })?
     );
     Ok(())
 }
@@ -60,7 +62,7 @@ struct Request {
 }
 
 impl Request {
-    fn parse(args: &[String]) -> Result<Self, String> {
+    fn parse(args: &[String]) -> crate::error::CliResult<Self> {
         let mut vault = None;
         let mut kind = None;
         let mut action = None;
@@ -90,29 +92,35 @@ impl Request {
                         .transpose()?;
                     idx += 2;
                 }
-                other => return Err(format!("unknown readback ledger arg: {other}")),
+                other => {
+                    return Err(CliError::usage(format!(
+                        "unknown readback ledger arg: {other}"
+                    )));
+                }
             }
         }
         Ok(Self {
-            vault: vault.ok_or_else(|| "readback ledger requires --vault <dir>".to_string())?,
-            kind: kind.ok_or_else(|| "readback ledger requires --kind Anneal".to_string())?,
-            action: action.ok_or_else(|| "readback ledger requires --action <name>".to_string())?,
+            vault: vault
+                .ok_or_else(|| CliError::usage("readback ledger requires --vault <dir>"))?,
+            kind: kind.ok_or_else(|| CliError::usage("readback ledger requires --kind Anneal"))?,
+            action: action
+                .ok_or_else(|| CliError::usage("readback ledger requires --action <name>"))?,
             last: last.unwrap_or(3),
         })
     }
 }
 
-fn parse_last(value: &str) -> Result<usize, String> {
+fn parse_last(value: &str) -> crate::error::CliResult<usize> {
     let last = value
         .parse::<usize>()
-        .map_err(|error| format!("invalid --last: {error}"))?;
+        .map_err(|error| CliError::usage(format!("invalid --last: {error}")))?;
     if last == 0 {
-        return Err("--last must be > 0".to_string());
+        return Err(CliError::usage("--last must be > 0"));
     }
     Ok(last)
 }
 
-fn parse_action(value: &str) -> Result<AnnealLedgerAction, String> {
+fn parse_action(value: &str) -> crate::error::CliResult<AnnealLedgerAction> {
     match value {
         "GoodhartPassed" => Ok(AnnealLedgerAction::GoodhartPassed),
         "GoodhartFailed" => Ok(AnnealLedgerAction::GoodhartFailed),
@@ -121,7 +129,9 @@ fn parse_action(value: &str) -> Result<AnnealLedgerAction, String> {
         "Propose" | "propose" => Ok(AnnealLedgerAction::Propose),
         "LensAdmitted" | "lens_admitted" => Ok(AnnealLedgerAction::LensAdmitted),
         "LensRejected" | "lens_rejected" => Ok(AnnealLedgerAction::LensRejected),
-        other => Err(format!("unsupported Anneal ledger action: {other}")),
+        other => Err(CliError::usage(format!(
+            "unsupported Anneal ledger action: {other}"
+        ))),
     }
 }
 

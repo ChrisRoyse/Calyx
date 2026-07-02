@@ -10,6 +10,7 @@ use super::engine::{
     IMAGE_CLIP_SLOT, MEDIA_PANEL_VERSION, MediaImageReport, TRANSCRIPT_SLOT, panel_estimate,
 };
 use super::request::MediaImageRequest;
+use crate::error::{CliError, CliResult};
 
 const METRIC_KEY: &[u8] = b"ph70/media/image/cross_modal";
 
@@ -33,8 +34,8 @@ pub(crate) fn write_metric_outputs(
     vault: &AsterVault,
     request: &MediaImageRequest,
     report: MediaImageReport,
-) -> Result<MetricEvidence, String> {
-    fs::create_dir_all(&request.metrics_dir).map_err(|error| error.to_string())?;
+) -> CliResult<MetricEvidence> {
+    fs::create_dir_all(&request.metrics_dir)?;
     let image_bits = request.metrics_dir.join("media_image_class_bits.txt");
     let cross_bits = request.metrics_dir.join("media_cross_modal_bits.txt");
     let agreement = request.metrics_dir.join("media_cross_modal_agreement.txt");
@@ -45,16 +46,13 @@ pub(crate) fn write_metric_outputs(
         &agreement,
         report.cross_modal_agreement.dominant_axis_match_rate,
     )?;
-    let value = serde_json::to_vec_pretty(&report).map_err(|error| error.to_string())?;
-    fs::write(&summary, &value).map_err(|error| error.to_string())?;
+    let value = serde_json::to_vec_pretty(&report)
+        .map_err(|error| CliError::runtime(format!("serialize media image summary: {error}")))?;
+    fs::write(&summary, &value)?;
     let assay_rows_persisted = persist_assay_rows(vault, &report)?;
-    let assay_rows_loaded = AssayStore::load_from_vault(vault)
-        .map_err(|error| error.to_string())?
-        .len();
-    let seq = vault
-        .write_cf(ColumnFamily::Online, METRIC_KEY.to_vec(), value.clone())
-        .map_err(|error| error.to_string())?;
-    vault.flush().map_err(|error| error.to_string())?;
+    let assay_rows_loaded = AssayStore::load_from_vault(vault)?.len();
+    let seq = vault.write_cf(ColumnFamily::Online, METRIC_KEY.to_vec(), value.clone())?;
+    vault.flush()?;
     Ok(MetricEvidence {
         image_bits_path: image_bits.display().to_string(),
         cross_modal_bits_path: cross_bits.display().to_string(),
@@ -71,7 +69,7 @@ pub(crate) fn write_metric_outputs(
     })
 }
 
-fn persist_assay_rows(vault: &AsterVault, report: &MediaImageReport) -> Result<usize, String> {
+fn persist_assay_rows(vault: &AsterVault, report: &MediaImageReport) -> CliResult<usize> {
     let key = AssayCacheKey::scoped(
         MEDIA_PANEL_VERSION,
         "ph70-media-image-cross-modal",
@@ -105,19 +103,17 @@ fn persist_assay_rows(vault: &AsterVault, report: &MediaImageReport) -> Result<u
         "PH70 media panel sufficiency summary for image/caption anchors",
         6072,
     );
-    store
-        .persist_to_vault(vault)
-        .map_err(|error| error.to_string())
+    Ok(store.persist_to_vault(vault)?)
 }
 
-fn write_float(path: &std::path::Path, value: f32) -> std::result::Result<(), String> {
+fn write_float(path: &std::path::Path, value: f32) -> CliResult {
     if !value.is_finite() {
-        return Err(format!(
+        return Err(CliError::runtime(format!(
             "CALYX_FSV_MEDIA_NONFINITE_METRIC: {}",
             path.display()
-        ));
+        )));
     }
-    fs::write(path, format!("{value:.6}\n")).map_err(|error| error.to_string())
+    Ok(fs::write(path, format!("{value:.6}\n"))?)
 }
 
 fn hex(bytes: &[u8]) -> String {

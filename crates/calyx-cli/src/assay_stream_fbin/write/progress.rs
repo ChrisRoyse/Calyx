@@ -230,7 +230,9 @@ impl ProgressLog {
         self.sequence += 1;
         let snapshot = self.snapshot(event)?;
         let mut file = File::create(&self.tmp_path).map_err(io_error)?;
-        serde_json::to_writer_pretty(&mut file, &snapshot).map_err(CliError::from)?;
+        serde_json::to_writer_pretty(&mut file, &snapshot).map_err(|error| {
+            CliError::runtime(format!("serialize stream-fbin progress snapshot: {error}"))
+        })?;
         file.write_all(b"\n").map_err(io_error)?;
         file.sync_all().map_err(io_error)?;
         drop(file);

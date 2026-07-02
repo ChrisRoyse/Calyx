@@ -5,17 +5,18 @@ use serde_json::json;
 use std::path::Path;
 
 use crate::cf_read::{hex_bytes, list_sst_files};
+use crate::error::CliError;
 
 pub fn head_status(vault: &Path, kind_label: &str) -> crate::error::CliResult {
-    let kind = HeadKind::from_label(kind_label).map_err(|error| error.to_string())?;
+    let kind = HeadKind::from_label(kind_label)?;
     let cf = ColumnFamily::AnnealHeads;
     let wanted_key = head_key(kind);
     let mut physical_rows = Vec::new();
     let mut latest = None;
     for file in list_sst_files(&vault.join("cf").join(cf.name()))? {
-        let reader = SstReader::open(&file).map_err(|error| error.to_string())?;
-        for row in reader.iter().map_err(|error| error.to_string())? {
-            let head = decode_online_head(&row.value).map_err(|error| error.to_string())?;
+        let reader = SstReader::open(&file)?;
+        for row in reader.iter()? {
+            let head = decode_online_head(&row.value)?;
             let readback = json!({
                 "file": file.display().to_string(),
                 "key_hex": hex_bytes(&row.key),
@@ -63,7 +64,8 @@ pub fn head_status(vault: &Path, kind_label: &str) -> crate::error::CliResult {
     });
     println!(
         "{}",
-        serde_json::to_string_pretty(&readback).map_err(|error| error.to_string())?
+        serde_json::to_string_pretty(&readback)
+            .map_err(|error| CliError::runtime(format!("serialize head readback: {error}")))?
     );
     Ok(())
 }

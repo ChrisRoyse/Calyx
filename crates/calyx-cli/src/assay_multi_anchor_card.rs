@@ -24,9 +24,11 @@ const REMEDIATION: &str =
 
 pub(crate) fn run(args: &[String]) -> CliResult {
     let request = Request::parse(args).map_err(multi_anchor_error)?;
-    request.ensure_fresh_output().map_err(multi_anchor_error)?;
-    let report = evaluate(&request).map_err(multi_anchor_error)?;
-    let evidence = write_outputs(&request, &report).map_err(multi_anchor_error)?;
+    request
+        .ensure_fresh_output()
+        .map_err(multi_anchor_runtime_error)?;
+    let report = evaluate(&request).map_err(multi_anchor_runtime_error)?;
+    let evidence = write_outputs(&request, &report).map_err(multi_anchor_runtime_error)?;
     if request.mode.requires_gate() && !report.gate_passed {
         return Err(multi_anchor_error(format!(
             "{CODE_GATE_REFUSED}: multi-anchor A37 requires status={} but got {}; passing_lenses={}/{} weakest_lens={} best_marginal_bits={:.6}",
@@ -40,9 +42,21 @@ pub(crate) fn run(args: &[String]) -> CliResult {
     }
     println!(
         "{}",
-        serde_json::to_string_pretty(&evidence).map_err(CliError::from)?
+        serde_json::to_string_pretty(&evidence).map_err(|error| {
+            CliError::runtime(format!("serialize multi-anchor evidence: {error}"))
+        })?
     );
     Ok(())
+}
+
+/// Same code recovery as [`multi_anchor_error`], but uncoded strings classify as
+/// runtime failures: these call sites run after argument parsing succeeded,
+/// so `--help` can never be the remedy (issue #1145).
+fn multi_anchor_runtime_error(error: String) -> CliError {
+    match multi_anchor_error(error) {
+        CliError::Usage(message) => CliError::runtime(message),
+        typed => typed,
+    }
 }
 
 fn multi_anchor_error(error: String) -> CliError {

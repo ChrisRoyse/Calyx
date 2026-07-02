@@ -85,7 +85,10 @@ fn single_class_domain_fails_closed() {
     let data = ValidationData::load(&request.samples).unwrap();
 
     let err = evaluate_emotion(&data, &request).unwrap_err();
-    assert!(err.contains("CALYX_FSV_MEDIA_EMOTION_LABEL_DOMAIN_MISMATCH"));
+    assert!(
+        err.message()
+            .contains("CALYX_FSV_MEDIA_EMOTION_LABEL_DOMAIN_MISMATCH")
+    );
     let _ = fs::remove_dir_all(root);
 }
 
@@ -97,7 +100,10 @@ fn threshold_gate_fails_closed() {
     let data = ValidationData::load(&request.samples).unwrap();
 
     let err = evaluate_emotion(&data, &request).unwrap_err();
-    assert!(err.contains("CALYX_FSV_MEDIA_EMOTION_BITS_BELOW_THRESHOLD"));
+    assert!(
+        err.message()
+            .contains("CALYX_FSV_MEDIA_EMOTION_BITS_BELOW_THRESHOLD")
+    );
     let _ = fs::remove_dir_all(root);
 }
 

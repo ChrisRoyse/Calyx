@@ -98,7 +98,8 @@ fn write_export_staged(
     };
     fs::write(
         staging.join("export_report.json"),
-        serde_json::to_vec_pretty(&evidence).map_err(CliError::from)?,
+        serde_json::to_vec_pretty(&evidence)
+            .map_err(|error| CliError::runtime(format!("serialize export report: {error}")))?,
     )
     .map_err(io_error)?;
     Ok(evidence)
@@ -291,7 +292,7 @@ fn write_plan(path: &Path, timeline_path: &str, lenses: &[LensEvidence]) -> CliR
             "temporal_counts_toward_a35": false,
             "slots": slots
         }))
-        .map_err(CliError::from)?,
+        .map_err(|error| CliError::runtime(format!("serialize partitioned RRF plan: {error}")))?,
     )
     .map_err(io_error)
 }

@@ -81,15 +81,20 @@ impl ProgressSink {
         match self {
             Self::Disabled => Ok(()),
             Self::Stderr => {
-                eprintln!("{}", serde_json::to_string(&value)?);
+                eprintln!("{}", serialize_progress(&value)?);
                 Ok(())
             }
             Self::File(file) => {
-                writeln!(file, "{}", serde_json::to_string(&value)?).map_err(CliError::from)?;
+                writeln!(file, "{}", serialize_progress(&value)?).map_err(CliError::from)?;
                 file.flush().map_err(CliError::from)
             }
         }
     }
+}
+
+fn serialize_progress(value: &Value) -> CliResult<String> {
+    serde_json::to_string(value)
+        .map_err(|error| CliError::runtime(format!("serialize progress event: {error}")))
 }
 
 pub(crate) fn parse_nonzero_usize(raw: &str, flag: &str) -> CliResult<usize> {

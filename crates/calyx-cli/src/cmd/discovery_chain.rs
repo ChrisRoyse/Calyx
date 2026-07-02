@@ -320,7 +320,9 @@ fn persist_chain(
     explicit: Option<&Path>,
     artifact: &DiscoveryChainArtifact,
 ) -> CliResult<PersistedChain> {
-    let bytes = serde_json::to_vec_pretty(artifact)?;
+    let bytes = serde_json::to_vec_pretty(artifact).map_err(|error| {
+        CliError::runtime(format!("serialize discovery chain artifact: {error}"))
+    })?;
     let chain_id = blake3::hash(&bytes).to_hex().to_string();
     let path = explicit.map(Path::to_path_buf).unwrap_or_else(|| {
         vault_dir
@@ -352,7 +354,12 @@ fn persist_chain(
             path.display()
         )));
     }
-    let decoded: DiscoveryChainArtifact = serde_json::from_slice(&readback)?;
+    let decoded: DiscoveryChainArtifact = serde_json::from_slice(&readback).map_err(|error| {
+        CliError::runtime(format!(
+            "parse discovery chain readback {}: {error}",
+            path.display()
+        ))
+    })?;
     Ok(PersistedChain {
         path,
         bytes: readback.len() as u64,

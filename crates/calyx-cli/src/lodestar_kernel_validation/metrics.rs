@@ -5,6 +5,7 @@ use serde::Serialize;
 
 use super::engine::{CorpusReport, LodestarKernelValidationReport};
 use super::request::LodestarKernelRequest;
+use crate::error::{CliError, CliResult};
 
 #[derive(Clone, Debug, Serialize)]
 pub(crate) struct MetricEvidence {
@@ -22,8 +23,8 @@ pub(crate) struct MetricEvidence {
 pub(crate) fn write_metric_outputs(
     request: &LodestarKernelRequest,
     report: &LodestarKernelValidationReport,
-) -> Result<MetricEvidence, String> {
-    fs::create_dir_all(&request.metrics_dir).map_err(|error| error.to_string())?;
+) -> CliResult<MetricEvidence> {
+    fs::create_dir_all(&request.metrics_dir)?;
     let mut ratio_files = Vec::new();
     let mut kernel_recall_files = Vec::new();
     let mut full_recall_files = Vec::new();
@@ -43,9 +44,10 @@ pub(crate) fn write_metric_outputs(
         write_gaps(&gaps, corpus)?;
         fs::write(
             &summary,
-            serde_json::to_vec_pretty(corpus).map_err(|error| error.to_string())?,
-        )
-        .map_err(|error| error.to_string())?;
+            serde_json::to_vec_pretty(corpus).map_err(|error| {
+                CliError::runtime(format!("serialize {}: {error}", summary.display()))
+            })?,
+        )?;
         full_recall_files.push(full.display().to_string());
         kernel_recall_files.push(kernel.display().to_string());
         ratio_files.push(ratio.display().to_string());
@@ -54,9 +56,10 @@ pub(crate) fn write_metric_outputs(
     let summary_path = request.metrics_dir.join("lodestar_kernel_summary.json");
     fs::write(
         &summary_path,
-        serde_json::to_vec_pretty(report).map_err(|error| error.to_string())?,
-    )
-    .map_err(|error| error.to_string())?;
+        serde_json::to_vec_pretty(report).map_err(|error| {
+            CliError::runtime(format!("serialize {}: {error}", summary_path.display()))
+        })?,
+    )?;
     Ok(MetricEvidence {
         metrics_dir: request.metrics_dir.display().to_string(),
         summary_path: summary_path.display().to_string(),
@@ -70,17 +73,17 @@ pub(crate) fn write_metric_outputs(
     })
 }
 
-fn write_float(path: &Path, value: f32) -> std::result::Result<(), String> {
+fn write_float(path: &Path, value: f32) -> CliResult<()> {
     if !value.is_finite() {
-        return Err(format!(
+        return Err(CliError::runtime(format!(
             "CALYX_FSV_LODESTAR_NONFINITE_METRIC: {}",
             path.display()
-        ));
+        )));
     }
-    fs::write(path, format!("{value:.6}\n")).map_err(|error| error.to_string())
+    Ok(fs::write(path, format!("{value:.6}\n"))?)
 }
 
-fn write_gaps(path: &PathBuf, corpus: &CorpusReport) -> std::result::Result<(), String> {
+fn write_gaps(path: &PathBuf, corpus: &CorpusReport) -> CliResult<()> {
     let mut out = String::new();
     out.push_str(&format!("corpus={}\n", corpus.corpus));
     out.push_str(&format!(
@@ -91,5 +94,5 @@ fn write_gaps(path: &PathBuf, corpus: &CorpusReport) -> std::result::Result<(), 
     for gap in corpus.grounding_gaps.gaps.iter().take(200) {
         out.push_str(&format!("gap={gap}\n"));
     }
-    fs::write(path, out).map_err(|error| error.to_string())
+    Ok(fs::write(path, out)?)
 }

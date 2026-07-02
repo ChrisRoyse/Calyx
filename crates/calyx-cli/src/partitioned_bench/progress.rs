@@ -193,7 +193,8 @@ fn write_snapshot(
         geometry: geometry(config),
         counts,
     };
-    let bytes = serde_json::to_vec_pretty(&snapshot).map_err(CliError::from)?;
+    let bytes = serde_json::to_vec_pretty(&snapshot)
+        .map_err(|e| CliError::runtime(format!("serialize progress snapshot: {e}")))?;
     write_atomic(path, &bytes)
 }
 

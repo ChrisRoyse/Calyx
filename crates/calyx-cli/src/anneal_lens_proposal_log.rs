@@ -20,6 +20,7 @@ use serde::Deserialize;
 use serde_json::json;
 
 use crate::cf_read::hex_bytes as hex;
+use crate::error::{CliError, CliResult};
 use crate::ledger_store::AsterLedgerCfStore;
 
 const CALYX_ASSAY_INVALID_METRIC: &str = "CALYX_ASSAY_INVALID_METRIC";
@@ -32,7 +33,9 @@ pub(crate) fn run(args: &[String]) -> crate::error::CliResult {
     };
     println!(
         "{}",
-        serde_json::to_string_pretty(&readback).map_err(|error| error.to_string())?
+        serde_json::to_string_pretty(&readback).map_err(|error| CliError::runtime(format!(
+            "serialize lens-proposal-log readback: {error}"
+        )))?
     );
     Ok(())
 }
@@ -48,7 +51,7 @@ enum LensProposalLogSource {
 }
 
 impl LensProposalLogRequest {
-    fn parse(args: &[String]) -> Result<Self, String> {
+    fn parse(args: &[String]) -> CliResult<Self> {
         let mut fixture = None;
         let mut vault = None;
         let mut last = None;
@@ -66,47 +69,53 @@ impl LensProposalLogRequest {
                 "--last" => {
                     last = Some(
                         args.get(idx + 1)
-                            .ok_or_else(|| "--last requires a value".to_string())?
+                            .ok_or_else(|| CliError::usage("--last requires a value"))?
                             .parse::<usize>()
-                            .map_err(|error| format!("invalid --last: {error}"))?,
+                            .map_err(|error| CliError::usage(format!("invalid --last: {error}")))?,
                     );
                     idx += 2;
                 }
-                other => return Err(format!("unknown lens-proposal-log arg: {other}")),
+                other => {
+                    return Err(CliError::usage(format!(
+                        "unknown lens-proposal-log arg: {other}"
+                    )));
+                }
             }
         }
         let last = last.unwrap_or(5);
         if last == 0 {
-            return Err("--last must be positive".to_string());
+            return Err(CliError::usage("--last must be positive"));
         }
         let source = match (fixture, vault) {
             (Some(_), Some(_)) => {
-                return Err(
-                    "lens-proposal-log accepts either --fixture or --vault, not both".into(),
-                );
+                return Err(CliError::usage(
+                    "lens-proposal-log accepts either --fixture or --vault, not both",
+                ));
             }
             (Some(path), None) => LensProposalLogSource::Fixture(path),
             (None, Some(path)) => LensProposalLogSource::Vault(path),
             (None, None) => {
-                return Err("lens-proposal-log requires --fixture <json> or --vault <dir>".into());
+                return Err(CliError::usage(
+                    "lens-proposal-log requires --fixture <json> or --vault <dir>",
+                ));
             }
         };
         Ok(Self { source, last })
     }
 }
 
-fn read_fixture_entries(fixture_path: PathBuf, last: usize) -> Result<serde_json::Value, String> {
+fn read_fixture_entries(fixture_path: PathBuf, last: usize) -> CliResult<serde_json::Value> {
     let fixture_bytes = fs::read(&fixture_path).map_err(|error| {
-        format!(
+        CliError::io(format!(
             "{CALYX_ASSAY_INVALID_METRIC}: read fixture {}: {error}",
             fixture_path.display()
-        )
+        ))
     })?;
     let fixture = serde_json::from_slice::<Fixture>(&fixture_bytes).map_err(|error| {
-        format!(
+        CliError::runtime(format!(
             "{CALYX_ASSAY_INVALID_METRIC}: parse fixture {}: {error}",
             fixture_path.display()
-        )
+        ))
     })?;
     let mut entries = Vec::new();
     for event in fixture.events {
@@ -125,22 +134,21 @@ fn read_fixture_entries(fixture_path: PathBuf, last: usize) -> Result<serde_json
     }))
 }
 
-fn read_vault_entries(vault: PathBuf, last: usize) -> Result<serde_json::Value, String> {
-    let store = AsterLedgerCfStore::open(&vault).map_err(|error| error.to_string())?;
+fn read_vault_entries(vault: PathBuf, last: usize) -> CliResult<serde_json::Value> {
+    let store = AsterLedgerCfStore::open(&vault)?;
     let mut entries = Vec::new();
-    for row in store.scan().map_err(|error| error.to_string())? {
-        let entry = decode(&row.bytes).map_err(|error| error.to_string())?;
+    for row in store.scan()? {
+        let entry = decode(&row.bytes)?;
         if entry.seq != row.seq {
-            return Err(format!(
+            return Err(CliError::runtime(format!(
                 "ledger row seq {} decodes to entry seq {}",
                 row.seq, entry.seq
-            ));
+            )));
         }
         if entry.kind != EntryKind::Anneal {
             continue;
         }
-        let anneal =
-            decode_anneal_ledger_payload(&entry.payload).map_err(|error| error.to_string())?;
+        let anneal = decode_anneal_ledger_payload(&entry.payload)?;
         if !matches!(
             anneal.action,
             AnnealLedgerAction::LensAdmitted | AnnealLedgerAction::LensRejected
@@ -151,9 +159,9 @@ fn read_vault_entries(vault: PathBuf, last: usize) -> Result<serde_json::Value, 
             seq: entry.seq,
             hash: entry.entry_hash,
         };
-        let readback = record_from_entry(ledger_ref, anneal)
-            .map_err(|error| error.to_string())?
-            .ok_or_else(|| "proposal ledger action did not produce history entry".to_string())?;
+        let readback = record_from_entry(ledger_ref, anneal)?.ok_or_else(|| {
+            CliError::runtime("proposal ledger action did not produce history entry")
+        })?;
         entries.push(json!({
             "seq": row.seq,
             "entry_hash": hex(&entry.entry_hash),
@@ -209,20 +217,22 @@ enum MetricFixture {
 }
 
 impl MetricFixture {
-    fn value(&self) -> Result<f64, String> {
+    fn value(&self) -> CliResult<f64> {
         match self {
             Self::Number(value) => Ok(*value),
             Self::String(value) if value.eq_ignore_ascii_case("nan") => Ok(f64::NAN),
             Self::String(value) if value.eq_ignore_ascii_case("inf") => Ok(f64::INFINITY),
             Self::String(value) if value.eq_ignore_ascii_case("-inf") => Ok(f64::NEG_INFINITY),
-            Self::String(value) => value
-                .parse::<f64>()
-                .map_err(|error| format!("{CALYX_ASSAY_INVALID_METRIC}: parse metric: {error}")),
+            Self::String(value) => value.parse::<f64>().map_err(|error| {
+                CliError::runtime(format!(
+                    "{CALYX_ASSAY_INVALID_METRIC}: parse metric: {error}"
+                ))
+            }),
         }
     }
 }
 
-fn run_event(clock_ts: u64, event: FixtureEvent) -> Result<serde_json::Value, String> {
+fn run_event(clock_ts: u64, event: FixtureEvent) -> CliResult<serde_json::Value> {
     let clock = SharedClock::new(clock_ts);
     let profiler = FixtureProfiler {
         lens_id: event.candidate_lens_id,
@@ -233,9 +243,7 @@ fn run_event(clock_ts: u64, event: FixtureEvent) -> Result<serde_json::Value, St
     };
     let nmi = FixtureNmi::from_rows(event.correlations)?;
     let gate = DifferentiationGate::new(&clock);
-    let outcome = gate
-        .gate(&event.candidate, &event.panel, &profiler, &nmi, &[])
-        .map_err(format_calyx_error)?;
+    let outcome = gate.gate(&event.candidate, &event.panel, &profiler, &nmi, &[])?;
     Ok(json!({
         "seq": event.seq,
         "candidate_lens_id": event.candidate_lens_id,
@@ -297,7 +305,7 @@ struct FixtureNmi {
 }
 
 impl FixtureNmi {
-    fn from_rows(rows: Vec<FixtureCorrelation>) -> Result<Self, String> {
+    fn from_rows(rows: Vec<FixtureCorrelation>) -> CliResult<Self> {
         let mut correlations = BTreeMap::new();
         for row in rows {
             correlations.insert(row.lens_id, row.corr.value()?);
@@ -381,10 +389,6 @@ fn card(
         health: LensHealth::Loaded,
         low_spread: false,
     }
-}
-
-fn format_calyx_error(error: CalyxError) -> String {
-    format!("{}: {} ({})", error.code, error.message, error.remediation)
 }
 
 fn default_profile_signal_kind() -> CapabilitySignalKind {

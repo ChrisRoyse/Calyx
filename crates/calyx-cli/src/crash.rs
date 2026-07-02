@@ -1,4 +1,5 @@
 use crate::cf_read::hex_bytes;
+use crate::error::{CliError, CliResult};
 use calyx_aster::cf::{ColumnFamily, base_key, ledger_key, slot_key};
 use calyx_aster::manifest::{ImmutableRef, ManifestStore, VaultManifest};
 use calyx_aster::sst::write_sst;
@@ -68,14 +69,11 @@ pub fn crash_drill(
         vault_id,
         b"calyx-crash-drill-salt",
         VaultOptions::default(),
-    )
-    .map_err(|error| error.to_string())?;
+    )?;
     for index in 1..=PRECOMMITTED_RECORDS {
-        writer
-            .put(synthetic_constellation(vault_id, index))
-            .map_err(|error| error.to_string())?;
+        writer.put(synthetic_constellation(vault_id, index))?;
     }
-    writer.flush().map_err(|error| error.to_string())?;
+    writer.flush()?;
     drop(writer);
 
     let target = synthetic_constellation(vault_id, TARGET_RECORD);
@@ -106,14 +104,11 @@ pub fn crash_drill(
 pub fn recover(vault: &Path) -> crate::error::CliResult {
     let store = ManifestStore::open(vault);
     let durable_seq = if vault.join("CURRENT").exists() {
-        store
-            .load_current()
-            .map_err(|error| error.to_string())?
-            .durable_seq
+        store.load_current()?.durable_seq
     } else {
         0
     };
-    let replay = replay_dir(vault.join("wal")).map_err(|error| error.to_string())?;
+    let replay = replay_dir(vault.join("wal"))?;
     if let Some(torn) = &replay.torn_tail {
         println!(
             "RECOVER_TORN\tCODE\t{}\tFILE\t{}\tOFFSET\t{}\tMESSAGE\t{}",
@@ -130,7 +125,7 @@ pub fn recover(vault: &Path) -> crate::error::CliResult {
         if record.seq <= durable_seq {
             continue;
         }
-        let rows = decode_write_batch(&record.payload).map_err(|error| error.to_string())?;
+        let rows = decode_write_batch(&record.payload)?;
         println!(
             "RECOVER_RECORD\tSEQ\t{}\tROWS\t{}\tPAYLOAD\t{}",
             record.seq,
@@ -169,14 +164,13 @@ pub fn open_check(vault: &Path, index: u8) -> crate::error::CliResult {
         vault_id,
         b"calyx-crash-drill-salt",
         VaultOptions::default(),
-    )
-    .map_err(|error| error.to_string())?;
+    )?;
     let snapshot = opened.snapshot();
-    let got = opened
-        .get(id, snapshot)
-        .map_err(|error| error.to_string())?;
+    let got = opened.get(id, snapshot)?;
     if got != expected {
-        return Err(format!("open-check mismatch for index {index}").into());
+        return Err(CliError::runtime(format!(
+            "open-check mismatch for index {index}"
+        )));
     }
     println!(
         "OPEN_CHECK\tINDEX\t{}\tID\t{}\tSNAPSHOT\t{}\tVAULT\t{}",
@@ -188,37 +182,27 @@ pub fn open_check(vault: &Path, index: u8) -> crate::error::CliResult {
     Ok(())
 }
 
-fn ensure_empty_vault(vault: &Path) -> std::result::Result<(), String> {
+fn ensure_empty_vault(vault: &Path) -> CliResult {
     if !vault.exists() {
         return Ok(());
     }
-    let mut entries = fs::read_dir(vault).map_err(|error| error.to_string())?;
-    if entries
-        .next()
-        .transpose()
-        .map_err(|error| error.to_string())?
-        .is_some()
-    {
-        return Err(format!(
+    let mut entries = fs::read_dir(vault)?;
+    if entries.next().transpose()?.is_some() {
+        return Err(CliError::runtime(format!(
             "crash-drill vault must be absent or empty: {}",
             vault.display()
-        ));
+        )));
     }
     Ok(())
 }
 
-fn append_torn_header(vault: &Path, seq: u64) -> std::result::Result<(), String> {
+fn append_torn_header(vault: &Path, seq: u64) -> CliResult {
     let segment = vault.join("wal").join("00000000000000000000.wal");
-    let mut file = OpenOptions::new()
-        .append(true)
-        .open(&segment)
-        .map_err(|error| error.to_string())?;
-    let start = file.metadata().map_err(|error| error.to_string())?.len();
-    file.write_all(b"CXW1").map_err(|error| error.to_string())?;
-    file.write_all(&seq.to_le_bytes())
-        .map_err(|error| error.to_string())?;
-    file.write_all(&64_u32.to_le_bytes())
-        .map_err(|error| error.to_string())?;
+    let mut file = OpenOptions::new().append(true).open(&segment)?;
+    let start = file.metadata()?.len();
+    file.write_all(b"CXW1")?;
+    file.write_all(&seq.to_le_bytes())?;
+    file.write_all(&64_u32.to_le_bytes())?;
     println!(
         "CRASH_TORN_WAL\tSEQ\t{}\tFILE\t{}\tSTART\t{}\tBYTES_WRITTEN\t16",
         seq,
@@ -228,20 +212,15 @@ fn append_torn_header(vault: &Path, seq: u64) -> std::result::Result<(), String>
     Ok(())
 }
 
-fn append_wal_batch(
-    vault: &Path,
-    expected_seq: u64,
-    rows: &[WriteRow],
-) -> std::result::Result<(), String> {
-    let mut wal =
-        Wal::open(vault.join("wal"), WalOptions::default()).map_err(|error| error.to_string())?;
-    let payload = encode_write_batch(rows).map_err(|error| error.to_string())?;
-    let ack = wal.append(&payload).map_err(|error| error.to_string())?;
+fn append_wal_batch(vault: &Path, expected_seq: u64, rows: &[WriteRow]) -> CliResult {
+    let mut wal = Wal::open(vault.join("wal"), WalOptions::default())?;
+    let payload = encode_write_batch(rows)?;
+    let ack = wal.append(&payload)?;
     if ack.seq != expected_seq {
-        return Err(format!(
+        return Err(CliError::runtime(format!(
             "unexpected WAL seq {}, expected {expected_seq}",
             ack.seq
-        ));
+        )));
     }
     println!(
         "CRASH_WAL_APPEND\tSEQ\t{}\tFILE\t{}\tSTART\t{}\tEND\t{}\tPAYLOAD\t{}",
@@ -254,13 +233,12 @@ fn append_wal_batch(
     Ok(())
 }
 
-fn write_batch_ssts(vault: &Path, seq: u64, rows: &[WriteRow], tag: &str) -> Result<usize, String> {
+fn write_batch_ssts(vault: &Path, seq: u64, rows: &[WriteRow], tag: &str) -> CliResult<usize> {
     for (index, row) in rows.iter().enumerate() {
         let dir = vault.join("cf").join(row.cf.name());
-        fs::create_dir_all(&dir).map_err(|error| error.to_string())?;
+        fs::create_dir_all(&dir)?;
         let path = dir.join(format!("{seq:020}-{index:04}.sst"));
-        let summary = write_sst(&path, [(row.key.as_slice(), row.value.as_slice())])
-            .map_err(|error| error.to_string())?;
+        let summary = write_sst(&path, [(row.key.as_slice(), row.value.as_slice())])?;
         println!(
             "{}\tSEQ\t{}\tCF\t{}\tFILE\t{}\tKEY\t{}\tVALUE\t{}\tBYTES\t{}",
             tag,
@@ -275,16 +253,13 @@ fn write_batch_ssts(vault: &Path, seq: u64, rows: &[WriteRow], tag: &str) -> Res
     Ok(rows.len())
 }
 
-fn write_manifest(vault: &Path, seq: u64) -> Result<calyx_aster::manifest::ManifestWrite, String> {
+fn write_manifest(vault: &Path, seq: u64) -> CliResult<calyx_aster::manifest::ManifestWrite> {
     let (panel_ref, codebook_refs) = ensure_manifest_assets(vault)?;
-    let manifest = VaultManifest::new(seq, seq, panel_ref, codebook_refs)
-        .map_err(|error| error.to_string())?;
-    ManifestStore::open(vault)
-        .write_current(&manifest)
-        .map_err(|error| error.to_string())
+    let manifest = VaultManifest::new(seq, seq, panel_ref, codebook_refs)?;
+    Ok(ManifestStore::open(vault).write_current(&manifest)?)
 }
 
-fn ensure_manifest_assets(vault: &Path) -> Result<(ImmutableRef, Vec<ImmutableRef>), String> {
+fn ensure_manifest_assets(vault: &Path) -> CliResult<(ImmutableRef, Vec<ImmutableRef>)> {
     let panel_path = vault.join("panel/current.bin");
     let codebook_path = vault.join("codebooks/default.bin");
     let panel_bytes = b"calyx-stage1-panel";
@@ -292,36 +267,35 @@ fn ensure_manifest_assets(vault: &Path) -> Result<(ImmutableRef, Vec<ImmutableRe
     write_asset(&panel_path, panel_bytes)?;
     write_asset(&codebook_path, codebook_bytes)?;
     Ok((
-        ImmutableRef::from_bytes("panel/current.bin", panel_bytes)
-            .map_err(|error| error.to_string())?,
-        vec![
-            ImmutableRef::from_bytes("codebooks/default.bin", codebook_bytes)
-                .map_err(|error| error.to_string())?,
-        ],
+        ImmutableRef::from_bytes("panel/current.bin", panel_bytes)?,
+        vec![ImmutableRef::from_bytes(
+            "codebooks/default.bin",
+            codebook_bytes,
+        )?],
     ))
 }
 
-fn write_asset(path: &Path, bytes: &[u8]) -> std::result::Result<(), String> {
+fn write_asset(path: &Path, bytes: &[u8]) -> CliResult {
     if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent).map_err(|error| error.to_string())?;
+        fs::create_dir_all(parent)?;
     }
-    let mut file = File::create(path).map_err(|error| error.to_string())?;
-    file.write_all(bytes).map_err(|error| error.to_string())?;
-    file.sync_all().map_err(|error| error.to_string())?;
+    let mut file = File::create(path)?;
+    file.write_all(bytes)?;
+    file.sync_all()?;
     Ok(())
 }
 
-fn constellation_rows(cx: &Constellation) -> Result<Vec<WriteRow>, String> {
+fn constellation_rows(cx: &Constellation) -> CliResult<Vec<WriteRow>> {
     let mut rows = vec![WriteRow {
         cf: ColumnFamily::Base,
         key: base_key(cx.cx_id),
-        value: encode_constellation_base(cx).map_err(|error| error.to_string())?,
+        value: encode_constellation_base(cx)?,
     }];
     for (slot, vector) in &cx.slots {
         rows.push(WriteRow {
             cf: ColumnFamily::slot(*slot),
             key: slot_key(cx.cx_id),
-            value: encode_slot_vector(vector).map_err(|error| error.to_string())?,
+            value: encode_slot_vector(vector)?,
         });
     }
     rows.push(WriteRow {
@@ -367,10 +341,10 @@ fn synthetic_constellation(vault_id: VaultId, index: u8) -> Constellation {
     }
 }
 
-fn crash_vault_id() -> Result<VaultId, String> {
+fn crash_vault_id() -> CliResult<VaultId> {
     "01ARZ3NDEKTSV4RRFFQ69G5FAV"
         .parse()
-        .map_err(|error| format!("crash vault id parse: {error}"))
+        .map_err(|error| CliError::runtime(format!("crash vault id parse: {error}")))
 }
 
 fn crash_exit(pause_ms: Option<u64>) -> ! {

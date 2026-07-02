@@ -76,7 +76,10 @@ pub(crate) fn try_run(args: &[String]) -> Option<CliResult> {
 pub(crate) fn run_hypothesis_rank(args: HypothesisRankArgs) -> CliResult {
     let input_bytes = fs::read(&args.input)
         .map_err(|error| CliError::io(format!("read --input {}: {error}", args.input.display())))?;
-    let input_file: HypothesisRankInputFile = serde_json::from_slice(&input_bytes)?;
+    let input_file: HypothesisRankInputFile =
+        serde_json::from_slice(&input_bytes).map_err(|error| {
+            CliError::runtime(format!("parse --input {}: {error}", args.input.display()))
+        })?;
     if input_file.inputs.is_empty() {
         return Err(CliError::usage(format!(
             "--input {} did not contain any traceable hypothesis inputs",
@@ -170,7 +173,9 @@ impl HypothesisRankArgs {
 }
 
 fn persist_ranking(path: &Path, artifact: &HypothesisRankArtifact) -> CliResult<PersistedRanking> {
-    let bytes = serde_json::to_vec_pretty(artifact)?;
+    let bytes = serde_json::to_vec_pretty(artifact).map_err(|error| {
+        CliError::runtime(format!("serialize hypothesis ranking report: {error}"))
+    })?;
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;
     }
@@ -194,7 +199,12 @@ fn persist_ranking(path: &Path, artifact: &HypothesisRankArtifact) -> CliResult<
             path.display()
         )));
     }
-    let decoded: HypothesisRankArtifact = serde_json::from_slice(&readback)?;
+    let decoded: HypothesisRankArtifact = serde_json::from_slice(&readback).map_err(|error| {
+        CliError::runtime(format!(
+            "parse hypothesis ranking report readback {}: {error}",
+            path.display()
+        ))
+    })?;
     let top = decoded
         .report
         .hypotheses

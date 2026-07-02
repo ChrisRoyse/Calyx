@@ -31,17 +31,23 @@ pub(crate) fn write_outputs(
     report: &MultiAnchorReport,
 ) -> Result<Evidence, String> {
     request.ensure_fresh_output()?;
-    fs::create_dir_all(&request.out_dir).map_err(|error| error.to_string())?;
+    fs::create_dir_all(&request.out_dir)
+        .map_err(|error| format!("create {}: {error}", request.out_dir.display()))?;
     let report_path = request.out_dir.join("multi_anchor_ensemble_card.json");
-    let report_bytes = serde_json::to_vec_pretty(report).map_err(|error| error.to_string())?;
-    fs::write(&report_path, &report_bytes).map_err(|error| error.to_string())?;
+    let report_bytes = serde_json::to_vec_pretty(report)
+        .map_err(|error| format!("serialize multi-anchor report: {error}"))?;
+    fs::write(&report_path, &report_bytes)
+        .map_err(|error| format!("write {}: {error}", report_path.display()))?;
 
     let lens_values_path = request.out_dir.join("multi_anchor_lens_values.txt");
-    fs::write(&lens_values_path, lens_values(report)).map_err(|error| error.to_string())?;
+    fs::write(&lens_values_path, lens_values(report))
+        .map_err(|error| format!("write {}: {error}", lens_values_path.display()))?;
     let target_summary_path = request.out_dir.join("multi_anchor_target_summary.txt");
-    fs::write(&target_summary_path, target_values(report)).map_err(|error| error.to_string())?;
+    fs::write(&target_summary_path, target_values(report))
+        .map_err(|error| format!("write {}: {error}", target_summary_path.display()))?;
 
-    let readback = fs::read(&report_path).map_err(|error| error.to_string())?;
+    let readback = fs::read(&report_path)
+        .map_err(|error| format!("read back {}: {error}", report_path.display()))?;
     let report_sha256 = sha256_hex(&report_bytes);
     let readback_sha256 = sha256_hex(&readback);
     if report_sha256 != readback_sha256 {

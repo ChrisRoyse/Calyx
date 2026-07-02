@@ -5,6 +5,7 @@ use serde::Serialize;
 
 use super::engine::OracleSufficiencyReport;
 use super::request::OracleSufficiencyRequest;
+use crate::error::CliError;
 
 #[derive(Clone, Debug, Serialize)]
 pub(crate) struct MetricEvidence {
@@ -23,19 +24,18 @@ pub(crate) struct MetricEvidence {
 pub(crate) fn write_metric_outputs(
     request: &OracleSufficiencyRequest,
     report: &OracleSufficiencyReport,
-) -> Result<MetricEvidence, String> {
+) -> crate::error::CliResult<MetricEvidence> {
     check_finite(report)?;
-    fs::create_dir_all(&request.metrics_dir).map_err(|error| error.to_string())?;
+    fs::create_dir_all(&request.metrics_dir)?;
 
     let i_panel = request.metrics_dir.join("oracle_i_panel.txt");
-    fs::write(&i_panel, format!("{:.6}\n", report.i_panel_oracle))
-        .map_err(|error| error.to_string())?;
+    fs::write(&i_panel, format!("{:.6}\n", report.i_panel_oracle))?;
 
     let entropy = request.metrics_dir.join("oracle_entropy.txt");
-    fs::write(&entropy, format!("{:.6}\n", report.h_y)).map_err(|error| error.to_string())?;
+    fs::write(&entropy, format!("{:.6}\n", report.h_y))?;
 
     let deficit = request.metrics_dir.join("oracle_deficit.txt");
-    fs::write(&deficit, format!("{:.6}\n", report.deficit)).map_err(|error| error.to_string())?;
+    fs::write(&deficit, format!("{:.6}\n", report.deficit))?;
 
     let refused = request.metrics_dir.join("oracle_refused.txt");
     fs::write(
@@ -44,15 +44,15 @@ pub(crate) fn write_metric_outputs(
             "refused={} sufficient={}\n",
             report.refused, report.sufficient
         ),
-    )
-    .map_err(|error| error.to_string())?;
+    )?;
 
     let sufficiency_json = request.metrics_dir.join("oracle_sufficiency.json");
     fs::write(
         &sufficiency_json,
-        serde_json::to_vec_pretty(report).map_err(|error| error.to_string())?,
-    )
-    .map_err(|error| error.to_string())?;
+        serde_json::to_vec_pretty(report).map_err(|error| {
+            CliError::runtime(format!("serialize oracle sufficiency report: {error}"))
+        })?,
+    )?;
 
     Ok(MetricEvidence {
         metrics_dir: request.metrics_dir.display().to_string(),
@@ -68,7 +68,7 @@ pub(crate) fn write_metric_outputs(
     })
 }
 
-fn check_finite(report: &OracleSufficiencyReport) -> Result<(), String> {
+fn check_finite(report: &OracleSufficiencyReport) -> crate::error::CliResult<()> {
     let mut values = vec![
         ("h_y", report.h_y),
         ("i_panel_oracle", report.i_panel_oracle),
@@ -120,18 +120,28 @@ fn check_finite(report: &OracleSufficiencyReport) -> Result<(), String> {
     }
     for (name, value) in values {
         if !value.is_finite() {
-            return Err(format!("CALYX_FSV_ORACLE_NONFINITE_METRIC: {name}={value}"));
+            return Err(super::oracle_runtime_error(format!(
+                "CALYX_FSV_ORACLE_NONFINITE_METRIC: {name}={value}"
+            )));
         }
     }
     Ok(())
 }
 
-fn required_f32(value: Option<f32>, name: &str) -> Result<f32, String> {
-    value.ok_or_else(|| format!("CALYX_FSV_ORACLE_MISSING_VERDICT_METADATA: {name} absent"))
+fn required_f32(value: Option<f32>, name: &str) -> crate::error::CliResult<f32> {
+    value.ok_or_else(|| {
+        super::oracle_runtime_error(format!(
+            "CALYX_FSV_ORACLE_MISSING_VERDICT_METADATA: {name} absent"
+        ))
+    })
 }
 
-fn required_str<'a>(value: Option<&'a str>, name: &str) -> Result<&'a str, String> {
-    value.ok_or_else(|| format!("CALYX_FSV_ORACLE_MISSING_VERDICT_METADATA: {name} absent"))
+fn required_str<'a>(value: Option<&'a str>, name: &str) -> crate::error::CliResult<&'a str> {
+    value.ok_or_else(|| {
+        super::oracle_runtime_error(format!(
+            "CALYX_FSV_ORACLE_MISSING_VERDICT_METADATA: {name} absent"
+        ))
+    })
 }
 
 fn display(path: &Path) -> String {

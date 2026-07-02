@@ -70,16 +70,6 @@ impl From<serde_json::Error> for SearchError {
         Self::Io(error.to_string())
     }
 }
-impl From<String> for SearchError {
-    fn from(message: String) -> Self {
-        Self::Usage(message)
-    }
-}
-impl From<&str> for SearchError {
-    fn from(message: &str) -> Self {
-        Self::Usage(message.to_string())
-    }
-}
 
 /// Boundary conversion for callers that speak the `CalyxError` catalog.
 impl From<SearchError> for CalyxError {

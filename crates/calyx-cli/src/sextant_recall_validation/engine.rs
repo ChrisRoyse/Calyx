@@ -13,6 +13,7 @@ use serde::Serialize;
 
 use super::data::{CorpusDoc, ValidationData};
 use super::request::RecallRequest;
+use crate::error::{CliError, CliResult};
 
 const PH70_PANEL_VERSION: u32 = 70;
 const LEXICAL_SLOT: SlotId = SlotId::new(1);
@@ -62,10 +63,7 @@ pub(crate) struct QueryEvidence {
     pub(crate) multi_top_k: Vec<String>,
 }
 
-pub(crate) fn build_engine(
-    vault: &AsterVault,
-    data: &ValidationData,
-) -> Result<IndexedCorpus, String> {
+pub(crate) fn build_engine(vault: &AsterVault, data: &ValidationData) -> CliResult<IndexedCorpus> {
     let vault_id = vault.vault_id();
     let constellations = data
         .corpus
@@ -73,31 +71,23 @@ pub(crate) fn build_engine(
         .enumerate()
         .map(|(idx, doc)| constellation_for_doc(doc, vault_id, idx as u64 + 1))
         .collect::<Vec<_>>();
-    let ids = vault
-        .put_batch(constellations)
-        .map_err(|error| error.to_string())?;
+    let ids = vault.put_batch(constellations)?;
     let snapshot = vault.snapshot();
     let map = SlotIndexMap::new();
-    map.register(InvertedIndex::new(LEXICAL_SLOT))
-        .map_err(|error| error.to_string())?;
-    map.register(HnswIndex::new(DENSE_SLOT, 2, 42))
-        .map_err(|error| error.to_string())?;
+    map.register(InvertedIndex::new(LEXICAL_SLOT))?;
+    map.register(HnswIndex::new(DENSE_SLOT, 2, 42))?;
     let mut engine = SearchEngine::new(map);
     let mut ledger_refs = BTreeSet::<(u64, [u8; 32])>::new();
     for (seq, doc) in data.corpus.iter().enumerate() {
         let cx_id = cx_for_doc_id(&doc.doc_id);
-        let stored = vault
-            .get(cx_id, snapshot)
-            .map_err(|error| format!("stored readback failed for {}: {error}", doc.doc_id))?;
+        let stored = vault.get(cx_id, snapshot)?;
         ledger_refs.insert((stored.provenance.seq, stored.provenance.hash));
         engine
             .indexes
-            .insert_text(LEXICAL_SLOT, cx_id, &doc.text, seq as u64 + 1)
-            .map_err(|error| error.to_string())?;
+            .insert_text(LEXICAL_SLOT, cx_id, &doc.text, seq as u64 + 1)?;
         engine
             .indexes
-            .insert(DENSE_SLOT, cx_id, weak_dense(&doc.doc_id), seq as u64 + 1)
-            .map_err(|error| error.to_string())?;
+            .insert(DENSE_SLOT, cx_id, weak_dense(&doc.doc_id), seq as u64 + 1)?;
         engine.put_constellation(stored);
     }
     Ok(IndexedCorpus {
@@ -114,10 +104,10 @@ pub(crate) fn evaluate_recall(
     data: &ValidationData,
     request: &RecallRequest,
     indexed: &IndexedCorpus,
-) -> Result<RecallReport, String> {
+) -> CliResult<RecallReport> {
     let eligible = eligible_query_ids(data);
     if eligible.is_empty() {
-        return Err("CALYX_FSV_EMPTY_QRELS".to_string());
+        return Err(CliError::runtime("CALYX_FSV_EMPTY_QRELS"));
     }
     let qids = eligible
         .iter()
@@ -156,9 +146,9 @@ pub(crate) fn evaluate_recall(
     let multi_recall = multi_hits as f64 / denominator;
     let delta = multi_recall - single_recall;
     if delta + f64::EPSILON < request.min_delta {
-        return Err(format!(
+        return Err(CliError::runtime(format!(
             "CALYX_FSV_SEXTANT_RECALL_BELOW_THRESHOLD: delta={delta:.6}"
-        ));
+        )));
     }
     Ok(RecallReport {
         dataset: request.corpus_jsonl.display().to_string(),
@@ -226,27 +216,17 @@ fn skipped_without_relevance(data: &ValidationData) -> usize {
         .count()
 }
 
-fn single_query(
-    engine: &SearchEngine,
-    text: &str,
-    k: usize,
-) -> Result<Vec<calyx_sextant::Hit>, String> {
-    engine
-        .search(
-            &Query::new(text)
-                .with_vector(query_vec())
-                .with_slots(vec![DENSE_SLOT])
-                .require_stored_provenance(true)
-                .with_recall_k(k),
-        )
-        .map_err(|error| error.to_string())
+fn single_query(engine: &SearchEngine, text: &str, k: usize) -> CliResult<Vec<calyx_sextant::Hit>> {
+    Ok(engine.search(
+        &Query::new(text)
+            .with_vector(query_vec())
+            .with_slots(vec![DENSE_SLOT])
+            .require_stored_provenance(true)
+            .with_recall_k(k),
+    )?)
 }
 
-fn multi_query(
-    engine: &SearchEngine,
-    text: &str,
-    k: usize,
-) -> Result<Vec<calyx_sextant::Hit>, String> {
+fn multi_query(engine: &SearchEngine, text: &str, k: usize) -> CliResult<Vec<calyx_sextant::Hit>> {
     let mut query = Query::new(text)
         .with_vector(query_vec())
         .with_slots(vec![LEXICAL_SLOT, DENSE_SLOT])
@@ -256,17 +236,17 @@ fn multi_query(
     query.fusion = Some(FusionStrategy::WeightedRrf {
         profile: RrfProfile::General,
     });
-    engine.search(&query).map_err(|error| error.to_string())
+    Ok(engine.search(&query)?)
 }
 
-pub(super) fn ensure_ledger_refs(hits: &[calyx_sextant::Hit]) -> std::result::Result<(), String> {
+pub(super) fn ensure_ledger_refs(hits: &[calyx_sextant::Hit]) -> CliResult<()> {
     if hits
         .iter()
         .all(|hit| hit.provenance_source == ProvenanceSource::Stored)
     {
         return Ok(());
     }
-    Err("CALYX_FSV_LEDGER_REF_MISSING".to_string())
+    Err(CliError::runtime("CALYX_FSV_LEDGER_REF_MISSING"))
 }
 
 fn has_relevant_hit(hits: &[calyx_sextant::Hit], relevant: &BTreeSet<CxId>) -> bool {

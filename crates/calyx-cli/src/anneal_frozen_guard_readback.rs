@@ -3,10 +3,16 @@ use serde_json::json;
 use std::fs;
 use std::path::Path;
 
+use crate::error::CliError;
+
 pub fn frozen_guard_report(path: &Path) -> crate::error::CliResult {
-    let bytes = fs::read(path).map_err(|error| error.to_string())?;
-    let report: FrozenCheckReport =
-        serde_json::from_slice(&bytes).map_err(|error| error.to_string())?;
+    let bytes = fs::read(path)?;
+    let report: FrozenCheckReport = serde_json::from_slice(&bytes).map_err(|error| {
+        CliError::runtime(format!(
+            "parse frozen-guard report {}: {error}",
+            path.display()
+        ))
+    })?;
     let rows = report
         .rows
         .iter()
@@ -24,12 +30,13 @@ pub fn frozen_guard_report(path: &Path) -> crate::error::CliResult {
     });
     println!(
         "{}",
-        serde_json::to_string_pretty(&readback).map_err(|error| error.to_string())?
+        serde_json::to_string_pretty(&readback)
+            .map_err(|error| CliError::runtime(format!("serialize readback: {error}")))?
     );
     Ok(())
 }
 
-fn row_json(row: &FrozenLensReportRow) -> Result<serde_json::Value, String> {
+fn row_json(row: &FrozenLensReportRow) -> crate::error::CliResult<serde_json::Value> {
     Ok(json!({
         "lens_id": row.lens_id,
         "known_hash_hex": row.known_hash.map(|hash| hex32(&hash)).transpose()?,
@@ -39,7 +46,7 @@ fn row_json(row: &FrozenLensReportRow) -> Result<serde_json::Value, String> {
     }))
 }
 
-fn hex32(bytes: &[u8; 32]) -> Result<String, String> {
+fn hex32(bytes: &[u8; 32]) -> crate::error::CliResult<String> {
     let mut out = String::with_capacity(64);
     for byte in bytes {
         out.push(hex_digit(byte >> 4)?);
@@ -48,10 +55,10 @@ fn hex32(bytes: &[u8; 32]) -> Result<String, String> {
     Ok(out)
 }
 
-fn hex_digit(value: u8) -> Result<char, String> {
+fn hex_digit(value: u8) -> crate::error::CliResult<char> {
     match value {
         0..=9 => Ok(char::from(b'0' + value)),
         10..=15 => Ok(char::from(b'a' + value - 10)),
-        _ => Err("nibble out of range".to_string()),
+        _ => Err(CliError::runtime("nibble out of range")),
     }
 }

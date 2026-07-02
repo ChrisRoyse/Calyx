@@ -6,6 +6,7 @@ use serde::Serialize;
 
 use super::real_types::{PanelRelevanceReport, SlotMetricReport};
 use super::request::RecallRequest;
+use crate::error::{CliError, CliResult};
 
 const METRIC_KEY: &[u8] = b"ph70/sextant/panel-relevance/scifact";
 
@@ -25,21 +26,21 @@ pub(crate) fn write_outputs(
     vault: &AsterVault,
     request: &RecallRequest,
     report: PanelRelevanceReport,
-) -> Result<PanelMetricEvidence, String> {
-    fs::create_dir_all(&request.metrics_dir).map_err(|error| error.to_string())?;
+) -> CliResult<PanelMetricEvidence> {
+    fs::create_dir_all(&request.metrics_dir)?;
     let summary = request.metrics_dir.join("sextant_panel_relevance.json");
     let queries = request
         .metrics_dir
         .join("sextant_panel_relevance_queries.jsonl");
     let tsv = request.metrics_dir.join("sextant_panel_metrics.tsv");
-    let value = serde_json::to_vec_pretty(&report).map_err(|error| error.to_string())?;
-    fs::write(&summary, &value).map_err(|error| error.to_string())?;
-    fs::write(&queries, query_jsonl(&report)?).map_err(|error| error.to_string())?;
-    fs::write(&tsv, metrics_tsv(&report)).map_err(|error| error.to_string())?;
-    let seq = vault
-        .write_cf(ColumnFamily::Online, METRIC_KEY.to_vec(), value.clone())
-        .map_err(|error| error.to_string())?;
-    vault.flush().map_err(|error| error.to_string())?;
+    let value = serde_json::to_vec_pretty(&report).map_err(|error| {
+        CliError::runtime(format!("serialize sextant panel relevance report: {error}"))
+    })?;
+    fs::write(&summary, &value)?;
+    fs::write(&queries, query_jsonl(&report)?)?;
+    fs::write(&tsv, metrics_tsv(&report))?;
+    let seq = vault.write_cf(ColumnFamily::Online, METRIC_KEY.to_vec(), value.clone())?;
+    vault.flush()?;
     Ok(PanelMetricEvidence {
         relevance_report_path: summary.display().to_string(),
         query_evidence_path: queries.display().to_string(),
@@ -52,10 +53,12 @@ pub(crate) fn write_outputs(
     })
 }
 
-fn query_jsonl(report: &PanelRelevanceReport) -> Result<String, String> {
+fn query_jsonl(report: &PanelRelevanceReport) -> CliResult<String> {
     let mut out = String::new();
     for row in &report.query_evidence {
-        out.push_str(&serde_json::to_string(row).map_err(|error| error.to_string())?);
+        out.push_str(&serde_json::to_string(row).map_err(|error| {
+            CliError::runtime(format!("serialize sextant query evidence row: {error}"))
+        })?);
         out.push('\n');
     }
     Ok(out)

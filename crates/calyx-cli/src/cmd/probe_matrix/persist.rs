@@ -23,7 +23,8 @@ pub(super) fn persist_probe_matrix(
     explicit: Option<&Path>,
     artifact: &ProbeMatrixArtifact,
 ) -> CliResult<PersistedProbeMatrix> {
-    let bytes = serde_json::to_vec_pretty(artifact)?;
+    let bytes = serde_json::to_vec_pretty(artifact)
+        .map_err(|error| CliError::runtime(format!("serialize probe matrix artifact: {error}")))?;
     let matrix_id = blake3::hash(&bytes).to_hex().to_string();
     let path = explicit.map(Path::to_path_buf).unwrap_or_else(|| {
         vault_dir
@@ -40,7 +41,8 @@ pub(super) fn persist_probe_matrix_at_path(
     artifact: &ProbeMatrixArtifact,
     replace_existing: bool,
 ) -> CliResult<PersistedProbeMatrix> {
-    let mut bytes = serde_json::to_vec_pretty(artifact)?;
+    let mut bytes = serde_json::to_vec_pretty(artifact)
+        .map_err(|error| CliError::runtime(format!("serialize probe matrix artifact: {error}")))?;
     bytes.push(10);
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;
@@ -62,7 +64,12 @@ pub(super) fn persist_probe_matrix_at_path(
             path.display()
         )));
     }
-    let decoded: ProbeMatrixArtifact = serde_json::from_slice(&readback)?;
+    let decoded: ProbeMatrixArtifact = serde_json::from_slice(&readback).map_err(|error| {
+        CliError::runtime(format!(
+            "decode probe matrix readback at {}: {error}",
+            path.display()
+        ))
+    })?;
     Ok(PersistedProbeMatrix {
         path: path.to_path_buf(),
         bytes: readback.len() as u64,

@@ -2,7 +2,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use super::model::{Flags, LensAudit, SCHEMA, ScaleAuditReport, TEMPORAL_LANE_ROLE, reject};
-use crate::error::CliResult;
+use crate::error::{CliError, CliResult};
 use calyx_core::Placement;
 
 pub(super) struct ProgressUpdate {
@@ -142,7 +142,8 @@ pub(super) fn write_progress(
         report_path: flags.out.clone(),
         lenses,
     };
-    let bytes = serde_json::to_vec_pretty(&snapshot)?;
+    let bytes = serde_json::to_vec_pretty(&snapshot)
+        .map_err(|error| CliError::runtime(format!("serialize progress snapshot: {error}")))?;
     fs::write(path, bytes)?;
     Ok(())
 }
@@ -151,7 +152,8 @@ pub(super) fn write_report(path: &PathBuf, report: &ScaleAuditReport) -> CliResu
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;
     }
-    let bytes = serde_json::to_vec_pretty(report)?;
+    let bytes = serde_json::to_vec_pretty(report)
+        .map_err(|error| CliError::runtime(format!("serialize scale audit report: {error}")))?;
     fs::write(path, bytes)?;
     Ok(())
 }
@@ -160,7 +162,8 @@ pub(super) fn write_lens_audit(path: &PathBuf, audit: &LensAudit) -> CliResult {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;
     }
-    let bytes = serde_json::to_vec_pretty(audit)?;
+    let bytes = serde_json::to_vec_pretty(audit)
+        .map_err(|error| CliError::runtime(format!("serialize lens audit: {error}")))?;
     fs::write(path, bytes)?;
     Ok(())
 }

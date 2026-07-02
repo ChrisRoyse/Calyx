@@ -337,7 +337,9 @@ fn json_payload(entry: &LedgerEntry) -> Value {
 }
 
 fn hash_json(value: &Value) -> CliResult<String> {
-    let bytes = serde_json::to_vec(value)?;
+    let bytes = serde_json::to_vec(value).map_err(|error| {
+        CliError::runtime(format!("serialize provenance JSON payload: {error}"))
+    })?;
     Ok(hex_bytes(blake3::hash(&bytes).as_bytes()))
 }
 

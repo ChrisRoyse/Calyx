@@ -16,6 +16,7 @@ use serde::Deserialize;
 use serde_json::json;
 
 use crate::cf_read::hex_bytes;
+use crate::error::{CliError, CliResult};
 
 const REPORT_VAULT_ID: &str = "01ARZ3NDEKTSV4RRFFQ69G5FAV";
 const REPORT_VAULT_SALT: &[u8] = b"calyx-anneal-intelligence-report";
@@ -23,16 +24,16 @@ const REPORT_VAULT_SALT: &[u8] = b"calyx-anneal-intelligence-report";
 pub(crate) fn run(args: &[String]) -> crate::error::CliResult {
     let request = IntelligenceReportRequest::parse(args)?;
     let fixture_bytes = fs::read(&request.fixture).map_err(|error| {
-        format!(
+        CliError::io(format!(
             "CALYX_ANNEAL_J_INVALID_METRIC: read fixture {}: {error}",
             request.fixture.display()
-        )
+        ))
     })?;
     let fixture = serde_json::from_slice::<Fixture>(&fixture_bytes).map_err(|error| {
-        format!(
+        CliError::runtime(format!(
             "CALYX_ANNEAL_J_INVALID_METRIC: parse fixture {}: {error}",
             request.fixture.display()
-        )
+        ))
     })?;
     let (weights, weights_source) = request.resolve_weights(&fixture)?;
     let (goodhart_penalty, goodhart_state_source) = request.resolve_goodhart_penalty()?;
@@ -88,7 +89,9 @@ pub(crate) fn run(args: &[String]) -> crate::error::CliResult {
     });
     println!(
         "{}",
-        serde_json::to_string_pretty(&readback).map_err(|error| error.to_string())?
+        serde_json::to_string_pretty(&readback).map_err(|error| CliError::runtime(format!(
+            "serialize intelligence-report readback: {error}"
+        )))?
     );
     Ok(())
 }
@@ -99,7 +102,7 @@ struct IntelligenceReportRequest {
 }
 
 impl IntelligenceReportRequest {
-    fn parse(args: &[String]) -> Result<Self, String> {
+    fn parse(args: &[String]) -> CliResult<Self> {
         let mut fixture = None;
         let mut vault = None;
         let mut idx = 0;
@@ -113,23 +116,26 @@ impl IntelligenceReportRequest {
                     vault = args.get(idx + 1).map(PathBuf::from);
                     idx += 2;
                 }
-                other => return Err(format!("unknown intelligence-report arg: {other}")),
+                other => {
+                    return Err(CliError::usage(format!(
+                        "unknown intelligence-report arg: {other}"
+                    )));
+                }
             }
         }
         Ok(Self {
             fixture: fixture
-                .ok_or_else(|| "intelligence-report requires --fixture <json>".to_string())?,
+                .ok_or_else(|| CliError::usage("intelligence-report requires --fixture <json>"))?,
             vault,
         })
     }
 
-    fn resolve_weights(&self, fixture: &Fixture) -> Result<(JWeights, String), String> {
+    fn resolve_weights(&self, fixture: &Fixture) -> CliResult<(JWeights, String)> {
         if let Some(weights) = fixture.weights {
             return Ok((weights, "fixture.weights".to_string()));
         }
         if let Some(vault) = &self.vault {
-            let weights =
-                read_objective_weights_from_vault(vault).map_err(|error| error.to_string())?;
+            let weights = read_objective_weights_from_vault(vault)?;
             return Ok((
                 weights,
                 format!("{}/.anneal/j_weights.toml", vault.display()),
@@ -141,9 +147,9 @@ impl IntelligenceReportRequest {
         ))
     }
 
-    fn resolve_goodhart_penalty(&self) -> Result<(f64, String), String> {
+    fn resolve_goodhart_penalty(&self) -> CliResult<(f64, String)> {
         if let Some(vault) = &self.vault {
-            let state = read_goodhart_state_from_vault(vault).map_err(|error| error.to_string())?;
+            let state = read_goodhart_state_from_vault(vault)?;
             return Ok((
                 state.p_goodhart,
                 format!("{}/.anneal/goodhart_state.toml", vault.display()),
@@ -156,7 +162,7 @@ impl IntelligenceReportRequest {
         &self,
         fixture: &Fixture,
         j_value: &JValue,
-    ) -> Result<GradientReportState, String> {
+    ) -> CliResult<GradientReportState> {
         let clock: Arc<dyn Clock> = fixture
             .gradient_ts
             .map(|ts| Arc::new(FixedClock::new(ts)) as Arc<dyn Clock>)
@@ -166,8 +172,7 @@ impl IntelligenceReportRequest {
         let refresh = gradient.refresh(fixture.gradient_candidates.clone());
         let snapshot = gradient.snapshot(5);
         let state_source = if let Some(vault) = &self.vault {
-            let path =
-                write_gradient_snapshot(vault, &snapshot).map_err(|error| error.to_string())?;
+            let path = write_gradient_snapshot(vault, &snapshot)?;
             path.display().to_string()
         } else {
             "not persisted without --vault".to_string()
@@ -184,7 +189,7 @@ impl IntelligenceReportRequest {
     fn persist_report(
         &self,
         report: &calyx_anneal::IntelligenceReport,
-    ) -> Result<PersistedReportState, String> {
+    ) -> CliResult<PersistedReportState> {
         let Some(vault_path) = &self.vault else {
             return Ok(PersistedReportState {
                 state_source: "not persisted without --vault".to_string(),
@@ -194,22 +199,20 @@ impl IntelligenceReportRequest {
             });
         };
         let vault_id = REPORT_VAULT_ID.parse::<VaultId>().map_err(|error| {
-            format!("CALYX_ANNEAL_REPORT_INVALID_ROW: parse report vault id: {error}")
+            CliError::runtime(format!(
+                "CALYX_ANNEAL_REPORT_INVALID_ROW: parse report vault id: {error}"
+            ))
         })?;
         let vault = AsterVault::new_durable(
             vault_path,
             vault_id,
             REPORT_VAULT_SALT.to_vec(),
             VaultOptions::default(),
-        )
-        .map_err(|error| error.to_string())?;
-        let previous =
-            latest_intelligence_report_snapshot(&vault).map_err(|error| error.to_string())?;
-        let key = write_intelligence_report_snapshot(&vault, report)
-            .map_err(|error| error.to_string())?;
-        let readback = read_intelligence_report_snapshot(&vault, report.ts)
-            .map_err(|error| error.to_string())?
-            .map(|stored| to_json(&stored));
+        )?;
+        let previous = latest_intelligence_report_snapshot(&vault)?;
+        let key = write_intelligence_report_snapshot(&vault, report)?;
+        let readback =
+            read_intelligence_report_snapshot(&vault, report.ts)?.map(|stored| to_json(&stored));
         let diff = previous
             .as_ref()
             .map(|before| json!(report_diff(before, report)));

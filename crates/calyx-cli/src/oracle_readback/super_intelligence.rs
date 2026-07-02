@@ -20,6 +20,7 @@ use serde::Deserialize;
 use serde_json::json;
 
 use crate::cf_read::hex_bytes;
+use crate::error::{CliError, CliResult};
 
 mod sources;
 use sources::{
@@ -33,14 +34,13 @@ pub(crate) fn readback_super_intelligence(args: &[String]) -> crate::error::CliR
     let args = ReadbackArgs::parse(args)?;
     let fixture = SuperIntelFixture::read(&args.fixture, &args.domain)?;
     let vault_id = VaultId::from_str(&args.vault_id)
-        .map_err(|error| format!("invalid --vault-id: {error}"))?;
+        .map_err(|error| CliError::usage(format!("invalid --vault-id: {error}")))?;
     let vault = AsterVault::new_durable(
         &args.vault,
         vault_id,
         args.salt.as_bytes().to_vec(),
         VaultOptions::default(),
-    )
-    .map_err(|error| error.to_string())?;
+    )?;
 
     let oracle_rows = fixture.persist_oracle_rows(&vault, vault_id, &args.domain)?;
     let assay_rows = fixture
@@ -70,9 +70,7 @@ pub(crate) fn readback_super_intelligence(args: &[String]) -> crate::error::CliR
 
     match super_intelligence_with_ledger(&vault, request) {
         Ok((report, ledger_ref)) => {
-            vault
-                .flush()
-                .map_err(|error| format!("flush super_intelligence readback: {error}"))?;
+            vault.flush()?;
             let ledger_row = read_ledger_row(&vault, &ledger_ref)?;
             println!(
                 "{}",
@@ -89,7 +87,9 @@ pub(crate) fn readback_super_intelligence(args: &[String]) -> crate::error::CliR
                     },
                     "report": report,
                 }))
-                .map_err(|error| error.to_string())?
+                .map_err(|error| {
+                    CliError::runtime(format!("serialize super_intelligence report: {error}"))
+                })?
             );
             Ok(())
         }
@@ -106,9 +106,11 @@ pub(crate) fn readback_super_intelligence(args: &[String]) -> crate::error::CliR
                     "error": error.to_string(),
                     "remediation": error.remediation(),
                 }))
-                .map_err(|error| error.to_string())?
+                .map_err(|error| {
+                    CliError::runtime(format!("serialize super_intelligence report: {error}"))
+                })?
             );
-            Err(error.to_string().into())
+            Err(error.into())
         }
     }
 }
@@ -123,7 +125,7 @@ struct ReadbackArgs {
 }
 
 impl ReadbackArgs {
-    fn parse(args: &[String]) -> Result<Self, String> {
+    fn parse(args: &[String]) -> CliResult<Self> {
         let mut vault = None;
         let mut domain = None;
         let mut fixture = None;
@@ -132,23 +134,23 @@ impl ReadbackArgs {
         let mut index = 0;
         while index < args.len() {
             let flag = args[index].as_str();
-            let value = args.get(index + 1).ok_or_else(|| USAGE.to_string())?;
+            let value = args.get(index + 1).ok_or_else(|| CliError::usage(USAGE))?;
             match flag {
                 "--vault" => vault = Some(PathBuf::from(value)),
                 "--domain" => domain = Some(value.clone()),
                 "--fixture" => fixture = Some(PathBuf::from(value)),
                 "--vault-id" => vault_id = Some(value.clone()),
                 "--salt" => salt = Some(value.clone()),
-                _ => return Err(USAGE.to_string()),
+                _ => return Err(CliError::usage(USAGE)),
             }
             index += 2;
         }
         Ok(Self {
-            vault: vault.ok_or_else(|| USAGE.to_string())?,
-            domain: domain.ok_or_else(|| USAGE.to_string())?,
-            fixture: fixture.ok_or_else(|| USAGE.to_string())?,
-            vault_id: vault_id.ok_or_else(|| USAGE.to_string())?,
-            salt: salt.ok_or_else(|| USAGE.to_string())?,
+            vault: vault.ok_or_else(|| CliError::usage(USAGE))?,
+            domain: domain.ok_or_else(|| CliError::usage(USAGE))?,
+            fixture: fixture.ok_or_else(|| CliError::usage(USAGE))?,
+            vault_id: vault_id.ok_or_else(|| CliError::usage(USAGE))?,
+            salt: salt.ok_or_else(|| CliError::usage(USAGE))?,
         })
     }
 }
@@ -170,18 +172,21 @@ struct SuperIntelFixture {
 }
 
 impl SuperIntelFixture {
-    fn read(path: &Path, domain: &str) -> Result<Self, String> {
-        let bytes = std::fs::read(path).map_err(|error| format!("read fixture: {error}"))?;
-        let fixture: Self =
-            serde_json::from_slice(&bytes).map_err(|error| format!("parse fixture: {error}"))?;
+    fn read(path: &Path, domain: &str) -> CliResult<Self> {
+        let bytes =
+            std::fs::read(path).map_err(|error| CliError::io(format!("read fixture: {error}")))?;
+        let fixture: Self = serde_json::from_slice(&bytes)
+            .map_err(|error| CliError::runtime(format!("parse fixture: {error}")))?;
         if fixture
             .domain
             .as_deref()
             .is_some_and(|value| value != domain)
         {
-            return Err("fixture domain does not match --domain".to_string());
+            return Err(CliError::runtime(
+                "fixture domain does not match --domain".to_string(),
+            ));
         }
-        fixture.validate()?;
+        fixture.validate().map_err(CliError::runtime)?;
         Ok(fixture)
     }
 
@@ -202,20 +207,18 @@ impl SuperIntelFixture {
         vault: &AsterVault,
         vault_id: VaultId,
         domain: &str,
-    ) -> Result<OracleRowsWritten, String> {
+    ) -> CliResult<OracleRowsWritten> {
         let raw = format!("super-intelligence-oracle-row:{domain}");
         let cx_id = vault.cx_id_for_input(raw.as_bytes(), self.panel.version.max(1));
-        vault
-            .put(oracle_constellation(
-                vault,
-                vault_id,
-                cx_id,
-                raw.as_bytes(),
-                &self.panel,
-                domain,
-                self.clock_ts,
-            ))
-            .map_err(|error| error.to_string())?;
+        vault.put(oracle_constellation(
+            vault,
+            vault_id,
+            cx_id,
+            raw.as_bytes(),
+            &self.panel,
+            domain,
+            self.clock_ts,
+        ))?;
 
         let context = oracle_context(
             &self.oracle.oracle_verdict,
@@ -227,13 +230,12 @@ impl SuperIntelFixture {
                 vault,
                 cx_id,
                 at,
-                OccurrenceContext::new(context.clone()).map_err(|error| error.to_string())?,
+                OccurrenceContext::new(context.clone())?,
                 at,
                 RetentionPolicy::default(),
-            )
-            .map_err(|error| error.to_string())?;
+            )?;
         }
-        let series = read_series(vault, cx_id).map_err(|error| error.to_string())?;
+        let series = read_series(vault, cx_id)?;
         Ok(OracleRowsWritten {
             base_rows: 1,
             recurrence_rows: series.occurrences.len(),
@@ -271,7 +273,7 @@ impl SufficiencyFixture {
         vault: &AsterVault,
         fixture: &SuperIntelFixture,
         domain: &str,
-    ) -> Result<usize, String> {
+    ) -> CliResult<usize> {
         let key = AssayCacheKey::scoped(
             fixture.panel.version,
             domain,
@@ -302,9 +304,7 @@ impl SufficiencyFixture {
                 fixture.clock_ts,
             );
         }
-        store
-            .persist_to_vault(vault)
-            .map_err(|error| error.to_string())
+        Ok(store.persist_to_vault(vault)?)
     }
 
     fn estimate(&self, bits: f32, estimator: EstimatorKind) -> MiEstimate {
@@ -367,27 +367,26 @@ fn oracle_constellation(
     }
 }
 
-fn oracle_context(verdict: &AnchorValue, truth: &AnchorValue) -> Result<Vec<u8>, String> {
+fn oracle_context(verdict: &AnchorValue, truth: &AnchorValue) -> CliResult<Vec<u8>> {
     serde_json::to_vec(&json!({
         "oracle_verdict": { "value": verdict },
         "ground_truth_anchor": { "value": truth },
     }))
-    .map_err(|error| error.to_string())
+    .map_err(|error| CliError::runtime(format!("serialize oracle context: {error}")))
 }
 
-fn read_ledger_row(vault: &AsterVault, ledger_ref: &LedgerRef) -> Result<Vec<u8>, String> {
+fn read_ledger_row(vault: &AsterVault, ledger_ref: &LedgerRef) -> CliResult<Vec<u8>> {
     vault
         .read_cf_at(
             vault.latest_seq(),
             ColumnFamily::Ledger,
             &ledger_key(ledger_ref.seq),
-        )
-        .map_err(|error| error.to_string())?
-        .ok_or_else(|| format!("ledger row {} not found", ledger_ref.seq))
+        )?
+        .ok_or_else(|| CliError::runtime(format!("ledger row {} not found", ledger_ref.seq)))
 }
 
-fn epoch(value: u64) -> Result<EpochSecs, String> {
+fn epoch(value: u64) -> CliResult<EpochSecs> {
     i64::try_from(value)
         .map(EpochSecs)
-        .map_err(|_| "fixture clock_ts is too large for EpochSecs".to_string())
+        .map_err(|_| CliError::runtime("fixture clock_ts is too large for EpochSecs"))
 }

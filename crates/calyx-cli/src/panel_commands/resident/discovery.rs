@@ -46,7 +46,8 @@ pub(crate) fn write_resident_discovery(
             ))
         })?;
     }
-    let bytes = serde_json::to_vec_pretty(discovery)?;
+    let bytes = serde_json::to_vec_pretty(discovery)
+        .map_err(|error| CliError::runtime(format!("serialize resident discovery: {error}")))?;
     std::fs::write(&path, bytes).map_err(|error| {
         CliError::io(format!(
             "write resident discovery file {}: {error}",

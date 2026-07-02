@@ -11,6 +11,7 @@ use calyx_aster::cf::ColumnFamily;
 use calyx_aster::mvcc::Freshness;
 use calyx_aster::vault::VaultOptions;
 
+use crate::error::CliError;
 use crate::resource_status::{open_resource_vault, vram_status_from_vault};
 
 const DRILL_VALUE_FILL: u8 = 0xA5;
@@ -24,10 +25,10 @@ pub(crate) struct ResourceDrillArgs {
 
 pub(crate) fn run_resource_drill(vault: &Path, args: ResourceDrillArgs) -> crate::error::CliResult {
     if args.value_bytes == 0 {
-        return Err("--value-bytes must be positive".to_string().into());
+        return Err(CliError::usage("--value-bytes must be positive"));
     }
     if args.memtable_cap == 0 {
-        return Err("--memtable-cap must be positive".to_string().into());
+        return Err(CliError::usage("--memtable-cap must be positive"));
     }
     let options = VaultOptions {
         memtable_byte_cap: args.memtable_cap,
@@ -46,13 +47,11 @@ pub(crate) fn run_resource_drill(vault: &Path, args: ResourceDrillArgs) -> crate
     );
 
     for op in 0..args.ops {
-        store
-            .write_cf(
-                ColumnFamily::Base,
-                op.to_be_bytes().to_vec(),
-                vec![DRILL_VALUE_FILL; args.value_bytes],
-            )
-            .map_err(|error| format!("write op {op}: {error}"))?;
+        store.write_cf(
+            ColumnFamily::Base,
+            op.to_be_bytes().to_vec(),
+            vec![DRILL_VALUE_FILL; args.value_bytes],
+        )?;
     }
     println!(
         "RESOURCE_DRILL WROTE ops={} value_bytes={} latest_seq={}",
@@ -78,14 +77,13 @@ fn print_status(
     store: &calyx_aster::vault::AsterVault,
     vault: &Path,
     phase: &str,
-) -> std::result::Result<(), String> {
+) -> crate::error::CliResult {
     let vram = vram_status_from_vault(vault)?;
-    let status = store
-        .resource_status(vault, vram)
-        .map_err(|error| error.to_string())?;
+    let status = store.resource_status(vault, vram)?;
     println!(
         "RESOURCE_DRILL {phase} {}",
-        serde_json::to_string(&status).map_err(|error| error.to_string())?
+        serde_json::to_string(&status)
+            .map_err(|error| CliError::runtime(format!("serialize resource status: {error}")))?
     );
     Ok(())
 }

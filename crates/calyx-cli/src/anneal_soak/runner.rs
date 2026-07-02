@@ -17,18 +17,17 @@ pub(super) fn run_seeded_soak(
     vault: &AsterVault,
     request: &SoakRequest,
     stats: &CorpusStats,
-) -> Result<calyx_anneal::SoakReport, String> {
+) -> crate::error::CliResult<calyx_anneal::SoakReport> {
     let cache_path = request.metrics_dir.join("anneal_autotune_cache.json");
-    let cache = AutotuneCache::load(&cache_path).map_err(|error| error.to_string())?;
+    let cache = AutotuneCache::load(&cache_path)?;
     let store = AsterAnnealLedgerStore::new(vault);
-    let appender = LedgerAppender::open(store, SystemClock).map_err(|error| error.to_string())?;
+    let appender = LedgerAppender::open(store, SystemClock)?;
     let ledger = AnnealLedger::new(
         appender,
         ActorId::Service("calyx-ph70-anneal-soak".to_string()),
-    )
-    .map_err(|error| error.to_string())?;
+    )?;
     let runner = ABRunner::new(
-        TripwireRegistry::load_from_vault(&request.vault).map_err(|error| error.to_string())?,
+        TripwireRegistry::load_from_vault(&request.vault)?,
         ledger,
         NoopABBudget::default(),
         Arc::new(SystemClock),
@@ -43,8 +42,8 @@ pub(super) fn run_seeded_soak(
     };
     let mut harness = SoakHarness::seeded(config, cache, runner, AsterSoakStorage::new(vault))
         .with_seeded_profile(profile_for(stats));
-    let report = harness.run(vault).map_err(|error| error.to_string())?;
-    vault.flush().map_err(|error| error.to_string())?;
+    let report = harness.run(vault)?;
+    vault.flush()?;
     Ok(report)
 }
 

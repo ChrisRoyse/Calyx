@@ -15,26 +15,25 @@ use std::path::Path;
 use std::sync::Arc;
 
 use crate::cf_read::{hex_bytes, list_sst_files};
+use crate::error::CliError;
 
 pub fn arrow_demo(vault: &Path) -> crate::error::CliResult {
     let cf = ColumnFamily::slot(SlotId::new(0));
     let cf_dir = vault.join("cf").join(cf.name());
-    fs::create_dir_all(&cf_dir).map_err(|error| error.to_string())?;
+    fs::create_dir_all(&cf_dir)?;
     let rows = [[1.0_f32, 2.0, 3.5, 4.25], [5.0, 6.0, 7.0, 8.0]];
     let refs: Vec<_> = rows.iter().map(|row| row.as_slice()).collect();
-    let chunk = encode_column_chunk(&refs).map_err(|error| error.to_string())?;
-    let decoded = decode_column_chunk(&chunk).map_err(|error| error.to_string())?;
+    let chunk = encode_column_chunk(&refs)?;
+    let decoded = decode_column_chunk(&chunk)?;
     if decoded.n_rows() != 2 || decoded.dim() != 4 {
-        return Err("arrow demo decoded unexpected shape".to_string().into());
+        return Err(CliError::runtime("arrow demo decoded unexpected shape"));
     }
     let path = cf_dir.join("00000000000000000001.sst");
-    let summary = write_sst(&path, [(b"arrow-key".as_slice(), chunk.as_slice())])
-        .map_err(|error| error.to_string())?;
+    let summary = write_sst(&path, [(b"arrow-key".as_slice(), chunk.as_slice())])?;
     let stored = SstReader::open(&path)
-        .and_then(|reader| reader.get(b"arrow-key"))
-        .map_err(|error| error.to_string())?
-        .ok_or_else(|| "arrow demo SST row missing".to_string())?;
-    let stored = decode_column_chunk(&stored).map_err(|error| error.to_string())?;
+        .and_then(|reader| reader.get(b"arrow-key"))?
+        .ok_or_else(|| CliError::runtime("arrow demo SST row missing"))?;
+    let stored = decode_column_chunk(&stored)?;
     println!(
         "ARROW_DEMO\tCF\t{}\tSST\t{}\tKEY\t{}\tVALUE_MAGIC\t{}\tROWS\t{}\tDIM\t{}\tBYTES\t{}",
         cf.name(),
@@ -49,31 +48,17 @@ pub fn arrow_demo(vault: &Path) -> crate::error::CliResult {
 }
 
 pub fn cf_demo(vault: &Path) -> crate::error::CliResult {
-    let mut router = CfRouter::open(vault, 1024).map_err(|error| error.to_string())?;
-    router
-        .put(ColumnFamily::Base, b"k1", b"base-old")
-        .map_err(|error| error.to_string())?;
-    router
-        .flush_cf(ColumnFamily::Base)
-        .map_err(|error| error.to_string())?;
-    router
-        .put(ColumnFamily::Base, b"k1", b"base-new")
-        .map_err(|error| error.to_string())?;
-    router
-        .put(ColumnFamily::Base, b"k2", b"base-two")
-        .map_err(|error| error.to_string())?;
-    router
-        .put(ColumnFamily::slot(SlotId::new(0)), b"k1", b"slot-zero")
-        .map_err(|error| error.to_string())?;
-    router
-        .flush_cf(ColumnFamily::Base)
-        .map_err(|error| error.to_string())?;
-    router
-        .flush_cf(ColumnFamily::slot(SlotId::new(0)))
-        .map_err(|error| error.to_string())?;
+    let mut router = CfRouter::open(vault, 1024)?;
+    router.put(ColumnFamily::Base, b"k1", b"base-old")?;
+    router.flush_cf(ColumnFamily::Base)?;
+    router.put(ColumnFamily::Base, b"k1", b"base-new")?;
+    router.put(ColumnFamily::Base, b"k2", b"base-two")?;
+    router.put(ColumnFamily::slot(SlotId::new(0)), b"k1", b"slot-zero")?;
+    router.flush_cf(ColumnFamily::Base)?;
+    router.flush_cf(ColumnFamily::slot(SlotId::new(0)))?;
     drop(router);
 
-    let reopened = CfRouter::open(vault, 1024).map_err(|error| error.to_string())?;
+    let reopened = CfRouter::open(vault, 1024)?;
     assert_value(&reopened, ColumnFamily::Base, b"k1", b"base-new")?;
     assert_value(&reopened, ColumnFamily::Base, b"k2", b"base-two")?;
     assert_value(
@@ -82,9 +67,7 @@ pub fn cf_demo(vault: &Path) -> crate::error::CliResult {
         b"k1",
         b"slot-zero",
     )?;
-    let base_rows = reopened
-        .range(ColumnFamily::Base, b"", b"\xff")
-        .map_err(|error| error.to_string())?;
+    let base_rows = reopened.range(ColumnFamily::Base, b"", b"\xff")?;
     println!(
         "CF_DEMO\tVAULT\t{}\tBASE_FILES\t{}\tSLOT_FILES\t{}\tBASE_ROWS\t{}\tBASE_DIR\t{}\tSLOT_DIR\t{}",
         vault.display(),
@@ -99,7 +82,7 @@ pub fn cf_demo(vault: &Path) -> crate::error::CliResult {
 
 pub fn mvcc_demo(vault: &Path) -> crate::error::CliResult {
     let vault_id = mvcc_vault_id()?;
-    let router = CfRouter::open(vault, 4096).map_err(|error| error.to_string())?;
+    let router = CfRouter::open(vault, 4096)?;
     let writer = AsterVault::with_clock_and_router(
         vault_id,
         b"calyx-mvcc-router-demo-salt".to_vec(),
@@ -108,10 +91,8 @@ pub fn mvcc_demo(vault: &Path) -> crate::error::CliResult {
     );
     let constellation = mvcc_constellation(vault_id);
     let id = constellation.cx_id;
-    writer
-        .put(constellation)
-        .map_err(|error| error.to_string())?;
-    let summaries = writer.flush_all_cfs().map_err(|error| error.to_string())?;
+    writer.put(constellation)?;
+    let summaries = writer.flush_all_cfs()?;
     let stale = writer.pin_stale_snapshot(3);
     println!(
         "MVCC_DEMO\tID\t{}\tSNAPSHOT\t{}\tSTALE_MAX_LAG\t3\tFLUSHED\t{}\tBASE_CF\t{}\tSLOT_CF\t{}",
@@ -126,34 +107,26 @@ pub fn mvcc_demo(vault: &Path) -> crate::error::CliResult {
 
 pub fn wal_drill(vault: &Path, records: usize) -> crate::error::CliResult {
     let wal_dir = vault.join("wal");
-    fs::create_dir_all(&wal_dir).map_err(|error| error.to_string())?;
+    fs::create_dir_all(&wal_dir)?;
     let options = WalOptions::default();
-    let wal = Wal::open(&wal_dir, options).map_err(|error| error.to_string())?;
-    let batcher = GroupCommitBatcher::new(wal, options.group_commit_window, Arc::new(SystemClock))
-        .map_err(|error| error.to_string())?;
+    let wal = Wal::open(&wal_dir, options)?;
+    let batcher = GroupCommitBatcher::new(wal, options.group_commit_window, Arc::new(SystemClock))?;
     let mut last_seq = 0;
     let mut last_end = 0;
     for index in 0..records {
-        let ack = batcher
-            .submit(format!("acked-{index:04}").into_bytes())
-            .map_err(|error| error.to_string())?;
+        let ack = batcher.submit(format!("acked-{index:04}").into_bytes())?;
         last_seq = ack.seq;
         last_end = ack.end_offset;
     }
-    batcher.flush_sync().map_err(|error| error.to_string())?;
+    batcher.flush_sync()?;
     drop(batcher);
 
     let segment = wal_dir.join("00000000000000000000.wal");
     let torn_seq = last_seq + 1;
-    let mut file = OpenOptions::new()
-        .append(true)
-        .open(&segment)
-        .map_err(|error| error.to_string())?;
-    file.write_all(b"CXW1").map_err(|error| error.to_string())?;
-    file.write_all(&torn_seq.to_le_bytes())
-        .map_err(|error| error.to_string())?;
-    file.write_all(&32_u32.to_le_bytes())
-        .map_err(|error| error.to_string())?;
+    let mut file = OpenOptions::new().append(true).open(&segment)?;
+    file.write_all(b"CXW1")?;
+    file.write_all(&torn_seq.to_le_bytes())?;
+    file.write_all(&32_u32.to_le_bytes())?;
     println!(
         "WAL_DRILL\tLAST_ACKED_SEQ\t{}\tTORN_SEQ\t{}\tLAST_ACKED_END\t{}\tWAL_DIR\t{}\tSEGMENT\t{}",
         last_seq,
@@ -166,7 +139,7 @@ pub fn wal_drill(vault: &Path, records: usize) -> crate::error::CliResult {
 }
 
 pub fn wal_replay(wal_dir: &Path) -> crate::error::CliResult {
-    let replay = replay_dir(wal_dir).map_err(|error| error.to_string())?;
+    let replay = replay_dir(wal_dir)?;
     for record in replay.records {
         println!(
             "WAL_REPLAY\tSEQ\t{}\tFILE\t{}\tSTART\t{}\tEND\t{}\tPAYLOAD\t{}",
@@ -194,26 +167,21 @@ pub fn corrupt_shard(vault: &Path, cf_name: &str, byte_offset: u64) -> crate::er
     let files = list_sst_files(&vault.join("cf").join(cf.name()))?;
     let path = files
         .first()
-        .ok_or_else(|| format!("no SST files for {}", cf.name()))?;
-    let mut file = OpenOptions::new()
-        .read(true)
-        .write(true)
-        .open(path)
-        .map_err(|error| error.to_string())?;
-    let len = file.metadata().map_err(|error| error.to_string())?.len();
+        .ok_or_else(|| CliError::runtime(format!("no SST files for {}", cf.name())))?;
+    let mut file = OpenOptions::new().read(true).write(true).open(path)?;
+    let len = file.metadata()?.len();
     if byte_offset >= len {
-        return Err(format!("byte offset {byte_offset} outside SST length {len}").into());
+        return Err(CliError::runtime(format!(
+            "byte offset {byte_offset} outside SST length {len}"
+        )));
     }
-    file.seek(SeekFrom::Start(byte_offset))
-        .map_err(|error| error.to_string())?;
+    file.seek(SeekFrom::Start(byte_offset))?;
     let mut byte = [0_u8; 1];
-    file.read_exact(&mut byte)
-        .map_err(|error| error.to_string())?;
+    file.read_exact(&mut byte)?;
     byte[0] ^= 0xff;
-    file.seek(SeekFrom::Start(byte_offset))
-        .map_err(|error| error.to_string())?;
-    file.write_all(&byte).map_err(|error| error.to_string())?;
-    file.sync_all().map_err(|error| error.to_string())?;
+    file.seek(SeekFrom::Start(byte_offset))?;
+    file.write_all(&byte)?;
+    file.sync_all()?;
     println!(
         "CORRUPT_SHARD\tCF\t{}\tFILE\t{}\tOFFSET\t{}\tXOR\tff",
         cf.name(),
@@ -227,10 +195,7 @@ pub fn readback_level(cf_name: &str, level_dir: &Path) -> crate::error::CliResul
     let cf = parse_cf(cf_name)?;
     let files = list_sst_files(level_dir)?;
     let level = SstLevel::from_oldest_first(files.clone());
-    for row in level
-        .range(b"", b"\xff")
-        .map_err(|error| error.to_string())?
-    {
+    for row in level.range(b"", b"\xff")? {
         println!(
             "LEVEL\tCF\t{}\tFILES\t{}\tKEY\t{}\tVALUE\t{}",
             cf.name(),
@@ -248,29 +213,34 @@ fn assert_value(
     key: &[u8],
     expected: &[u8],
 ) -> crate::error::CliResult {
-    let got = router
-        .get(cf, key)
-        .map_err(|error| error.to_string())?
-        .ok_or_else(|| format!("missing {} key {}", cf.name(), hex_bytes(key)))?;
+    let got = router.get(cf, key)?.ok_or_else(|| {
+        CliError::runtime(format!("missing {} key {}", cf.name(), hex_bytes(key)))
+    })?;
     if got != expected {
-        return Err(format!("{} key {} mismatch", cf.name(), hex_bytes(key)).into());
+        return Err(CliError::runtime(format!(
+            "{} key {} mismatch",
+            cf.name(),
+            hex_bytes(key)
+        )));
     }
     Ok(())
 }
 
-fn parse_cf(value: &str) -> Result<ColumnFamily, String> {
+fn parse_cf(value: &str) -> crate::error::CliResult<ColumnFamily> {
     match value {
         "base" => Ok(ColumnFamily::Base),
         "graph" => Ok(ColumnFamily::Graph),
         "slot_00" => Ok(ColumnFamily::slot(SlotId::new(0))),
-        _ => Err(format!("unsupported FSV column family: {value}")),
+        _ => Err(CliError::usage(format!(
+            "unsupported FSV column family: {value}"
+        ))),
     }
 }
 
-fn mvcc_vault_id() -> Result<VaultId, String> {
+fn mvcc_vault_id() -> crate::error::CliResult<VaultId> {
     "01ARZ3NDEKTSV4RRFFQ69G5FAV"
         .parse()
-        .map_err(|error| format!("demo vault id parse: {error}"))
+        .map_err(|error| CliError::runtime(format!("demo vault id parse: {error}")))
 }
 
 fn mvcc_constellation(vault_id: VaultId) -> Constellation {

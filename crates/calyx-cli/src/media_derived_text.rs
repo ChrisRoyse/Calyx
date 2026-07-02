@@ -22,7 +22,7 @@ use serde::Deserialize;
 use serde_json::json;
 use ulid::Ulid;
 
-use crate::error::CliResult;
+use crate::error::{CliError, CliResult};
 use crate::raw_media::{RetainedMediaInput, hex, retained_pointer_path, sha256_hex};
 
 const POINTER_PREFIX: &str = "calyx-vault://";
@@ -205,7 +205,9 @@ pub(crate) fn derivation_ledger_payload(
     );
     payload.insert(LEDGER_FIELD_RUNTIME.to_string(), json!(derived.runtime));
     payload.insert(LEDGER_FIELD_MODEL.to_string(), json!(derived.model));
-    Ok(serde_json::to_vec(&serde_json::Value::Object(payload))?)
+    serde_json::to_vec(&serde_json::Value::Object(payload)).map_err(|error| {
+        CliError::runtime(format!("serialize derived-text ledger payload: {error}"))
+    })
 }
 
 pub(crate) fn derived_artifact_draft(

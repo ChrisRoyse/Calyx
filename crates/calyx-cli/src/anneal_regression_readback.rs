@@ -4,11 +4,17 @@ use std::path::Path;
 use calyx_anneal::{RegressionReport, regression_rate};
 use serde_json::json;
 
+use crate::error::CliError;
+
 pub fn regression_report(path: &Path) -> crate::error::CliResult {
-    let bytes = fs::read(path).map_err(|error| error.to_string())?;
-    let report: RegressionReport =
-        serde_json::from_slice(&bytes).map_err(|error| error.to_string())?;
-    let rate = regression_rate(&report).map_err(|error| error.to_string())?;
+    let bytes = fs::read(path)?;
+    let report: RegressionReport = serde_json::from_slice(&bytes).map_err(|error| {
+        CliError::runtime(format!(
+            "parse regression report {}: {error}",
+            path.display()
+        ))
+    })?;
+    let rate = regression_rate(&report)?;
     let rows = report
         .results
         .iter()
@@ -36,7 +42,8 @@ pub fn regression_report(path: &Path) -> crate::error::CliResult {
     });
     println!(
         "{}",
-        serde_json::to_string_pretty(&readback).map_err(|error| error.to_string())?
+        serde_json::to_string_pretty(&readback)
+            .map_err(|error| CliError::runtime(format!("serialize readback: {error}")))?
     );
     Ok(())
 }

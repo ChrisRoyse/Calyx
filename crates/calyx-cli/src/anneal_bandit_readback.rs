@@ -5,6 +5,7 @@ use serde_json::json;
 use std::path::Path;
 
 use crate::cf_read::{hex_bytes, list_sst_files};
+use crate::error::CliError;
 
 pub fn bandit_status(vault: &Path, shape_key: &str) -> crate::error::CliResult {
     let cf = ColumnFamily::AnnealBandit;
@@ -13,12 +14,10 @@ pub fn bandit_status(vault: &Path, shape_key: &str) -> crate::error::CliResult {
     let mut physical_rows = Vec::new();
     let mut latest = None;
     for file in list_sst_files(&vault.join("cf").join(cf.name()))? {
-        let reader = SstReader::open(&file).map_err(|error| error.to_string())?;
-        for row in reader.iter().map_err(|error| error.to_string())? {
-            let bandit = decode_config_bandit(&row.value).map_err(|error| error.to_string())?;
-            let status = bandit
-                .status(shape_hash)
-                .map_err(|error| error.to_string())?;
+        let reader = SstReader::open(&file)?;
+        for row in reader.iter()? {
+            let bandit = decode_config_bandit(&row.value)?;
+            let status = bandit.status(shape_hash)?;
             let readback = json!({
                 "file": file.display().to_string(),
                 "key_hex": hex_bytes(&row.key),
@@ -49,7 +48,9 @@ pub fn bandit_status(vault: &Path, shape_key: &str) -> crate::error::CliResult {
     });
     println!(
         "{}",
-        serde_json::to_string_pretty(&readback).map_err(|error| error.to_string())?
+        serde_json::to_string_pretty(&readback).map_err(|error| CliError::runtime(format!(
+            "serialize bandit-status readback: {error}"
+        )))?
     );
     Ok(())
 }

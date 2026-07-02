@@ -21,39 +21,49 @@ use calyx_oracle::{
 use serde::Deserialize;
 use serde_json::json;
 
+use crate::error::{CliError, CliResult};
+
 pub(crate) fn readback_oracle_predict(args: &[String]) -> crate::error::CliResult {
     match args {
-        [vault_flag, vault, fixture_flag, fixture, vault_id_flag, vault_id, salt_flag, salt]
-            if vault_flag == "--vault"
-                && fixture_flag == "--fixture"
-                && vault_id_flag == "--vault-id"
-                && salt_flag == "--salt" =>
+        [
+            vault_flag,
+            vault,
+            fixture_flag,
+            fixture,
+            vault_id_flag,
+            vault_id,
+            salt_flag,
+            salt,
+        ] if vault_flag == "--vault"
+            && fixture_flag == "--fixture"
+            && vault_id_flag == "--vault-id"
+            && salt_flag == "--salt" =>
         {
-            let vault_id =
-                VaultId::from_str(vault_id).map_err(|error| format!("invalid --vault-id: {error}"))?;
+            let vault_id = VaultId::from_str(vault_id)
+                .map_err(|error| CliError::usage(format!("invalid --vault-id: {error}")))?;
             let vault = AsterVault::new_durable(
                 Path::new(vault),
                 vault_id,
                 salt.as_bytes().to_vec(),
                 VaultOptions::default(),
-            )
-            .map_err(|error| error.to_string())?;
+            )?;
             let fixture = PredictionFixture::read(Path::new(fixture))?;
             let rows_written = fixture.persist_rows(&vault)?;
-            vault
-                .flush()
-                .map_err(|error| format!("flush oracle predict fixture rows: {error}"))?;
+            vault.flush()?;
             let clock = FixedClock::new(fixture.clock_ts);
             let action = Action {
                 action_id: fixture.action_id.clone(),
                 panel: fixture.panel.clone(),
                 guard: None,
             };
-            match oracle_predict(&vault, &action, DomainId::from(fixture.domain.clone()), &clock) {
+            match oracle_predict(
+                &vault,
+                &action,
+                DomainId::from(fixture.domain.clone()),
+                &clock,
+            ) {
                 Ok(prediction) => {
-                    vault
-                        .flush()
-                        .map_err(|error| format!("flush oracle predict: {error}"))?;
+                    vault.flush()?;
                     println!(
                         "{}",
                         serde_json::to_string_pretty(&json!({
@@ -62,7 +72,9 @@ pub(crate) fn readback_oracle_predict(args: &[String]) -> crate::error::CliResul
                             "rows_written": rows_written,
                             "prediction": prediction,
                         }))
-                        .map_err(|error| error.to_string())?
+                        .map_err(|error| CliError::runtime(format!(
+                            "serialize oracle predict readback: {error}"
+                        )))?
                     );
                     Ok(())
                 }
@@ -74,13 +86,17 @@ pub(crate) fn readback_oracle_predict(args: &[String]) -> crate::error::CliResul
                             rows_written,
                             &error
                         ))
-                        .map_err(|error| error.to_string())?
+                        .map_err(|error| CliError::runtime(format!(
+                            "serialize oracle predict error payload: {error}"
+                        )))?
                     );
-                    Err(error.to_string().into())
+                    Err(error.into())
                 }
             }
         }
-        _ => Err("usage: calyx readback oracle_predict --vault <dir> --fixture <json> --vault-id <id> --salt <s>".to_string().into()),
+        _ => Err(CliError::usage(
+            "usage: calyx readback oracle_predict --vault <dir> --fixture <json> --vault-id <id> --salt <s>",
+        )),
     }
 }
 
@@ -132,30 +148,35 @@ struct FixtureSlotBits {
 }
 
 impl PredictionFixture {
-    fn read(path: &Path) -> Result<Self, String> {
-        let bytes = std::fs::read(path).map_err(|error| format!("read fixture: {error}"))?;
-        let fixture: Self =
-            serde_json::from_slice(&bytes).map_err(|error| format!("parse fixture: {error}"))?;
+    fn read(path: &Path) -> CliResult<Self> {
+        let bytes =
+            std::fs::read(path).map_err(|error| CliError::io(format!("read fixture: {error}")))?;
+        let fixture: Self = serde_json::from_slice(&bytes)
+            .map_err(|error| CliError::runtime(format!("parse fixture: {error}")))?;
         fixture.validate()?;
         Ok(fixture)
     }
 
-    fn validate(&self) -> Result<(), String> {
+    fn validate(&self) -> CliResult {
         validate_bits(self.panel_bits, "I_panel_oracle")?;
         validate_bits(self.outcome_entropy_bits, "outcome_entropy_bits")?;
         for slot in &self.slot_bits {
             validate_bits(slot.bits, "slot_bits")?;
         }
         if self.action_id.trim().is_empty() {
-            return Err("oracle_predict fixture action_id must be non-empty".to_string());
+            return Err(CliError::runtime(
+                "oracle_predict fixture action_id must be non-empty",
+            ));
         }
         if self.n_samples == 0 {
-            return Err("oracle_predict fixture n_samples must be positive".to_string());
+            return Err(CliError::runtime(
+                "oracle_predict fixture n_samples must be positive",
+            ));
         }
         Ok(())
     }
 
-    fn persist_rows<C>(&self, vault: &AsterVault<C>) -> Result<usize, String>
+    fn persist_rows<C>(&self, vault: &AsterVault<C>) -> CliResult<usize>
     where
         C: Clock,
     {
@@ -191,7 +212,7 @@ impl PredictionFixture {
         Ok(row_count)
     }
 
-    fn persist_assay_rows<C>(&self, vault: &AsterVault<C>) -> Result<usize, String>
+    fn persist_assay_rows<C>(&self, vault: &AsterVault<C>) -> CliResult<usize>
     where
         C: Clock,
     {
@@ -225,9 +246,7 @@ impl PredictionFixture {
                 self.clock_ts,
             );
         }
-        store
-            .persist_to_vault(vault)
-            .map_err(|error| error.to_string())
+        Ok(store.persist_to_vault(vault)?)
     }
 
     fn estimate(&self, bits: f32, estimator: EstimatorKind) -> MiEstimate {
@@ -257,7 +276,7 @@ fn write_series<C>(
     action_id: &str,
     series_key: &str,
     rows: &[FixtureRow<'_>],
-) -> Result<usize, String>
+) -> CliResult<usize>
 where
     C: Clock,
 {
@@ -266,34 +285,27 @@ where
         action_id.as_bytes(),
         series_key.as_bytes(),
     ]));
-    vault
-        .write_cf(
-            ColumnFamily::Base,
-            base_key(cx_id),
-            encode::encode_constellation_base(&fixture_constellation(
-                vault.vault_id(),
-                cx_id,
-                domain,
-                action_id,
-            ))
-            .map_err(|error| error.to_string())?,
-        )
-        .map_err(|error| error.to_string())?;
+    vault.write_cf(
+        ColumnFamily::Base,
+        base_key(cx_id),
+        encode::encode_constellation_base(&fixture_constellation(
+            vault.vault_id(),
+            cx_id,
+            domain,
+            action_id,
+        ))?,
+    )?;
     for (index, row) in rows.iter().enumerate() {
         let occurrence = Occurrence {
             id: OccurrenceId(index as u64),
             t_k: EpochSecs(1_000 + index as i64),
-            context: OccurrenceContext::new(fixture_context(domain, action_id, row))
-                .map_err(|error| error.to_string())?,
+            context: OccurrenceContext::new(fixture_context(domain, action_id, row))?,
         };
-        vault
-            .write_cf(
-                ColumnFamily::Recurrence,
-                recurrence_key(cx_id, index as u64),
-                encode_recurrence_row(&StoredRecurrenceRow::Occurrence(occurrence))
-                    .map_err(|error| error.to_string())?,
-            )
-            .map_err(|error| error.to_string())?;
+        vault.write_cf(
+            ColumnFamily::Recurrence,
+            recurrence_key(cx_id, index as u64),
+            encode_recurrence_row(&StoredRecurrenceRow::Occurrence(occurrence))?,
+        )?;
     }
     Ok(1 + rows.len())
 }
@@ -352,11 +364,13 @@ fn fixture_context(domain: &str, action_id: &str, row: &FixtureRow<'_>) -> Vec<u
     serde_json::to_vec(&value).expect("fixture context json")
 }
 
-fn validate_bits(value: f32, name: &str) -> Result<(), String> {
+fn validate_bits(value: f32, name: &str) -> CliResult {
     if value.is_finite() && value >= 0.0 {
         Ok(())
     } else {
-        Err(format!("{name} must be finite and non-negative"))
+        Err(CliError::runtime(format!(
+            "{name} must be finite and non-negative"
+        )))
     }
 }
 

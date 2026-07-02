@@ -22,6 +22,7 @@ use calyx_sextant::{
 };
 use serde_json::{Value, json};
 
+use crate::error::{CliError, CliResult};
 use spec::{NavSpec, build_engine};
 
 /// Dispatches a `calyx navigate <mode> [flags]` invocation.
@@ -35,11 +36,10 @@ pub fn run(mode: &str, args: &[String]) -> crate::error::CliResult {
         "traverse" => run_traverse(&flags),
         "skills" => run_skills(&flags),
         "search-skill" => run_search_skill(&flags),
-        other => Err(format!(
+        other => Err(CliError::usage(format!(
             "unknown navigate mode `{other}` (expected one of: neighbors, define, agree, \
              disagree, traverse, skills, search-skill)"
-        )
-        .into()),
+        ))),
     }
 }
 
@@ -53,7 +53,7 @@ fn run_neighbors(flags: &Flags) -> crate::error::CliResult {
     let cx = flags.cx_id("cx")?;
     let slot = flags.slot("slot")?;
     let k = flags.usize_value("k")?;
-    let hits = neighbors(&engine, cx, slot, k).map_err(code_message)?;
+    let hits = neighbors(&engine, cx, slot, k)?;
     emit(
         json!({
             "mode": "neighbors",
@@ -71,7 +71,7 @@ fn run_define(flags: &Flags) -> crate::error::CliResult {
     let cx = flags.cx_id("cx")?;
     let slot = flags.slot("slot")?;
     let k = flags.usize_value("k")?;
-    let constellation = define(&engine, cx, slot, k).map_err(code_message)?;
+    let constellation = define(&engine, cx, slot, k)?;
     emit(
         json!({
             "mode": "define",
@@ -99,7 +99,7 @@ fn run_consensus(flags: &Flags, kind: Consensus) -> crate::error::CliResult {
             disagree(&engine, anchor, k, slot_filter.as_deref()),
         ),
     };
-    let report = report.map_err(code_message)?;
+    let report = report?;
     emit(
         json!({
             "mode": mode,
@@ -116,9 +116,9 @@ fn run_traverse(flags: &Flags) -> crate::error::CliResult {
     let engine = load_engine(flags)?;
     let anchor = flags.cx_id("anchor")?;
     let hops = u32::try_from(flags.usize_value("hops")?)
-        .map_err(|_| "--hops is out of range".to_string())?;
+        .map_err(|_| CliError::usage("--hops is out of range"))?;
     let direction = flags.direction("direction")?;
-    let path = traverse(&engine, anchor, direction, hops).map_err(code_message)?;
+    let path = traverse(&engine, anchor, direction, hops)?;
     emit(
         json!({
             "mode": "traverse",
@@ -134,7 +134,7 @@ fn run_traverse(flags: &Flags) -> crate::error::CliResult {
 fn run_skills(flags: &Flags) -> crate::error::CliResult {
     let engine = load_engine(flags)?;
     let params = flags.skill_params()?;
-    let tree = skills(&engine, &params).map_err(code_message)?;
+    let tree = skills(&engine, &params)?;
     emit(
         json!({
             "mode": "skills",
@@ -148,7 +148,7 @@ fn run_skills(flags: &Flags) -> crate::error::CliResult {
 fn run_search_skill(flags: &Flags) -> crate::error::CliResult {
     let engine = load_engine(flags)?;
     let params = flags.skill_params()?;
-    let tree = skills(&engine, &params).map_err(code_message)?;
+    let tree = skills(&engine, &params)?;
     let skill = flags.required("skill")?.to_string();
     let slot = flags.slot("slot")?;
     let k = flags.usize_value("k")?;
@@ -161,7 +161,7 @@ fn run_search_skill(flags: &Flags) -> crate::error::CliResult {
         })
         .with_slots(vec![slot]);
     let query = Query { k, ..query };
-    let hits = search_skill(&engine, &tree, &skill, &query).map_err(code_message)?;
+    let hits = search_skill(&engine, &tree, &skill, &query)?;
     emit(
         json!({
             "mode": "search-skill",
@@ -175,22 +175,29 @@ fn run_search_skill(flags: &Flags) -> crate::error::CliResult {
 }
 
 /// Reads and rehydrates the `--spec` engine specification.
-fn load_engine(flags: &Flags) -> Result<SearchEngine, String> {
+fn load_engine(flags: &Flags) -> CliResult<SearchEngine> {
     let path = flags.required("spec")?;
-    let bytes = std::fs::read(path).map_err(|error| format!("read spec {path}: {error}"))?;
-    let spec: NavSpec = serde_json::from_slice(&bytes)
-        .map_err(|error| format!("CALYX_NAVIGATE_SPEC_INVALID: parse spec {path}: {error}"))?;
+    let bytes =
+        std::fs::read(path).map_err(|error| CliError::io(format!("read spec {path}: {error}")))?;
+    let spec: NavSpec = serde_json::from_slice(&bytes).map_err(|error| {
+        CliError::runtime(format!(
+            "CALYX_NAVIGATE_SPEC_INVALID: parse spec {path}: {error}"
+        ))
+    })?;
     build_engine(&spec)
 }
 
 /// Serializes the readback, optionally pinning it to a Source-of-Truth file.
 fn emit(report: Value, out: Option<&str>) -> crate::error::CliResult {
-    let bytes = serde_json::to_vec_pretty(&report).map_err(|error| error.to_string())?;
+    let bytes = serde_json::to_vec_pretty(&report)
+        .map_err(|error| CliError::runtime(format!("serialize navigate readback: {error}")))?;
     match out {
         Some(path) => {
-            std::fs::write(path, &bytes).map_err(|error| format!("write {path}: {error}"))?;
+            std::fs::write(path, &bytes)
+                .map_err(|error| CliError::io(format!("write {path}: {error}")))?;
             // Re-read the bytes from disk and digest those, not the in-memory value.
-            let reread = std::fs::read(path).map_err(|error| format!("reread {path}: {error}"))?;
+            let reread = std::fs::read(path)
+                .map_err(|error| CliError::io(format!("reread {path}: {error}")))?;
             let digest = blake3::hash(&reread).to_hex();
             println!("{}", String::from_utf8_lossy(&reread));
             println!("NAVIGATE_OUT={path}");
@@ -201,24 +208,20 @@ fn emit(report: Value, out: Option<&str>) -> crate::error::CliResult {
     Ok(())
 }
 
-fn code_message(error: calyx_core::CalyxError) -> String {
-    format!("{}: {}", error.code, error.message)
-}
-
 /// `--key value` / boolean `--flag` parser shared by every navigate mode.
 struct Flags {
     map: BTreeMap<String, String>,
 }
 
 impl Flags {
-    fn parse(args: &[String]) -> Result<Self, String> {
+    fn parse(args: &[String]) -> CliResult<Self> {
         let mut map = BTreeMap::new();
         let mut index = 0;
         while index < args.len() {
             let token = &args[index];
             let key = token
                 .strip_prefix("--")
-                .ok_or_else(|| format!("expected `--flag`, got `{token}`"))?;
+                .ok_or_else(|| CliError::usage(format!("expected `--flag`, got `{token}`")))?;
             match args.get(index + 1) {
                 Some(value) if !value.starts_with("--") => {
                     map.insert(key.to_string(), value.clone());
@@ -233,11 +236,11 @@ impl Flags {
         Ok(Self { map })
     }
 
-    fn required(&self, key: &str) -> Result<&str, String> {
+    fn required(&self, key: &str) -> CliResult<&str> {
         self.map
             .get(key)
             .map(String::as_str)
-            .ok_or_else(|| format!("missing required --{key}"))
+            .ok_or_else(|| CliError::usage(format!("missing required --{key}")))
     }
 
     fn optional(&self, key: &str) -> Option<&str> {
@@ -251,73 +254,71 @@ impl Flags {
             .unwrap_or(false)
     }
 
-    fn cx_id(&self, key: &str) -> Result<CxId, String> {
+    fn cx_id(&self, key: &str) -> CliResult<CxId> {
         self.required(key)?
             .parse::<CxId>()
-            .map_err(|error| format!("invalid --{key}: {error}"))
+            .map_err(|error| CliError::usage(format!("invalid --{key}: {error}")))
     }
 
-    fn slot(&self, key: &str) -> Result<SlotId, String> {
+    fn slot(&self, key: &str) -> CliResult<SlotId> {
         self.required(key)?
             .parse::<SlotId>()
-            .map_err(|error| format!("invalid --{key}: {error}"))
+            .map_err(|error| CliError::usage(format!("invalid --{key}: {error}")))
     }
 
-    fn usize_value(&self, key: &str) -> Result<usize, String> {
+    fn usize_value(&self, key: &str) -> CliResult<usize> {
         self.required(key)?
             .parse::<usize>()
-            .map_err(|error| format!("invalid --{key}: {error}"))
+            .map_err(|error| CliError::usage(format!("invalid --{key}: {error}")))
     }
 
-    fn slots(&self, key: &str) -> Result<Option<Vec<SlotId>>, String> {
+    fn slots(&self, key: &str) -> CliResult<Option<Vec<SlotId>>> {
         match self.optional(key) {
             None => Ok(None),
             Some(raw) => {
                 let mut slots = Vec::new();
                 for part in raw.split(',').filter(|part| !part.is_empty()) {
-                    slots.push(
-                        part.parse::<SlotId>()
-                            .map_err(|error| format!("invalid --{key} entry `{part}`: {error}"))?,
-                    );
+                    slots.push(part.parse::<SlotId>().map_err(|error| {
+                        CliError::usage(format!("invalid --{key} entry `{part}`: {error}"))
+                    })?);
                 }
                 if slots.is_empty() {
-                    return Err(format!("--{key} listed no slots"));
+                    return Err(CliError::usage(format!("--{key} listed no slots")));
                 }
                 Ok(Some(slots))
             }
         }
     }
 
-    fn vector(&self, key: &str) -> Result<Vec<f32>, String> {
+    fn vector(&self, key: &str) -> CliResult<Vec<f32>> {
         let raw = self.required(key)?;
         let mut values = Vec::new();
         for part in raw.split(',').filter(|part| !part.is_empty()) {
-            values.push(
-                part.parse::<f32>()
-                    .map_err(|error| format!("invalid --{key} entry `{part}`: {error}"))?,
-            );
+            values.push(part.parse::<f32>().map_err(|error| {
+                CliError::usage(format!("invalid --{key} entry `{part}`: {error}"))
+            })?);
         }
         if values.is_empty() {
-            return Err(format!("--{key} listed no values"));
+            return Err(CliError::usage(format!("--{key} listed no values")));
         }
         Ok(values)
     }
 
-    fn direction(&self, key: &str) -> Result<TraverseDirection, String> {
+    fn direction(&self, key: &str) -> CliResult<TraverseDirection> {
         match self.required(key)? {
             "forward" => Ok(TraverseDirection::Forward),
             "backward" => Ok(TraverseDirection::Backward),
             "both" => Ok(TraverseDirection::Both),
-            other => Err(format!(
+            other => Err(CliError::usage(format!(
                 "invalid --{key} `{other}` (expected forward|backward|both)"
-            )),
+            ))),
         }
     }
 
     /// Builds skill-clustering params from optional flags, defaulting to the
     /// small-vault settings the ph63 fixture uses (min_cluster_size=2,
     /// min_samples=1) so a seeded spec clusters deterministically.
-    fn skill_params(&self) -> Result<SkillParams, String> {
+    fn skill_params(&self) -> CliResult<SkillParams> {
         let mut params = SkillParams {
             min_cluster_size: 2,
             min_samples: 1,
@@ -326,17 +327,17 @@ impl Flags {
         if let Some(value) = self.optional("min-cluster-size") {
             params.min_cluster_size = value
                 .parse()
-                .map_err(|error| format!("invalid --min-cluster-size: {error}"))?;
+                .map_err(|error| CliError::usage(format!("invalid --min-cluster-size: {error}")))?;
         }
         if let Some(value) = self.optional("min-samples") {
             params.min_samples = value
                 .parse()
-                .map_err(|error| format!("invalid --min-samples: {error}"))?;
+                .map_err(|error| CliError::usage(format!("invalid --min-samples: {error}")))?;
         }
         if let Some(value) = self.optional("max-constellations") {
-            params.max_constellations = value
-                .parse()
-                .map_err(|error| format!("invalid --max-constellations: {error}"))?;
+            params.max_constellations = value.parse().map_err(|error| {
+                CliError::usage(format!("invalid --max-constellations: {error}"))
+            })?;
         }
         params.slots = self.slots("slots")?;
         params.allow_single_cluster = self.flag("allow-single");

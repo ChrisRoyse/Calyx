@@ -82,7 +82,10 @@ pub(crate) fn try_run(args: &[String]) -> Option<CliResult> {
 pub(crate) fn run_hypothesis_evaluate(args: HypothesisEvaluateArgs) -> CliResult {
     let input_bytes = fs::read(&args.input)
         .map_err(|error| CliError::io(format!("read --input {}: {error}", args.input.display())))?;
-    let input_file: HypothesisEvaluateInputFile = serde_json::from_slice(&input_bytes)?;
+    let input_file: HypothesisEvaluateInputFile =
+        serde_json::from_slice(&input_bytes).map_err(|error| {
+            CliError::runtime(format!("parse --input {}: {error}", args.input.display()))
+        })?;
     if input_file.inputs.is_empty() {
         return Err(CliError::usage(format!(
             "--input {} did not contain any hypothesis inputs",
@@ -211,7 +214,9 @@ fn persist_evaluation(
     path: &Path,
     artifact: &HypothesisEvaluateArtifact,
 ) -> CliResult<PersistedEvaluation> {
-    let bytes = serde_json::to_vec_pretty(artifact)?;
+    let bytes = serde_json::to_vec_pretty(artifact).map_err(|error| {
+        CliError::runtime(format!("serialize hypothesis evaluation artifact: {error}"))
+    })?;
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;
     }
@@ -235,7 +240,13 @@ fn persist_evaluation(
             path.display()
         )));
     }
-    let decoded: HypothesisEvaluateArtifact = serde_json::from_slice(&readback)?;
+    let decoded: HypothesisEvaluateArtifact =
+        serde_json::from_slice(&readback).map_err(|error| {
+            CliError::runtime(format!(
+                "parse hypothesis evaluation report readback {}: {error}",
+                path.display()
+            ))
+        })?;
     Ok(PersistedEvaluation {
         path: path.to_path_buf(),
         bytes: readback.len() as u64,
