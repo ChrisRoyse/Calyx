@@ -107,6 +107,12 @@ pub struct VaultManifest {
     pub version: ManifestVersion,
     pub manifest_seq: u64,
     pub durable_seq: u64,
+    /// Max checkpointed seq (<= `durable_seq`) whose commit wrote at least one
+    /// row in a CF that feeds derived search content (issue #1100). `None` on
+    /// manifests written before this field existed; readers fail closed to
+    /// `durable_seq` via [`Self::effective_derived_content_seq`].
+    #[serde(default)]
+    pub derived_content_seq: Option<u64>,
     pub panel_ref: ImmutableRef,
     #[serde(default)]
     pub registry_ref: Option<ImmutableRef>,
@@ -167,6 +173,7 @@ impl VaultManifest {
             version: ManifestVersion::current(),
             manifest_seq,
             durable_seq,
+            derived_content_seq: None,
             panel_ref,
             registry_ref: None,
             codebook_refs,
@@ -180,12 +187,28 @@ impl VaultManifest {
         Ok(manifest)
     }
 
+    /// Derived-content watermark this manifest vouches for. Legacy manifests
+    /// (field absent) fail closed to `durable_seq`: every checkpointed seq is
+    /// assumed to have changed derived-search inputs, which reproduces the
+    /// pre-#1100 exact-equality freshness behavior — never laxer.
+    pub fn effective_derived_content_seq(&self) -> u64 {
+        self.derived_content_seq.unwrap_or(self.durable_seq)
+    }
+
     pub fn validate(&self) -> Result<()> {
         self.version.validate()?;
         if self.manifest_seq == 0 {
             return Err(CalyxError::aster_corrupt_shard(
                 "manifest sequence must start at one",
             ));
+        }
+        if let Some(derived_content_seq) = self.derived_content_seq
+            && derived_content_seq > self.durable_seq
+        {
+            return Err(CalyxError::aster_corrupt_shard(format!(
+                "manifest derived_content_seq {derived_content_seq} exceeds durable_seq {}; the watermark can only vouch for checkpointed seqs",
+                self.durable_seq
+            )));
         }
         self.panel_ref.validate()?;
         require_prefix(&self.panel_ref, "panel/")?;

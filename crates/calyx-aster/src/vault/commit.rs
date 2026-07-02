@@ -56,6 +56,9 @@ where
             )?;
         }
         self.replace_retention_horizon(recovered.retention_horizon.clone())?;
+        self.rows
+            .advance_derived_content_seq_to_at_least(recovered.derived_content_floor_seq);
+        durable.advance_derived_content_watermark_to_at_least(recovered.derived_content_floor_seq);
         for batch in &recovered.batches {
             if batch.seq <= current {
                 continue;

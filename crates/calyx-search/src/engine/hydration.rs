@@ -24,7 +24,7 @@ pub(super) fn hydrate_hit_docs_with_bounded_readbacks(
     if hits.is_empty() {
         budget.check("empty_hit_set", 0)?;
         let read = pin_search_readback(vault, trace, "empty_hit_set", None, 0);
-        let freshness_tag = verify_index_freshness(indexes, read.seq(), freshness, trace)?;
+        let freshness_tag = verify_index_freshness(indexes, &read, freshness, trace)?;
         return Ok((BTreeMap::new(), freshness_tag));
     }
 
@@ -55,7 +55,7 @@ pub(super) fn hydrate_hit_docs_with_bounded_readbacks(
         } else {
             expected_seq = Some(read.seq());
         }
-        let tag = verify_index_freshness(indexes, read.seq(), freshness, trace)?;
+        let tag = verify_index_freshness(indexes, &read, freshness, trace)?;
         if freshness_tag.is_none() {
             freshness_tag = Some(tag);
         }
@@ -132,26 +132,28 @@ fn pin_search_readback<'a>(
 
 fn verify_index_freshness(
     indexes: &PersistedSearchIndexes,
-    pinned_seq: u64,
+    read: &SearchReadSnapshot<'_>,
     freshness: SearchFreshness,
     trace: &mut SearchTracer<'_>,
 ) -> CliResult<FreshnessTag> {
+    let pinned_seq = read.seq();
+    let derived_content_seq = read.derived_content_seq();
     trace.emit_detail(
         "indexes.freshness.start",
         None,
         None,
         Some(format!(
-            "pinned_seq={pinned_seq} index_base_seq={}",
+            "pinned_seq={pinned_seq} derived_content_seq={derived_content_seq} index_base_seq={}",
             indexes.base_seq()
         )),
     );
-    let freshness_tag = index_freshness_tag(indexes, pinned_seq, freshness)?;
+    let freshness_tag = index_freshness_tag(indexes, pinned_seq, derived_content_seq, freshness)?;
     trace.emit_detail(
         "indexes.freshness.done",
         None,
         None,
         Some(format!(
-            "{} pinned_seq={pinned_seq} index_base_seq={}",
+            "{} pinned_seq={pinned_seq} derived_content_seq={derived_content_seq} index_base_seq={}",
             freshness_tag.policy,
             indexes.base_seq()
         )),

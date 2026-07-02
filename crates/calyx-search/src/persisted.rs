@@ -2,6 +2,8 @@
 mod dense;
 #[path = "persisted/filter.rs"]
 mod filter;
+#[path = "persisted/freshness.rs"]
+mod freshness;
 #[path = "persisted/marker.rs"]
 pub mod marker;
 #[cfg(test)]
@@ -230,18 +232,6 @@ impl PersistedSearchIndexes {
 
     pub fn manifest_sha256(&self) -> &str {
         &self.manifest_sha256
-    }
-
-    pub fn ensure_fresh_at_snapshot(&self, pinned_seq: u64) -> CliResult {
-        if self.manifest.base_seq == pinned_seq {
-            return Ok(());
-        }
-        Err(CalyxError::stale_derived(format!(
-            "persistent search manifest base seq {} does not match pinned vault seq {pinned_seq}; rebuild the vault search indexes before search{}",
-            self.manifest.base_seq,
-            marker::marker_error_context(&self.vault_dir)
-        ))
-        .into())
     }
 
     pub fn max_len_for_slots(&self, allowed_slots: Option<&BTreeSet<SlotId>>) -> usize {

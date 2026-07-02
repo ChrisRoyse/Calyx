@@ -44,8 +44,10 @@ pub(super) fn run_post_commit_index_rebuild(
         return Ok(());
     }
     ingest_runtime_log(format_args!(
-        "phase=batch_index_rebuild_skip reason=no_new_constellations already_count={}",
-        summary.already_count
+        "phase=batch_index_rebuild_skip reason=no_new_constellations already_count={} latest_seq={} derived_content_seq={}",
+        summary.already_count,
+        vault.latest_seq(),
+        vault.derived_content_seq()
     ));
     if let Some(session) = session.as_deref_mut() {
         session.record_index_phase("skipped")?;

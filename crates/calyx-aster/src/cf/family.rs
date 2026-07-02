@@ -187,6 +187,56 @@ impl ColumnFamily {
         }
     }
 
+    /// Returns true when writes to this CF change inputs from which derived
+    /// search content (persistent search indexes, in-memory search engines)
+    /// is built, and must therefore advance the vault's derived-content
+    /// watermark (issue #1100).
+    ///
+    /// The match is exhaustive on purpose: adding a CF forces an explicit
+    /// decision here. Fail-closed doctrine: a CF is exempt only when it
+    /// provably never feeds derived search content. `Ledger` rows are
+    /// hash-chained provenance appends (idempotent-replay markers, audit
+    /// records); `TimeIndex` rows are the per-commit `millis -> seqno`
+    /// sentinels stamped into every group commit. Neither is read by any
+    /// search-index rebuild or search-time hydration path.
+    pub const fn feeds_derived_search_content(&self) -> bool {
+        match self {
+            Self::Ledger | Self::TimeIndex => false,
+            Self::Base
+            | Self::Collections
+            | Self::Relational
+            | Self::Document
+            | Self::Kv
+            | Self::TimeSeries
+            | Self::Blob
+            | Self::Slot { .. }
+            | Self::XTerm
+            | Self::TemporalXTerm
+            | Self::Scalars
+            | Self::Anchors
+            | Self::Assay
+            | Self::Kernel
+            | Self::Guard
+            | Self::Recurrence
+            | Self::Graph
+            | Self::Online
+            | Self::Reactive
+            | Self::AnnealRollback
+            | Self::AnnealHealth
+            | Self::AnnealChecksums
+            | Self::AnnealMistakes
+            | Self::AnnealReplay
+            | Self::AnnealHeads
+            | Self::AnnealBandit
+            | Self::AnnealSoak
+            | Self::AnnealReport
+            | Self::AnnealGrowth
+            | Self::AnnealOperators
+            | Self::IndexBtree
+            | Self::IndexInverted => true,
+        }
+    }
+
     /// Returns true for slot CFs, including raw sidecars.
     pub const fn is_slot(&self) -> bool {
         matches!(self, Self::Slot { .. })

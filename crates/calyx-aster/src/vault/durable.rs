@@ -20,7 +20,8 @@ use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 #[cfg(test)]
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::AtomicBool;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
 #[derive(Clone, Debug)]
@@ -86,6 +87,10 @@ pub(super) struct DurableVault {
     panel: Option<Panel>,
     disk_pressure_guard: Option<DiskPressureGuard>,
     pending_checkpoint: Mutex<Vec<(u64, Vec<WriteRow>)>>,
+    /// Max checkpointed seq whose batch wrote derived-search-content CF rows
+    /// (issue #1100); persisted into every manifest write as
+    /// `derived_content_seq`, clamped to that manifest's `durable_seq`.
+    checkpointed_derived_content_seq: AtomicU64,
     #[cfg(test)]
     fail_next_wal_append: Arc<AtomicBool>,
 }
@@ -99,6 +104,9 @@ pub(super) struct RecoveredBatches {
     pub batches: Vec<RecoveredBatch>,
     pub last_recovered_seq: u64,
     pub wal_replay_floor_seq: u64,
+    /// Durably recorded derived-content watermark floor for seqs at or below
+    /// `wal_replay_floor_seq`; WAL replay re-derives the rest per batch.
+    pub derived_content_floor_seq: u64,
     pub torn_tail: Option<crate::wal::TornTail>,
     pub temporal_policy: Option<TemporalPolicy>,
     pub dedup_policy: Option<DedupPolicy>,
@@ -192,9 +200,16 @@ impl DurableVault {
             panel: options.panel.clone(),
             disk_pressure_guard: options.disk_pressure_guard.clone(),
             pending_checkpoint: Mutex::new(Vec::new()),
+            checkpointed_derived_content_seq: AtomicU64::new(0),
             #[cfg(test)]
             fail_next_wal_append: Arc::new(AtomicBool::new(false)),
         };
+        if durable.root.join("CURRENT").exists() {
+            let manifest = crate::manifest::ManifestStore::open(&durable.root).load_current()?;
+            durable
+                .checkpointed_derived_content_seq
+                .store(manifest.effective_derived_content_seq(), Ordering::Release);
+        }
         if durable.panel.is_some() && !durable.root.join("CURRENT").exists() {
             durable.write_manifest_with_seq(1, 0)?;
         }
@@ -232,6 +247,7 @@ impl DurableVault {
                 batches,
                 last_recovered_seq: recovery.last_recovered_seq,
                 wal_replay_floor_seq: recovery.manifest.durable_seq,
+                derived_content_floor_seq: recovery.manifest.effective_derived_content_seq(),
                 torn_tail: recovery.torn_tail,
                 temporal_policy: recovery.manifest.temporal_policy,
                 dedup_policy: recovery.manifest.dedup_policy,
@@ -256,6 +272,7 @@ impl DurableVault {
             batches,
             last_recovered_seq,
             wal_replay_floor_seq: 0,
+            derived_content_floor_seq: 0,
             torn_tail: replay.torn_tail,
             temporal_policy: options.temporal_policy,
             dedup_policy: options.dedup_policy.clone(),
@@ -300,7 +317,30 @@ impl DurableVault {
 
     pub(super) fn checkpoint_batch(&self, seq: u64, rows: &[WriteRow]) -> Result<()> {
         self.write_rows(seq, rows)?;
+        self.advance_checkpointed_derived_content(seq, rows);
         self.write_manifest(seq)
+    }
+
+    fn advance_checkpointed_derived_content(&self, seq: u64, rows: &[WriteRow]) {
+        if rows.iter().any(|row| row.cf.feeds_derived_search_content()) {
+            self.checkpointed_derived_content_seq
+                .fetch_max(seq, Ordering::AcqRel);
+        }
+    }
+
+    /// Watermark value a manifest written at `durable_seq` may vouch for.
+    pub(super) fn derived_content_seq_for_manifest(&self, durable_seq: u64) -> u64 {
+        self.checkpointed_derived_content_seq
+            .load(Ordering::Acquire)
+            .min(durable_seq)
+    }
+
+    /// Adopts a foreign writer's checkpointed watermark (picked up from the
+    /// on-disk manifest under the commit lock) so later manifest writes from
+    /// this handle vouch for content it did not checkpoint itself (#1100).
+    pub(in crate::vault) fn advance_derived_content_watermark_to_at_least(&self, seq: u64) {
+        self.checkpointed_derived_content_seq
+            .fetch_max(seq, Ordering::AcqRel);
     }
 
     pub(super) fn stage_checkpoint_batch(&self, seq: u64, rows: &[WriteRow]) -> Result<()> {
@@ -390,6 +430,7 @@ impl DurableVault {
         }
         for (seq, rows) in &batches {
             self.write_rows(*seq, rows)?;
+            self.advance_checkpointed_derived_content(*seq, rows);
         }
         let last_seq = batches.last().map_or(0, |(seq, _)| *seq);
         self.write_manifest(last_seq)?;

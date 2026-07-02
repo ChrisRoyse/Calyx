@@ -70,6 +70,17 @@ impl DurableVault {
             self.temporal_policy,
             self.dedup_policy.clone(),
         )?;
+        // The local atomic only knows about content THIS handle checkpointed.
+        // A foreign writer (second handle/process) may have recorded a higher
+        // watermark in the current manifest; a content-neutral write from this
+        // handle must never regress it, or a genuinely stale index would pass
+        // freshness (#1100 review finding).
+        let mut derived_content_seq = self.derived_content_seq_for_manifest(durable_seq);
+        if let Some(current) = current.as_ref() {
+            derived_content_seq =
+                derived_content_seq.max(current.effective_derived_content_seq().min(durable_seq));
+        }
+        manifest.derived_content_seq = Some(derived_content_seq);
         manifest.retention_horizon = horizon.clone();
         manifest.registry_ref = current.and_then(|manifest| manifest.registry_ref);
         manifest.validate()?;

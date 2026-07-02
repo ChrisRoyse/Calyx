@@ -59,6 +59,11 @@ pub fn is_tombstone_value(value: &[u8]) -> bool {
 #[derive(Debug)]
 pub struct VersionedCfStore {
     seqs: SeqAllocator,
+    /// Max committed seq whose batch wrote at least one row in a CF that
+    /// feeds derived search content (issue #1100). Advances inside the row
+    /// write lock *before* the seq becomes visible, so any reader that
+    /// observes a content commit's seq also observes its watermark.
+    derived_content_seq: AtomicU64,
     next_lease_id: AtomicU64,
     rows: RwLock<RowTable>,
     router: RwLock<Option<CfRouter>>,
@@ -74,6 +79,7 @@ impl VersionedCfStore {
     pub fn new(start_seq: Seq) -> Self {
         Self {
             seqs: SeqAllocator::new(start_seq),
+            derived_content_seq: AtomicU64::new(0),
             next_lease_id: AtomicU64::new(0),
             rows: RwLock::new(BTreeMap::new()),
             router: RwLock::new(None),
@@ -90,6 +96,7 @@ impl VersionedCfStore {
         let resource_counters = router.resource_counters();
         Self {
             seqs: SeqAllocator::new(start_seq),
+            derived_content_seq: AtomicU64::new(0),
             next_lease_id: AtomicU64::new(0),
             rows: RwLock::new(BTreeMap::new()),
             router: RwLock::new(Some(router)),
@@ -121,6 +128,18 @@ impl VersionedCfStore {
         self.seqs.advance_to_at_least(seq);
     }
 
+    /// Latest committed seq whose batch wrote derived-search-content inputs.
+    /// See [`crate::cf::ColumnFamily::feeds_derived_search_content`].
+    pub fn derived_content_seq(&self) -> Seq {
+        self.derived_content_seq.load(Ordering::Acquire)
+    }
+
+    /// Raises the derived-content watermark to a durably recorded floor
+    /// (vault MANIFEST readback, foreign-process checkpoint refresh).
+    pub fn advance_derived_content_seq_to_at_least(&self, seq: Seq) {
+        self.derived_content_seq.fetch_max(seq, Ordering::AcqRel);
+    }
+
     /// Pins a snapshot at the latest committed sequence.
     ///
     /// The lease is registered for oldest-pinned-seq gap accounting; it leaves
@@ -136,6 +155,7 @@ impl VersionedCfStore {
         let lease = ReaderLease::new(lease_id, seq, clock.now(), max_age_ms);
         self.leases.register(lease);
         Snapshot::new(seq, freshness, lease)
+            .with_derived_content_seq(self.derived_content_seq_at(seq))
     }
 
     /// Pins a reader lease at an explicit historical `seq` (time-travel). The
@@ -152,6 +172,16 @@ impl VersionedCfStore {
         let lease = ReaderLease::new(lease_id, seq, clock.now(), max_age_ms);
         self.leases.register(lease);
         Snapshot::new(seq, freshness, lease)
+            .with_derived_content_seq(self.derived_content_seq_at(seq))
+    }
+
+    /// Derived-content watermark as knowable for a pin at `seq`, clamped
+    /// fail-closed: if the live watermark exceeds `seq` (content committed
+    /// after the pin, or a historical pin below the watermark), the watermark
+    /// at `seq` is unknowable from the live counter and the pin falls back to
+    /// `seq` itself — the pre-#1100 exact-equality behavior, never laxer.
+    fn derived_content_seq_at(&self, seq: Seq) -> Seq {
+        self.derived_content_seq().min(seq)
     }
 
     /// Releases one pinned reader lease; returns whether it was still live.
@@ -243,6 +273,19 @@ impl VersionedCfStore {
                 router.put(*cf, key, value)?;
             }
         }
+        // Advance the derived-content watermark BEFORE allocating the seq:
+        // readers pin without taking the row lock, so a reader that observes
+        // this commit's seq must already observe its watermark (issue #1100).
+        // All allocations happen under the row write lock held here, so the
+        // next allocated seq is exactly current + 1 (asserted by the vault
+        // commit path's time-index seqno prediction).
+        if rows
+            .iter()
+            .any(|(cf, _, _)| cf.feeds_derived_search_content())
+        {
+            self.derived_content_seq
+                .fetch_max(self.current_seq() + 1, Ordering::AcqRel);
+        }
         let seq = self.seqs.allocate();
         for (cf, key, value) in rows {
             table
@@ -265,6 +308,12 @@ impl VersionedCfStore {
             .map(|(cf, key, value)| (cf, key.into(), value.into()))
             .collect();
         let mut table = self.rows.write().expect("mvcc row table poisoned");
+        if rows
+            .iter()
+            .any(|(cf, _, _)| cf.feeds_derived_search_content())
+        {
+            self.derived_content_seq.fetch_max(seq, Ordering::AcqRel);
+        }
         for (cf, key, value) in rows {
             table
                 .entry((cf, key))
