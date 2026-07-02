@@ -75,3 +75,10 @@ fn unix_ms() -> CliResult<u128> {
         .map_err(|error| CliError::io(format!("system clock before unix epoch: {error}")))?
         .as_millis())
 }
+
+pub(super) fn error_details(error: &CliError) -> Value {
+    json!({
+        "code": error.code(),
+        "message": error.message(),
+    })
+}

@@ -8,6 +8,7 @@
 //! node/edge/groundedness counts. Fail-closed throughout — no fallbacks.
 
 mod coverage;
+mod csr;
 mod parse;
 mod passes;
 mod progress;
@@ -23,7 +24,7 @@ use calyx_lodestar::{
 };
 use calyx_registry::load_vault_panel_state;
 use serde::Serialize;
-use serde_json::{Value, json};
+use serde_json::json;
 
 use super::Subcommand;
 use super::vault::{home_dir, resolve_vault_info, vault_salt};
@@ -31,6 +32,7 @@ use crate::bounded_progress::Deadline;
 use crate::error::{CliError, CliResult};
 use crate::output::print_json;
 pub(crate) use coverage::CandidateSelectionMode;
+use progress::error_details;
 
 const DEFAULT_KNN: usize = 16;
 const DEFAULT_EDGE_COS_THRESHOLD: f32 = 0.5;
@@ -356,6 +358,7 @@ fn run_weave_loom(args: WeaveLoomArgs) -> CliResult {
         DEFAULT_ASTER_ASSOC_COLLECTION,
         &AsterAssocMetadata::default(),
     )?;
+    csr::persist_assoc_csr(&vault, &graph, &resolved.path, &progress)?;
 
     let report_params = CorpusWeaveReportParams {
         max_groundedness_distance: args.max_groundedness_distance,
@@ -400,13 +403,6 @@ fn run_weave_loom(args: WeaveLoomArgs) -> CliResult {
     progress.write("ok", "complete", json!({ "output": &output }))?;
     write_fsv_readback(&output)?;
     print_json(&output)
-}
-
-fn error_details(error: &CliError) -> Value {
-    json!({
-        "code": error.code(),
-        "message": error.message(),
-    })
 }
 
 fn content_lens_slots(panel: &calyx_core::Panel) -> Vec<SlotId> {

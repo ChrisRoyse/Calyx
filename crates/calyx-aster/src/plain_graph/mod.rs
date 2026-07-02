@@ -62,8 +62,14 @@ impl PhysicalPlainGraph {
             .collect()
     }
 
+    /// Raw persisted CSR row bytes, for byte-size/hash evidence in
+    /// materialization readback (#996).
+    pub fn read_csr_bytes(&self) -> Result<Option<Vec<u8>>> {
+        self.router.get(ColumnFamily::Graph, &self.keys.csr_key())
+    }
+
     pub fn read_csr(&self) -> Result<Option<PlainGraphCsr>> {
-        let Some(bytes) = self.router.get(ColumnFamily::Graph, &self.keys.csr_key())? else {
+        let Some(bytes) = self.read_csr_bytes()? else {
             return Ok(None);
         };
         serde_json::from_slice(&bytes)
