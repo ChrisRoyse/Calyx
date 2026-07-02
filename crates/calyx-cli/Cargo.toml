@@ -15,10 +15,14 @@ default = []
 cuda = ["calyx-forge/cuda", "calyx-registry/candle-cuda"]
 cuda-sextant = ["cuda", "calyx-sextant/cuda"]
 
+[build-dependencies]
+calyx-buildinfo = { path = "../calyx-buildinfo" }
+
 [dependencies]
 calyx-assay = { path = "../calyx-assay" }
 calyx-anneal = { path = "../calyx-anneal" }
 calyx-aster = { path = "../calyx-aster" }
+calyx-buildinfo = { path = "../calyx-buildinfo" }
 calyx-core = { path = "../calyx-core" }
 calyx-forge = { path = "../calyx-forge" }
 calyx-fsv = { path = "../calyx-fsv" }

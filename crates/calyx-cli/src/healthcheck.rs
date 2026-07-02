@@ -42,7 +42,17 @@ struct HealthReport {
     checked_at_unix_secs: u64,
     status: &'static str,
     failure_count: usize,
+    binary: BinaryIdentity,
     checks: Vec<HealthCheck>,
+}
+
+/// Identity of the binary that wrote this report (#1108): lets operators
+/// spot a stale deployed runner straight from `latest.json`.
+#[derive(Debug, Serialize)]
+struct BinaryIdentity {
+    #[serde(flatten)]
+    build: calyx_buildinfo::BuildInfo,
+    executable: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -149,7 +159,17 @@ fn build_report(request: &HealthArgs) -> HealthReport {
         checked_at_unix_secs: unix_secs(),
         status: if failure_count == 0 { "pass" } else { "fail" },
         failure_count,
+        binary: binary_identity(),
         checks,
+    }
+}
+
+fn binary_identity() -> BinaryIdentity {
+    BinaryIdentity {
+        build: calyx_buildinfo::build_info!(),
+        executable: std::env::current_exe()
+            .map(|path| path.display().to_string())
+            .unwrap_or_else(|error| format!("unavailable: {error}")),
     }
 }
 

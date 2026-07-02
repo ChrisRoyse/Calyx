@@ -14,6 +14,10 @@ use calyx_mcp::jsonrpc::{JsonRpcId, decode_jsonrpc_request};
 use calyx_mcp::server::McpServer;
 
 fn main() -> ExitCode {
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    if args.first().map(String::as_str) == Some("--build-info") {
+        return print_build_info(&args);
+    }
     let mut server = McpServer::new();
     if let Err(error) = calyx_mcp::tools::register_all(&mut server) {
         eprintln!("calyx-mcp: {}: {}", error.code, error.message);
@@ -77,4 +81,37 @@ fn main() -> ExitCode {
 
     // EOF on stdin → clean shutdown.
     ExitCode::SUCCESS
+}
+
+/// `--build-info` (#1108): print the embedded identity JSON to stdout and
+/// exit so deploy tooling can verify the deployed binary. This path never
+/// enters the JSON-RPC loop, so the protocol stream stays uncorrupted.
+fn print_build_info(args: &[String]) -> ExitCode {
+    if args != ["--build-info"] {
+        eprintln!("calyx-mcp: --build-info takes no other arguments");
+        return ExitCode::from(2);
+    }
+    let mut report = match serde_json::to_value(calyx_buildinfo::build_info!()) {
+        Ok(value) => value,
+        Err(error) => {
+            eprintln!("calyx-mcp: CALYX_BUILD_INFO_INVALID: serialize build info: {error}");
+            return ExitCode::from(2);
+        }
+    };
+    report["binary"] = serde_json::Value::from("calyx-mcp");
+    report["executable"] = serde_json::Value::from(
+        std::env::current_exe()
+            .map(|path| path.display().to_string())
+            .unwrap_or_else(|error| format!("unavailable: {error}")),
+    );
+    match serde_json::to_string_pretty(&report) {
+        Ok(json) => {
+            println!("{json}");
+            ExitCode::SUCCESS
+        }
+        Err(error) => {
+            eprintln!("calyx-mcp: response serialize error: {error}");
+            ExitCode::from(2)
+        }
+    }
 }

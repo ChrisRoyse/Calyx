@@ -548,6 +548,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "calyx-buildinfo"
+version = "0.1.0"
+dependencies = [
+ "serde",
+]
+
+[[package]]
 name = "calyx-cli"
 version = "0.1.0"
 dependencies = [
@@ -556,6 +563,7 @@ dependencies = [
  "calyx-anneal",
  "calyx-assay",
  "calyx-aster",
+ "calyx-buildinfo",
  "calyx-core",
  "calyx-forge",
  "calyx-fsv",
@@ -701,6 +709,7 @@ dependencies = [
  "calyx-anneal",
  "calyx-assay",
  "calyx-aster",
+ "calyx-buildinfo",
  "calyx-core",
  "calyx-fsv",
  "calyx-ledger",
@@ -899,6 +908,7 @@ dependencies = [
  "blake3",
  "calyx-assay",
  "calyx-aster",
+ "calyx-buildinfo",
  "calyx-core",
  "calyx-forge",
  "calyx-fsv",

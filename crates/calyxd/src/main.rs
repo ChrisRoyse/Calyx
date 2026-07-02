@@ -37,7 +37,8 @@ const USAGE: &str = "usage: calyxd (--vault <dir> | --ledger <dir>)... \
   --once               run one verify cycle, print metrics text, exit
   --config <path>      path to a calyx.toml runtime config file
   --validate-config    parse+validate --config, print it (no secrets), exit
-  --audit-vram         with --config: CUDA preflight + NVML VRAM audit, then exit";
+  --audit-vram         with --config: CUDA preflight + NVML VRAM audit, then exit
+  --build-info         print the embedded build identity JSON (#1108), exit";
 
 #[derive(Debug)]
 struct Config {
@@ -52,7 +53,11 @@ struct Config {
 
 #[tokio::main]
 async fn main() -> ExitCode {
-    let config = match parse_args(std::env::args().skip(1).collect()) {
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    if args.iter().any(|arg| arg == "--build-info") {
+        return print_build_info(&args);
+    }
+    let config = match parse_args(args) {
         Ok(config) => config,
         Err(error) => {
             eprintln!("calyxd: {error}\n{USAGE}");
@@ -71,6 +76,38 @@ async fn main() -> ExitCode {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
             eprintln!("calyxd: {error}");
+            ExitCode::from(2)
+        }
+    }
+}
+
+/// `--build-info` (#1108): print the embedded identity JSON and exit so
+/// deploy tooling can verify the deployed daemon binary without booting it.
+fn print_build_info(args: &[String]) -> ExitCode {
+    if args != ["--build-info"] {
+        eprintln!("calyxd: --build-info takes no other arguments\n{USAGE}");
+        return ExitCode::from(2);
+    }
+    let mut report = match serde_json::to_value(calyx_buildinfo::build_info!()) {
+        Ok(value) => value,
+        Err(error) => {
+            eprintln!("calyxd: CALYX_BUILD_INFO_INVALID: serialize build info: {error}");
+            return ExitCode::from(2);
+        }
+    };
+    report["binary"] = serde_json::Value::from("calyxd");
+    report["executable"] = serde_json::Value::from(
+        std::env::current_exe()
+            .map(|path| path.display().to_string())
+            .unwrap_or_else(|error| format!("unavailable: {error}")),
+    );
+    match serde_json::to_string_pretty(&report) {
+        Ok(json) => {
+            println!("{json}");
+            ExitCode::SUCCESS
+        }
+        Err(error) => {
+            eprintln!("calyxd: CALYX_BUILD_INFO_INVALID: serialize build info: {error}");
             ExitCode::from(2)
         }
     }
