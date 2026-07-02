@@ -123,9 +123,10 @@ pub use store::{AssayCacheKey, AssayRow, AssayStore, AssaySubject};
 pub use stratified::{StratifiedBits, StratumBits, stratified_bits};
 pub use sufficiency::{
     CALYX_ASSAY_INVALID_SCOPE, DeficitRoutingContext, DeficitSuggestedAction, InMemoryDeficitSink,
-    ObservationScope, PanelSufficiency, ScopedSufficiencyReport, SufficiencyDeficit,
-    SufficiencyDeficitSink, SufficiencyScopeInput, entropy_bits, panel_sufficiency,
-    panel_sufficiency_by_scope, panel_sufficiency_from_estimate, panel_sufficiency_with_anchor,
+    ObservationScope, PanelJointBasis, PanelSufficiency, ScopedSufficiencyReport,
+    SufficiencyDeficit, SufficiencyDeficitSink, SufficiencyScopeInput, entropy_bits,
+    panel_joint_with_union_floor, panel_sufficiency, panel_sufficiency_by_scope,
+    panel_sufficiency_from_estimate, panel_sufficiency_with_anchor,
     panel_sufficiency_with_anchor_and_context, panel_sufficiency_with_context,
 };
 pub use total_correlation::{
