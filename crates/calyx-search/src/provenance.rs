@@ -1,5 +1,6 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::path::Path;
+use std::sync::{Mutex, OnceLock};
 
 use calyx_aster::ledger_view::read_ledger_seqs;
 use calyx_aster::mvcc::Snapshot;
@@ -53,7 +54,20 @@ pub(crate) fn attach_verified_provenance(
     vault_dir: &Path,
     freshness: FreshnessTag,
 ) -> CliResult {
-    let mut ledger = TargetedLedgerVerifier::open(vault_dir, hits, docs)?;
+    let vault_key = crate::persisted::canonical_pin_vault_dir(vault_dir)?;
+    let pending = hits
+        .iter()
+        .filter(|hit| {
+            docs.get(&hit.cx_id)
+                .is_none_or(|cx| !ledger_memo_contains(&vault_key, hit.cx_id, &cx.provenance))
+        })
+        .cloned()
+        .collect::<Vec<_>>();
+    let mut ledger = if pending.is_empty() {
+        None
+    } else {
+        Some(TargetedLedgerVerifier::open(vault_dir, &pending, docs)?)
+    };
     for hit in hits {
         let cx = docs.get(&hit.cx_id).ok_or_else(|| {
             missing_provenance(format!(
@@ -61,11 +75,73 @@ pub(crate) fn attach_verified_provenance(
                 hit.cx_id
             ))
         })?;
-        hit.provenance = ledger.require_ref(hit.cx_id, cx.provenance.clone())?;
+        if ledger_memo_contains(&vault_key, hit.cx_id, &cx.provenance) {
+            // The exact (cx_id, ledger seq, entry hash) triple already passed
+            // the targeted ledger verification in this process; the ledger is
+            // append-only, so the verification result is immutable.
+            hit.provenance = cx.provenance.clone();
+        } else {
+            let verifier = ledger
+                .as_mut()
+                .expect("pending hits imply an opened ledger verifier");
+            hit.provenance = verifier.require_ref(hit.cx_id, cx.provenance.clone())?;
+            ledger_memo_insert(&vault_key, hit.cx_id, &cx.provenance);
+        }
         hit.provenance_source = ProvenanceSource::Stored;
         hit.freshness = freshness.clone();
     }
     Ok(())
+}
+
+const MAX_MEMOIZED_LEDGER_REFS: usize = 8192;
+
+type LedgerRefKey = (String, CxId, u64, [u8; 32]);
+
+struct LedgerRefMemo {
+    verified: BTreeSet<LedgerRefKey>,
+    order: VecDeque<LedgerRefKey>,
+}
+
+fn ledger_memo() -> &'static Mutex<LedgerRefMemo> {
+    static MEMO: OnceLock<Mutex<LedgerRefMemo>> = OnceLock::new();
+    MEMO.get_or_init(|| {
+        Mutex::new(LedgerRefMemo {
+            verified: BTreeSet::new(),
+            order: VecDeque::new(),
+        })
+    })
+}
+
+fn ledger_memo_contains(vault_key: &str, cx_id: CxId, provenance: &LedgerRef) -> bool {
+    let key = (
+        vault_key.to_string(),
+        cx_id,
+        provenance.seq,
+        provenance.hash,
+    );
+    ledger_memo()
+        .lock()
+        .expect("ledger ref memo poisoned")
+        .verified
+        .contains(&key)
+}
+
+fn ledger_memo_insert(vault_key: &str, cx_id: CxId, provenance: &LedgerRef) {
+    let key = (
+        vault_key.to_string(),
+        cx_id,
+        provenance.seq,
+        provenance.hash,
+    );
+    let mut memo = ledger_memo().lock().expect("ledger ref memo poisoned");
+    if memo.verified.insert(key.clone()) {
+        memo.order.push_back(key);
+    }
+    while memo.order.len() > MAX_MEMOIZED_LEDGER_REFS {
+        if let Some(evicted) = memo.order.pop_front() {
+            memo.verified.remove(&evicted);
+        }
+    }
 }
 
 struct TargetedLedgerVerifier {

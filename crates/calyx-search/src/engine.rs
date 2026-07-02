@@ -31,6 +31,7 @@ use crate::provenance::attach_verified_provenance;
 mod budget;
 mod guard;
 mod hydration;
+mod hydration_cache;
 mod support;
 mod types;
 pub use budget::SearchBudget;
@@ -458,6 +459,7 @@ fn search_outcome_with_measured_slots(
     budget.check("before_hit_hydration", hits.len())?;
     let (hit_docs, freshness_tag) = hydrate_hit_docs_with_bounded_readbacks(
         vault,
+        vault_dir,
         &indexes,
         &hits,
         freshness,

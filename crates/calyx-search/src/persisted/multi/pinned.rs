@@ -15,6 +15,13 @@ use crate::persisted::pinned::{self, PinKey};
 
 const PIN_KIND: &str = "multi_maxsim";
 
+#[path = "pinned/bounded.rs"]
+mod bounded;
+pub(super) use bounded::{
+    BoundedSegmentFile, memoize_bounded_segment_files, memoized_bounded_segment_files,
+    stat_check_segment_files,
+};
+
 /// One verified binary segment to load: path plus the manifest-side
 /// expectations the file must match.
 pub(super) struct PinnedSegmentSpec {
@@ -73,8 +80,16 @@ pub(super) fn pinned_index(
         }
     }
     let token_dim = entry.require_token_dim(slot)?;
-    let index = Arc::new(load_verified(slot, token_dim, entry, &specs)?);
     let pin_key = PinKey::new(vault_dir, slot.get(), PIN_KIND)?;
+    let predicted_bytes = predicted_pin_bytes(entry, token_dim)?;
+    pinned::reserve(&pin_key, predicted_bytes)?;
+    let index = match load_verified(slot, token_dim, entry, &specs, &pin_key, predicted_bytes) {
+        Ok(index) => Arc::new(index),
+        Err(error) => {
+            pinned::release(&pin_key);
+            return Err(error);
+        }
+    };
     pinned::reserve(&pin_key, index.approx_bytes())?;
     let mut cache = cache().lock().expect("multi pin cache poisoned");
     cache.insert(
@@ -87,11 +102,27 @@ pub(super) fn pinned_index(
     Ok(index)
 }
 
+fn predicted_pin_bytes(entry: &SearchIndexEntry, token_dim: u32) -> CliResult<u64> {
+    let tokens = entry.token_count.unwrap_or_default() as u64;
+    tokens
+        .checked_mul(token_dim as u64)
+        .and_then(|values| values.checked_mul(4))
+        .and_then(|bytes| bytes.checked_add(tokens.checked_mul(4)?))
+        .and_then(|bytes| {
+            bytes.checked_add(
+                (entry.len as u64).checked_mul(std::mem::size_of::<PinnedMultiRow>() as u64)?,
+            )
+        })
+        .ok_or_else(|| stale("persistent segmented multi sidecar pin byte count overflow"))
+}
+
 fn load_verified(
     slot: SlotId,
     token_dim: u32,
     entry: &SearchIndexEntry,
     specs: &[PinnedSegmentSpec],
+    pin_key: &PinKey,
+    predicted_bytes: u64,
 ) -> CliResult<PinnedMultiIndex> {
     let segments = specs
         .par_iter()
@@ -102,9 +133,17 @@ fn load_verified(
         .checked_mul(token_dim as usize)
         .ok_or_else(|| stale("persistent segmented multi sidecar token byte count overflow"))?;
     let mut seen = BTreeSet::new();
-    let mut rows = Vec::with_capacity(entry.len);
-    let mut tokens = Vec::with_capacity(expected_values);
-    let mut norms = Vec::with_capacity(expected_tokens);
+    let mut rows = Vec::new();
+    rows.try_reserve_exact(entry.len)
+        .map_err(|_| pinned::pin_allocation_error(pin_key, predicted_bytes))?;
+    let mut tokens: Vec<f32> = Vec::new();
+    tokens
+        .try_reserve_exact(expected_values)
+        .map_err(|_| pinned::pin_allocation_error(pin_key, predicted_bytes))?;
+    let mut norms: Vec<f32> = Vec::new();
+    norms
+        .try_reserve_exact(expected_tokens)
+        .map_err(|_| pinned::pin_allocation_error(pin_key, predicted_bytes))?;
     let mut token_offset = 0usize;
     for segment in segments {
         let segment = segment?;
@@ -179,84 +218,6 @@ fn load_segment(
         )));
     }
     parse_segment(slot, token_dim, spec, &bytes)
-}
-
-/// Memo of segment files that already passed the full bounded validation for
-/// a manifest generation. A memo hit never skips on-disk presence/size
-/// verification — callers must still run `stat_check_segment_files` — it only
-/// skips re-reading and re-hashing the segments manifest JSON.
-pub(super) struct BoundedSegmentFile {
-    pub(super) path: PathBuf,
-    pub(super) index_rel: String,
-    pub(super) expected_bytes: u64,
-}
-
-struct BoundedGeneration {
-    entry_sha256: String,
-    files: Arc<Vec<BoundedSegmentFile>>,
-}
-
-type BoundedCache = Mutex<BTreeMap<(String, u16), BoundedGeneration>>;
-
-fn bounded_cache() -> &'static BoundedCache {
-    static CACHE: OnceLock<BoundedCache> = OnceLock::new();
-    CACHE.get_or_init(|| Mutex::new(BTreeMap::new()))
-}
-
-pub(super) fn memoized_bounded_segment_files(
-    vault_dir: &Path,
-    slot: SlotId,
-    entry_sha256: &str,
-) -> CliResult<Option<Arc<Vec<BoundedSegmentFile>>>> {
-    let key = (pinned::canonical_vault_dir(vault_dir)?, slot.get());
-    let cache = bounded_cache()
-        .lock()
-        .expect("bounded segment memo poisoned");
-    Ok(cache.get(&key).and_then(|generation| {
-        (generation.entry_sha256 == entry_sha256).then(|| Arc::clone(&generation.files))
-    }))
-}
-
-pub(super) fn memoize_bounded_segment_files(
-    vault_dir: &Path,
-    slot: SlotId,
-    entry_sha256: &str,
-    files: Vec<BoundedSegmentFile>,
-) -> CliResult {
-    let key = (pinned::canonical_vault_dir(vault_dir)?, slot.get());
-    let mut cache = bounded_cache()
-        .lock()
-        .expect("bounded segment memo poisoned");
-    cache.insert(
-        key,
-        BoundedGeneration {
-            entry_sha256: entry_sha256.to_string(),
-            files: Arc::new(files),
-        },
-    );
-    Ok(())
-}
-
-/// Per-call on-disk verification for memoized bounded checks: every segment
-/// file must still exist with exactly its validated byte size. Deletion or
-/// truncation fails closed with the same errors as the full validation.
-pub(super) fn stat_check_segment_files(slot: SlotId, files: &[BoundedSegmentFile]) -> CliResult {
-    for file in files {
-        if !file.path.is_file() {
-            return Err(stale(format!(
-                "persistent segmented multi sidecar missing for slot {slot} at {}; rebuild the vault search indexes",
-                file.path.display()
-            )));
-        }
-        let actual = fs::metadata(&file.path)?.len();
-        if actual != file.expected_bytes {
-            return Err(stale(format!(
-                "persistent segmented multi sidecar {} has {actual} bytes, expected {}; rebuild the vault search indexes",
-                file.index_rel, file.expected_bytes
-            )));
-        }
-    }
-    Ok(())
 }
 
 fn parse_segment(

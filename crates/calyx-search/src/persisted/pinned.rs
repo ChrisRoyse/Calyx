@@ -74,6 +74,19 @@ fn reserve_in_ledger(ledger: &PinLedger, key: &PinKey, bytes: u64, budget: u64) 
     Ok(())
 }
 
+/// Drop the reservation for `key` (used when a load fails after reserving).
+pub(super) fn release(key: &PinKey) {
+    ledger().lock().expect("pin ledger poisoned").remove(key);
+}
+
+/// Structured fail-closed error for a pinned-index allocation the OS refused.
+pub(super) fn pin_allocation_error(key: &PinKey, bytes: u64) -> CliError {
+    pin_budget_error(format!(
+        "allocating {bytes} bytes for the verified {} index pin for slot {} in {} failed; the process is out of memory for the configured pin budget",
+        key.kind, key.slot, key.vault_dir
+    ))
+}
+
 fn configured_pin_budget_bytes() -> CliResult<u64> {
     let Some(raw) = std::env::var_os(PIN_BUDGET_ENV) else {
         return Ok(DEFAULT_PIN_BUDGET_BYTES);
@@ -86,7 +99,7 @@ fn configured_pin_budget_bytes() -> CliResult<u64> {
     })
 }
 
-pub(super) fn canonical_vault_dir(vault_dir: &Path) -> CliResult<String> {
+pub(crate) fn canonical_vault_dir(vault_dir: &Path) -> CliResult<String> {
     let canonical = std::fs::canonicalize(vault_dir).map_err(|err| {
         pin_budget_error(format!(
             "pinned search index cannot canonicalize vault path {}: {err}",
