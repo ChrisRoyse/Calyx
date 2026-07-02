@@ -116,6 +116,109 @@ fn stale_ok_search_tags_hits_with_manifest_lag() {
     fixture.cleanup();
 }
 
+/// Regression for #1103: a content-neutral commit (an idempotency-ledger
+/// append) advances the pinned vault seq past the search manifest's base_seq
+/// but does NOT change derived-search inputs. Fresh search must still succeed
+/// and return real hits — it must not self-stale by one on the raw seq gap.
+///
+/// Before #1106 the freshness gate compared `manifest.base_seq` against the
+/// raw pinned seq with exact equality, so any Ledger/TimeIndex-only commit
+/// after the rebuild made `search --fresh` fail closed with
+/// `CALYX_STALE_DERIVED` even though the corpus was unchanged. This test pins
+/// that the watermark gate (`derived_content_seq <= base_seq <= pinned_seq`)
+/// keeps Fresh available across a content-neutral seq advance.
+#[test]
+fn fresh_search_survives_content_neutral_seq_advance() {
+    use calyx_ledger::{ActorId, EntryKind, SubjectId};
+
+    let fixture = Fixture::new("content-neutral-seq-advance");
+    let vault = fixture.open_vault();
+    let state = load_vault_panel_state(&fixture.vault_dir).unwrap();
+
+    // Manifest was rebuilt at the ingest seq. Capture the source-of-truth
+    // watermark state before the content-neutral commit.
+    let manifest_base_seq = fixture.readback()["manifest"]["base_seq"]
+        .as_u64()
+        .expect("manifest base_seq");
+    let seq_before = vault.latest_seq();
+    let derived_before = vault.derived_content_seq();
+    assert_eq!(
+        manifest_base_seq, derived_before,
+        "precondition: manifest covers the derived-content watermark"
+    );
+
+    // Append a Ledger-only entry. Ledger CF does not feed derived search
+    // content, so this advances the raw vault seq WITHOUT advancing the
+    // derived-content watermark — the exact #1103 trigger.
+    vault
+        .append_ledger_entry(
+            EntryKind::Ingest,
+            SubjectId::Cx(fixture.cx_id),
+            serde_json::to_vec(&json!({ "mode": "issue1103-idempotent-replay" })).unwrap(),
+            ActorId::Service("issue1103-regression".to_string()),
+        )
+        .expect("append content-neutral ledger entry");
+    vault.flush().expect("flush ledger append");
+
+    let seq_after = vault.latest_seq();
+    let derived_after = vault.derived_content_seq();
+    assert!(
+        seq_after > seq_before,
+        "ledger append must advance the raw vault seq ({seq_before} -> {seq_after})"
+    );
+    assert_eq!(
+        derived_after, derived_before,
+        "content-neutral commit must not advance the derived-content watermark"
+    );
+    assert!(
+        seq_after > manifest_base_seq,
+        "the manifest base_seq {manifest_base_seq} must now trail the pinned vault seq {seq_after}"
+    );
+
+    // The decisive assertion: Fresh search across the seq gap returns real
+    // hits instead of failing closed with CALYX_STALE_DERIVED.
+    let outcome = search_outcome(
+        &vault,
+        &state,
+        &fixture.vault_dir,
+        "alpha",
+        1,
+        FusionChoice::Rrf,
+        GuardChoice::Off,
+        None,
+        false,
+    )
+    .expect("fresh search must not self-stale across a content-neutral seq advance");
+    let hit = outcome.hits.first().expect("fresh hit");
+    assert_eq!(hit.cx_id, fixture.cx_id);
+    assert_eq!(
+        hit.freshness.policy, "fresh_derived",
+        "hit must carry the fresh-derived freshness policy, not a stale tag"
+    );
+    assert_eq!(
+        hit.freshness.stale_by, 0,
+        "a content-neutral seq gap must not count as staleness"
+    );
+
+    maybe_write_fsv_json(
+        "issue1103-content-neutral-seq-advance.json",
+        &json!({
+            "source_of_truth": "AsterVault latest_seq/derived_content_seq, idx/search/manifest.json base_seq, and the fresh search hit freshness tag",
+            "trigger": "append one Ledger-only (idempotency replay) entry after the search index rebuild",
+            "manifest_base_seq": manifest_base_seq,
+            "raw_seq_before": seq_before,
+            "raw_seq_after": seq_after,
+            "derived_content_seq_before": derived_before,
+            "derived_content_seq_after": derived_after,
+            "fresh_hit": {
+                "cx_id": hit.cx_id.to_string(),
+                "freshness": hit.freshness,
+            }
+        }),
+    );
+    fixture.cleanup();
+}
+
 #[test]
 fn search_hydrates_each_hit_with_bounded_reader_lease_readback() {
     let fixture = Fixture::new_with_inputs(
