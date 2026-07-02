@@ -20,6 +20,8 @@ fn refused_probe_persists_diagnostic_matrix_before_fail_closed_exit() {
             resident_addr: None,
             max_variants: None,
             time_budget_ms: None,
+            search_miss_budget_ms: None,
+            search_hit_budget_ms: None,
         },
     )
     .unwrap_err();

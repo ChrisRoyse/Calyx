@@ -1,5 +1,6 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::path::Path;
+use std::sync::{Mutex, OnceLock};
 
 use calyx_aster::ledger_view::read_ledger_seqs;
 use calyx_aster::mvcc::Snapshot;
@@ -53,19 +54,105 @@ pub(crate) fn attach_verified_provenance(
     vault_dir: &Path,
     freshness: FreshnessTag,
 ) -> CliResult {
-    let mut ledger = TargetedLedgerVerifier::open(vault_dir, hits, docs)?;
-    for hit in hits {
+    let vault_key = crate::persisted::canonical_pin_vault_dir(vault_dir)?;
+    // Freeze each hit's memo decision NOW: verifying pending hits inserts
+    // into the bounded process-global memo, which can evict another hit's
+    // entry mid-loop. Re-querying the memo during the serve loop would then
+    // route that hit to a verifier that never loaded its ledger seqs — a
+    // spurious missing-ledger-seq failure (or a panic when nothing was
+    // pending). The verifier is opened for exactly the !memoized hits below.
+    let memoized = hits
+        .iter()
+        .map(|hit| {
+            docs.get(&hit.cx_id)
+                .is_some_and(|cx| ledger_memo_contains(&vault_key, hit.cx_id, &cx.provenance))
+        })
+        .collect::<Vec<_>>();
+    let pending = hits
+        .iter()
+        .zip(&memoized)
+        .filter(|(_, hit_memoized)| !**hit_memoized)
+        .map(|(hit, _)| hit.clone())
+        .collect::<Vec<_>>();
+    let mut ledger = if pending.is_empty() {
+        None
+    } else {
+        Some(TargetedLedgerVerifier::open(vault_dir, &pending, docs)?)
+    };
+    for (hit, hit_memoized) in hits.iter_mut().zip(memoized) {
         let cx = docs.get(&hit.cx_id).ok_or_else(|| {
             missing_provenance(format!(
                 "stored constellation missing for hit {}",
                 hit.cx_id
             ))
         })?;
-        hit.provenance = ledger.require_ref(hit.cx_id, cx.provenance.clone())?;
+        if hit_memoized {
+            // The exact (cx_id, ledger seq, entry hash) triple already passed
+            // the targeted ledger verification in this process; the ledger is
+            // append-only, so the verification result is immutable.
+            hit.provenance = cx.provenance.clone();
+        } else {
+            let verifier = ledger
+                .as_mut()
+                .expect("pending hits imply an opened ledger verifier");
+            hit.provenance = verifier.require_ref(hit.cx_id, cx.provenance.clone())?;
+            ledger_memo_insert(&vault_key, hit.cx_id, &cx.provenance);
+        }
         hit.provenance_source = ProvenanceSource::Stored;
         hit.freshness = freshness.clone();
     }
     Ok(())
+}
+
+const MAX_MEMOIZED_LEDGER_REFS: usize = 8192;
+
+type LedgerRefKey = (String, CxId, u64, [u8; 32]);
+
+struct LedgerRefMemo {
+    verified: BTreeSet<LedgerRefKey>,
+    order: VecDeque<LedgerRefKey>,
+}
+
+fn ledger_memo() -> &'static Mutex<LedgerRefMemo> {
+    static MEMO: OnceLock<Mutex<LedgerRefMemo>> = OnceLock::new();
+    MEMO.get_or_init(|| {
+        Mutex::new(LedgerRefMemo {
+            verified: BTreeSet::new(),
+            order: VecDeque::new(),
+        })
+    })
+}
+
+fn ledger_memo_contains(vault_key: &str, cx_id: CxId, provenance: &LedgerRef) -> bool {
+    let key = (
+        vault_key.to_string(),
+        cx_id,
+        provenance.seq,
+        provenance.hash,
+    );
+    ledger_memo()
+        .lock()
+        .expect("ledger ref memo poisoned")
+        .verified
+        .contains(&key)
+}
+
+fn ledger_memo_insert(vault_key: &str, cx_id: CxId, provenance: &LedgerRef) {
+    let key = (
+        vault_key.to_string(),
+        cx_id,
+        provenance.seq,
+        provenance.hash,
+    );
+    let mut memo = ledger_memo().lock().expect("ledger ref memo poisoned");
+    if memo.verified.insert(key.clone()) {
+        memo.order.push_back(key);
+    }
+    while memo.order.len() > MAX_MEMOIZED_LEDGER_REFS {
+        if let Some(evicted) = memo.order.pop_front() {
+            memo.verified.remove(&evicted);
+        }
+    }
 }
 
 struct TargetedLedgerVerifier {

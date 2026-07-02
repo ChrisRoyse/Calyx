@@ -11,6 +11,8 @@ pub mod marker;
 mod mixed_tests;
 #[path = "persisted/multi.rs"]
 mod multi;
+#[path = "persisted/pinned.rs"]
+mod pinned;
 #[path = "persisted/rebuild.rs"]
 mod rebuild;
 #[path = "persisted/rebuild_plan.rs"]
@@ -41,6 +43,7 @@ pub use marker::{
     RebuildRequiredMarker, clear_rebuild_required_marker, clear_rebuild_required_marker_if_owned,
     read_rebuild_required_marker, rebuild_required_marker_path, write_rebuild_required_marker,
 };
+pub(crate) use pinned::canonical_vault_dir as canonical_pin_vault_dir;
 pub(crate) use rebuild::load_docs_at;
 #[cfg(test)]
 use rebuild::rebuild_from_docs;

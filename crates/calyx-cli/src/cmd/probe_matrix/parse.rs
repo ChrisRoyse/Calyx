@@ -85,6 +85,20 @@ pub(crate) fn parse_probe_matrix(rest: &[String]) -> CliResult<Subcommand> {
                     "--time-budget-ms",
                 )?);
             }
+            "--search-miss-budget-ms" => {
+                idx += 1;
+                args.search_miss_budget_ms = Some(parse_nonzero_u64(
+                    value(rest, idx, "--search-miss-budget-ms")?,
+                    "--search-miss-budget-ms",
+                )?);
+            }
+            "--search-hit-budget-ms" => {
+                idx += 1;
+                args.search_hit_budget_ms = Some(parse_nonzero_u64(
+                    value(rest, idx, "--search-hit-budget-ms")?,
+                    "--search-hit-budget-ms",
+                )?);
+            }
             other => {
                 return Err(CliError::usage(format!(
                     "unexpected probe-matrix flag {other}"

@@ -26,10 +26,12 @@ mod diagnostics;
 mod grounding;
 mod guard_summary;
 mod parse;
+mod perf_budget;
 mod persist;
 mod progress;
 mod resident;
 mod runner;
+mod slot_timings;
 mod support;
 mod trace;
 pub(super) use artifact::ProbeMatrixArtifact;
@@ -56,6 +58,8 @@ pub(crate) struct ProbeMatrixArgs {
     pub resident_addr: Option<SocketAddr>,
     pub max_variants: Option<usize>,
     pub time_budget_ms: Option<u64>,
+    pub search_miss_budget_ms: Option<u64>,
+    pub search_hit_budget_ms: Option<u64>,
 }
 
 impl Default for ProbeMatrixArgs {
@@ -74,6 +78,8 @@ impl Default for ProbeMatrixArgs {
             resident_addr: None,
             max_variants: None,
             time_budget_ms: None,
+            search_miss_budget_ms: None,
+            search_hit_budget_ms: None,
         }
     }
 }

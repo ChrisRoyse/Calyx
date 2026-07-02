@@ -141,6 +141,7 @@ mod tests {
                 pre_guard,
                 post_guard,
             ),
+            slot_searches: Vec::new(),
         }
     }
 

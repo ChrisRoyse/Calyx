@@ -87,6 +87,8 @@ pub(super) struct ProbeMatrixVariantDiagnostic {
     pub last_search_phase: Option<String>,
     pub last_search_elapsed_ms: Option<u128>,
     pub guard_zero_hit_reason: Option<String>,
+    #[serde(default)]
+    pub slot_searches: Vec<super::slot_timings::ProbeMatrixSlotSearchDiagnostic>,
 }
 
 pub(super) struct QueryVectorCache {
@@ -244,6 +246,7 @@ pub(super) fn variant_guard_diagnostic(
         last_search_phase: last_event.map(|event| event.phase.to_string()),
         last_search_elapsed_ms: last_event.map(|event| event.elapsed_ms),
         guard_zero_hit_reason: guard_zero_hit_reason(prefilter_in, prefilter_out, pre, post),
+        slot_searches: super::slot_timings::slot_search_diagnostics(events),
     }
 }
 

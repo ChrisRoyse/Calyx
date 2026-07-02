@@ -297,6 +297,7 @@ pub(crate) fn run_probe_matrix_with_home(home: &Path, args: ProbeMatrixArgs) -> 
             ) {
                 return Err(error);
             }
+            super::perf_budget::enforce_search_perf_budgets(&guards, &args)?;
             return Err(incomplete_error(
                 "variant_budget_exhausted",
                 &matrix_path,
@@ -486,6 +487,8 @@ pub(crate) fn run_probe_matrix_with_home(home: &Path, args: ProbeMatrixArgs) -> 
         .unwrap_or(error);
         return Err(with_persisted_artifact_error(error, &persisted));
     }
+    super::perf_budget::enforce_search_perf_budgets(&guards, &args)
+        .map_err(|error| with_persisted_artifact_error(error, &persisted))?;
     print_json(&super::artifact::probe_matrix_success_json(
         &resolved,
         &artifact,
