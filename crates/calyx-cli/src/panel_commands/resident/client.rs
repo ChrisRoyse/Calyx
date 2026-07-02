@@ -44,10 +44,12 @@ fn send_request(addr: SocketAddr, request: Value) -> CliResult<Value> {
     Ok(serde_json::from_str(&response)?)
 }
 
-fn send_binary_measure_batch_request(
+pub(crate) fn measure_batch_at(
     addr: SocketAddr,
-    request: &ResidentMeasureBatchBinaryRequest,
-) -> CliResult<(ResidentMeasureBatchBinaryResponse, usize, usize)> {
+    modality: Modality,
+    inputs: &[Input],
+    runtime_batch_limit: Option<usize>,
+) -> CliResult<MeasureBatchAtResponse> {
     ensure_loopback(addr)?;
     let mut stream = TcpStream::connect(addr).map_err(|error| {
         CliError::from(CalyxError {
@@ -60,22 +62,7 @@ fn send_binary_measure_batch_request(
     stream.set_read_timeout(timeout)?;
     stream.set_write_timeout(timeout)?;
     stream.write_all(RESIDENT_BINARY_MAGIC)?;
-    let request_bytes = encode_binary(request)?;
-    write_frame(&mut stream, &request_bytes)?;
-    stream.flush()?;
-    let response_frame = read_frame(&mut stream)?;
-    let response_bytes = response_frame.len();
-    let response = decode_binary::<ResidentMeasureBatchBinaryResponse>(&response_frame)?;
-    Ok((response, request_bytes.len(), response_bytes))
-}
-
-pub(crate) fn measure_batch_at(
-    addr: SocketAddr,
-    modality: Modality,
-    inputs: &[Input],
-    runtime_batch_limit: Option<usize>,
-) -> CliResult<MeasureBatchAtResponse> {
-    let request = ResidentMeasureBatchBinaryRequest {
+    let request_bytes = encode_binary(&ResidentMeasureBatchBinaryRequest {
         protocol_version: RESIDENT_BINARY_PROTOCOL_VERSION,
         modality,
         inputs: inputs
@@ -83,47 +70,131 @@ pub(crate) fn measure_batch_at(
             .map(|input| input.bytes.clone())
             .collect::<Vec<_>>(),
         runtime_batch_limit,
+    })?;
+    write_frame(&mut stream, &request_bytes)?;
+    stream.flush()?;
+    read_measure_batch_stream(&mut stream, inputs.len(), request_bytes.len())
+}
+
+/// Consume the streamed measure_batch frames: Header, then one Row frame per
+/// input, then End. Any Err frame, out-of-order frame, truncated stream, or
+/// row/count mismatch fails closed — a partial stream never yields rows.
+fn read_measure_batch_stream(
+    stream: &mut TcpStream,
+    expected_inputs: usize,
+    request_bytes: usize,
+) -> CliResult<MeasureBatchAtResponse> {
+    let mut response_bytes = 0usize;
+    let mut next_frame = |stream: &mut TcpStream| -> CliResult<ResidentMeasureBatchStreamFrame> {
+        let frame = read_frame(stream)?;
+        response_bytes += frame.len();
+        Ok(decode_binary::<ResidentMeasureBatchStreamFrame>(&frame)?)
     };
-    let (response, request_bytes, response_bytes) =
-        send_binary_measure_batch_request(addr, &request)?;
-    if response.protocol_version != RESIDENT_BINARY_PROTOCOL_VERSION {
+    let header = match next_frame(stream)? {
+        ResidentMeasureBatchStreamFrame::Header(header) => header,
+        ResidentMeasureBatchStreamFrame::Err {
+            code,
+            message,
+            remediation,
+        } => return Err(remote_stream_error(&code, &message, &remediation)),
+        other => return Err(unexpected_stream_frame("Header", &other)),
+    };
+    if header.protocol_version != RESIDENT_BINARY_PROTOCOL_VERSION {
         return Err(CliError::from(CalyxError {
             code: "CALYX_PANEL_RESIDENT_PROTOCOL_MISMATCH",
             message: format!(
                 "resident measure_batch binary protocol {}, expected {}",
-                response.protocol_version, RESIDENT_BINARY_PROTOCOL_VERSION
+                header.protocol_version, RESIDENT_BINARY_PROTOCOL_VERSION
             ),
             remediation: "restart the resident service from the same Calyx build as the CLI",
         }));
     }
-    let parsed = match response.result {
-        ResidentMeasureBatchBinaryResult::Ok(response) => response,
-        ResidentMeasureBatchBinaryResult::Err {
-            code,
-            message,
-            remediation,
-        } => {
-            return Err(CliError::from(CalyxError {
-                code: resident_remote_error_code(&code),
-                message: format!("{code}: {message}; remediation={remediation}"),
-                remediation: CLIENT_TIMEOUT_REMEDIATION,
-            }));
-        }
-    };
-    if parsed.schema != MEASURE_BATCH_SCHEMA {
+    if header.schema != MEASURE_BATCH_SCHEMA {
         return Err(CliError::from(CalyxError {
             code: "CALYX_PANEL_RESIDENT_SCHEMA_MISMATCH",
             message: format!(
                 "resident measure_batch schema {}, expected {}",
-                parsed.schema, MEASURE_BATCH_SCHEMA
+                header.schema, MEASURE_BATCH_SCHEMA
+            ),
+            remediation: "restart the resident service from the same Calyx build as the CLI",
+        }));
+    }
+    let mut rows: Vec<ResidentMeasuredInput> = Vec::with_capacity(header.input_count);
+    let end = loop {
+        match next_frame(stream)? {
+            ResidentMeasureBatchStreamFrame::Row(row) => {
+                if row.input_index != rows.len() {
+                    return Err(CliError::from(CalyxError {
+                        code: "CALYX_PANEL_RESIDENT_STREAM_ORDER",
+                        message: format!(
+                            "resident measure_batch row frame carries input_index {} but {} rows were received",
+                            row.input_index,
+                            rows.len()
+                        ),
+                        remediation: "restart the resident service from the same Calyx build as the CLI",
+                    }));
+                }
+                rows.push(*row);
+            }
+            ResidentMeasureBatchStreamFrame::End(end) => break end,
+            ResidentMeasureBatchStreamFrame::Err {
+                code,
+                message,
+                remediation,
+            } => return Err(remote_stream_error(&code, &message, &remediation)),
+            other => return Err(unexpected_stream_frame("Row or End", &other)),
+        }
+    };
+    if end.row_count != rows.len() || rows.len() != expected_inputs {
+        return Err(CliError::from(CalyxError {
+            code: "CALYX_PANEL_RESIDENT_STREAM_ORDER",
+            message: format!(
+                "resident measure_batch stream ended with {} rows (end frame says {}) for {} inputs",
+                rows.len(),
+                end.row_count,
+                expected_inputs
             ),
             remediation: "restart the resident service from the same Calyx build as the CLI",
         }));
     }
     Ok(MeasureBatchAtResponse {
-        response: parsed,
+        response: MeasureBatchResponse {
+            schema: header.schema,
+            ready: header.ready,
+            process_id: header.process_id,
+            template_source: header.template_source,
+            modality: header.modality,
+            input_count: header.input_count,
+            elapsed_ms: end.elapsed_ms,
+            runtime_batch_limit: header.runtime_batch_limit,
+            rows,
+        },
         request_bytes,
         response_bytes,
+    })
+}
+
+fn remote_stream_error(code: &str, message: &str, remediation: &str) -> CliError {
+    CliError::from(CalyxError {
+        code: resident_remote_error_code(code),
+        message: format!("{code}: {message}; remediation={remediation}"),
+        remediation: CLIENT_TIMEOUT_REMEDIATION,
+    })
+}
+
+fn unexpected_stream_frame(expected: &str, got: &ResidentMeasureBatchStreamFrame) -> CliError {
+    let kind = match got {
+        ResidentMeasureBatchStreamFrame::Header(_) => "Header",
+        ResidentMeasureBatchStreamFrame::Row(_) => "Row",
+        ResidentMeasureBatchStreamFrame::End(_) => "End",
+        ResidentMeasureBatchStreamFrame::Err { .. } => "Err",
+    };
+    CliError::from(CalyxError {
+        code: "CALYX_PANEL_RESIDENT_STREAM_ORDER",
+        message: format!(
+            "resident measure_batch stream sent a {kind} frame where {expected} was expected"
+        ),
+        remediation: "restart the resident service from the same Calyx build as the CLI",
     })
 }
 

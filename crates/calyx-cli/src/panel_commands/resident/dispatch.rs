@@ -1,61 +1,5 @@
-use super::codec::{decode_binary, read_frame};
 use super::server::ResidentService;
 use super::*;
-
-pub(crate) fn dispatch_binary_measure_batch(
-    reader: &mut impl Read,
-    service: &ResidentService,
-) -> ResidentMeasureBatchBinaryResponse {
-    let result = match read_frame(reader).and_then(|bytes| {
-        decode_binary::<ResidentMeasureBatchBinaryRequest>(&bytes)
-            .map(|request| (bytes.len(), request))
-    }) {
-        Ok((request_bytes, request)) => {
-            if request.protocol_version != RESIDENT_BINARY_PROTOCOL_VERSION {
-                ResidentMeasureBatchBinaryResult::Err {
-                    code: "CALYX_PANEL_RESIDENT_PROTOCOL_MISMATCH".to_string(),
-                    message: format!(
-                        "resident binary measure_batch protocol version {}, expected {}",
-                        request.protocol_version, RESIDENT_BINARY_PROTOCOL_VERSION
-                    ),
-                    remediation:
-                        "restart the resident service from the same Calyx build as the CLI"
-                            .to_string(),
-                }
-            } else {
-                eprintln!(
-                    "CALYX_PANEL_RESIDENT_RUNTIME phase=measure_batch_binary_request process_id={} protocol_version={} request_bytes={} inputs={}",
-                    std::process::id(),
-                    request.protocol_version,
-                    request_bytes,
-                    request.inputs.len()
-                );
-                match measure_batch(
-                    service,
-                    request.modality,
-                    request.inputs,
-                    request.runtime_batch_limit,
-                ) {
-                    Ok(response) => ResidentMeasureBatchBinaryResult::Ok(response),
-                    Err(error) => ResidentMeasureBatchBinaryResult::Err {
-                        code: error.code().to_string(),
-                        message: error.message().to_string(),
-                        remediation: error.remediation().to_string(),
-                    },
-                }
-            }
-        }
-        Err(error) => ResidentMeasureBatchBinaryResult::Err {
-            code: error.code.to_string(),
-            message: error.message,
-            remediation: error.remediation.to_string(),
-        },
-    };
-    ResidentMeasureBatchBinaryResponse {
-        protocol_version: RESIDENT_BINARY_PROTOCOL_VERSION,
-        result,
-    }
-}
 
 pub(crate) fn dispatch_request(
     request: ResidentRequest,
@@ -242,142 +186,32 @@ fn measure_batch(
     input_bytes: Vec<Vec<u8>>,
     runtime_batch_limit: Option<usize>,
 ) -> CliResult<MeasureBatchResponse> {
-    if matches!(runtime_batch_limit, Some(0)) {
-        return Err(CalyxError::lens_unreachable(
-            "resident measure_batch runtime_batch_limit must be > 0 when supplied",
-        )
-        .into());
-    }
-    let started = Instant::now();
-    eprintln!(
-        "CALYX_PANEL_RESIDENT_RUNTIME phase=measure_batch_start process_id={} modality={:?} inputs={} runtime_batch_limit={:?}",
-        std::process::id(),
+    let input_count = input_bytes.len();
+    let mut rows = Vec::with_capacity(input_count);
+    let elapsed_ms = super::stream::measure_batch_chunked(
+        service,
         modality,
-        input_bytes.len(),
-        runtime_batch_limit
-    );
-    let inputs = input_bytes
-        .into_iter()
-        .map(|bytes| Input::new(modality, bytes))
-        .collect::<Vec<_>>();
-    let mut measured_by_lens = BTreeMap::<LensId, Vec<SlotVector>>::new();
-    for slot in &service.state.build.panel.slots {
-        if slot.state != SlotState::Active
-            || slot.modality != modality
-            || !service.state.build.registry.contains(slot.lens_id)
-            || measured_by_lens.contains_key(&slot.lens_id)
-        {
-            continue;
-        }
-        let lens_started = Instant::now();
-        let vectors = measure_lens_batch_with_limit(
-            &service.state.build.registry,
-            slot.lens_id,
-            &inputs,
-            runtime_batch_limit,
-        )?;
-        if vectors.len() != inputs.len() {
-            return Err(CalyxError::lens_dim_mismatch(format!(
-                "resident measure_batch lens {} returned {} vectors for {} inputs",
-                slot.lens_id,
-                vectors.len(),
-                inputs.len()
-            ))
-            .into());
-        }
-        eprintln!(
-            "CALYX_PANEL_RESIDENT_RUNTIME phase=measure_batch_lens_ok process_id={} lens_id={} slot={} inputs={} elapsed_ms={}",
-            std::process::id(),
-            slot.lens_id,
-            slot.slot_id.get(),
-            inputs.len(),
-            lens_started.elapsed().as_millis()
-        );
-        measured_by_lens.insert(slot.lens_id, vectors);
-    }
-    let mut rows = Vec::with_capacity(inputs.len());
-    for (input_index, input) in inputs.iter().enumerate() {
-        let mut measured = 0;
-        let mut absent = 0;
-        let mut slots = Vec::with_capacity(service.state.build.panel.slots.len());
-        for slot in &service.state.build.panel.slots {
-            let (measured_slot, vector, absent_reason) = if slot.state != SlotState::Active {
-                (false, None, Some(AbsentReason::LensInactive))
-            } else if slot.modality != modality {
-                (false, None, Some(AbsentReason::NotApplicable))
-            } else if !service.state.build.registry.contains(slot.lens_id) {
-                (false, None, Some(AbsentReason::LensUnavailable))
-            } else {
-                let vector = measured_by_lens
-                    .get(&slot.lens_id)
-                    .and_then(|vectors| vectors.get(input_index))
-                    .cloned()
-                    .ok_or_else(|| {
-                        CalyxError::lens_unreachable(format!(
-                            "resident measure_batch missing measured vector for lens {} input {}",
-                            slot.lens_id, input_index
-                        ))
-                    })?;
-                (true, Some(vector), None)
-            };
-            if measured_slot {
-                measured += 1;
-            } else {
-                absent += 1;
-            }
-            slots.push(slot_measure(slot, measured_slot, vector, absent_reason));
-        }
-        rows.push(ResidentMeasuredInput {
-            input_index,
-            input_len: input.bytes.len(),
-            measured_slot_count: measured,
-            absent_slot_count: absent,
-            slots,
-        });
-    }
-    let elapsed_ms = started.elapsed().as_millis();
-    eprintln!(
-        "CALYX_PANEL_RESIDENT_RUNTIME phase=measure_batch_ok process_id={} modality={:?} inputs={} elapsed_ms={}",
-        std::process::id(),
-        modality,
-        rows.len(),
-        elapsed_ms
-    );
+        input_bytes,
+        runtime_batch_limit,
+        &mut |chunk_rows| {
+            rows.extend(chunk_rows);
+            Ok(())
+        },
+    )?;
     Ok(MeasureBatchResponse {
         schema: MEASURE_BATCH_SCHEMA.to_string(),
         ready: true,
         process_id: std::process::id(),
         template_source: service.state.template_source.clone(),
         modality,
-        input_count: inputs.len(),
+        input_count,
         elapsed_ms,
         runtime_batch_limit,
         rows,
     })
 }
 
-fn measure_lens_batch_with_limit(
-    registry: &calyx_registry::Registry,
-    lens_id: LensId,
-    inputs: &[Input],
-    runtime_batch_limit: Option<usize>,
-) -> calyx_core::Result<Vec<SlotVector>> {
-    let Some(limit) = runtime_batch_limit else {
-        return registry.measure_batch(lens_id, inputs);
-    };
-    if limit == 0 {
-        return Err(CalyxError::lens_unreachable(
-            "resident measure_batch runtime_batch_limit must be > 0 when supplied",
-        ));
-    }
-    let mut out = Vec::with_capacity(inputs.len());
-    for chunk in inputs.chunks(limit) {
-        out.extend(registry.measure_batch(lens_id, chunk)?);
-    }
-    Ok(out)
-}
-
-fn slot_measure(
+pub(super) fn slot_measure(
     slot: &calyx_core::Slot,
     measured: bool,
     vector: Option<SlotVector>,

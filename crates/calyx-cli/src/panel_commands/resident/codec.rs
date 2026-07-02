@@ -30,22 +30,7 @@ pub(crate) fn decode_binary<T: DeserializeOwned>(bytes: &[u8]) -> Result<T, Caly
     Ok(value)
 }
 
-pub(crate) fn write_binary_response(
-    stream: &mut TcpStream,
-    response: &ResidentMeasureBatchBinaryResponse,
-) -> CliResult {
-    let bytes = encode_binary(response)?;
-    eprintln!(
-        "CALYX_PANEL_RESIDENT_RUNTIME phase=measure_batch_binary_response process_id={} protocol_version={} response_bytes={}",
-        std::process::id(),
-        response.protocol_version,
-        bytes.len()
-    );
-    write_frame(stream, &bytes)?;
-    Ok(())
-}
-
-pub(crate) fn write_frame(writer: &mut impl Write, bytes: &[u8]) -> Result<(), CalyxError> {
+pub(crate) fn write_frame(writer: &mut dyn Write, bytes: &[u8]) -> Result<(), CalyxError> {
     if bytes.len() > MAX_RESIDENT_SERVICE_FRAME_BYTES {
         return Err(CalyxError {
             code: "CALYX_PANEL_RESIDENT_BINARY_FRAME",
@@ -75,7 +60,7 @@ pub(crate) fn write_frame(writer: &mut impl Write, bytes: &[u8]) -> Result<(), C
         })
 }
 
-pub(crate) fn read_frame(reader: &mut impl Read) -> Result<Vec<u8>, CalyxError> {
+pub(crate) fn read_frame(reader: &mut dyn Read) -> Result<Vec<u8>, CalyxError> {
     let mut header = [0_u8; 8];
     let mut offset = 0;
     while offset < header.len() {
