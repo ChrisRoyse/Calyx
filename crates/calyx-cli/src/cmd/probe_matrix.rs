@@ -95,7 +95,13 @@ fn probe_read_vault_options(panel: &Panel, guard: GuardChoice) -> VaultOptions {
     let mut selected_cfs = match guard {
         GuardChoice::Off => super::search::base_read_cfs(),
         GuardChoice::InRegion => {
-            super::search::panel_read_cfs(panel).expect("probe panel read cfs are always selected")
+            // Profile-backed guarding (#1094) reads the calibrated Ward
+            // profile from the Guard CF; an unselected CF silently reads as
+            // None, which would masquerade as a missing profile.
+            let mut cfs = super::search::panel_read_cfs(panel)
+                .expect("probe panel read cfs are always selected");
+            cfs.push(ColumnFamily::Guard);
+            cfs
         }
     };
     selected_cfs.push(ColumnFamily::Anchors);
@@ -161,6 +167,7 @@ fn probe_variant(
         fusion_choice(variant),
         ctx.guard,
         ctx.guard_tau,
+        Some(u64::from(ctx.state.panel.version)),
         None,
         false,
         SearchFreshness::Fresh,

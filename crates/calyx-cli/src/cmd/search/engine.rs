@@ -61,6 +61,7 @@ fn search_command(args: SearchArgs) -> CliResult {
                 args.k,
                 fusion,
                 guard,
+                Some(u64::from(state.panel.version)),
                 args.filter.as_deref(),
                 args.explain,
                 freshness,
@@ -413,6 +414,15 @@ fn search_read_cfs(
 ) -> Option<Vec<calyx_aster::cf::ColumnFamily>> {
     match guard {
         GuardChoice::Off => Some(base_read_cfs()),
-        GuardChoice::InRegion => panel_read_cfs(&state.panel),
+        GuardChoice::InRegion => {
+            // Profile-backed guarding (#1094) reads the calibrated Ward
+            // profile from the Guard CF; reading an unselected CF silently
+            // returns None, which would masquerade as a missing profile.
+            let mut cfs = panel_read_cfs(&state.panel)?;
+            cfs.push(calyx_aster::cf::ColumnFamily::Guard);
+            cfs.sort();
+            cfs.dedup();
+            Some(cfs)
+        }
     }
 }

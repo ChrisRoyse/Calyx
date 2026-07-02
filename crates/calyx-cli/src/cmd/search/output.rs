@@ -34,9 +34,26 @@ struct PerLensOut {
 }
 
 #[derive(Serialize)]
-struct GuardOut {
-    verdict: &'static str,
+#[serde(untagged)]
+enum GuardOut {
+    /// Flat operator-supplied tau gate (#1088): the tau is the whole story.
+    OperatorTau { verdict: &'static str, tau: f32 },
+    /// Calibrated Ward profile gate (#1094): per-slot conformal taus with
+    /// the full verdict decomposition from the hit's guard evidence.
+    Profile {
+        mode: &'static str,
+        overall_pass: bool,
+        provisional: bool,
+        per_slot: Vec<SlotVerdictOut>,
+    },
+}
+
+#[derive(Serialize)]
+struct SlotVerdictOut {
+    slot: u16,
+    cos: f32,
     tau: f32,
+    pass: bool,
 }
 
 #[derive(Serialize)]
@@ -76,10 +93,29 @@ pub(super) fn render_hits(
                     })
                     .collect()
             }),
-            guard: guard_tau.map(|tau| GuardOut {
-                verdict: "pass",
-                tau,
-            }),
+            guard: hit
+                .guard
+                .as_ref()
+                .map(|evidence| GuardOut::Profile {
+                    mode: "in_region_only",
+                    overall_pass: evidence.verdict.overall_pass,
+                    provisional: evidence.verdict.provisional,
+                    per_slot: evidence
+                        .verdict
+                        .per_slot
+                        .iter()
+                        .map(|slot| SlotVerdictOut {
+                            slot: slot.slot.get(),
+                            cos: slot.cos,
+                            tau: slot.tau,
+                            pass: slot.pass,
+                        })
+                        .collect(),
+                })
+                .or(guard_tau.map(|tau| GuardOut::OperatorTau {
+                    verdict: "pass",
+                    tau,
+                })),
             provenance: provenance.then(|| ProvenanceOut {
                 ledger_seq: hit.provenance.seq,
                 chain_hash: hex32(&hit.provenance.hash),
