@@ -11,14 +11,14 @@ use crate::protocol::JsonRpcError;
 use crate::server::McpServer;
 use crate::tools::test_support::ENV_LOCK;
 
-struct TestEnv {
+pub(super) struct TestEnv {
     home: PathBuf,
     old_home: Option<OsString>,
     _guard: MutexGuard<'static, ()>,
 }
 
 impl TestEnv {
-    fn new(name: &str) -> Self {
+    pub(super) fn new(name: &str) -> Self {
         let guard = ENV_LOCK.lock().unwrap();
         let home = std::env::temp_dir().join(format!(
             "calyx-mcp-search-ext-{name}-{}",
@@ -56,7 +56,7 @@ impl Drop for TestEnv {
     }
 }
 
-fn server() -> McpServer {
+pub(super) fn server() -> McpServer {
     let mut server = McpServer::new();
     crate::tools::register_all(&mut server).unwrap();
     server
@@ -68,7 +68,7 @@ fn authn() -> AuthN {
     }
 }
 
-fn call_ok(server: &McpServer, id: u64, name: &str, arguments: Value) -> Value {
+pub(super) fn call_ok(server: &McpServer, id: u64, name: &str, arguments: Value) -> Value {
     let request = decode_jsonrpc_request(
         json!({
             "jsonrpc": "2.0",
@@ -107,7 +107,7 @@ fn call_err(server: &McpServer, id: u64, name: &str, arguments: Value) -> JsonRp
         .unwrap()
 }
 
-fn populated_vault(server: &McpServer, name: &str) -> Vec<Value> {
+pub(super) fn populated_vault(server: &McpServer, name: &str) -> Vec<Value> {
     call_ok(server, 1, "calyx.create_vault", json!({"name": name}));
     call_ok(
         server,
@@ -135,7 +135,7 @@ fn populated_vault(server: &McpServer, name: &str) -> Vec<Value> {
     .collect()
 }
 
-fn maybe_write_fsv_json(name: &str, value: &Value) {
+pub(super) fn maybe_write_fsv_json(name: &str, value: &Value) {
     let Some(root) = calyx_fsv::fsv_root("CALYX_FSV_ROOT") else {
         return;
     };

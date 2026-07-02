@@ -45,7 +45,9 @@ pub(super) fn search(request: &SearchRequest) -> ToolResult<SearchOutcome> {
     let ledger = VerifiedSearchLedger::open(&resolved.path)?;
     let vault = open_vault(&resolved)?;
     let state = load_vault_panel_state(&resolved.path)?;
-    let docs = filtered_docs(load_docs(&vault)?, request.filter.clone())?;
+    let loaded = load_docs(&vault)?;
+    let snapshot_seq = loaded.snapshot_seq;
+    let docs = filtered_docs(loaded.docs, request.filter.clone())?;
     if docs.is_empty() {
         return Ok(SearchOutcome {
             hits: Vec::new(),
@@ -57,7 +59,7 @@ pub(super) fn search(request: &SearchRequest) -> ToolResult<SearchOutcome> {
     if query_vectors.is_empty() {
         return Err(no_indexable_query_vectors().into());
     }
-    let per_slot = search_slots(&docs, &query_vectors)?;
+    let per_slot = search_slots(&docs, &query_vectors, snapshot_seq)?;
     let slots = per_slot.keys().copied().collect::<Vec<_>>();
     if slots.is_empty() {
         return Err(no_indexable_stored_vectors().into());
@@ -71,13 +73,7 @@ pub(super) fn search(request: &SearchRequest) -> ToolResult<SearchOutcome> {
         stage1_slots: stage1_slots(&strategy, &query_vectors, &slots),
     };
     let mut hits = fusion::fuse(&per_slot, &context);
-    attach_stored_provenance(
-        &mut hits,
-        &docs,
-        vault.latest_seq(),
-        &ledger,
-        &request.freshness,
-    )?;
+    attach_stored_provenance(&mut hits, &docs, snapshot_seq, &ledger, &request.freshness)?;
     let dropped_guard_hits = if request.guard == SearchGuard::InRegion {
         let before = hits.len();
         let profile = load_default_guard_profile(&vault, &state)?;
@@ -136,7 +132,8 @@ fn default_guard_key() -> &'static [u8] {
 pub(super) fn neighbors(request: &NeighborsRequest) -> ToolResult<Vec<NeighborOut>> {
     let resolved = resolve_requested_vault(&request.vault)?;
     let vault = open_vault(&resolved)?;
-    let docs = load_docs(&vault)?;
+    let loaded = load_docs(&vault)?;
+    let docs = loaded.docs;
     let seed = docs.get(&request.cx_id).ok_or_else(|| {
         CalyxError::vault_access_denied(format!("cx_id {} does not exist in vault", request.cx_id))
     })?;
@@ -144,7 +141,7 @@ pub(super) fn neighbors(request: &NeighborsRequest) -> ToolResult<Vec<NeighborOu
     for (slot, vector) in seed.slots.iter().filter(|(slot, vector)| {
         request.slot.is_none_or(|wanted| wanted == **slot) && indexable(vector)
     }) {
-        for hit in search_one_slot(&docs, *slot, vector)?
+        for hit in search_one_slot(&docs, *slot, vector, loaded.snapshot_seq)?
             .into_iter()
             .take(request.k)
         {
@@ -232,10 +229,11 @@ pub(super) fn measure_query_vectors(
 fn search_slots(
     docs: &BTreeMap<CxId, Constellation>,
     query_vectors: &[(SlotId, SlotVector)],
+    snapshot_seq: u64,
 ) -> ToolResult<BTreeMap<SlotId, Vec<IndexSearchHit>>> {
     let mut out = BTreeMap::new();
     for (slot, query) in query_vectors {
-        let hits = search_one_slot(docs, *slot, query)?;
+        let hits = search_one_slot(docs, *slot, query, snapshot_seq)?;
         if !hits.is_empty() {
             out.insert(*slot, hits);
         }
@@ -247,6 +245,7 @@ fn search_one_slot(
     docs: &BTreeMap<CxId, Constellation>,
     slot: SlotId,
     query: &SlotVector,
+    snapshot_seq: u64,
 ) -> ToolResult<Vec<IndexSearchHit>> {
     let mut index = new_index(slot, query)?;
     let mut inserted = 0usize;
@@ -254,7 +253,7 @@ fn search_one_slot(
         if let Some(vector) = cx.slots.get(&slot)
             && same_index_shape(query, vector)
         {
-            index.insert(cx.cx_id, vector.clone(), cx.provenance.seq)?;
+            index.insert(cx.cx_id, vector.clone(), snapshot_seq)?;
             inserted += 1;
         }
     }
@@ -278,7 +277,7 @@ fn new_index(slot: SlotId, query: &SlotVector) -> ToolResult<Box<dyn SextantInde
 fn attach_stored_provenance(
     hits: &mut [Hit],
     docs: &BTreeMap<CxId, Constellation>,
-    seq: u64,
+    snapshot_seq: u64,
     ledger: &VerifiedSearchLedger,
     freshness: &FreshnessRequirement,
 ) -> ToolResult<()> {
@@ -291,18 +290,31 @@ fn attach_stored_provenance(
         })?;
         hit.provenance = ledger.require_ref(hit.cx_id, cx.provenance.clone())?;
         hit.provenance_source = ProvenanceSource::Stored;
-        let base_seq = seq.max(cx.provenance.seq);
+        // The hits were computed over indexes built from the docs pinned at
+        // `snapshot_seq`, so they are fresh at exactly that seq. `provenance.seq`
+        // is a ledger ref in a different seq domain and must not leak into
+        // freshness tags (issue #1104).
         hit.freshness = match freshness {
-            FreshnessRequirement::FreshDerived => calyx_sextant::FreshnessTag::fresh(base_seq),
+            FreshnessRequirement::FreshDerived => calyx_sextant::FreshnessTag::fresh(snapshot_seq),
             FreshnessRequirement::StaleOk { .. } => {
-                calyx_sextant::FreshnessTag::stale_ok(base_seq, base_seq)
+                calyx_sextant::FreshnessTag::stale_ok(snapshot_seq, snapshot_seq)
             }
         };
     }
     Ok(())
 }
 
-pub(super) fn load_docs(vault: &AsterVault) -> ToolResult<BTreeMap<CxId, Constellation>> {
+/// Documents loaded at one pinned vault snapshot together with that
+/// snapshot's commit seq. Freshness reasoning over these docs must use
+/// `snapshot_seq` only: per-doc `provenance.seq` values are ledger refs in a
+/// different seq domain and drift from vault commit seqs on group-committed
+/// vaults (issue #1104).
+pub(super) struct LoadedDocs {
+    pub(super) docs: BTreeMap<CxId, Constellation>,
+    pub(super) snapshot_seq: u64,
+}
+
+pub(super) fn load_docs(vault: &AsterVault) -> ToolResult<LoadedDocs> {
     let snapshot = vault.snapshot();
     let mut docs = BTreeMap::new();
     for (key, _) in vault.scan_cf_at(snapshot, ColumnFamily::Base)? {
@@ -312,7 +324,10 @@ pub(super) fn load_docs(vault: &AsterVault) -> ToolResult<BTreeMap<CxId, Constel
         let cx_id = CxId::from_bytes(bytes);
         docs.insert(cx_id, vault.get(cx_id, snapshot)?);
     }
-    Ok(docs)
+    Ok(LoadedDocs {
+        docs,
+        snapshot_seq: snapshot,
+    })
 }
 
 pub(super) fn resolve_requested_vault(vault: &str) -> ToolResult<ResolvedVault> {

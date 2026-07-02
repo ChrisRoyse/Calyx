@@ -22,12 +22,12 @@ pub(super) fn load_runtime(vault: &str) -> ToolResult<NavRuntime> {
     let resolved = engine::resolve_requested_vault(vault)?;
     let vault = engine::open_vault(&resolved)?;
     let state = load_vault_panel_state(&resolved.path)?;
-    let docs = engine::load_docs(&vault)?;
-    let engine = build_search_engine(&docs, vault.latest_seq())?;
+    let loaded = engine::load_docs(&vault)?;
+    let engine = build_search_engine(&loaded.docs, loaded.snapshot_seq)?;
     Ok(NavRuntime {
         vault,
         state,
-        docs,
+        docs: loaded.docs,
         engine,
     })
 }
@@ -89,7 +89,18 @@ pub(super) fn score01(value: f32) -> f32 {
     value.clamp(0.0, 1.0)
 }
 
-fn build_search_engine(docs: &BTreeMap<CxId, Constellation>, seq: u64) -> ToolResult<SearchEngine> {
+/// Builds the in-memory nav engine from docs pinned at `snapshot_seq`.
+///
+/// Every insert seq and every slot's base seq is `snapshot_seq` — the vault
+/// commit seq of the pin the docs were loaded at — so `built_at_seq ==
+/// base_seq` and the engine is fresh by construction at that pin. Per-doc
+/// `provenance.seq` values are ledger refs in a different seq domain; feeding
+/// them here made `FreshDerived` fail spuriously (or mask real staleness)
+/// whenever ledger and vault commit seqs drifted (issue #1104).
+fn build_search_engine(
+    docs: &BTreeMap<CxId, Constellation>,
+    snapshot_seq: u64,
+) -> ToolResult<SearchEngine> {
     let indexes = SlotIndexMap::new();
     let samples = first_vectors(docs);
     for (slot, vector) in &samples {
@@ -110,12 +121,12 @@ fn build_search_engine(docs: &BTreeMap<CxId, Constellation>, seq: u64) -> ToolRe
                 .get(slot)
                 .is_some_and(|sample| engine::same_index_shape(sample, vector))
             {
-                indexes.insert(*slot, cx.cx_id, vector.clone(), cx.provenance.seq)?;
+                indexes.insert(*slot, cx.cx_id, vector.clone(), snapshot_seq)?;
             }
         }
     }
     for slot in indexes.registered_slots() {
-        indexes.set_base_seq(slot, seq)?;
+        indexes.set_base_seq(slot, snapshot_seq)?;
     }
     let mut search = SearchEngine::new(indexes);
     for cx in docs.values() {
