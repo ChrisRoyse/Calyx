@@ -68,6 +68,17 @@ impl PhysicalPlainGraph {
         self.router.get(ColumnFamily::Graph, &self.keys.csr_key())
     }
 
+    /// Physical node-row key count, independent of any persisted CSR. Used to
+    /// cross-check CSR materialization against the row-level source of truth.
+    pub fn node_key_count(&self) -> Result<usize> {
+        Ok(self.scan_keys_at(&self.keys.node_range())?.len())
+    }
+
+    /// Physical outgoing-edge key count, independent of any persisted CSR.
+    pub fn edge_out_key_count(&self) -> Result<usize> {
+        Ok(self.scan_keys_at(&self.keys.edge_out_range())?.len())
+    }
+
     pub fn read_csr(&self) -> Result<Option<PlainGraphCsr>> {
         let Some(bytes) = self.read_csr_bytes()? else {
             return Ok(None);

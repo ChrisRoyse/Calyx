@@ -79,11 +79,18 @@ pub(crate) fn run_materialize_graph_csr_with_home(
         before_bytes.is_some(),
         before_bytes
     );
+    // Latest-only open (like ingest/search since #1029): with the default
+    // full-MVCC restore, rows checkpointed through router-flush SSTs are NOT
+    // restored into the MVCC table and a snapshot scan silently misses them —
+    // observed as a 198,993-node / 0-edge projection on the real #877 vault.
     let vault = AsterVault::open(
         &resolved.path,
         resolved.vault_id,
         vault_salt(resolved.vault_id, &resolved.name),
-        VaultOptions::default(),
+        VaultOptions {
+            restore_mvcc_rows: false,
+            ..VaultOptions::default()
+        },
     )?;
     let graph = PlainGraph::new(&vault, &args.collection)?;
     let snapshot = vault.snapshot();
@@ -112,15 +119,22 @@ pub(crate) fn run_materialize_graph_csr_with_home(
         .read_csr()?
         .ok_or_else(|| csr_readback_missing(&args, &resolved.path))?;
     let assoc = physical.assoc_graph()?;
+    // Independent row-level cross-check: enumerate the physical node/edge keys
+    // (never the CSR row itself) so a partial or empty projection can never be
+    // silently accepted just because it round-trips consistently.
+    let physical_nodes = physical.node_key_count()?;
+    let physical_edges = physical.edge_out_key_count()?;
     if csr.nodes.len() != commit.projection.nodes.len()
         || csr.edges.len() != commit.projection.edges.len()
         || assoc.node_count() != commit.projection.nodes.len()
         || assoc.edge_count() != commit.projection.association_edge_count
+        || physical_nodes != csr.nodes.len()
+        || physical_edges != csr.edges.len()
     {
         return Err(CliError::from(CalyxError {
             code: "CALYX_GRAPH_CSR_READBACK_MISMATCH",
             message: format!(
-                "persisted CSR readback disagrees with committed projection for collection={} vault={}: committed nodes={} edges={} assoc_edges={}, readback nodes={} edges={} graph nodes={} graph_edges={}",
+                "persisted CSR readback disagrees with the physical Graph CF for collection={} vault={}: committed nodes={} edges={} assoc_edges={}, readback nodes={} edges={} graph nodes={} graph_edges={}, physical node_keys={physical_nodes} edge_out_keys={physical_edges}",
                 args.collection,
                 resolved.path.display(),
                 commit.projection.nodes.len(),
@@ -131,7 +145,7 @@ pub(crate) fn run_materialize_graph_csr_with_home(
                 assoc.node_count(),
                 assoc.edge_count()
             ),
-            remediation: "re-run materialize-graph-csr; if the mismatch persists the Graph CF is corrupt — verify-chain and restore from ledger",
+            remediation: "the persisted CSR does not match the row-level source of truth; re-run materialize-graph-csr and do not trust CSR readers for this collection until it reports ok",
         }));
     }
     let elapsed_ms = started.elapsed().as_millis();
@@ -157,9 +171,11 @@ pub(crate) fn run_materialize_graph_csr_with_home(
         "csr_edges": csr.edges.len(),
         "association_edge_count": csr.association_edge_count,
         "readback": {
-            "source_of_truth": "physical Graph CF latest readback via PhysicalPlainGraph::read_csr + assoc_graph",
+            "source_of_truth": "physical Graph CF latest readback via PhysicalPlainGraph::read_csr + assoc_graph + independent node/edge key enumeration",
             "assoc_graph_nodes": assoc.node_count(),
             "assoc_graph_edges": assoc.edge_count(),
+            "physical_node_keys": physical_nodes,
+            "physical_edge_out_keys": physical_edges,
         },
         "elapsed_ms": elapsed_ms,
     }))

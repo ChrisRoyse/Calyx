@@ -25,15 +25,19 @@ fn cx(byte: u8) -> CxId {
 }
 
 fn graph_vault(home: &Path, name: &str, edge_pairs: &[(u8, u8)]) -> PathBuf {
+    graph_vault_with_options(home, name, edge_pairs, VaultOptions::default())
+}
+
+fn graph_vault_with_options(
+    home: &Path,
+    name: &str,
+    edge_pairs: &[(u8, u8)],
+    options: VaultOptions,
+) -> PathBuf {
     let vault_id = VaultId::from_ulid(Ulid::new());
     let path = home.join("vaults").join(vault_id.to_string());
-    let vault = AsterVault::new_durable(
-        &path,
-        vault_id,
-        vault_salt(vault_id, name),
-        VaultOptions::default(),
-    )
-    .expect("create graph vault");
+    let vault = AsterVault::new_durable(&path, vault_id, vault_salt(vault_id, name), options)
+        .expect("create graph vault");
     let graph = PlainGraph::new(&vault, DEFAULT_ASTER_ASSOC_COLLECTION).expect("plain graph");
     let mut nodes = std::collections::BTreeSet::new();
     for (src, dst) in edge_pairs {
@@ -89,6 +93,53 @@ fn materialize_persists_csr_and_physical_reader_uses_it() {
     let graph = physical.assoc_graph().unwrap();
     assert_eq!(graph.node_count(), 3);
     assert_eq!(graph.edge_count(), csr.association_edge_count);
+    std::fs::remove_dir_all(home).ok();
+}
+
+/// Regression for the real-vault #996 FSV failure: graph rows checkpointed
+/// through router-flush SSTs (forced here with a tiny memtable cap) were
+/// invisible to the default full-MVCC-restore open, so the projection
+/// committed 0 edges while the physical rows still existed. The command must
+/// now read the router-latest state and cross-check physical key counts.
+#[test]
+fn materialize_sees_router_flushed_rows_after_reopen() {
+    let home = temp_home("router-flush");
+    let vault_path = graph_vault_with_options(
+        &home,
+        "router-flush",
+        &[(1, 2), (2, 3), (3, 4), (1, 4)],
+        VaultOptions {
+            // Small enough that every graph row forces a router memtable
+            // flush into Router SSTs, large enough to accept each row.
+            memtable_byte_cap: 256,
+            ..VaultOptions::default()
+        },
+    );
+    let physical =
+        PhysicalPlainGraph::open_latest(&vault_path, DEFAULT_ASTER_ASSOC_COLLECTION).unwrap();
+    let physical_edges = physical.edge_out_key_count().unwrap();
+    let physical_nodes = physical.node_key_count().unwrap();
+    println!(
+        "graph_csr_router_flush physical_nodes={physical_nodes} physical_edges={physical_edges}"
+    );
+    assert_eq!(physical_nodes, 4);
+    assert_eq!(physical_edges, 4);
+    drop(physical);
+
+    run_materialize_graph_csr_with_home(
+        &home,
+        MaterializeGraphCsrArgs {
+            vault: vault_path.display().to_string(),
+            collection: DEFAULT_ASTER_ASSOC_COLLECTION.to_string(),
+        },
+    )
+    .expect("materialize CSR over router-flushed rows");
+
+    let physical =
+        PhysicalPlainGraph::open_latest(&vault_path, DEFAULT_ASTER_ASSOC_COLLECTION).unwrap();
+    let csr = physical.read_csr().unwrap().expect("decode CSR");
+    assert_eq!(csr.nodes.len(), 4, "all router-flushed nodes in CSR");
+    assert_eq!(csr.edges.len(), 4, "all router-flushed edges in CSR");
     std::fs::remove_dir_all(home).ok();
 }
 
