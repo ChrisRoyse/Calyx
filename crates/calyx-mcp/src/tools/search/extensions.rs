@@ -260,12 +260,14 @@ impl Tool for SearchSkillTool {
             )
             .into());
         };
+        // Default FreshDerived stands: the nav engine is built at the load
+        // snapshot with built_at_seq == base_seq, so a fresh engine passes and
+        // any seq-domain regression fails closed (issue #1104).
         let mut query = calyx_sextant::Query::new(args.query)
             .with_vector(vector)
             .with_slots(vec![slot])
             .require_stored_provenance(true);
         query.k = SEARCH_SKILL_K;
-        query.freshness = calyx_sextant::FreshnessRequirement::StaleOk { seq_lag: u64::MAX };
         let hits = calyx_sextant::search_skill(&runtime.engine, &tree, &args.skill, &query)?;
         Ok(json!({ "hits": output::render_hits(&hits, false, None) }))
     }

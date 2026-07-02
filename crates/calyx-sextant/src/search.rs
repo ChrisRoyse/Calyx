@@ -368,12 +368,14 @@ impl SearchEngine {
             match requirement {
                 FreshnessRequirement::FreshDerived if stale_by > 0 => {
                     return Err(CalyxError::stale_derived(format!(
-                        "slot {slot} stale by {stale_by} seq"
+                        "slot {slot} stale by {stale_by} seq (built_at_seq {}, base_seq {}; both must come from the same vault commit-seq pin)",
+                        stats.built_at_seq, stats.base_seq
                     )));
                 }
                 FreshnessRequirement::StaleOk { seq_lag } if stale_by > *seq_lag => {
                     return Err(CalyxError::stale_derived(format!(
-                        "slot {slot} stale by {stale_by} > lag {seq_lag}"
+                        "slot {slot} stale by {stale_by} > lag {seq_lag} (built_at_seq {}, base_seq {})",
+                        stats.built_at_seq, stats.base_seq
                     )));
                 }
                 _ => {}
