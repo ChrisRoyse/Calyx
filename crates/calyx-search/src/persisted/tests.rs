@@ -17,6 +17,8 @@ use super::*;
 
 #[path = "tests/flat_dense.rs"]
 mod flat_dense;
+#[path = "tests/rebuild_resume.rs"]
+mod rebuild_resume;
 #[path = "tests/streaming_rebuild.rs"]
 mod streaming_rebuild;
 

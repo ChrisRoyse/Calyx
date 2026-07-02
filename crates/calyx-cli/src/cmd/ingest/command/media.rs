@@ -75,6 +75,16 @@ pub(super) fn ingest_media_with_derived_text(
     }
     let artifact_draft =
         derived_artifact_draft(&retained, &derived, media_cx.cx_id, text_cx.cx_id)?;
+    super::stake_rebuild_required_marker(
+        &resolved.path,
+        "media_ingest",
+        format!(
+            "media ingest of {:?} input with derived text (media cx {}, text cx {})",
+            retained.input.modality, media_cx.cx_id, text_cx.cx_id
+        ),
+        None,
+        None,
+    )?;
     let commit = vault.put_batch_with_ingest_ledger_and_media_artifact(
         staged,
         SubjectId::Cx(text_cx.cx_id),
