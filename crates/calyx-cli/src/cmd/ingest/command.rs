@@ -70,6 +70,90 @@ pub(crate) fn ingest_runtime_log(args: std::fmt::Arguments<'_>) {
     let _ = stderr.flush();
 }
 
+pub(super) fn json_string(value: &str) -> String {
+    serde_json::to_string(value).unwrap_or_else(|_| "\"<unserializable>\"".to_string())
+}
+
+/// Stake the durable write-ahead rebuild-required marker (issue #1089) before
+/// the first Base/ledger mutation of an ingest-family command. If the process
+/// is killed at any later point — including an external CLI timeout during the
+/// post-commit index rebuild — the vault carries a first-class record of the
+/// partial commit and its remediation instead of a silently stale manifest.
+/// The marker is cleared by the rebuild itself after the new manifest is
+/// durably published.
+pub(super) fn stake_rebuild_required_marker(
+    vault_dir: &std::path::Path,
+    source: &str,
+    detail: String,
+    session_id: Option<&str>,
+    batch_path: Option<&std::path::Path>,
+) -> CliResult<()> {
+    // A pre-existing marker means an earlier run's staleness record is still
+    // unresolved; it must survive verbatim. The vault is already flagged, and
+    // the rebuild this run triggers pins the latest durable seq, covering both
+    // commits — so preserving is strictly safer than superseding.
+    if let Some(existing) = calyx_search::read_rebuild_required_marker(vault_dir)? {
+        ingest_runtime_log(format_args!(
+            "phase=derived_rebuild_marker_preserved previous_source={} previous_written_at_unix_ms={} previous_required_base_seq={} previous_session_id={} previous_process_id={}",
+            existing.source,
+            existing.written_at_unix_ms,
+            existing
+                .required_base_seq
+                .map(|seq| seq.to_string())
+                .unwrap_or_else(|| "in-flight".to_string()),
+            existing.session_id.as_deref().unwrap_or("<none>"),
+            existing.process_id
+        ));
+        return Ok(());
+    }
+    let mut marker = calyx_search::RebuildRequiredMarker::new(source, detail)?;
+    marker.session_id = session_id.map(str::to_string);
+    marker.batch_path = batch_path.map(|path| path.display().to_string());
+    let path = calyx_search::write_rebuild_required_marker(vault_dir, &marker)?;
+    ingest_runtime_log(format_args!(
+        "phase=derived_rebuild_marker_written source={source} marker_path={} required_base_seq=in-flight session_id={}",
+        path.display(),
+        marker.session_id.as_deref().unwrap_or("<none>")
+    ));
+    Ok(())
+}
+
+/// Record the exact durable seq the committed rows reached, so the marker
+/// names the precise base seq a completing rebuild must cover. A marker owned
+/// by another process is left untouched — its own record stands, and the
+/// rebuild pins the latest durable seq, which covers this commit too. Fails
+/// closed if the marker staked at ingest start has vanished — that would mean
+/// external interference with the vault's crash-recovery state mid-run.
+pub(super) fn record_rebuild_required_marker_seq(
+    vault_dir: &std::path::Path,
+    required_base_seq: u64,
+) -> CliResult<()> {
+    let Some(mut marker) = calyx_search::read_rebuild_required_marker(vault_dir)? else {
+        return Err(CliError::from(calyx_core::CalyxError {
+            code: "CALYX_SEARCH_REBUILD_MARKER_MISSING",
+            message: format!(
+                "rebuild-required marker staked at ingest start is missing from {} before the post-commit index rebuild; rows are committed but the derived-staleness record was removed externally",
+                calyx_search::rebuild_required_marker_path(vault_dir).display()
+            ),
+            remediation: "do not delete idx/search/rebuild-required.json by hand; run `calyx rebuild-search-index <vault>` to rebuild derived indexes and restore a consistent state",
+        }));
+    };
+    if marker.process_id != std::process::id() {
+        ingest_runtime_log(format_args!(
+            "phase=derived_rebuild_marker_seq_skipped reason=foreign_marker owner_process_id={} required_base_seq={required_base_seq}",
+            marker.process_id
+        ));
+        return Ok(());
+    }
+    marker.required_base_seq = Some(required_base_seq);
+    let path = calyx_search::write_rebuild_required_marker(vault_dir, &marker)?;
+    ingest_runtime_log(format_args!(
+        "phase=derived_rebuild_marker_seq_recorded marker_path={} required_base_seq={required_base_seq}",
+        path.display()
+    ));
+    Ok(())
+}
+
 /// Resolve the runtime microbatch from `CALYX_MEASURE_BATCH` (>=1), else the
 /// conservative default. Operator-tunable so the VRAM/throughput trade-off does
 /// not require a recompile.
@@ -200,6 +284,13 @@ fn anchor_command(args: AnchorArgs) -> CliResult {
         observed_at: now_ms(),
         confidence: args.confidence.unwrap_or(1.0),
     };
+    stake_rebuild_required_marker(
+        &resolved.path,
+        "anchor_command",
+        format!("anchor append of kind {} on cx {cx_id}", args.kind),
+        None,
+        None,
+    )?;
     let ledger_seq = append_anchor_ledger(&vault, cx_id, &kind, anchor)?;
     vault.flush()?;
     rebuild_persistent_indexes(&resolved.path, &vault)?;
@@ -304,6 +395,17 @@ fn ingest_prepared_inputs(
         }
         prepared.push((cx.cx_id, new));
     }
+    stake_rebuild_required_marker(
+        &resolved.path,
+        "text_ingest",
+        format!(
+            "text ingest of {} prepared inputs ({} newly staged constellations)",
+            prepared.len(),
+            staged.len()
+        ),
+        None,
+        None,
+    )?;
     match staged.len() {
         0 => {}
         1 => {
@@ -335,6 +437,7 @@ fn ingest_prepared_inputs(
 }
 
 mod batch_physical;
+mod batch_rebuild;
 mod batch_stream;
 mod batch_support;
 mod media;

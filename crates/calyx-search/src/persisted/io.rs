@@ -102,6 +102,59 @@ impl<W: Write> Write for HashingWriter<W> {
     }
 }
 
+/// Atomic JSON write followed by a parent-directory fsync, so the rename that
+/// publishes the file is itself durable before any later step (marker removal,
+/// process exit) can be observed. Use for commit points whose ordering against
+/// other filesystem state carries crash-recovery meaning (the search manifest
+/// and the rebuild-required marker), not for bulk slot sidecars.
+pub(super) fn write_json_atomic_durable<T: Serialize>(path: &Path, value: &T) -> CliResult {
+    write_json_atomic(path, value)?;
+    let parent = path.parent().ok_or_else(|| {
+        stale(format!(
+            "durable write path {} has no parent directory",
+            path.display()
+        ))
+    })?;
+    sync_dir(parent)
+}
+
+/// Remove `path` and fsync its parent directory so the removal is durable in
+/// order. Missing file is an error at this layer — callers decide when absence
+/// is legal and must check first.
+pub(super) fn remove_file_durable(path: &Path) -> CliResult {
+    fs::remove_file(path)?;
+    let parent = path.parent().ok_or_else(|| {
+        stale(format!(
+            "durable remove path {} has no parent directory",
+            path.display()
+        ))
+    })?;
+    sync_dir(parent)
+}
+
+#[cfg(unix)]
+fn sync_dir(dir: &Path) -> CliResult {
+    let handle = File::open(dir)?;
+    handle.sync_all()?;
+    Ok(())
+}
+
+#[cfg(windows)]
+fn sync_dir(dir: &Path) -> CliResult {
+    use std::fs::OpenOptions;
+    use std::os::windows::fs::OpenOptionsExt;
+
+    use windows_sys::Win32::Storage::FileSystem::FILE_FLAG_BACKUP_SEMANTICS;
+
+    let handle = OpenOptions::new()
+        .read(true)
+        .write(true)
+        .custom_flags(FILE_FLAG_BACKUP_SEMANTICS)
+        .open(dir)?;
+    handle.sync_all()?;
+    Ok(())
+}
+
 pub(super) fn rel(root: &Path, path: &Path) -> CliResult<String> {
     let relative = path
         .strip_prefix(root)

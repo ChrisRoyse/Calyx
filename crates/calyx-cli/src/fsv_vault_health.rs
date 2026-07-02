@@ -19,6 +19,7 @@ use crate::fsv_grounding::{
     ANCHOR_CF_DRIFT_CODE, GROUNDING_FLAG_DRIFT_CODE, NO_GROUNDED_CANDIDATES_CODE,
 };
 use crate::fsv_vault_health_grounding::check_grounded_candidates;
+use crate::fsv_vault_health_marker::{REBUILD_REQUIRED_CODE, check_search_rebuild_marker};
 use crate::fsv_vault_health_quarantine::{
     QUARANTINE_FILE, QUARANTINED_CODE, check_marker as check_quarantine_marker,
     write_marker as write_quarantine_marker,
@@ -26,7 +27,7 @@ use crate::fsv_vault_health_quarantine::{
 use crate::output::print_json;
 
 pub(crate) const REPORT_SCHEMA: &str = "calyx.fsv.vault_health.v1";
-pub(crate) const SOURCE_OF_TRUTH: &str = "vault CURRENT/MANIFEST, registry snapshot asset, Base/anchors CF grounding rows, idx/search/manifest.json, base_page_index_v1/manifest.json, and fsv_quarantine.json";
+pub(crate) const SOURCE_OF_TRUTH: &str = "vault CURRENT/MANIFEST, registry snapshot asset, Base/anchors CF grounding rows, idx/search/manifest.json, idx/search/rebuild-required.json, base_page_index_v1/manifest.json, and fsv_quarantine.json";
 const UNREADY_CODE: &str = "CALYX_FSV_VAULT_UNREADY";
 const REGISTRY_CONTRACT_DRIFT_CODE: &str = "CALYX_REGISTRY_CONTRACT_DRIFT";
 pub(crate) const REMEDIATION: &str = "repair stale derived indexes with explicit rebuild commands or restore the real missing persisted registry snapshot before using this vault for FSV";
@@ -146,6 +147,7 @@ fn build_report(vault_ref: &str, resolved: &ResolvedVault) -> CliResult<VaultHea
         check_registry_contracts(&resolved.path),
         check_grounded_candidates(resolved),
         check_search_index(&resolved.path, latest_seq_result),
+        check_search_rebuild_marker(&resolved.path),
         check_base_page_index(&resolved.path),
     ];
 
@@ -407,7 +409,7 @@ fn manifest_details(manifest: &VaultManifest) -> Value {
 
 fn repair_actions(checks: &[VaultHealthCheck]) -> Vec<String> {
     let mut actions = Vec::new();
-    if has_code(checks, "CALYX_STALE_DERIVED") {
+    if has_code(checks, "CALYX_STALE_DERIVED") || has_code(checks, REBUILD_REQUIRED_CODE) {
         actions.push("run `calyx rebuild-search-index <vault>` and rerun vault-health".to_string());
     }
     if has_code(checks, NO_GROUNDED_CANDIDATES_CODE)

@@ -30,6 +30,7 @@ use support::*;
 mod anchor_replay;
 mod basic;
 mod batch_edges;
+mod rebuild_marker;
 mod session_status;
 
 fn ingest_cf_state(resolved: &ResolvedVault) -> serde_json::Value {

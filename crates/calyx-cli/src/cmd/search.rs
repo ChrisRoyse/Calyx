@@ -72,11 +72,27 @@ fn run_rebuild_search_index(args: VaultRefArgs) -> CliResult {
         return Err(cli_error);
     }
     emit_rebuild_progress_record(&mut progress, json!({"phase": "complete"}))?;
+    // Physical readback: a completed rebuild must have cleared the durable
+    // rebuild-required marker; a survivor means the clear was lost and the
+    // vault's crash-recovery state cannot be trusted.
+    if let Some(marker) = calyx_search::read_rebuild_required_marker(&resolved.path)? {
+        return Err(CliError::from(calyx_core::CalyxError {
+            code: "CALYX_SEARCH_REBUILD_MARKER_STUCK",
+            message: format!(
+                "rebuild completed but the rebuild-required marker at {} still exists (source={}, required_base_seq={:?})",
+                calyx_search::rebuild_required_marker_path(&resolved.path).display(),
+                marker.source,
+                marker.required_base_seq
+            ),
+            remediation: "rerun `calyx rebuild-search-index <vault>` and inspect filesystem health if the marker persists",
+        }));
+    }
     crate::output::print_json(&serde_json::json!({
         "status": "ok",
         "vault": resolved.name,
         "vault_dir": resolved.path.display().to_string(),
         "progress_artifact": progress_path.display().to_string(),
+        "rebuild_required_marker": serde_json::Value::Null,
     }))
 }
 

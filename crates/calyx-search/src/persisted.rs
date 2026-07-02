@@ -2,6 +2,8 @@
 mod dense;
 #[path = "persisted/filter.rs"]
 mod filter;
+#[path = "persisted/marker.rs"]
+pub mod marker;
 #[cfg(test)]
 #[path = "persisted/mixed_tests.rs"]
 mod mixed_tests;
@@ -32,6 +34,11 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 use crate::error::{CliError, CliResult};
+pub use marker::{
+    MarkerClearOutcome, REBUILD_REQUIRED_REMEDIATION, REBUILD_REQUIRED_SCHEMA,
+    RebuildRequiredMarker, clear_rebuild_required_marker, clear_rebuild_required_marker_if_owned,
+    read_rebuild_required_marker, rebuild_required_marker_path, write_rebuild_required_marker,
+};
 pub(crate) use rebuild::load_docs_at;
 #[cfg(test)]
 use rebuild::rebuild_from_docs;
@@ -110,8 +117,9 @@ impl PersistedSearchIndexes {
         let manifest_path = manifest_path(vault_dir);
         if !manifest_path.is_file() {
             return Err(stale(format!(
-                "persistent search index manifest missing at {}; ingest or rebuild the vault before search",
-                manifest_path.display()
+                "persistent search index manifest missing at {}; ingest or rebuild the vault before search{}",
+                manifest_path.display(),
+                marker::marker_error_context(vault_dir)
             )));
         }
         let manifest_bytes = fs::read(&manifest_path)?;
@@ -229,8 +237,9 @@ impl PersistedSearchIndexes {
             return Ok(());
         }
         Err(CalyxError::stale_derived(format!(
-            "persistent search manifest base seq {} does not match pinned vault seq {pinned_seq}; rebuild the vault search indexes before search",
-            self.manifest.base_seq
+            "persistent search manifest base seq {} does not match pinned vault seq {pinned_seq}; rebuild the vault search indexes before search{}",
+            self.manifest.base_seq,
+            marker::marker_error_context(&self.vault_dir)
         ))
         .into())
     }
@@ -473,5 +482,6 @@ fn manifest_path(vault_dir: &Path) -> PathBuf {
 #[path = "persisted/io.rs"]
 mod fs_io;
 use fs_io::{
-    rel, sha256_hex, stale, write_atomic_hashed, write_json_atomic, write_json_atomic_hashed,
+    rel, sha256_hex, stale, write_atomic_hashed, write_json_atomic, write_json_atomic_durable,
+    write_json_atomic_hashed,
 };

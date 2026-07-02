@@ -43,15 +43,31 @@ where
     F: FnMut(RebuildProgress<'_>) -> CliResult + Send,
 {
     validate_parallel_rebuild_config()?;
-    progress(RebuildProgress::phase("load_docs_start"))?;
     let snapshot = vault.pin_reader(
         Freshness::FreshDerived,
         configured_rebuild_reader_lease_ms()?,
     );
     let guard = PinnedReadGuard::new(vault, snapshot);
+    let base_seq = guard.snapshot().seq();
+    // Stake the write-ahead rebuild intent before any index work so a kill at
+    // any later point leaves a durable, structured record. A pre-existing
+    // marker (from the mutation that made this rebuild necessary) is kept —
+    // its commit context is richer than a generic rebuild record.
+    match marker::read_rebuild_required_marker(vault_dir)? {
+        Some(_) => progress(RebuildProgress::phase("rebuild_marker_preserved"))?,
+        None => {
+            let mut intent = marker::RebuildRequiredMarker::new(
+                "search_index_rebuild",
+                "full search-index rebuild in progress; derived indexes are unproven until the manifest is republished",
+            )?;
+            intent.required_base_seq = Some(base_seq);
+            marker::write_rebuild_required_marker(vault_dir, &intent)?;
+            progress(RebuildProgress::phase("rebuild_marker_written"))?;
+        }
+    }
+    progress(RebuildProgress::phase("load_docs_start"))?;
     let page_rows = configured_rebuild_scan_page_rows()?;
     let base_docs = load_base_docs_at(vault, guard.snapshot(), page_rows, &mut progress)?;
-    let base_seq = guard.snapshot().seq();
     progress(RebuildProgress {
         rows: Some(base_docs.len()),
         base_seq: Some(base_seq),
@@ -154,17 +170,31 @@ where
     }
     entries.sort_by_key(|entry| entry.slot);
 
-    progress(RebuildProgress {
-        rows: Some(base_docs.len()),
-        base_seq: Some(base_seq),
-        ..RebuildProgress::phase("filter_start")
-    })?;
-    let filter = filter::write(vault_dir, &root, base_docs, base_seq)?;
-    progress(RebuildProgress {
-        rows: Some(base_docs.len()),
-        base_seq: Some(base_seq),
-        ..RebuildProgress::phase("filter_ok")
-    })?;
+    let filter = match reuse_staged_filter_entry(vault_dir, &root, base_seq)? {
+        Some(entry) => {
+            progress(RebuildProgress {
+                rows: Some(entry.len),
+                base_seq: Some(base_seq),
+                ..RebuildProgress::phase("filter_reuse_ok")
+            })?;
+            entry
+        }
+        None => {
+            progress(RebuildProgress {
+                rows: Some(base_docs.len()),
+                base_seq: Some(base_seq),
+                ..RebuildProgress::phase("filter_start")
+            })?;
+            let entry = filter::write(vault_dir, &root, base_docs, base_seq)?;
+            write_staged_filter_artifact(&root, base_seq, &entry)?;
+            progress(RebuildProgress {
+                rows: Some(base_docs.len()),
+                base_seq: Some(base_seq),
+                ..RebuildProgress::phase("filter_ok")
+            })?;
+            entry
+        }
+    };
 
     let manifest = SearchIndexManifest {
         format: MANIFEST_FORMAT.to_string(),
@@ -179,7 +209,11 @@ where
         &manifest_path,
         base_seq,
     ))?;
-    write_json_atomic(&manifest_path, &manifest)?;
+    // Durable (dir-fsynced) so the manifest publish is persisted strictly
+    // before the marker removal below can be — otherwise a power loss could
+    // surface "marker gone, manifest still old", the exact silent-stale state
+    // this machinery exists to prevent.
+    write_json_atomic_durable(&manifest_path, &manifest)?;
     progress(RebuildProgress::manifest(
         "manifest_write_ok",
         &manifest_path,
@@ -188,6 +222,11 @@ where
     progress(RebuildProgress::phase("prune_start"))?;
     prune_stale_index_artifacts(vault_dir, &root, &manifest)?;
     progress(RebuildProgress::phase("prune_ok"))?;
+    let cleared = marker::clear_rebuild_required_marker(vault_dir, base_seq)?;
+    progress(RebuildProgress::phase(match cleared {
+        marker::MarkerClearOutcome::Cleared => "rebuild_marker_cleared",
+        marker::MarkerClearOutcome::Absent => "rebuild_marker_absent",
+    }))?;
     Ok(RebuildSummary {
         slots: manifest.slots.len(),
         total_rows,
@@ -220,50 +259,6 @@ pub(super) fn validate_staged_manifest_artifacts(
     Ok(())
 }
 
-struct BuiltSlot {
-    entry: OptionalSearchIndexEntry,
-    row_count: usize,
-}
-
-impl BuiltSlot {
-    fn ok_phase(&self) -> &'static str {
-        match self.entry.kind() {
-            Some("diskann" | "flat_dense") => "dense_slot_ok",
-            Some("sparse_inverted") => "sparse_slot_ok",
-            Some("multi_maxsim" | "multi_maxsim_segments") => "multi_slot_ok",
-            _ => "slot_build_ok",
-        }
-    }
-}
-
-enum OptionalSearchIndexEntry {
-    Some(SearchIndexEntry),
-    None { slot: u16 },
-}
-
-impl OptionalSearchIndexEntry {
-    fn slot(&self) -> u16 {
-        match self {
-            Self::Some(entry) => entry.slot,
-            Self::None { slot } => *slot,
-        }
-    }
-
-    fn kind(&self) -> Option<&str> {
-        match self {
-            Self::Some(entry) => Some(&entry.kind),
-            Self::None { .. } => None,
-        }
-    }
-
-    fn into_entry(self) -> Option<SearchIndexEntry> {
-        match self {
-            Self::Some(entry) => Some(entry),
-            Self::None { .. } => None,
-        }
-    }
-}
-
 #[allow(clippy::too_many_arguments)]
 fn build_slot_entry<F>(
     vault_dir: &Path,
@@ -279,6 +274,20 @@ where
     F: FnMut(RebuildProgress<'_>) -> CliResult + Send,
 {
     let base_seq = snapshot.seq();
+    if let Some(built) = reuse_staged_slot_entry(vault_dir, root, plan, base_seq)? {
+        if let Some(progress) = progress {
+            emit_shared_progress(
+                progress,
+                RebuildProgress::slot(
+                    "slot_reuse_ok",
+                    plan.slot,
+                    Some(built.row_count),
+                    Some(base_seq),
+                ),
+            )?;
+        }
+        return Ok(built);
+    }
     let rows = collect_slot_rows_from_cf(vault, snapshot, plan, page_rows, progress)?;
     let row_count = rows.len();
     if let Some(progress) = progress {
@@ -331,6 +340,7 @@ where
             slot: plan.slot.get(),
         },
     };
+    write_staged_slot_artifact(vault_dir, root, plan.slot, base_seq, &entry)?;
     if let Some(progress) = progress {
         emit_shared_progress(
             progress,
@@ -344,6 +354,13 @@ where
     }
     Ok(BuiltSlot { entry, row_count })
 }
+
+#[path = "rebuild_staged.rs"]
+mod rebuild_staged;
+use rebuild_staged::{
+    BuiltSlot, OptionalSearchIndexEntry, reuse_staged_filter_entry, reuse_staged_slot_entry,
+    write_staged_filter_artifact, write_staged_slot_artifact,
+};
 
 struct PinnedReadGuard<'a> {
     vault: &'a AsterVault,

@@ -24,7 +24,9 @@ pub use engine::{
 };
 pub use error::{CliResult, SearchError};
 pub use persisted::{
-    PersistedSearchIndexes, RebuildProgress, load_docs, rebuild_for_vault,
-    rebuild_for_vault_with_fallible_progress, rebuild_for_vault_with_progress,
-    validate_rebuild_config,
+    MarkerClearOutcome, PersistedSearchIndexes, REBUILD_REQUIRED_REMEDIATION,
+    REBUILD_REQUIRED_SCHEMA, RebuildProgress, RebuildRequiredMarker, clear_rebuild_required_marker,
+    clear_rebuild_required_marker_if_owned, load_docs, read_rebuild_required_marker,
+    rebuild_for_vault, rebuild_for_vault_with_fallible_progress, rebuild_for_vault_with_progress,
+    rebuild_required_marker_path, validate_rebuild_config, write_rebuild_required_marker,
 };

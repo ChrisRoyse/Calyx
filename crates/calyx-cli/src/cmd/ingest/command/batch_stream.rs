@@ -152,6 +152,17 @@ pub(crate) fn ingest_validated_batch_streaming_with_output(
     if let Some(session) = session.as_deref_mut() {
         session.record_phase("batch_physical_base_readback_before")?;
     }
+    stake_rebuild_required_marker(
+        &resolved.path,
+        "batch_ingest",
+        format!(
+            "batch ingest of {validated_row_count} planned rows ({} distinct constellations) from {}; derived search indexes are unproven until the post-commit rebuild republishes the manifest",
+            batch_cx_ids.len(),
+            path.display()
+        ),
+        session.as_deref().map(|session| session.session_id()),
+        Some(path),
+    )?;
     let mut chunk: Vec<BatchRow> = Vec::with_capacity(measure_window);
     let mut summary = BatchIngestSummary::empty();
     for (index, line) in reader.lines().enumerate() {
@@ -204,38 +215,7 @@ pub(crate) fn ingest_validated_batch_streaming_with_output(
         session.record_summary_progress(&summary, "batch_physical_base_readback_after")?;
     }
     let summary_emit_error = emit_batch_summary_if_requested(&mut summary_emitter, &summary)?;
-    if summary.new_count > 0 {
-        if let Some(session) = session.as_deref_mut() {
-            session.record_index_phase("running")?;
-        }
-        ingest_runtime_log(format_args!(
-            "phase=batch_index_rebuild_start new_count={} already_count={}",
-            summary.new_count, summary.already_count
-        ));
-        if let Err(error) = rebuild_persistent_indexes_with_progress(
-            &resolved.path,
-            &vault,
-            log_batch_index_rebuild_progress,
-        ) {
-            log_batch_index_rebuild_error(&summary, &error);
-            return Err(batch_index_rebuild_error(resolved, &summary, error));
-        }
-        ingest_runtime_log(format_args!(
-            "phase=batch_index_rebuild_ok new_count={} already_count={}",
-            summary.new_count, summary.already_count
-        ));
-        if let Some(session) = session.as_deref_mut() {
-            session.record_index_phase("complete")?;
-        }
-    } else {
-        ingest_runtime_log(format_args!(
-            "phase=batch_index_rebuild_skip reason=no_new_constellations already_count={}",
-            summary.already_count
-        ));
-        if let Some(session) = session.as_deref_mut() {
-            session.record_index_phase("skipped")?;
-        }
-    }
+    batch_rebuild::run_post_commit_index_rebuild(resolved, &vault, &summary, &mut session)?;
     if let Some(session) = session {
         session.complete(&summary, vault.snapshot())?;
     }
@@ -275,68 +255,6 @@ fn emit_batch_summary_if_requested(
             Ok(Some(error))
         }
     }
-}
-
-fn log_batch_index_rebuild_progress(event: calyx_search::RebuildProgress<'_>) {
-    let slot = event
-        .slot
-        .map(|slot| slot.get().to_string())
-        .unwrap_or_else(|| "-".to_string());
-    let rows = event
-        .rows
-        .map(|rows| rows.to_string())
-        .unwrap_or_else(|| "-".to_string());
-    let base_seq = event
-        .base_seq
-        .map(|seq| seq.to_string())
-        .unwrap_or_else(|| "-".to_string());
-    let manifest_path = event
-        .manifest_path
-        .map(|path| path.display().to_string())
-        .unwrap_or_else(|| "-".to_string());
-    ingest_runtime_log(format_args!(
-        "phase=batch_index_rebuild_{} slot={} rows={} base_seq={} manifest_path={}",
-        event.phase, slot, rows, base_seq, manifest_path
-    ));
-}
-
-fn log_batch_index_rebuild_error(summary: &BatchIngestSummary, error: &CliError) {
-    ingest_runtime_log(format_args!(
-        "phase=batch_index_rebuild_error error_code={} error_message_json={} row_count={} new_count={} already_count={} verified_base_rows={}",
-        error.code(),
-        json_string(error.message()),
-        summary.row_count,
-        summary.new_count,
-        summary.already_count,
-        summary.verified_base_rows
-    ));
-}
-
-fn batch_index_rebuild_error(
-    resolved: &ResolvedVault,
-    summary: &BatchIngestSummary,
-    error: CliError,
-) -> CliError {
-    CliError::from(calyx_core::CalyxError {
-        code: "CALYX_INGEST_INDEX_REBUILD_FAILED",
-        message: format!(
-            "batch ingest committed and verified {} Base CF rows in vault {}; post-commit persistent search-index rebuild failed after summary emission point (row_count={}, new_count={}, already_count={}, first_cx_id={}, last_cx_id={}, cause_code={}, cause_message={})",
-            summary.verified_base_rows,
-            resolved.path.display(),
-            summary.row_count,
-            summary.new_count,
-            summary.already_count,
-            summary.first_cx_id.as_deref().unwrap_or("<none>"),
-            summary.last_cx_id.as_deref().unwrap_or("<none>"),
-            error.code(),
-            error.message()
-        ),
-        remediation: "inspect CALYX_INGEST_RUNTIME phase=batch_index_rebuild_error, fix the named search-index or vault state issue, then run `calyx rebuild-search-index <vault>` before search",
-    })
-}
-
-fn json_string(value: &str) -> String {
-    serde_json::to_string(value).unwrap_or_else(|_| "\"<unserializable>\"".to_string())
 }
 
 fn flush_measure_batch(
