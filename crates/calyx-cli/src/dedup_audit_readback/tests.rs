@@ -1,5 +1,8 @@
 use std::path::PathBuf;
 
+use calyx_core::SlotVector;
+
+use super::physical_slots::PhysicalSlotState;
 use super::*;
 
 #[test]
