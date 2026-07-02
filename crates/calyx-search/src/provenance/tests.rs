@@ -26,6 +26,7 @@ use crate::engine::{
 };
 use crate::persisted::{PersistedSearchIndexes, rebuild_for_vault};
 
+mod batch_cases;
 mod cases;
 mod edge_cases;
 mod guard_profile;

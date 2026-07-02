@@ -1,5 +1,6 @@
 use super::support::SearchReadSnapshot;
 use super::*;
+use crate::engine_measure::{no_indexable_query_vectors, no_indexable_stored_vectors};
 use calyx_core::{
     Constellation, CxFlags, CxId, InputRef, LedgerRef, Modality, SlotId, SlotVector, VaultId,
 };
