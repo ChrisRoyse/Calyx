@@ -30,6 +30,10 @@ fn healthcheck_writes_pass_json_for_rendered_secret_env() {
             .expect("parse latest");
     assert_eq!(json["status"], "pass");
     assert_eq!(json["failure_count"], 0);
+    let computed = calyx_buildinfo::compute_for_dir(env!("CARGO_MANIFEST_DIR"))
+        .expect("compute identity in the real checkout");
+    assert_eq!(json["binary"]["git_sha"], computed.git_sha.as_str());
+    assert_eq!(json["binary"]["package"], "calyx-cli");
     let _ = std::fs::remove_dir_all(root);
 }
 

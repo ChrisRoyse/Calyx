@@ -10,8 +10,12 @@ publish.workspace = true
 name = "calyxd"
 path = "src/main.rs"
 
+[build-dependencies]
+calyx-buildinfo = { path = "../calyx-buildinfo" }
+
 [dependencies]
 calyx-aster = { path = "../calyx-aster" }
+calyx-buildinfo = { path = "../calyx-buildinfo" }
 calyx-assay = { path = "../calyx-assay" }
 calyx-core = { path = "../calyx-core" }
 calyx-forge = { path = "../calyx-forge" }

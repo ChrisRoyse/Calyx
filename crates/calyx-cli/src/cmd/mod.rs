@@ -1,3 +1,4 @@
+mod build_info;
 mod discovery_chain;
 mod domain_bridges;
 mod erase;
@@ -149,6 +150,9 @@ pub(crate) fn try_run(args: &[String]) -> Option<CliResult> {
         return Some(result);
     }
     if let Some(result) = healthcheck::try_run(args) {
+        return Some(result);
+    }
+    if let Some(result) = build_info::try_run(args) {
         return Some(result);
     }
     if !args.first().is_some_and(|command| is_cmd(command)) {

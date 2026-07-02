@@ -10,8 +10,12 @@ publish.workspace = true
 name = "calyx-mcp"
 path = "src/main.rs"
 
+[build-dependencies]
+calyx-buildinfo = { path = "../calyx-buildinfo" }
+
 [dependencies]
 calyx-anneal = { path = "../calyx-anneal" }
+calyx-buildinfo = { path = "../calyx-buildinfo" }
 calyx-assay = { path = "../calyx-assay" }
 calyx-aster = { path = "../calyx-aster" }
 calyx-core = { path = "../calyx-core" }
