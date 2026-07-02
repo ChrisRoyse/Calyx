@@ -1,11 +1,9 @@
-//! Verified, pinned in-memory multi-vector (MaxSim) index.
-//!
-//! Loads every binary segment once per manifest generation: whole-file read,
-//! one-shot sha256 against the manifest, full structural validation (header,
-//! duplicate rows, token counts, finiteness, trailing bytes), then pins a
-//! flattened token matrix with precomputed token norms. Queries score with
-//! the exact arithmetic of `MaxSimIndex::maxsim` / `cosine` (same accumulation
-//! order and zero-norm semantics), so results are bit-identical.
+//! Verified, pinned in-memory multi-vector (MaxSim) index. Each manifest
+//! generation is loaded once: whole-file reads, one-shot sha256 against the
+//! manifest, full structural validation (header, duplicate rows, token
+//! counts, finiteness, trailing bytes), then a flattened token matrix with
+//! precomputed token norms is pinned. Queries score with the exact
+//! arithmetic of `MaxSimIndex::maxsim` / `cosine`, so results are bit-identical.
 
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex, OnceLock};
@@ -99,10 +97,14 @@ fn load_verified(
         .par_iter()
         .map(|spec| load_segment(slot, token_dim, spec))
         .collect::<Vec<_>>();
+    let expected_tokens = entry.token_count.unwrap_or_default();
+    let expected_values = expected_tokens
+        .checked_mul(token_dim as usize)
+        .ok_or_else(|| stale("persistent segmented multi sidecar token byte count overflow"))?;
     let mut seen = BTreeSet::new();
-    let mut rows = Vec::new();
-    let mut tokens = Vec::new();
-    let mut norms = Vec::new();
+    let mut rows = Vec::with_capacity(entry.len);
+    let mut tokens = Vec::with_capacity(expected_values);
+    let mut norms = Vec::with_capacity(expected_tokens);
     let mut token_offset = 0usize;
     for segment in segments {
         let segment = segment?;
@@ -137,7 +139,6 @@ fn load_verified(
             rows.len()
         )));
     }
-    let expected_tokens = entry.token_count.unwrap_or_default();
     if norms.len() != expected_tokens {
         return Err(stale(format!(
             "persistent segmented multi manifest token_count {expected_tokens} != scanned token count {}; rebuild the vault search indexes",
@@ -301,10 +302,13 @@ fn parse_segment(
         )));
     }
     let dim = token_dim as usize;
+    let segment_values = (header_token_count as usize)
+        .checked_mul(dim)
+        .ok_or_else(|| stale("persistent binary multi sidecar token byte count overflow"))?;
     let mut rows = Vec::with_capacity(header_row_count as usize);
     let mut seen = BTreeSet::new();
-    let mut tokens: Vec<f32> = Vec::new();
-    let mut norms: Vec<f32> = Vec::new();
+    let mut tokens: Vec<f32> = Vec::with_capacity(segment_values);
+    let mut norms: Vec<f32> = Vec::with_capacity(header_token_count as usize);
     let mut observed_tokens = 0u64;
     for _ in 0..header_row_count {
         let cx_id = cursor.read_cx_id()?;
@@ -323,13 +327,20 @@ fn parse_segment(
             )));
         }
         let row_tokens = row_token_count as usize;
-        let payload =
-            cursor.read_f32_block(row_tokens.checked_mul(dim).ok_or_else(|| {
-                stale("persistent binary multi sidecar token byte count overflow")
-            })?)?;
-        for token in payload.chunks_exact(dim) {
+        let payload_bytes = cursor.take(
+            row_tokens
+                .checked_mul(dim)
+                .and_then(|values| values.checked_mul(4))
+                .ok_or_else(|| {
+                    stale("persistent binary multi sidecar token byte count overflow")
+                })?,
+        )?;
+        // Single pass: decode, finite-check, accumulate the norm, and append
+        // to the flat matrix without an intermediate per-row allocation.
+        for token_bytes in payload_bytes.chunks_exact(dim * 4) {
             let mut squared = 0.0f32;
-            for value in token {
+            for value_bytes in token_bytes.chunks_exact(4) {
+                let value = f32::from_le_bytes(value_bytes.try_into().expect("len 4"));
                 if !value.is_finite() {
                     return Err(CalyxError::lens_numerical_invariant(format!(
                         "persistent binary multi row {cx_id} slot {slot} has non-finite component"
@@ -337,10 +348,10 @@ fn parse_segment(
                     .into());
                 }
                 squared += value * value;
+                tokens.push(value);
             }
             norms.push(squared.sqrt());
         }
-        tokens.extend_from_slice(&payload);
         rows.push((cx_id, row_tokens));
     }
     if observed_tokens != header_token_count {
@@ -475,17 +486,6 @@ impl<'a> SegmentCursor<'a> {
 
     fn read_cx_id(&mut self) -> CliResult<CxId> {
         Ok(CxId::from_bytes(self.take(16)?.try_into().expect("len 16")))
-    }
-
-    fn read_f32_block(&mut self, count: usize) -> CliResult<Vec<f32>> {
-        let bytes =
-            self.take(count.checked_mul(4).ok_or_else(|| {
-                stale("persistent binary multi sidecar token byte count overflow")
-            })?)?;
-        Ok(bytes
-            .chunks_exact(4)
-            .map(|chunk| f32::from_le_bytes(chunk.try_into().expect("len 4")))
-            .collect())
     }
 
     fn expect_end(&mut self) -> CliResult {
