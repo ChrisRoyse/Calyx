@@ -474,6 +474,9 @@ where
 mod compaction_tests;
 
 #[cfg(test)]
+mod recovery_stranding_tests;
+
+#[cfg(test)]
 mod recovery_tests;
 
 #[cfg(test)]

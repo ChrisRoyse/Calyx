@@ -323,6 +323,16 @@ impl VersionedCfStore {
         Ok(())
     }
 
+    /// Whether any version (live or tombstone) exists for `cf`/`key` in the
+    /// row table. Recovery-time physical coverage checks only (issue #1132);
+    /// snapshot reads must keep using the seq-visible accessors.
+    pub(crate) fn has_any_version(&self, cf: ColumnFamily, key: &[u8]) -> bool {
+        self.rows
+            .read()
+            .expect("mvcc row table poisoned")
+            .contains_key(&(cf, key.to_vec()))
+    }
+
     pub fn flush_all_cfs(&self) -> Result<Vec<SstSummary>> {
         self.router
             .write()
