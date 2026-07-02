@@ -87,10 +87,23 @@ pub(super) fn pinned_index(
         Ok(index) => Arc::new(index),
         Err(error) => {
             pinned::release(&pin_key);
+            // The failed generation vouches for nothing; drop any stale
+            // cached generation for this key so its memory is not held
+            // without a matching budget reservation.
+            cache()
+                .lock()
+                .expect("multi pin cache poisoned")
+                .remove(&cache_key);
             return Err(error);
         }
     };
-    pinned::reserve(&pin_key, index.approx_bytes())?;
+    // Replace the prediction with the exact footprint. On failure (another
+    // thread reserved in between) the prediction must be released too, or the
+    // key would hold phantom budget bytes with nothing pinned.
+    if let Err(error) = pinned::reserve(&pin_key, index.approx_bytes()) {
+        pinned::release(&pin_key);
+        return Err(error);
+    }
     let mut cache = cache().lock().expect("multi pin cache poisoned");
     cache.insert(
         cache_key,

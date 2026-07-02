@@ -165,3 +165,59 @@ fn search_fails_closed_when_hit_ledger_row_is_corrupt() {
     );
     fixture.cleanup();
 }
+
+#[test]
+fn memo_eviction_mid_call_cannot_orphan_a_memoized_hit() {
+    let fixture = Fixture::new_with_inputs(
+        "issue1102-memo-evict",
+        &[
+            b"alpha" as &[u8],
+            b"alphabet" as &[u8],
+            b"alphanumeric" as &[u8],
+        ],
+    );
+    let vault = fixture.open_vault();
+    let state = load_vault_panel_state(&fixture.vault_dir).unwrap();
+    let outcome = search_outcome(
+        &vault,
+        &state,
+        &fixture.vault_dir,
+        "alpha",
+        3,
+        FusionChoice::Rrf,
+        GuardChoice::Off,
+        None,
+        false,
+    )
+    .expect("first search verifies and memoizes every hit");
+    assert_eq!(outcome.hits.len(), 3, "fixture must produce three hits");
+
+    // Fill the process-global memo to its cap with foreign-vault keys so the
+    // three real entries sit at the FIFO front, then push one more to evict
+    // the first hit's entry: that hit is now pending while the others remain
+    // memoized, with the second hit's entry the oldest survivor.
+    let dummy_ref = fixture.ledger_ref.clone();
+    for i in 0..=(MAX_MEMOIZED_LEDGER_REFS - outcome.hits.len()) {
+        ledger_memo_insert(&format!("issue1102-dummy-{i}"), fixture.cx_id, &dummy_ref);
+    }
+
+    // Serving the pending first hit inserts into the memo and evicts the
+    // second hit's entry mid-call. The frozen partition decision must keep
+    // serving the second hit from its (immutable, already-verified) stored
+    // provenance instead of routing it to a verifier that never loaded its
+    // ledger seqs.
+    let mut hits = outcome.hits.clone();
+    attach_verified_provenance(
+        &mut hits,
+        &outcome.docs,
+        &fixture.vault_dir,
+        FreshnessTag::fresh(0),
+    )
+    .expect("memo eviction mid-call must not fail already-verified hits");
+    for hit in &hits {
+        let cx = outcome.docs.get(&hit.cx_id).expect("doc for hit");
+        assert_eq!(hit.provenance, cx.provenance);
+        assert_eq!(hit.provenance_source, ProvenanceSource::Stored);
+    }
+    fixture.cleanup();
+}

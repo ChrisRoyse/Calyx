@@ -55,27 +55,38 @@ pub(crate) fn attach_verified_provenance(
     freshness: FreshnessTag,
 ) -> CliResult {
     let vault_key = crate::persisted::canonical_pin_vault_dir(vault_dir)?;
+    // Freeze each hit's memo decision NOW: verifying pending hits inserts
+    // into the bounded process-global memo, which can evict another hit's
+    // entry mid-loop. Re-querying the memo during the serve loop would then
+    // route that hit to a verifier that never loaded its ledger seqs — a
+    // spurious missing-ledger-seq failure (or a panic when nothing was
+    // pending). The verifier is opened for exactly the !memoized hits below.
+    let memoized = hits
+        .iter()
+        .map(|hit| {
+            docs.get(&hit.cx_id)
+                .is_some_and(|cx| ledger_memo_contains(&vault_key, hit.cx_id, &cx.provenance))
+        })
+        .collect::<Vec<_>>();
     let pending = hits
         .iter()
-        .filter(|hit| {
-            docs.get(&hit.cx_id)
-                .is_none_or(|cx| !ledger_memo_contains(&vault_key, hit.cx_id, &cx.provenance))
-        })
-        .cloned()
+        .zip(&memoized)
+        .filter(|(_, hit_memoized)| !**hit_memoized)
+        .map(|(hit, _)| hit.clone())
         .collect::<Vec<_>>();
     let mut ledger = if pending.is_empty() {
         None
     } else {
         Some(TargetedLedgerVerifier::open(vault_dir, &pending, docs)?)
     };
-    for hit in hits {
+    for (hit, hit_memoized) in hits.iter_mut().zip(memoized) {
         let cx = docs.get(&hit.cx_id).ok_or_else(|| {
             missing_provenance(format!(
                 "stored constellation missing for hit {}",
                 hit.cx_id
             ))
         })?;
-        if ledger_memo_contains(&vault_key, hit.cx_id, &cx.provenance) {
+        if hit_memoized {
             // The exact (cx_id, ledger seq, entry hash) triple already passed
             // the targeted ledger verification in this process; the ledger is
             // append-only, so the verification result is immutable.
