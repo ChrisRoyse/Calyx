@@ -72,6 +72,54 @@ fn missing_frontier_fails_closed() {
 }
 
 #[test]
+fn parses_calibrated_guard_tau_for_in_region() {
+    let args = parse(&[
+        "corpus",
+        "--frontier",
+        "x",
+        "--guard",
+        "in-region",
+        "--guard-tau",
+        "0.72",
+    ])
+    .unwrap();
+    assert_eq!(args.guard, GuardChoice::InRegion);
+    assert_eq!(args.guard_tau, Some(0.72));
+}
+
+#[test]
+fn guard_tau_without_in_region_fails_closed() {
+    let err = parse(&["corpus", "--frontier", "x", "--guard-tau", "0.72"]).unwrap_err();
+    assert_eq!(err.code(), "CALYX_CLI_USAGE_ERROR");
+    assert!(
+        err.message()
+            .contains("--guard-tau requires --guard in-region")
+    );
+}
+
+#[test]
+fn out_of_range_guard_tau_fails_closed() {
+    for bad in ["0", "1.5", "-0.1", "nan"] {
+        let err = parse(&[
+            "corpus",
+            "--frontier",
+            "x",
+            "--guard",
+            "in-region",
+            "--guard-tau",
+            bad,
+        ])
+        .unwrap_err();
+        assert_eq!(
+            err.code(),
+            "CALYX_CLI_USAGE_ERROR",
+            "tau {bad} must fail closed"
+        );
+        assert!(err.message().contains("--guard-tau"));
+    }
+}
+
+#[test]
 fn bad_profile_fails_closed() {
     let err = parse(&["corpus", "--frontier", "x", "--weighted-profile", "unknown"]).unwrap_err();
     assert_eq!(err.code(), "CALYX_CLI_USAGE_ERROR");
@@ -138,6 +186,7 @@ fn run_persists_matrix_then_reads_back_source_of_truth() {
             lengths: vec![ProbeLength::Entity],
             top_k: 1,
             guard: GuardChoice::Off,
+            guard_tau: None,
             out: None,
             resident_addr: None,
             max_variants: None,
@@ -225,6 +274,7 @@ fn requested_missing_slot_fails_before_artifact_write() {
             lengths: vec![ProbeLength::Phrase],
             top_k: 1,
             guard: GuardChoice::Off,
+            guard_tau: None,
             out: None,
             resident_addr: None,
             max_variants: None,

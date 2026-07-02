@@ -309,18 +309,35 @@ struct GuardCandidateSummary {
 }
 
 fn guard_candidate_summary(events: &[SearchTraceEvent]) -> GuardCandidateSummary {
+    // The exact guard's recomputed cosines are the primary evidence; when the
+    // prefilter already rejected every candidate the exact guard never ran, so
+    // fall back to the prefilter's dense index scores (the same cosine space)
+    // rather than reporting no measurable cosine at all — the observed range is
+    // the operator's calibration evidence (#1088).
+    let exact = phase_candidate_summary(events, "guard.in_region.candidate", "best_cosine");
+    if exact.tau.is_some() || exact.min.is_some() || exact.missing.is_some() {
+        return exact;
+    }
+    phase_candidate_summary(events, "guard.prefilter.candidate", "best_index_score")
+}
+
+fn phase_candidate_summary(
+    events: &[SearchTraceEvent],
+    phase: &str,
+    score_field: &str,
+) -> GuardCandidateSummary {
     let mut scores = Vec::new();
     let mut missing = 0usize;
     let mut tau = None;
     for detail in events
         .iter()
-        .filter(|event| event.phase == "guard.in_region.candidate")
+        .filter(|event| event.phase == phase)
         .filter_map(|event| event.detail.as_deref())
     {
         if tau.is_none() {
             tau = detail_field(detail, "tau").map(str::to_string);
         }
-        match detail_field(detail, "best_cosine") {
+        match detail_field(detail, score_field) {
             Some("missing") | None => missing += 1,
             Some(value) => {
                 if let Ok(score) = value.parse::<f32>() {
@@ -344,7 +361,7 @@ fn detail_field<'a>(detail: &'a str, field: &str) -> Option<&'a str> {
         .find_map(|part| part.strip_prefix(field)?.strip_prefix('='))
 }
 
-fn guard_zero_hit_reason(
+pub(super) fn guard_zero_hit_reason(
     prefilter_in: Option<usize>,
     prefilter_out: Option<usize>,
     pre: Option<usize>,
@@ -365,6 +382,49 @@ fn guard_zero_hit_reason(
 #[cfg(test)]
 mod diagnostic_tests {
     use super::*;
+
+    #[test]
+    fn prefilter_only_rejection_still_reports_tau_and_cosine_range() {
+        // #1088 readback: when the prefilter rejects every candidate the exact
+        // guard never emits events, but the persisted diagnostics must still
+        // carry the applied tau and the observed dense-score range — that range
+        // is the operator's calibration evidence.
+        let event =
+            |phase: &'static str, count: Option<usize>, detail: Option<&str>| SearchTraceEvent {
+                phase,
+                slot: None,
+                elapsed_ms: 1,
+                count,
+                detail: detail.map(str::to_string),
+            };
+        let events = vec![
+            event("guard.prefilter.start", Some(2), None),
+            event(
+                "guard.prefilter.candidate",
+                Some(1),
+                Some("cx_id=a tau=1.000000 best_index_score=0.401000 kept=false"),
+            ),
+            event(
+                "guard.prefilter.candidate",
+                Some(2),
+                Some("cx_id=b tau=1.000000 best_index_score=0.788000 kept=false"),
+            ),
+            event(
+                "guard.prefilter.done",
+                Some(0),
+                Some("filtered=2 tau=1.000000"),
+            ),
+        ];
+        let row = variant_guard_diagnostic(7, "sha-7".to_string(), &events);
+        assert_eq!(row.guard_tau.as_deref(), Some("1.000000"));
+        assert_eq!(row.guard_best_cosine_min.as_deref(), Some("0.401000"));
+        assert_eq!(row.guard_best_cosine_max.as_deref(), Some("0.788000"));
+        assert_eq!(row.guard_missing_cosine_count, Some(0));
+        assert_eq!(
+            row.guard_zero_hit_reason.as_deref(),
+            Some("in_region_guard_prefilter_rejected_all_candidates")
+        );
+    }
 
     #[test]
     fn zero_hit_reason_prefers_prefilter_rejection() {

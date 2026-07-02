@@ -24,6 +24,7 @@ use crate::error::{CliError, CliResult};
 mod artifact;
 mod diagnostics;
 mod grounding;
+mod guard_summary;
 mod parse;
 mod persist;
 mod progress;
@@ -50,6 +51,7 @@ pub(crate) struct ProbeMatrixArgs {
     pub lengths: Vec<ProbeLength>,
     pub top_k: usize,
     pub guard: GuardChoice,
+    pub guard_tau: Option<f32>,
     pub out: Option<PathBuf>,
     pub resident_addr: Option<SocketAddr>,
     pub max_variants: Option<usize>,
@@ -67,6 +69,7 @@ impl Default for ProbeMatrixArgs {
             lengths: Vec::new(),
             top_k: ProbeMatrixSpec::new("frontier", vec![SlotId::new(0)]).top_k,
             guard: GuardChoice::Off,
+            guard_tau: None,
             out: None,
             resident_addr: None,
             max_variants: None,
@@ -108,6 +111,7 @@ struct ProbeVariantContext<'a> {
     state: &'a calyx_registry::VaultPanelState,
     vault_dir: &'a Path,
     guard: GuardChoice,
+    guard_tau: Option<f32>,
     query_cache: &'a mut QueryVectorCache,
     search_cache: &'a mut calyx_search::SearchSlotCache,
     guard_diagnostics: &'a mut Vec<diagnostics::ProbeMatrixVariantDiagnostic>,
@@ -150,6 +154,7 @@ fn probe_variant(
         variant.top_k,
         fusion_choice(variant),
         ctx.guard,
+        ctx.guard_tau,
         None,
         false,
         SearchFreshness::Fresh,

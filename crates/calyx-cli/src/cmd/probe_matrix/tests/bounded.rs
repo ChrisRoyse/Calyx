@@ -16,6 +16,7 @@ fn max_variants_persists_incomplete_matrix_and_progress_source_of_truth() {
             lengths: vec![ProbeLength::Entity],
             top_k: 1,
             guard: GuardChoice::Off,
+            guard_tau: None,
             out: Some(out.clone()),
             resident_addr: None,
             max_variants: Some(1),
@@ -83,6 +84,7 @@ fn changed_slot_set_uses_distinct_search_cache_key_source_of_truth() {
                 lengths: vec![ProbeLength::Entity],
                 top_k: 1,
                 guard: GuardChoice::Off,
+                guard_tau: None,
                 out: Some(out.clone()),
                 resident_addr: None,
                 max_variants: Some(1),
@@ -146,6 +148,7 @@ fn gpu_slot_without_resident_persists_incomplete_matrix_source_of_truth() {
             lengths: vec![ProbeLength::Entity],
             top_k: 1,
             guard: GuardChoice::Off,
+            guard_tau: None,
             out: Some(out.clone()),
             resident_addr: None,
             max_variants: None,
@@ -196,6 +199,7 @@ fn stale_manifest_fails_closed_with_incomplete_cache_state_source_of_truth() {
             lengths: vec![ProbeLength::Entity],
             top_k: 1,
             guard: GuardChoice::Off,
+            guard_tau: None,
             out: Some(out.clone()),
             resident_addr: None,
             max_variants: None,
@@ -220,6 +224,105 @@ fn stale_manifest_fails_closed_with_incomplete_cache_state_source_of_truth() {
 }
 
 #[test]
+fn in_region_guard_filtering_all_candidates_fails_closed_with_specific_error() {
+    let (home, vault_dir) = seed_home("guard-filtered-all");
+    let out = vault_dir.join("guard-filtered-all-matrix.json");
+
+    // Frontier "beta" retrieves candidates (HNSW always returns nearest
+    // neighbours), but its byte-feature vector is not parallel to any stored
+    // slot-8 vector, so no candidate can reach cosine 1.0: the operator-supplied
+    // tau=1.0 guard must filter every retrieved candidate and the run must fail
+    // closed with the specific guard-filtered-all diagnosis, not a generic
+    // empty-benchmark error (#1088).
+    let err = run_probe_matrix_with_home(
+        &home,
+        ProbeMatrixArgs {
+            vault: "guard-filtered-all".to_string(),
+            frontier: "beta".to_string(),
+            slots: vec![SlotId::new(8), SlotId::new(14)],
+            weighted_profiles: vec![RrfProfile::Bridge],
+            phrasings: vec![ProbePhrasing::Terse],
+            lengths: vec![ProbeLength::Entity],
+            top_k: 1,
+            guard: GuardChoice::InRegion,
+            guard_tau: Some(1.0),
+            out: Some(out.clone()),
+            resident_addr: None,
+            max_variants: Some(1),
+            time_budget_ms: None,
+        },
+    )
+    .unwrap_err();
+
+    assert_eq!(err.code(), "CALYX_PROBE_MATRIX_GUARD_FILTERED_ALL");
+    assert!(
+        err.message().contains("operator-supplied"),
+        "error must name the supplied tau provenance: {}",
+        err.message()
+    );
+    assert!(
+        err.message().contains("tau=1.000000"),
+        "error must name the applied tau: {}",
+        err.message()
+    );
+
+    let artifact: ProbeMatrixArtifact = serde_json::from_slice(&fs::read(&out).unwrap()).unwrap();
+    assert_eq!(artifact.status, ProbeMatrixArtifactStatus::Incomplete);
+    assert_eq!(artifact.diagnostics.variant_guard_counts.len(), 1);
+    let row = &artifact.diagnostics.variant_guard_counts[0];
+    assert!(row.guard_prefilter_input_count.unwrap() > 0);
+    assert_eq!(row.guard_prefilter_output_count, Some(0));
+    assert_eq!(
+        row.guard_zero_hit_reason.as_deref(),
+        Some("in_region_guard_prefilter_rejected_all_candidates")
+    );
+    assert_eq!(row.guard_tau.as_deref(), Some("1.000000"));
+}
+
+#[test]
+fn operator_calibrated_guard_tau_threads_to_engine_and_keeps_in_region_hits() {
+    let (home, vault_dir) = seed_home("guard-tau-calibrated");
+    let out = vault_dir.join("guard-tau-calibrated-matrix.json");
+
+    // With a calibrated (permissive) tau the same in-region guard keeps the
+    // aligned candidate: the run exits through the plain variant-budget path
+    // and the persisted diagnostics show the operator tau was applied verbatim.
+    let err = run_probe_matrix_with_home(
+        &home,
+        ProbeMatrixArgs {
+            vault: "guard-tau-calibrated".to_string(),
+            frontier: "alpha".to_string(),
+            slots: vec![SlotId::new(8), SlotId::new(14)],
+            weighted_profiles: vec![RrfProfile::Bridge],
+            phrasings: vec![ProbePhrasing::Terse],
+            lengths: vec![ProbeLength::Entity],
+            top_k: 1,
+            guard: GuardChoice::InRegion,
+            guard_tau: Some(0.1),
+            out: Some(out.clone()),
+            resident_addr: None,
+            max_variants: Some(1),
+            time_budget_ms: None,
+        },
+    )
+    .unwrap_err();
+
+    assert_eq!(
+        err.code(),
+        "CALYX_PROBE_MATRIX_INCOMPLETE",
+        "guard kept hits, so the exit must be the plain variant budget stop"
+    );
+
+    let artifact: ProbeMatrixArtifact = serde_json::from_slice(&fs::read(&out).unwrap()).unwrap();
+    assert_eq!(artifact.log.records.len(), 1);
+    assert!(artifact.log.records[0].accepted_hit_count > 0);
+    let row = &artifact.diagnostics.variant_guard_counts[0];
+    assert_eq!(row.guard_tau.as_deref(), Some("0.100000"));
+    assert!(row.post_guard_hit_count.unwrap() > 0);
+    assert!(row.guard_zero_hit_reason.is_none());
+}
+
+#[test]
 fn in_region_guard_diagnostics_persist_hydration_state_source_of_truth() {
     let (home, vault_dir) = seed_home("guard-diagnostics");
     let out = vault_dir.join("guard-diagnostics-matrix.json");
@@ -235,6 +338,7 @@ fn in_region_guard_diagnostics_persist_hydration_state_source_of_truth() {
             lengths: vec![ProbeLength::Entity],
             top_k: 1,
             guard: GuardChoice::InRegion,
+            guard_tau: None,
             out: Some(out.clone()),
             resident_addr: None,
             max_variants: Some(1),

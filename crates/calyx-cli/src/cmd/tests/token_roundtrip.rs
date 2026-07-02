@@ -129,6 +129,9 @@ fn probe_matrix_tokens(args: &probe_matrix::ProbeMatrixArgs) -> Vec<String> {
     }
     out.extend(["--top-k".to_string(), args.top_k.to_string()]);
     out.extend(["--guard".to_string(), guard_name(args.guard).to_string()]);
+    if let Some(guard_tau) = args.guard_tau {
+        out.extend(["--guard-tau".to_string(), guard_tau.to_string()]);
+    }
     push_opt(
         &mut out,
         "--out",
@@ -144,6 +147,25 @@ fn probe_matrix_tokens(args: &probe_matrix::ProbeMatrixArgs) -> Vec<String> {
         out.extend(["--time-budget-ms".to_string(), time_budget_ms.to_string()]);
     }
     out
+}
+
+#[test]
+fn probe_matrix_guard_tau_round_trips_through_tokens() {
+    let command = Subcommand::ProbeMatrix(probe_matrix::ProbeMatrixArgs {
+        vault: "corpus".to_string(),
+        frontier: "guard tau roundtrip".to_string(),
+        guard: calyx_search::GuardChoice::InRegion,
+        guard_tau: Some(0.72),
+        ..probe_matrix::ProbeMatrixArgs::default()
+    });
+    let tokens = subcommand_tokens(&command);
+    let tau_flag = tokens.iter().position(|token| token == "--guard-tau");
+    assert!(
+        tau_flag.is_some(),
+        "tokens must carry --guard-tau: {tokens:?}"
+    );
+    assert_eq!(tokens[tau_flag.unwrap() + 1], "0.72");
+    assert_eq!(parse(&tokens).unwrap(), command);
 }
 
 fn discovery_chain_tokens(args: &discovery_chain::DiscoveryChainArgs) -> Vec<String> {
