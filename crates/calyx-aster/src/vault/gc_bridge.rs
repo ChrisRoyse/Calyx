@@ -83,6 +83,7 @@ where
         }
 
         self.flush_locked()?;
+        let manifest_durable_seq = self.verified_durable_coverage_seq(durable)?;
         let catalog = catalog_from_vault_tiers(durable.root(), durable.tiering_policy())?;
         let mut bytes_freed = 0usize;
         let mut files_seen = 0usize;
@@ -111,6 +112,10 @@ where
             if let CompactionResult::Compacted(report) =
                 compact_shards(cf, &inputs, output, CompactionThrottle::unlimited())?
             {
+                super::compaction_bridge::ensure_reclaim_output_manifest_bounded(
+                    &report.output_path,
+                    manifest_durable_seq,
+                )?;
                 let net = report.input_bytes.saturating_sub(report.output_bytes) as usize;
                 reclaim_snapshot_inputs(&report)?;
                 bytes_freed = bytes_freed.saturating_add(net);

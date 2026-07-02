@@ -198,7 +198,22 @@ fn write_bits(path: &Path, lenses: &[String], admitted: usize) {
         .collect::<Vec<_>>();
     fs::write(
         path,
-        serde_json::to_vec_pretty(&serde_json::json!({ "lenses": lenses })).unwrap(),
+        serde_json::to_vec_pretty(&serde_json::json!({
+            "lenses": lenses,
+            // #1140 fail-closed: gate eligibility must be an explicit
+            // affirmative audit; fixtures state it instead of relying on
+            // defaults.
+            "anchor_audit": {
+                "anchor_leaks_into_input": false,
+                "trivial_anchor": false,
+                "grounded_gate_eligible": true,
+                "label_recoverable_from_input": false,
+                "audit_kind": "unit_fixture_affirmative",
+                "source": "export-fbin unit fixture",
+                "reason": "fixture anchor audited eligible for gate tests"
+            }
+        }))
+        .unwrap(),
     )
     .unwrap();
 }

@@ -50,6 +50,19 @@ where
         // for checkpointed seqs; replayed batches below re-derive the rest
         // from their CFs.
         rows.advance_derived_content_seq_to_at_least(recovery.derived_content_floor_seq);
+        // WAL-tail batches have no durable-batch SSTs yet; write-capable
+        // handles must re-stage them so no later manifest advance can strand
+        // them behind the WAL replay floor (issue #1132).
+        let wal_tail_batches: Vec<(u64, Vec<encode::WriteRow>)> = if options.read_only {
+            Vec::new()
+        } else {
+            recovery
+                .batches
+                .iter()
+                .filter(|batch| batch.seq > recovery.wal_replay_floor_seq)
+                .map(|batch| (batch.seq, batch.rows.clone()))
+                .collect()
+        };
         for batch in recovery.batches {
             let rows_at_seq = batch
                 .rows
@@ -58,6 +71,21 @@ where
             rows.restore_batch(batch.seq, rows_at_seq)?;
         }
         rows.set_start_seq(recovery.last_recovered_seq)?;
+        if !recovery.router_latest_readback {
+            // Full-restore contract (issue #1132): every row physically held
+            // in Router-class SSTs must be visible to the restored MVCC state,
+            // otherwise snapshot reads on this handle silently miss it.
+            let violations = durable::router_coverage::router_only_rows(
+                vault_dir.as_ref(),
+                options.tiering_policy.as_ref(),
+                |cf, key| rows.has_any_version(cf, key),
+            )?;
+            if !violations.is_empty() {
+                return Err(durable::router_coverage::router_only_rows_error(
+                    &violations,
+                ));
+            }
+        }
         let mut durable_options = options.clone();
         durable_options.temporal_policy = recovery.temporal_policy;
         durable_options.dedup_policy = recovery.dedup_policy;
@@ -67,11 +95,13 @@ where
         let durable = if options.read_only {
             None
         } else {
-            Some(DurableVault::open_after(
+            let durable = DurableVault::open_after(
                 vault_dir.as_ref(),
                 &durable_options,
                 recovery.wal_replay_floor_seq,
-            )?)
+            )?;
+            durable.stage_recovered_wal_batches(wal_tail_batches)?;
+            Some(durable)
         };
         // Data residency (PRD 30 §4): a caller-supplied pin is enforced against
         // tiering and persisted (conflict-checked, immutable); on reopen the

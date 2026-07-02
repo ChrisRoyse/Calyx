@@ -30,11 +30,14 @@ pub(crate) struct AnchorAudit {
 }
 
 impl Default for AnchorAudit {
+    /// Fail-closed baseline (#1140): absence of an audit is not evidence of
+    /// eligibility. Gate eligibility must be claimed explicitly by the row or
+    /// report producer.
     fn default() -> Self {
         Self {
             anchor_leaks_into_input: false,
             trivial_anchor: false,
-            grounded_gate_eligible: true,
+            grounded_gate_eligible: false,
             label_recoverable_from_input: false,
             audit_kind: None,
             source: None,
@@ -79,6 +82,10 @@ impl AnchorAudit {
         trivial_anchor: Option<bool>,
         grounded_gate_eligible: Option<bool>,
     ) -> Self {
+        let missing = audit.is_none()
+            && anchor_leaks_into_input.is_none()
+            && trivial_anchor.is_none()
+            && grounded_gate_eligible.is_none();
         let mut out = audit.unwrap_or_default();
         if let Some(value) = anchor_leaks_into_input {
             out.anchor_leaks_into_input = value;
@@ -89,6 +96,16 @@ impl AnchorAudit {
         if let Some(value) = grounded_gate_eligible {
             out.grounded_gate_eligible = value;
         }
+        if missing {
+            // #1140 fail-closed: no audit information at all — record why the
+            // gate refuses so readbacks are self-explaining.
+            out.audit_kind = Some("missing".to_string());
+            out.source = Some("calyx anchor-audit fail-closed default".to_string());
+            out.reason = Some(
+                "anchor audit absent from source rows/report; gate eligibility requires an explicit affirmative audit"
+                    .to_string(),
+            );
+        }
         if out.anchor_leaks_into_input || out.trivial_anchor || out.label_recoverable_from_input {
             out.grounded_gate_eligible = false;
         }
@@ -97,11 +114,14 @@ impl AnchorAudit {
 
     pub(crate) fn merge_rows<'a>(audits: impl IntoIterator<Item = &'a AnchorAudit>) -> Self {
         let mut out = Self::default();
+        let mut merged_any = false;
+        let mut all_eligible = true;
         for audit in audits {
+            merged_any = true;
             out.anchor_leaks_into_input |= audit.anchor_leaks_into_input;
             out.trivial_anchor |= audit.trivial_anchor;
             out.label_recoverable_from_input |= audit.label_recoverable_from_input;
-            out.grounded_gate_eligible &= audit.grounded_gate_eligible;
+            all_eligible &= audit.grounded_gate_eligible;
             if out.audit_kind.is_none() {
                 out.audit_kind = audit.audit_kind.clone();
             }
@@ -113,6 +133,16 @@ impl AnchorAudit {
             }
             extend_unique(&mut out.label_fields, &audit.label_fields);
             extend_unique(&mut out.embedded_text_fields, &audit.embedded_text_fields);
+        }
+        out.grounded_gate_eligible = merged_any && all_eligible;
+        if !merged_any {
+            // #1140 fail-closed: nothing to merge — say so in the readback.
+            out.audit_kind = Some("missing".to_string());
+            out.source = Some("calyx anchor-audit fail-closed default".to_string());
+            out.reason = Some(
+                "no anchor audits present in source rows; gate eligibility requires explicit affirmative audits"
+                    .to_string(),
+            );
         }
         if out.anchor_leaks_into_input || out.trivial_anchor || out.label_recoverable_from_input {
             out.grounded_gate_eligible = false;
@@ -144,7 +174,9 @@ impl AnchorAudit {
 }
 
 fn default_grounded_gate_eligible() -> bool {
-    true
+    // #1140 fail-closed: an audit object that does not state eligibility is
+    // not eligible.
+    false
 }
 
 fn extend_unique(target: &mut Vec<String>, values: &[String]) {
@@ -152,5 +184,65 @@ fn extend_unique(target: &mut Vec<String>, values: &[String]) {
         if !target.iter().any(|existing| existing == value) {
             target.push(value.clone());
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::AnchorAudit;
+
+    fn affirmative_eligible() -> AnchorAudit {
+        AnchorAudit {
+            grounded_gate_eligible: true,
+            audit_kind: Some("unit_affirmative".to_string()),
+            source: Some("unit test".to_string()),
+            reason: Some("audited eligible".to_string()),
+            ..AnchorAudit::default()
+        }
+    }
+
+    #[test]
+    fn missing_audit_fails_closed_with_reason() {
+        let audit = AnchorAudit::from_parts(None, None, None, None);
+        assert!(!audit.grounded_gate_eligible);
+        assert_eq!(audit.audit_kind.as_deref(), Some("missing"));
+        assert!(audit.require_gate_eligible("unit gate").is_err());
+    }
+
+    #[test]
+    fn explicit_eligibility_is_honored() {
+        let audit = AnchorAudit::from_parts(Some(affirmative_eligible()), None, None, None);
+        assert!(audit.grounded_gate_eligible);
+        assert!(audit.require_gate_eligible("unit gate").is_ok());
+    }
+
+    #[test]
+    fn leak_flags_clamp_explicit_eligibility() {
+        let audit =
+            AnchorAudit::from_parts(Some(affirmative_eligible()), Some(true), None, Some(true));
+        assert!(!audit.grounded_gate_eligible);
+    }
+
+    #[test]
+    fn merge_of_no_rows_fails_closed() {
+        let audit = AnchorAudit::merge_rows([]);
+        assert!(!audit.grounded_gate_eligible);
+        assert_eq!(audit.audit_kind.as_deref(), Some("missing"));
+    }
+
+    #[test]
+    fn merge_requires_every_row_eligible() {
+        let eligible = affirmative_eligible();
+        let ineligible = AnchorAudit::from_parts(None, None, None, None);
+        let merged = AnchorAudit::merge_rows([&eligible, &ineligible]);
+        assert!(!merged.grounded_gate_eligible);
+        let merged_all = AnchorAudit::merge_rows([&eligible, &eligible]);
+        assert!(merged_all.grounded_gate_eligible);
+    }
+
+    #[test]
+    fn serde_defaults_are_fail_closed() {
+        let audit: AnchorAudit = serde_json::from_str("{}").unwrap();
+        assert!(!audit.grounded_gate_eligible);
     }
 }

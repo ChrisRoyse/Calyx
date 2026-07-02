@@ -1,5 +1,7 @@
+mod checkpointing;
 mod manifest_ops;
 mod recovery_readback;
+pub(in crate::vault) mod router_coverage;
 
 use recovery_readback::read_manifested_batches;
 
@@ -10,12 +12,10 @@ use crate::dedup::DedupPolicy;
 use crate::manifest::recover_vault;
 use crate::pressure::DiskPressureGuard;
 use crate::resource::ResourceCounters;
-use crate::sst::write_sst;
 use crate::timetravel::RetentionHorizon;
 use crate::wal::{GroupCommitBatcher, WalOptions, replay_dir};
 use calyx_core::{CalyxError, Panel, Result, SystemClock, TemporalPolicy};
 use calyx_ledger::CheckpointConfig;
-use std::collections::BTreeMap;
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
@@ -38,9 +38,13 @@ pub struct VaultOptions {
     /// location is pinned and off-dataset writes/copies fail closed.
     pub residency: Option<crate::residency::Residency>,
     pub disk_pressure_guard: Option<DiskPressureGuard>,
-    /// Restores checkpointed durable SST rows into the in-memory MVCC table on
-    /// open. Disable only for latest-read workloads that can use the CF router
-    /// as the checkpointed source of truth and do not request historical reads.
+    /// Restores checkpointed durable-batch/compacted SST rows plus the WAL
+    /// tail into the in-memory MVCC table on open. Router memtable-flush SSTs
+    /// carry flush ordinals, not commit seqs, so they are never restored; the
+    /// open fails closed with `CALYX_ASTER_ROUTER_ONLY_ROWS` if any router
+    /// row lacks a commit-domain durable home (issue #1132). Disable for
+    /// latest-read workloads that use the CF router as the source of truth
+    /// and do not request historical reads.
     pub restore_mvcc_rows: bool,
     /// Restores the full in-memory ledger hook on open. Disable only for
     /// explicitly read-only handles that verify/search latest state without
@@ -315,12 +319,6 @@ impl DurableVault {
         self.fail_next_wal_append.store(true, Ordering::SeqCst);
     }
 
-    pub(super) fn checkpoint_batch(&self, seq: u64, rows: &[WriteRow]) -> Result<()> {
-        self.write_rows(seq, rows)?;
-        self.advance_checkpointed_derived_content(seq, rows);
-        self.write_manifest(seq)
-    }
-
     fn advance_checkpointed_derived_content(&self, seq: u64, rows: &[WriteRow]) {
         if rows.iter().any(|row| row.cf.feeds_derived_search_content()) {
             self.checkpointed_derived_content_seq
@@ -341,14 +339,6 @@ impl DurableVault {
     pub(in crate::vault) fn advance_derived_content_watermark_to_at_least(&self, seq: u64) {
         self.checkpointed_derived_content_seq
             .fetch_max(seq, Ordering::AcqRel);
-    }
-
-    pub(super) fn stage_checkpoint_batch(&self, seq: u64, rows: &[WriteRow]) -> Result<()> {
-        self.pending_checkpoint
-            .lock()
-            .map_err(|_| CalyxError::disk_pressure("checkpoint staging lock poisoned"))?
-            .push((seq, rows.to_vec()));
-        Ok(())
     }
 
     pub(super) fn flush(&self) -> Result<()> {
@@ -395,67 +385,12 @@ impl DurableVault {
         self.cf_dir(cf).join(format!("compacted-{seq:020}.sst"))
     }
 
-    fn write_rows(&self, seq: u64, rows: &[WriteRow]) -> Result<()> {
-        let mut by_cf = Vec::<(ColumnFamily, Vec<(usize, &WriteRow)>)>::new();
-        for (index, row) in rows.iter().enumerate() {
-            if let Some((_, group)) = by_cf.iter_mut().find(|(cf, _)| *cf == row.cf) {
-                group.push((index, row));
-            } else {
-                by_cf.push((row.cf, vec![(index, row)]));
-            }
-        }
-        by_cf.sort_by_key(|(cf, _)| cf.name());
-        for (cf, rows) in by_cf {
-            let rows = latest_rows_by_key(rows);
-            let first_index = rows.first().map_or(0, |(index, _)| *index);
-            let dir = self.cf_dir(cf);
-            fs::create_dir_all(&dir).map_err(|error| storage_error("create CF dir", error))?;
-            let path = dir.join(format!("{seq:020}-{first_index:04}.sst"));
-            let entries = rows
-                .iter()
-                .map(|(_, row)| (row.key.as_slice(), row.value.as_slice()));
-            write_sst(&path, entries)?;
-        }
-        Ok(())
-    }
-
-    fn flush_pending_checkpoints(&self) -> Result<()> {
-        let batches = self
-            .pending_checkpoint
-            .lock()
-            .map_err(|_| CalyxError::disk_pressure("checkpoint staging lock poisoned"))?
-            .clone();
-        if batches.is_empty() {
-            return Ok(());
-        }
-        for (seq, rows) in &batches {
-            self.write_rows(*seq, rows)?;
-            self.advance_checkpointed_derived_content(*seq, rows);
-        }
-        let last_seq = batches.last().map_or(0, |(seq, _)| *seq);
-        self.write_manifest(last_seq)?;
-        let mut pending = self
-            .pending_checkpoint
-            .lock()
-            .map_err(|_| CalyxError::disk_pressure("checkpoint staging lock poisoned"))?;
-        pending.retain(|(seq, _)| *seq > last_seq);
-        Ok(())
-    }
-
     fn cf_dir(&self, cf: ColumnFamily) -> PathBuf {
         self.tiering_policy.as_ref().map_or_else(
             || self.root.join("cf").join(cf.name()),
             |policy| policy.place_current_cf(cf).absolute_dir(),
         )
     }
-}
-
-fn latest_rows_by_key<'a>(rows: Vec<(usize, &'a WriteRow)>) -> Vec<(usize, &'a WriteRow)> {
-    let mut latest = BTreeMap::<Vec<u8>, (usize, &'a WriteRow)>::new();
-    for (index, row) in rows {
-        latest.insert(row.key.clone(), (index, row));
-    }
-    latest.into_values().collect()
 }
 
 fn validate_dedup_policy(policy: &DedupPolicy, panel: Option<&Panel>) -> Result<()> {

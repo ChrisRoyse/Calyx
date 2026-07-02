@@ -40,6 +40,7 @@ pub(crate) struct PreEncodeGateEvidence {
     pub(crate) bits_report: String,
     pub(crate) anchor_entropy_bits: f32,
     pub(crate) sufficiency_basis_bits: f32,
+    pub(crate) power_adjusted_target_bits: f32,
     pub(crate) deficit_bits: f32,
     pub(crate) estimate_bound: String,
     pub(crate) power_calibration_status: String,

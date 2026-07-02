@@ -78,7 +78,10 @@ pub(super) fn read_manifested_batches(
         .collect())
 }
 
-fn tiered_cf_roots(root: &Path, tiering_policy: Option<&TieringPolicy>) -> Vec<PathBuf> {
+pub(in crate::vault) fn tiered_cf_roots(
+    root: &Path,
+    tiering_policy: Option<&TieringPolicy>,
+) -> Vec<PathBuf> {
     let mut roots = vec![root.join("cf")];
     if let Some(policy) = tiering_policy {
         for tier_root in policy.tier_roots() {

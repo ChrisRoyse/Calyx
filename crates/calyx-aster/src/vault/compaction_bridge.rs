@@ -1,4 +1,5 @@
 use super::AsterVault;
+use super::durable::DurableVault;
 use crate::cf::ColumnFamily;
 use crate::compaction::{
     CompactionCatalog, CompactionResult, CompactionScheduler, CompactionSchedulerOptions,
@@ -7,7 +8,7 @@ use crate::compaction::{
 use crate::mvcc::is_tombstone_value;
 use crate::recurrence::{StoredRecurrenceRow, decode_recurrence_row};
 use crate::sst::{SstReader, write_sst};
-use crate::storage_names::classify_sst;
+use crate::storage_names::{SstName, classify_sst};
 use calyx_core::{CalyxError, Clock, Result};
 use std::fs;
 use std::path::Path;
@@ -52,19 +53,40 @@ where
         };
         self.with_durable_commit_lock(|| {
             self.flush_locked()?;
+            let durable_seq = self.verified_durable_coverage_seq(durable)?;
             let catalog = catalog_from_vault_tiers(durable.root(), durable.tiering_policy())?;
-            let output = durable.compaction_output_path(cf, self.latest_seq());
+            let output = durable.compaction_output_path(cf, durable_seq);
             let mut result = catalog
                 .compact_cf(cf, output, CompactionThrottle::unlimited())
                 .map(Some)?;
             if let Some(CompactionResult::Compacted(report)) = &mut result
                 && cf == ColumnFamily::Recurrence
             {
+                ensure_reclaim_output_manifest_bounded(&report.output_path, durable_seq)?;
                 report.reclaimed_input_files = reclaim_recurrence_inputs(report)?;
                 prune_recurrence_tombstones(report)?;
             }
             Ok(result)
         })
+    }
+
+    /// Manifest durable coverage after a locked flush; fails closed when the
+    /// manifest does not cover the latest committed seq, because naming a
+    /// compaction output beyond `durable_seq` makes full-restore readback
+    /// skip it while its inputs get reclaimed (issue #1132).
+    pub(super) fn verified_durable_coverage_seq(&self, durable: &DurableVault) -> Result<u64> {
+        let durable_seq = durable.manifest_durable_seq()?;
+        let latest = self.latest_seq();
+        if durable_seq < latest {
+            return Err(CalyxError {
+                code: "CALYX_ASTER_COMPACTION_COVERAGE_GAP",
+                message: format!(
+                    "manifest durable_seq {durable_seq} does not cover latest committed seq {latest} after flush; compacting now would strand rows invisible to full-restore opens"
+                ),
+                remediation: "flush the vault and retry; if the gap persists, the WAL tail was not re-staged for checkpointing — report with vault MANIFEST and wal/ listing",
+            });
+        }
+        Ok(durable_seq)
     }
 
     /// Compacts the listed column families, prunes MVCC tombstone rows from the
@@ -78,6 +100,7 @@ where
             return Ok(());
         };
         self.flush_locked()?;
+        let durable_seq = self.verified_durable_coverage_seq(durable)?;
         let mut unique = Vec::new();
         for cf in cfs {
             if !unique.contains(cf) {
@@ -85,12 +108,7 @@ where
             }
         }
         for cf in unique {
-            purge_tombstoned_cf_once(
-                durable.root(),
-                durable.tiering_policy(),
-                cf,
-                self.latest_seq(),
-            )?;
+            purge_tombstoned_cf_once(durable.root(), durable.tiering_policy(), cf, durable_seq)?;
         }
         Ok(())
     }
@@ -134,8 +152,35 @@ fn purge_tombstoned_cf_once(
         return Ok(());
     };
     prune_mvcc_tombstones(report)?;
+    ensure_reclaim_output_manifest_bounded(&report.output_path, seq)?;
     report.reclaimed_input_files = reclaim_compaction_inputs(report)?;
     Ok(())
+}
+
+/// Fails closed before input reclaim when the compaction output would not be
+/// visible to full-restore readback (`seq > manifest durable_seq` is skipped
+/// by `read_manifested_batches`), which would silently erase the merged rows
+/// from every full-restore open once the inputs are deleted (issue #1132).
+pub(super) fn ensure_reclaim_output_manifest_bounded(
+    output_path: &Path,
+    manifest_durable_seq: u64,
+) -> Result<()> {
+    let bounded = matches!(
+        classify_sst(output_path)?,
+        Some(SstName::Compacted { seq } | SstName::DurableBatch { seq, .. })
+            if seq <= manifest_durable_seq
+    );
+    if bounded {
+        return Ok(());
+    }
+    Err(CalyxError {
+        code: "CALYX_ASTER_COMPACTION_COVERAGE_GAP",
+        message: format!(
+            "refusing to reclaim compaction inputs: output {} is not covered by manifest durable_seq {manifest_durable_seq}, so full-restore readback would silently skip the merged rows",
+            output_path.display()
+        ),
+        remediation: "flush the vault so the manifest covers the compaction output seq, then retry; inputs were preserved",
+    })
 }
 
 fn reclaim_compaction_inputs(report: &crate::compaction::CompactionReport) -> Result<usize> {
