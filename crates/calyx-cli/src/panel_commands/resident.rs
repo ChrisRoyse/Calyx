@@ -24,8 +24,8 @@ use flags::{
 use protocol::{
     ClientMeasureInput, MEASURE_BATCH_SCHEMA, MEASURE_SCHEMA, MeasureResponse, READY_SCHEMA,
     RESIDENT_BINARY_PROTOCOL_VERSION, ReadyResponse, ResidentMeasureBatchBinaryRequest,
-    ResidentMeasureBatchBinaryResponse, ResidentMeasureBatchBinaryResult, ResidentRequest,
-    hex_decode,
+    ResidentMeasureBatchStreamEnd, ResidentMeasureBatchStreamFrame,
+    ResidentMeasureBatchStreamHeader, ResidentRequest, hex_decode,
 };
 pub(crate) use protocol::{
     MeasureBatchAtResponse, MeasureBatchResponse, ResidentMeasuredInput, ResidentSlotMeasure,
@@ -51,6 +51,7 @@ mod client;
 mod codec;
 mod dispatch;
 mod server;
+mod stream;
 
 #[cfg(test)]
 mod tests;

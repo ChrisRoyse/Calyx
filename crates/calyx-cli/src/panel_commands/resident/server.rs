@@ -1,9 +1,9 @@
-use super::codec::write_binary_response;
 use super::discovery::{
     RESIDENT_DISCOVERY_SCHEMA, ResidentDiscovery, remove_resident_discovery, unix_now_ms,
     write_resident_discovery,
 };
-use super::dispatch::{dispatch_binary_measure_batch, dispatch_request, readiness};
+use super::dispatch::{dispatch_request, readiness};
+use super::stream::serve_binary_measure_batch;
 use super::*;
 
 pub(crate) struct ResidentService {
@@ -127,8 +127,7 @@ fn handle_client(
     let mut first_line = Vec::new();
     reader.read_until(b'\n', &mut first_line)?;
     if first_line == RESIDENT_BINARY_MAGIC {
-        let response = dispatch_binary_measure_batch(&mut reader, &service);
-        write_binary_response(&mut stream, &response)?;
+        serve_binary_measure_batch(&mut reader, &mut stream, &service)?;
         stream.flush()?;
         let _ = stream.shutdown(Shutdown::Both);
         return Ok(());

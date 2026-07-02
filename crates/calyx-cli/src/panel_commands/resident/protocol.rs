@@ -7,7 +7,10 @@ use serde::{Deserialize, Serialize};
 pub(super) const READY_SCHEMA: &str = "calyx-panel-resident-readiness-v1";
 pub(super) const MEASURE_SCHEMA: &str = "calyx-panel-resident-measure-v1";
 pub(super) const MEASURE_BATCH_SCHEMA: &str = "calyx-panel-resident-measure-batch-v1";
-pub(super) const RESIDENT_BINARY_PROTOCOL_VERSION: u16 = 1;
+/// v2 (#1002): measure_batch responses stream as one header frame, one frame
+/// per measured input row, and one end frame — never a single response frame
+/// carrying every multi-vector payload at once.
+pub(super) const RESIDENT_BINARY_PROTOCOL_VERSION: u16 = 2;
 
 #[derive(Debug)]
 pub(super) enum ClientMeasureInput {
@@ -99,20 +102,35 @@ pub(super) struct ResidentMeasureBatchBinaryRequest {
     pub(super) runtime_batch_limit: Option<usize>,
 }
 
+/// One length-prefixed bincode frame of the streamed measure_batch response.
 #[derive(Debug, Deserialize, Serialize)]
-pub(super) struct ResidentMeasureBatchBinaryResponse {
-    pub(super) protocol_version: u16,
-    pub(super) result: ResidentMeasureBatchBinaryResult,
-}
-
-#[derive(Debug, Deserialize, Serialize)]
-pub(super) enum ResidentMeasureBatchBinaryResult {
-    Ok(MeasureBatchResponse),
+pub(super) enum ResidentMeasureBatchStreamFrame {
+    Header(ResidentMeasureBatchStreamHeader),
+    Row(Box<ResidentMeasuredInput>),
+    End(ResidentMeasureBatchStreamEnd),
     Err {
         code: String,
         message: String,
         remediation: String,
     },
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub(super) struct ResidentMeasureBatchStreamHeader {
+    pub(super) protocol_version: u16,
+    pub(super) schema: String,
+    pub(super) ready: bool,
+    pub(super) process_id: u32,
+    pub(super) template_source: String,
+    pub(super) modality: Modality,
+    pub(super) input_count: usize,
+    pub(super) runtime_batch_limit: Option<usize>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub(super) struct ResidentMeasureBatchStreamEnd {
+    pub(super) row_count: usize,
+    pub(super) elapsed_ms: u128,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
