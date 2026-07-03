@@ -3,7 +3,9 @@
 //! `std::env` is process-global, so every test that reads or writes the
 //! `CALYX_ONNX_*` arena knobs serializes on one lock.
 
+use std::path::PathBuf;
 use std::sync::{Mutex, MutexGuard};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use super::super::fastembed_runtime::execution_providers;
 use super::super::{OnnxProviderPolicy, arena, io_binding};
@@ -14,6 +16,16 @@ fn arena_env_lock() -> MutexGuard<'static, ()> {
     ARENA_ENV_LOCK
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
+fn temp_root(name: &str) -> PathBuf {
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let root = std::env::temp_dir().join(format!("calyx-{name}-{nanos}"));
+    std::fs::create_dir_all(&root).unwrap();
+    root
 }
 
 #[test]
@@ -59,6 +71,49 @@ fn gpu_mem_limit_env_applies_and_fails_closed_on_garbage() {
     unsafe { std::env::remove_var("CALYX_ONNX_GPU_MEM_LIMIT_MIB") };
     assert_eq!(arena::configured_gpu_mem_limit().unwrap(), None);
     assert!(execution_providers(OnnxProviderPolicy::CudaFailLoud).is_ok());
+}
+
+#[test]
+fn gpu_mem_limit_preflight_refuses_artifacts_larger_than_cap() {
+    let _lock = arena_env_lock();
+    let root = temp_root("onnx-arena-preflight");
+    let model = root.join("model.onnx");
+    let external = root.join("model.onnx.data");
+    std::fs::write(&model, vec![0_u8; 700 * 1024]).unwrap();
+    std::fs::write(&external, vec![0_u8; 500 * 1024]).unwrap();
+    unsafe { std::env::set_var("CALYX_ONNX_GPU_MEM_LIMIT_MIB", "1") };
+
+    let error = arena::preflight_gpu_mem_limit_for_artifacts(
+        "preflight-test",
+        OnnxProviderPolicy::CudaFailLoud,
+        [model.as_path(), external.as_path()],
+    )
+    .unwrap_err();
+    assert_eq!(error.code, "CALYX_LENS_CONFIG_INVALID");
+    assert!(error.message.contains("refused before ONNX session init"));
+    assert!(error.message.contains("CALYX_ONNX_GPU_MEM_LIMIT_MIB=1 MiB"));
+
+    unsafe { std::env::remove_var("CALYX_ONNX_GPU_MEM_LIMIT_MIB") };
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[test]
+fn gpu_mem_limit_preflight_skips_cpu_policy() {
+    let _lock = arena_env_lock();
+    let root = temp_root("onnx-arena-cpu-preflight");
+    let model = root.join("model.onnx");
+    std::fs::write(&model, vec![0_u8; 2 * 1024 * 1024]).unwrap();
+    unsafe { std::env::set_var("CALYX_ONNX_GPU_MEM_LIMIT_MIB", "1") };
+
+    arena::preflight_gpu_mem_limit_for_artifacts(
+        "cpu-preflight-test",
+        OnnxProviderPolicy::CpuExplicit,
+        [model.as_path()],
+    )
+    .unwrap();
+
+    unsafe { std::env::remove_var("CALYX_ONNX_GPU_MEM_LIMIT_MIB") };
+    let _ = std::fs::remove_dir_all(root);
 }
 
 #[test]

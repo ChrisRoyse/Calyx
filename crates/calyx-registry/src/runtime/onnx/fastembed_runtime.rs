@@ -43,6 +43,18 @@ pub fn from_model_with_policy(
     let info = TextEmbedding::get_model_info(&model_name).map_err(|err| {
         CalyxError::lens_unreachable(format!("fastembed model metadata failed: {err}"))
     })?;
+    let effective_cache = fastembed_cache_root(&cache_dir);
+    let files = resolve_files(
+        &effective_cache,
+        &info.model_code,
+        &info.model_file,
+        &info.additional_files,
+    )?;
+    super::arena::preflight_gpu_mem_limit_for_artifacts(
+        &format!("onnx-fastembed:{}", info.model_code),
+        provider_policy,
+        files.artifact_paths().iter().map(|path| path.as_path()),
+    )?;
     let model = TextEmbedding::try_new(
         TextInitOptions::new(model_name.clone())
             .with_cache_dir(cache_dir.clone())
@@ -52,13 +64,6 @@ pub fn from_model_with_policy(
     )
     .map_err(|err| CalyxError::lens_unreachable(format!("ONNX runtime init failed: {err}")))?;
     let model = CudaDropGuard::new(model, provider_policy);
-    let effective_cache = fastembed_cache_root(&cache_dir);
-    let files = resolve_files(
-        &effective_cache,
-        &info.model_code,
-        &info.model_file,
-        &info.additional_files,
-    )?;
     let weights_sha256 = hash_files(&files.artifact_paths())?;
     let corpus_hash = sha256_digest(&[
         b"onnx-fastembed-mean-pool-v1",

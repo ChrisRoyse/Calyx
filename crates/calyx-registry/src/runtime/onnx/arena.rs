@@ -1,7 +1,12 @@
 //! CUDA BFC device-arena environment knobs (#1143). All fail closed on
 //! garbage input; see `io_binding` for how they attach to sessions and runs.
 
+use std::fs;
+use std::path::Path;
+
 use calyx_core::{CalyxError, Result};
+
+use super::{OnnxProviderPolicy, config_invalid};
 
 pub(super) const GPU_MEM_LIMIT_ENV: &str = "CALYX_ONNX_GPU_MEM_LIMIT_MIB";
 pub(super) const ARENA_SHRINK_ENV: &str = "CALYX_ONNX_ARENA_SHRINK";
@@ -46,6 +51,39 @@ pub(super) fn configured_gpu_mem_limit() -> Result<Option<usize>> {
             message: format!("{GPU_MEM_LIMIT_ENV}={raw} is not a positive MiB count"),
             remediation: "set CALYX_ONNX_GPU_MEM_LIMIT_MIB to a positive integer MiB budget for the CUDA arena, or unset it for no cap",
         })
+}
+
+pub(super) fn preflight_gpu_mem_limit_for_artifacts<'a>(
+    label: &str,
+    policy: OnnxProviderPolicy,
+    artifacts: impl IntoIterator<Item = &'a Path>,
+) -> Result<()> {
+    if policy != OnnxProviderPolicy::CudaFailLoud {
+        return Ok(());
+    }
+    let Some(limit) = configured_gpu_mem_limit()? else {
+        return Ok(());
+    };
+    let mut total = 0_u64;
+    for path in artifacts {
+        let bytes = fs::metadata(path)
+            .map_err(|err| {
+                config_invalid(format!(
+                    "read ONNX artifact metadata for {} failed: {err}",
+                    path.display()
+                ))
+            })?
+            .len();
+        total = total.saturating_add(bytes);
+    }
+    if total > limit as u64 {
+        return Err(config_invalid(format!(
+            "{label} refused before ONNX session init: {GPU_MEM_LIMIT_ENV}={} MiB caps the CUDA BFC arena below the resolved artifact bytes {} MiB; refusing before ORT partial initialization can corrupt process teardown",
+            limit / (1024 * 1024),
+            total.div_ceil(1024 * 1024)
+        )));
+    }
+    Ok(())
 }
 
 pub(super) fn configured_arena_shrink() -> Result<ArenaShrinkPolicy> {

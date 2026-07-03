@@ -97,6 +97,11 @@ pub fn from_files(spec: OnnxFileSpec) -> Result<OnnxLens> {
         )));
     }
     let run_label = format!("onnx-custom:{}", spec.model_id);
+    super::arena::preflight_gpu_mem_limit_for_artifacts(
+        &run_label,
+        spec.provider_policy,
+        files.artifact_paths().iter().map(|path| path.as_path()),
+    )?;
     let session = build_session(&run_label, &spec.model_file, spec.provider_policy)?;
     let session = CudaDropGuard::new(session, spec.provider_policy);
     let run_plan = OnnxRunPlan::new(spec.provider_policy, run_label)?;
