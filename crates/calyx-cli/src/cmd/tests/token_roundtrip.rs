@@ -105,6 +105,7 @@ pub(super) fn subcommand_tokens(command: &Subcommand) -> Vec<String> {
         Subcommand::WeaveLoom(args) => weave_loom_tokens(args),
         Subcommand::DomainBridges(args) => domain_bridges_tokens(args),
         Subcommand::MaterializeBridgeCorpus(args) => bridge_corpus_tokens(args),
+        Subcommand::MaterializeMolecularVault(args) => molecular_vault_tokens(args),
         Subcommand::DiscoveryChain(args) => discovery_chain_tokens(args),
         Subcommand::ChainWalks(args) => chain_walks_tokens(args),
         Subcommand::ProbeMatrix(args) => probe_matrix_tokens(args),
@@ -123,6 +124,21 @@ fn bridge_corpus_tokens(args: &bridge_corpus::MaterializeBridgeCorpusArgs) -> Ve
     let mut out = vec![
         "materialize-bridge-corpus".to_string(),
         args.name.clone(),
+        "--rows".to_string(),
+        args.rows.to_string_lossy().into_owned(),
+    ];
+    push_opt(
+        &mut out,
+        "--home",
+        args.home.as_ref().and_then(|p| p.to_str()),
+    );
+    out
+}
+
+fn molecular_vault_tokens(args: &molecular_vault::MaterializeMolecularVaultArgs) -> Vec<String> {
+    let mut out = vec![
+        "materialize-molecular-vault".to_string(),
+        args.vault.clone(),
         "--rows".to_string(),
         args.rows.to_string_lossy().into_owned(),
     ];
