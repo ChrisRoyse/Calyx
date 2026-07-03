@@ -13,6 +13,7 @@ mod ingest;
 mod intelligence;
 mod kernel_build;
 mod lens;
+mod lincs_reversal;
 mod molecular_vault;
 mod panel_templates;
 mod probe_matrix;
@@ -47,7 +48,7 @@ ingest ingest-status anchor measure erase search kernel-answer bits kernel guard
 propose-lens provenance verify-chain reproduce anneal-status rebuild-search-index kernel-build \
 weave-loom domain-bridges materialize-bridge-corpus discovery-chain chain-walks probe-matrix \
 spectral-communities materialize-graph-csr materialize-molecular-vault \
-materialize-evidence-substrate";
+materialize-evidence-substrate materialize-lincs-reversal";
 
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) enum Subcommand {
@@ -86,6 +87,7 @@ pub(crate) enum Subcommand {
     MaterializeGraphCsr(graph_csr::MaterializeGraphCsrArgs),
     MaterializeMolecularVault(molecular_vault::MaterializeMolecularVaultArgs),
     MaterializeEvidenceSubstrate(evidence_substrate::MaterializeEvidenceSubstrateArgs),
+    MaterializeLincsReversal(lincs_reversal::MaterializeLincsReversalArgs),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -235,6 +237,7 @@ fn run(command: Subcommand) -> CliResult {
         Subcommand::MaterializeGraphCsr(_) => graph_csr::run(command),
         Subcommand::MaterializeMolecularVault(_) => molecular_vault::run(command),
         Subcommand::MaterializeEvidenceSubstrate(_) => evidence_substrate::run(command),
+        Subcommand::MaterializeLincsReversal(_) => lincs_reversal::run(command),
     }
 }
 
@@ -280,6 +283,7 @@ pub(crate) fn parse(args: &[String]) -> CliResult<Subcommand> {
         "materialize-evidence-substrate" => {
             evidence_substrate::parse_materialize_evidence_substrate(rest)
         }
+        "materialize-lincs-reversal" => lincs_reversal::parse_materialize_lincs_reversal(rest),
         other => Err(CliError::usage(format!("unknown PH62 command {other}"))),
     }
 }

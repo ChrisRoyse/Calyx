@@ -107,6 +107,7 @@ pub(super) fn subcommand_tokens(command: &Subcommand) -> Vec<String> {
         Subcommand::MaterializeBridgeCorpus(args) => bridge_corpus_tokens(args),
         Subcommand::MaterializeMolecularVault(args) => molecular_vault_tokens(args),
         Subcommand::MaterializeEvidenceSubstrate(args) => evidence_substrate_tokens(args),
+        Subcommand::MaterializeLincsReversal(args) => lincs_reversal_tokens(args),
         Subcommand::DiscoveryChain(args) => discovery_chain_tokens(args),
         Subcommand::ChainWalks(args) => chain_walks_tokens(args),
         Subcommand::ProbeMatrix(args) => probe_matrix_tokens(args),
@@ -176,6 +177,41 @@ fn evidence_substrate_tokens(
         args.home.as_ref().and_then(|p| p.to_str()),
     );
     out
+}
+
+fn lincs_reversal_tokens(args: &lincs_reversal::MaterializeLincsReversalArgs) -> Vec<String> {
+    let mut out = vec![
+        "materialize-lincs-reversal".to_string(),
+        args.vault.clone(),
+        "--root".to_string(),
+        args.root.to_string_lossy().into_owned(),
+    ];
+    push_opt(&mut out, "--collection", args.collection.as_deref());
+    push_opt(
+        &mut out,
+        "--report",
+        args.report.as_ref().and_then(|p| p.to_str()),
+    );
+    push_opt(
+        &mut out,
+        "--home",
+        args.home.as_ref().and_then(|p| p.to_str()),
+    );
+    out
+}
+
+#[test]
+fn lincs_reversal_round_trips_through_tokens() {
+    let command =
+        Subcommand::MaterializeLincsReversal(lincs_reversal::MaterializeLincsReversalArgs {
+            vault: "corpus".to_string(),
+            root: "/fsv/lincs".into(),
+            collection: Some("biomed_lincs_cmap_reversal_v1".to_string()),
+            report: Some("/fsv/readback.json".into()),
+            home: Some("/home/calyx".into()),
+        });
+    let tokens = subcommand_tokens(&command);
+    assert_eq!(parse(&tokens).unwrap(), command);
 }
 
 #[test]
