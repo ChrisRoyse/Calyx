@@ -146,6 +146,10 @@ fn check_finite(report: &AssayBitsReport) -> crate::error::CliResult<()> {
             "panel.sufficiency_basis_bits",
             report.panel.sufficiency_basis_bits,
         ),
+        ("panel.raw_joint_bits", report.panel.raw_joint_bits),
+        ("panel.raw_joint_ci_low", report.panel.raw_joint_ci_low),
+        ("panel.best_member_bits", report.panel.best_member_bits),
+        ("panel.best_member_ci_low", report.panel.best_member_ci_low),
     ];
     values.push((
         "panel.power_recovery_ratio",
