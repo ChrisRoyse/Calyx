@@ -10,6 +10,7 @@ use crate::frozen::{FrozenLensContract, NormPolicy};
 use crate::runtime::common::{normalize_unit, text_from_input};
 use crate::spec::{LensRuntime, LensSpec};
 
+mod arena;
 mod colbert;
 mod colbert_files;
 mod colbert_tokens;

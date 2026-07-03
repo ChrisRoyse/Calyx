@@ -44,6 +44,10 @@ use ort::memory::{AllocationDevice, AllocatorType, MemoryInfo, MemoryType};
 use ort::session::{RunOptions, Session, SessionInputValue, SessionOutputs};
 use ort::value::Tensor;
 
+use super::arena::{
+    ARENA_SHRINKAGE_RUN_KEY, ArenaShrinkPolicy, MAX_DISTINCT_SHAPES_ENV, configured_arena_shrink,
+    configured_gpu_mem_limit, configured_max_distinct_shapes,
+};
 use super::cpu_fallback_audit::{
     AuditMode, audit_from_trace, configured_audit_mode, configured_max_cpu_fraction,
     profiling_file_path,
@@ -54,29 +58,6 @@ pub(super) const CUDA_DEVICE_ENV: &str = "CALYX_ONNX_CUDA_DEVICE";
 pub(super) const IO_BINDING_ENV: &str = "CALYX_ONNX_IO_BINDING";
 pub(super) const REQUIRE_STATIC_BINDING_ENV: &str = "CALYX_ONNX_REQUIRE_STATIC_BINDING";
 pub(super) const DISABLE_CPU_EP_FALLBACK_ENV: &str = "CALYX_ONNX_DISABLE_CPU_EP_FALLBACK";
-pub(super) const GPU_MEM_LIMIT_ENV: &str = "CALYX_ONNX_GPU_MEM_LIMIT_MIB";
-pub(super) const ARENA_SHRINK_ENV: &str = "CALYX_ONNX_ARENA_SHRINK";
-pub(super) const MAX_DISTINCT_SHAPES_ENV: &str = "CALYX_ONNX_MAX_DISTINCT_SHAPES";
-
-const DEFAULT_MAX_DISTINCT_SHAPES: usize = 64;
-const ARENA_SHRINKAGE_RUN_KEY: &str = "memory.enable_memory_arena_shrinkage";
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum ArenaShrinkPolicy {
-    Off,
-    NewShape,
-    Always,
-}
-
-impl ArenaShrinkPolicy {
-    const fn as_str(self) -> &'static str {
-        match self {
-            Self::Off => "off",
-            Self::NewShape => "new-shape",
-            Self::Always => "always",
-        }
-    }
-}
 
 /// Per-runtime run plan: which device, whether I/O binding is active, and the
 /// static-shape contract state.
@@ -117,63 +98,6 @@ pub(super) fn configured_cuda_device() -> Result<i32> {
 
 pub(super) fn cpu_ep_fallback_disabled() -> bool {
     env_flag(DISABLE_CPU_EP_FALLBACK_ENV)
-}
-
-/// Optional hard cap (bytes) on the CUDA BFC device arena; fails closed on
-/// garbage input (#1143).
-pub(super) fn configured_gpu_mem_limit() -> Result<Option<usize>> {
-    let Ok(raw) = std::env::var(GPU_MEM_LIMIT_ENV) else {
-        return Ok(None);
-    };
-    let raw = raw.trim();
-    if raw.is_empty() {
-        return Ok(None);
-    }
-    raw.parse::<usize>()
-        .ok()
-        .filter(|mib| *mib > 0)
-        .and_then(|mib| mib.checked_mul(1024 * 1024))
-        .map(Some)
-        .ok_or_else(|| CalyxError {
-            code: "CALYX_ONNX_GPU_MEM_LIMIT_INVALID",
-            message: format!("{GPU_MEM_LIMIT_ENV}={raw} is not a positive MiB count"),
-            remediation: "set CALYX_ONNX_GPU_MEM_LIMIT_MIB to a positive integer MiB budget for the CUDA arena, or unset it for no cap",
-        })
-}
-
-fn configured_arena_shrink() -> Result<ArenaShrinkPolicy> {
-    let Ok(raw) = std::env::var(ARENA_SHRINK_ENV) else {
-        return Ok(ArenaShrinkPolicy::NewShape);
-    };
-    match raw.trim() {
-        "" => Ok(ArenaShrinkPolicy::NewShape),
-        "off" => Ok(ArenaShrinkPolicy::Off),
-        "new-shape" => Ok(ArenaShrinkPolicy::NewShape),
-        "always" => Ok(ArenaShrinkPolicy::Always),
-        other => Err(CalyxError {
-            code: "CALYX_ONNX_ARENA_SHRINK_INVALID",
-            message: format!("{ARENA_SHRINK_ENV}={other} is not a known arena shrink policy"),
-            remediation: "set CALYX_ONNX_ARENA_SHRINK to off, new-shape, or always (default new-shape)",
-        }),
-    }
-}
-
-fn configured_max_distinct_shapes() -> Result<usize> {
-    let Ok(raw) = std::env::var(MAX_DISTINCT_SHAPES_ENV) else {
-        return Ok(DEFAULT_MAX_DISTINCT_SHAPES);
-    };
-    let raw = raw.trim();
-    if raw.is_empty() {
-        return Ok(DEFAULT_MAX_DISTINCT_SHAPES);
-    }
-    raw.parse::<usize>()
-        .ok()
-        .filter(|limit| *limit > 0)
-        .ok_or_else(|| CalyxError {
-            code: "CALYX_ONNX_SHAPE_LIMIT_INVALID",
-            message: format!("{MAX_DISTINCT_SHAPES_ENV}={raw} is not a positive shape count"),
-            remediation: "set CALYX_ONNX_MAX_DISTINCT_SHAPES to a positive integer (default 64), or unset it",
-        })
 }
 
 /// Shared session build for the Calyx-owned ONNX runtimes: device-aware
