@@ -45,4 +45,11 @@ still requires experimental confirmation.
 | `17_discovery_vault_molecular.md` | #884 molecular discovery vault source-data preflight | preflight + FSV |
 | `18_oracle_event_structuring.md` | #885 Oracle event/domain structuring for recurrence reverse-query | done + FSV |
 | `19_nonclinical_bridge_corpora.md` | #994 real non-clinical bridge corpus materialization | done + molecular bridge FSV |
+| `20_association_evidence_index.md` | #867 consolidated association evidence index | current result map + derived issue tree |
+| `21_association_result_pack.md` | #1170 machine-readable association result pack | complete FSV |
+| `22_cxid_source_expansion.md` | #1171 source expansion for association CxIds | complete FSV for current association-result surfaces |
+| `23_biomedical_concept_normalization.md` | #1172 concept normalization for expanded evidence rows | bounded first-pass FSV + complete unresolved accounting |
+| `24_typed_biomedical_overlay_graph.md` | #1173 typed biomedical overlay graph | complete FSV for first typed graph |
+| `25_open_targets_validation_ingest.md` | #1174 Open Targets target-disease validation ingest | complete bounded FSV against Open Targets 26.06 |
+| `26_molecular_vault_scaleout.md` | #1175 ChEMBL/BindingDB molecular vault scaleout | complete FSV for 53-row measured molecular/clinical vault |
 | (added as work proceeds) | | |

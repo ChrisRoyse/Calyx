@@ -1,5 +1,6 @@
 use std::fs;
 use std::path::PathBuf;
+use std::process::Command;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use calyx_core::{Input, Lens, Modality};
@@ -182,6 +183,77 @@ fn malformed_inputs_return_typed_errors_before_helper_spawn() {
         assert!(error.message.contains(axis.as_str()));
         assert!(!fixture.marker.exists());
     }
+}
+
+#[cfg_attr(
+    windows,
+    ignore = "Windows cleanup-job assignment can be denied in local test shells"
+)]
+#[test]
+fn cpu_adapter_respawns_one_shot_helper_for_repeated_measurements() {
+    if Command::new("python3").arg("--version").output().is_err() {
+        return;
+    }
+    let root = temp_root("one-shot-helper");
+    let helper = root.join("helper.py");
+    let model = root.join("model.onnx");
+    let config = root.join("adapter.json");
+    let marker = root.join("adapter.count");
+    fs::write(&model, b"not-used-by-helper").unwrap();
+    fs::write(
+        &helper,
+        format!(
+            r#"import argparse, json, struct, sys
+from pathlib import Path
+parser = argparse.ArgumentParser()
+parser.add_argument("--config", required=True)
+args = parser.parse_args()
+marker = Path({marker:?})
+count = int(marker.read_text()) if marker.exists() else 0
+marker.write_text(str(count + 1))
+header = sys.stdin.buffer.read(4)
+if len(header) != 4:
+    raise SystemExit(2)
+size = struct.unpack(">I", header)[0]
+request = json.loads(sys.stdin.buffer.read(size))
+payload = json.dumps({{"vectors": [[1.0, 0.0, 0.0, 0.0] for _ in request.get("inputs", [])]}}).encode()
+sys.stdout.buffer.write(struct.pack(">I", len(payload)))
+sys.stdout.buffer.write(payload)
+"#
+        ),
+    )
+    .unwrap();
+    fs::write(
+        &config,
+        r#"{
+  "schema": "calyx-multimodal-adapter-v2",
+  "engine": "onnx-external",
+  "axis": "protein",
+  "model_id": "fixture/protein",
+  "processor_model_id": "fixture/protein",
+  "dim": 4,
+  "python": "python3",
+  "helper": "helper.py",
+  "model_file": "model.onnx",
+  "provider": "cpu_explicit"
+}"#,
+    )
+    .unwrap();
+    let lens = MultimodalAdapterLens::from_adapter_spec(adapter_spec(
+        "one-shot-protein",
+        MultimodalAxis::Protein,
+        4,
+        Some(config),
+        None,
+        false,
+    ))
+    .unwrap();
+    let input = Input::new(Modality::Protein, b"ACDE".to_vec());
+
+    lens.measure(&input).unwrap();
+    lens.measure(&input).unwrap();
+
+    assert_eq!(fs::read_to_string(marker).unwrap(), "2");
 }
 
 #[test]

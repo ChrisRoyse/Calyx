@@ -108,7 +108,7 @@ pub(super) fn shutdown_shared_gpu_workers() {
 pub fn measure_batch(
     config: &MultimodalAdapterConfig,
     inputs: &[Input],
-    worker: &Mutex<Option<AdapterWorker>>,
+    _worker: &Mutex<Option<AdapterWorker>>,
 ) -> Result<Vec<Vec<f32>>> {
     let request = AdapterRequest {
         config: config.provider.is_gpu().then_some(config.path.as_path()),
@@ -120,16 +120,13 @@ pub fn measure_batch(
     let body = if config.provider.is_gpu() {
         shared_gpu_worker(config)?.request(config, request)?
     } else {
-        let mut guard = worker.lock().map_err(|_| {
-            CalyxError::lens_unreachable("multimodal adapter worker mutex was poisoned")
-        })?;
-        if guard.is_none() {
-            *guard = Some(AdapterWorker::spawn(config, WorkerMode::SingleConfig)?);
-        }
-        guard
-            .as_ref()
-            .expect("adapter worker initialized")
-            .request(config, request)?
+        // The CPU helper shipped with commissioned sequence adapters is a one-shot
+        // framed command: it reads one request, writes one response, and exits.
+        // Reusing that child works for a single molecule/protein/DNA row but fails
+        // on the second request with an EOF header read. Keep GPU mux workers
+        // shared, but respawn CPU helpers for each request.
+        let worker = AdapterWorker::spawn(config, WorkerMode::SingleConfig)?;
+        worker.request(config, request)?
     };
     let response: AdapterResponse = serde_json::from_slice(&body).map_err(|err| {
         CalyxError::lens_unreachable(format!("multimodal response decode failed: {err}"))
