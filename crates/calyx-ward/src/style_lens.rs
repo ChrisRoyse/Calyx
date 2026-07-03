@@ -9,7 +9,7 @@ use std::sync::Mutex;
 use calyx_core::{
     CalyxError, Input, Lens, LensId, Modality, Result as CalyxResult, SlotShape, SlotVector,
 };
-use ort::ep::{self, ExecutionProviderDispatch};
+use ort::ep::{self, ArenaExtendStrategy, ExecutionProviderDispatch};
 use ort::session::{Session, builder::GraphOptimizationLevel};
 use ort::value::{Tensor, TensorElementType, ValueType};
 use sha2::{Digest, Sha256};
@@ -361,8 +361,10 @@ fn build_session(model_path: &Path, policy: StyleProviderPolicy) -> Result<Sessi
 fn execution_providers(policy: StyleProviderPolicy) -> Vec<ExecutionProviderDispatch> {
     match policy {
         StyleProviderPolicy::CudaFailLoud => vec![
+            // #1143: kNextPowerOfTwo over-reserves the BFC device arena.
             ep::CUDA::default()
                 .with_device_id(0)
+                .with_arena_extend_strategy(ArenaExtendStrategy::SameAsRequested)
                 .build()
                 .error_on_failure(),
         ],

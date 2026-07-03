@@ -6,32 +6,12 @@ use calyx_core::{Input, Lens, Modality, SlotShape, SlotVector};
 use proptest::prelude::*;
 
 use super::custom::pool_output;
-use super::fastembed_runtime::execution_providers;
 use super::*;
 
+mod arena_env;
 mod runtime_guard;
 
 static NEXT_FIXTURE: AtomicU64 = AtomicU64::new(1);
-
-#[test]
-fn execution_provider_policy_is_cuda_fail_loud() {
-    let providers = execution_providers(OnnxProviderPolicy::CudaFailLoud);
-
-    assert_eq!(providers.len(), 1);
-    let provider = format!("{:?}", providers[0]);
-    assert!(provider.contains("CUDA"));
-    assert!(provider.contains("error_on_failure: true"));
-}
-
-#[test]
-fn execution_provider_policy_can_be_explicit_cpu() {
-    let providers = execution_providers(OnnxProviderPolicy::CpuExplicit);
-
-    assert_eq!(providers.len(), 1);
-    let provider = format!("{:?}", providers[0]);
-    assert!(provider.contains("CPU"));
-    assert!(!provider.contains("CUDA"));
-}
 
 #[test]
 #[ignore = "requires ORT_DYLIB_PATH and ORT editor/session runtime"]

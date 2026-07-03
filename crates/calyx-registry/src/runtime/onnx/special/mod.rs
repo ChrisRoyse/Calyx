@@ -76,7 +76,7 @@ impl FastembedSparseLens {
                 .with_intra_threads(1)
                 .with_execution_providers(super::fastembed_runtime::execution_providers(
                     provider_policy,
-                )),
+                )?),
         )
         .map_err(|err| CalyxError::lens_unreachable(format!("sparse init failed: {err}")))?;
         let model = CudaDropGuard::new(model, provider_policy);
@@ -175,7 +175,7 @@ impl FastembedBgem3Lens {
                 .with_intra_threads(1)
                 .with_execution_providers(super::fastembed_runtime::execution_providers(
                     provider_policy,
-                )),
+                )?),
         )
         .map_err(|err| CalyxError::lens_unreachable(format!("BGE-M3 init failed: {err}")))?;
         let model = CudaDropGuard::new(model, provider_policy);
@@ -286,7 +286,7 @@ impl FastembedRerankerLens {
                 .with_intra_threads(1)
                 .with_execution_providers(super::fastembed_runtime::execution_providers(
                     provider_policy,
-                )),
+                )?),
         )
         .map_err(|err| CalyxError::lens_unreachable(format!("reranker init failed: {err}")))?;
         let model = CudaDropGuard::new(model, provider_policy);

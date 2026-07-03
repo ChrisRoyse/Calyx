@@ -4,7 +4,7 @@ use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
-use ort::ep::{self, ExecutionProviderDispatch};
+use ort::ep::{self, ArenaExtendStrategy, ExecutionProviderDispatch};
 use ort::session::{Session, builder::GraphOptimizationLevel};
 use ort::value::{Tensor, TensorElementType, ValueType};
 use sha2::{Digest, Sha256};
@@ -172,8 +172,11 @@ fn build_session(model_path: &Path, policy: InjectionProviderPolicy) -> Result<S
 fn execution_providers(policy: InjectionProviderPolicy) -> Vec<ExecutionProviderDispatch> {
     match policy {
         InjectionProviderPolicy::CudaFailLoud => vec![
+            // #1143: extend the BFC device arena exactly as requested;
+            // kNextPowerOfTwo over-reserves on dynamic-shape workloads.
             ep::CUDA::default()
                 .with_device_id(0)
+                .with_arena_extend_strategy(ArenaExtendStrategy::SameAsRequested)
                 .build()
                 .error_on_failure(),
         ],

@@ -11,6 +11,9 @@ use crate::runtime::common::{DEFAULT_MAX_TOKENS, text_from_input};
 use super::config_invalid;
 
 pub(in crate::runtime::onnx) struct TokenBatch {
+    /// Rows the session runs over, including padding replicas (#1143). The
+    /// first `indices.len()` rows are real inputs; padding rows replicate the
+    /// first real row and their outputs are dropped by the consumers.
     pub(in crate::runtime::onnx) batch: usize,
     pub(in crate::runtime::onnx) seq: usize,
     pub(in crate::runtime::onnx) ids: Vec<i64>,
@@ -47,6 +50,7 @@ pub(in crate::runtime::onnx) fn token_batches(
     inputs: &[Input],
     max_tokens: usize,
     max_batch: Option<usize>,
+    pad_batches: bool,
 ) -> Result<Vec<TokenBatch>> {
     if max_batch == Some(0) {
         return Err(config_invalid("custom ONNX max_batch must be > 0"));
@@ -67,20 +71,42 @@ pub(in crate::runtime::onnx) fn token_batches(
             mask,
         });
     }
-    build_batches_from_groups(groups, max_batch)
+    build_batches_from_groups(groups, max_batch, pad_batches)
 }
 
 fn build_batches_from_groups(
     groups: BTreeMap<usize, Vec<EncodedInput>>,
     max_batch: usize,
+    pad_batches: bool,
 ) -> Result<Vec<TokenBatch>> {
     let mut batches = Vec::new();
     for group in groups.into_values() {
         for chunk in group.chunks(max_batch) {
-            batches.push(build_batch(chunk)?);
+            let padded = if pad_batches {
+                padded_batch_len(chunk.len(), max_batch)?
+            } else {
+                chunk.len()
+            };
+            batches.push(build_batch(chunk, padded)?);
         }
     }
     Ok(batches)
+}
+
+/// Stable batch bucket for GPU sessions (#1143): the next power of two,
+/// capped at `max_batch`. Ragged batch sizes otherwise multiply the distinct
+/// (batch, seq) shapes the ORT CUDA BFC arena retains allocations for, which
+/// grows device memory monotonically on long streams.
+fn padded_batch_len(len: usize, max_batch: usize) -> Result<usize> {
+    if len == 0 || len > max_batch {
+        return Err(CalyxError::lens_dim_mismatch(format!(
+            "custom ONNX batch bucket: chunk of {len} rows violates max_batch {max_batch}"
+        )));
+    }
+    Ok(len
+        .checked_next_power_of_two()
+        .unwrap_or(max_batch)
+        .min(max_batch))
 }
 
 fn stable_seq_len(len: usize, max_tokens: usize) -> Result<usize> {
@@ -95,15 +121,20 @@ fn stable_seq_len(len: usize, max_tokens: usize) -> Result<usize> {
     Ok(bucket)
 }
 
-fn build_batch(encoded: &[EncodedInput]) -> Result<TokenBatch> {
-    let batch = encoded.len();
+fn build_batch(encoded: &[EncodedInput], padded_batch: usize) -> Result<TokenBatch> {
+    if padded_batch < encoded.len() {
+        return Err(CalyxError::lens_dim_mismatch(format!(
+            "custom ONNX batch bucket {padded_batch} is smaller than the {} real rows",
+            encoded.len()
+        )));
+    }
     let seq = encoded
         .first()
         .map(|input| input.seq)
         .ok_or_else(|| CalyxError::lens_dim_mismatch("custom ONNX token batch is empty"))?;
-    let mut flat_ids = Vec::with_capacity(batch * seq);
-    let mut flat_mask = Vec::with_capacity(batch * seq);
-    let mut indices = Vec::with_capacity(batch);
+    let mut flat_ids = Vec::with_capacity(padded_batch * seq);
+    let mut flat_mask = Vec::with_capacity(padded_batch * seq);
+    let mut indices = Vec::with_capacity(encoded.len());
     for item in encoded {
         if item.seq != seq {
             return Err(CalyxError::lens_dim_mismatch(
@@ -116,8 +147,17 @@ fn build_batch(encoded: &[EncodedInput]) -> Result<TokenBatch> {
             flat_mask.push(item.mask.get(index).copied().unwrap_or(0));
         }
     }
+    // Padding replicates the first real row: real token content keeps every
+    // pooling policy valid (an all-zero mask row would fail mean pooling and
+    // can emit NaN inside models that pool internally). Outputs of padding
+    // rows are dropped by the consumers via `indices`.
+    let row_len = seq;
+    for _ in encoded.len()..padded_batch {
+        flat_ids.extend_from_within(..row_len);
+        flat_mask.extend_from_within(..row_len);
+    }
     Ok(TokenBatch {
-        batch,
+        batch: padded_batch,
         seq,
         ids: flat_ids,
         mask: flat_mask,
@@ -212,11 +252,81 @@ mod tests {
                 mask: vec![1],
             },
         ];
-        let batch = build_batch(&rows).unwrap();
+        let batch = build_batch(&rows, rows.len()).unwrap();
 
         assert_eq!(batch.indices, vec![3, 1]);
         assert_eq!(batch.ids, vec![1, 2, 0, 0, 7, 0, 0, 0]);
         assert_eq!(batch.mask, vec![1, 1, 0, 0, 1, 0, 0, 0]);
+    }
+
+    #[test]
+    fn padded_batch_replicates_first_row_and_keeps_real_indices() {
+        let rows = vec![
+            EncodedInput {
+                index: 5,
+                seq: 2,
+                ids: vec![9, 8],
+                mask: vec![1, 1],
+            },
+            EncodedInput {
+                index: 2,
+                seq: 2,
+                ids: vec![7],
+                mask: vec![1],
+            },
+            EncodedInput {
+                index: 0,
+                seq: 2,
+                ids: vec![4, 3],
+                mask: vec![1, 1],
+            },
+        ];
+        let batch = build_batch(&rows, 4).unwrap();
+
+        assert_eq!(batch.batch, 4);
+        assert_eq!(batch.indices, vec![5, 2, 0]);
+        assert_eq!(batch.ids, vec![9, 8, 7, 0, 4, 3, 9, 8]);
+        assert_eq!(batch.mask, vec![1, 1, 1, 0, 1, 1, 1, 1]);
+    }
+
+    #[test]
+    fn padded_batch_len_is_power_of_two_capped_at_max_batch() {
+        assert_eq!(padded_batch_len(1, 32).unwrap(), 1);
+        assert_eq!(padded_batch_len(3, 32).unwrap(), 4);
+        assert_eq!(padded_batch_len(17, 32).unwrap(), 32);
+        assert_eq!(padded_batch_len(9, 12).unwrap(), 12);
+        assert_eq!(padded_batch_len(12, 12).unwrap(), 12);
+        assert_eq!(padded_batch_len(33, usize::MAX).unwrap(), 64);
+        assert!(padded_batch_len(0, 32).is_err());
+        assert!(padded_batch_len(33, 32).is_err());
+    }
+
+    #[test]
+    fn padded_batches_bound_distinct_shapes_for_ragged_streams() {
+        // Every ragged chunk size 1..=32 across two seq buckets: unpadded this
+        // is 64 distinct shapes (the #1143 failure mode); padded it must stay
+        // within {1,2,4,8,16,32} x {4, 8}.
+        let mut shapes = std::collections::BTreeSet::new();
+        for seq in [4_usize, 8] {
+            for chunk_len in 1..=32_usize {
+                let group: Vec<EncodedInput> = (0..chunk_len)
+                    .map(|index| EncodedInput {
+                        index,
+                        seq,
+                        ids: vec![1; seq],
+                        mask: vec![1; seq],
+                    })
+                    .collect();
+                let mut groups = BTreeMap::new();
+                groups.insert(seq, group);
+                for batch in build_batches_from_groups(groups, 32, true).unwrap() {
+                    assert!(batch.batch.is_power_of_two());
+                    assert_eq!(batch.indices.len(), chunk_len);
+                    shapes.insert((batch.batch, batch.seq));
+                }
+            }
+        }
+        assert_eq!(shapes.len(), 12);
     }
 
     #[test]
@@ -243,7 +353,7 @@ mod tests {
             }],
         );
 
-        let batches = build_batches_from_groups(groups, 2).unwrap();
+        let batches = build_batches_from_groups(groups, 2, false).unwrap();
 
         let shapes = batches
             .iter()
