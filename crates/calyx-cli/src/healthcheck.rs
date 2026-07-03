@@ -4,10 +4,12 @@
 //! env, the Calyx home, and any requested vault/metrics source, then writes
 //! `latest.json` and reads it back before returning.
 
+mod resident_probe;
 mod scrape;
 
 use std::collections::BTreeSet;
 use std::fs;
+use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -37,6 +39,7 @@ struct HealthArgs {
     required_env: Vec<String>,
     vault: Option<PathBuf>,
     metrics_url: Option<String>,
+    resident_probe: Option<SocketAddr>,
 }
 
 #[derive(Debug, Serialize)]
@@ -100,6 +103,10 @@ impl HealthArgs {
                 .collect(),
             vault: env_path("CALYX_HEALTH_VAULT"),
             metrics_url: std::env::var("CALYX_HEALTH_METRICS_URL").ok(),
+            resident_probe: match std::env::var("CALYX_HEALTH_RESIDENT_ADDR") {
+                Ok(raw) => Some(parse_addr("CALYX_HEALTH_RESIDENT_ADDR", &raw)?),
+                Err(_) => None,
+            },
         };
 
         let mut i = 0;
@@ -127,6 +134,10 @@ impl HealthArgs {
                 }
                 "--metrics-url" => {
                     request.metrics_url = Some(value(args, i)?.to_string());
+                    i += 2;
+                }
+                "--resident-probe" => {
+                    request.resident_probe = Some(parse_addr("--resident-probe", value(args, i)?)?);
                     i += 2;
                 }
                 "--require-env" => {
@@ -160,6 +171,9 @@ fn build_report(request: &HealthArgs) -> HealthReport {
     if let Some(url) = &request.metrics_url {
         checks.push(check_metrics(url));
     }
+    if let Some(addr) = request.resident_probe {
+        checks.push(resident_probe::check_resident_parallelism(addr));
+    }
     let failure_count = checks.iter().filter(|check| check.status != "pass").count();
     HealthReport {
         run_id: format!("calyx-health-{}-{}", unix_secs(), std::process::id()),
@@ -192,6 +206,9 @@ fn source_of_truth(request: &HealthArgs) -> Vec<String> {
     }
     if let Some(url) = &request.metrics_url {
         sources.push(url.clone());
+    }
+    if let Some(addr) = request.resident_probe {
+        sources.push(addr.to_string());
     }
     sources
 }
@@ -402,6 +419,14 @@ fn value(args: &[String], index: usize) -> CliResult<&str> {
 }
 
 fn parse_u64(flag: &str, value: &str) -> CliResult<u64> {
+    value.parse().map_err(|error| {
+        CliError::usage(format!(
+            "CALYX_HEALTH_CONFIG_INVALID: {flag} {value}: {error}"
+        ))
+    })
+}
+
+fn parse_addr(flag: &str, value: &str) -> CliResult<SocketAddr> {
     value.parse().map_err(|error| {
         CliError::usage(format!(
             "CALYX_HEALTH_CONFIG_INVALID: {flag} {value}: {error}"
