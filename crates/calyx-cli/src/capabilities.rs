@@ -8,8 +8,8 @@
 //! out; deploy gates now assert these values instead.
 //!
 //! Adding a GPU (or otherwise deploy-critical) surface to a dependency crate?
-//! Export a `cfg!` const there and add it here, then require it in
-//! infra/aiwonder/bin/deploy-calyx-runner.sh `required_capabilities_for`.
+//! Export a `cfg!` const there and add it here, then require it in the
+//! deployment manifest generator's `required_capabilities_for` mapping.
 
 pub(crate) const COMPILED: &[(&str, bool)] = &[
     ("forge-cuda", calyx_forge::CUDA_COMPILED),
