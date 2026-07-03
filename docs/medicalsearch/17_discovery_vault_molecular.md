@@ -162,5 +162,89 @@ Boundary and edge behavior covered by tests:
 - Empty seed list, zero/non-finite affinity, lowercase protein sequence, and missing required affinity fail closed with `CALYX_KERNEL_INVALID_PARAMS`.
 
 Honest status:
-- This is not final #884 acceptance. It proves the bridge-ranking/report surface synthetically while #869 owns the GPU.
-- Remaining #884 work: commission the real molecular vault with ESM2/ChemBERTa/DNA/text lenses, ingest anchored ChEMBL/BindingDB/Open Targets slice, and prove a real clinical-to-molecular bridge by reading the Calyx source-of-truth bytes.
+- This was not final #884 acceptance. It proved the bridge-ranking/report surface synthetically while #869 owned the GPU.
+- The final #884 vault acceptance was completed later in the section below.
+
+## Final #884 acceptance: real molecular vault
+
+Date (UTC): 2026-07-03
+aiwonder branch/commit: `fix/issue884-molecular-vault` / `741b57ae`
+FSV root: `/home/croyse/calyx/fsv/issue884-molecular-vault-20260703T142944Z`
+Final vault: `issue884-molecular-vault-20260703t142944z-v2`
+Vault id: `01KWM6TG1Q9R80VNR5NEFWE1QY`
+Vault dir: `/home/croyse/calyx/vaults/01KWM6TG1Q9R80VNR5NEFWE1QY`
+
+Implemented source:
+- `crates/calyx-cli/src/cmd/molecular_vault.rs`
+- `crates/calyx-cli/src/cmd/molecular_vault/rows.rs`
+- `crates/calyx-cli/src/cmd/molecular_vault/tests.rs`
+
+What was commissioned:
+- Saved panel template: `issue884-molecular-template-20260703t142944z`
+- Required molecular lenses: `protein-esm2-t30-150m-adapter`, `molecule-chemberta-100m-adapter`, `dna-moderngena-base-adapter`
+- Text lenses included to satisfy the real panel floor: `semantic-bge-small-en-v1-5`, `semantic-all-minilm-l6-v2-onnx`, `domain-scibert-scivocab-uncased`, `bge-small-fp32-gpu`, `minilm-fp32-gpu`, `medcpt-query-fp32-gpu`, `medcpt-article-fp32-gpu`, `a38_medcpt_query_int8`, `a38_medcpt_article_int8`
+
+Real source rows:
+- Clinical text: PubMedQA row from `/home/croyse/calyx/fsv/issue994-nonclinical-final-20260702T112430Z/bridge_rows.jsonl`, SHA256 `c5d02f132a7f286644f1ce3ab2aa4415e2a470a38647257f77de546c21372ad1`
+- Molecule: BindingDB row `108468`, SMILES input `CN(C)C(N)=NC(N)=N`, EC50 `150000 nM`, source SHA256 `87d69d552be6dff78bb8e071d0e6c5b4c8f98312cce354ecb0b1ab8bfa8650c7`
+- Protein: BindingDB target sequence `>p1234 mol:protein length:766 Dipeptidyl peptidase 4`, source SHA256 `e33decfbec34872ac376a4e08312f5cd94f3baa546d24f77dd83185a571b2c81`
+- DNA: NCBI RefSeq `NM_001935.4 Homo sapiens DPP4 mRNA`, local fetched FASTA SHA256 `024fa67def136d8572230fe1eb301de3b877c56c76a6de6015cad7fdd63fd4b7`
+
+Final commands:
+```bash
+CALYX_HOME=/home/croyse/calyx \
+ORT_DYLIB_PATH=/home/croyse/calyx/vendor/onnxruntime-v1.26.0/build/Linux/Release/libonnxruntime.so \
+CALYX_ORT_LIB_DIR=/home/croyse/calyx/vendor/onnxruntime-v1.26.0/build/Linux/Release \
+target/release/calyx create-vault issue884-molecular-vault-20260703t142944z-v2 \
+  --panel-template issue884-molecular-template-20260703t142944z
+
+target/release/calyx materialize-molecular-vault \
+  issue884-molecular-vault-20260703t142944z-v2 \
+  --rows /home/croyse/calyx/fsv/issue884-molecular-vault-20260703T142944Z/molecular_rows.jsonl \
+  --home /home/croyse/calyx
+
+target/release/calyx domain-bridges issue884-molecular-vault-20260703t142944z-v2 \
+  --pair metadata:domain=clinical metadata:domain=molecular \
+  --anchor-kind label:molecular-vault \
+  --scope-radius 2 \
+  --max-evidence-hops 2 \
+  --kernel-target-fraction 1.0 \
+  --out /home/croyse/calyx/fsv/issue884-molecular-vault-20260703T142944Z/domain_bridges.report.json
+
+target/release/calyx readback cx-list \
+  --vault /home/croyse/calyx/vaults/01KWM6TG1Q9R80VNR5NEFWE1QY \
+  --include-slots --allow-unbounded
+```
+
+Final persisted readback:
+- Rows JSONL SHA256: `37b75c42d888aa1304a0b135e370f8c36291c76e4efbc99fe76c5c875855b3d2`
+- `materialize.stdout.json` SHA256: `893a53980c940ca6e3e4d6d5b83f1281c4cc14d305b166dd0cee546f2d362525`
+- Base rows: `4`
+- Anchor rows: `13`
+- Graph nodes/edges: `5` / `8`
+- `cx-list` physical readback rows: `4`
+- `cx-list` slot payloads decoded: `true`
+- Measured slots: `12`; each required molecular/text slot has one measured row.
+- Vault tree readback: `137` lines, including `CURRENT`, `MANIFEST`, `cf/base`, `cf/anchors`, and `cf/graph` SST files.
+
+Clinical-to-molecular bridge gate:
+- Artifact: `/home/croyse/calyx/fsv/issue884-molecular-vault-20260703T142944Z/domain_bridges.report.json`
+- SHA256: `b8d97210108bfc8e2f74ea098d1264ac0e36812b24d28be2f47fbf4a0324f371`
+- Candidate: `metformin`
+- Candidate count: `1`
+- Gate: `CALYX_DOMAIN_BRIDGE_GATE_PASS`
+- Confidence: `0.3333333432674408`
+- Evidence: left and right scoped kernels both grounded at `1.000000`, candidate one hop from each side, cross-domain distance `2`.
+
+Fail-closed checks:
+- Unsupported BindingDB SMARTS-like molecule token failed before write: `materialize.bad_molecule_unsupported_token.stderr`
+- Missing DNA modality failed with rc `2`: `molecular vault rows require at least one dna row`
+- Bridge term absent from text failed with rc `2`: `molecular vault row 1 text does not contain bridge term notpresent`
+- Post-failure physical `cx-list` still read `4` rows, proving the bad inputs did not mutate the final vault.
+
+Final summary artifact:
+- `/home/croyse/calyx/fsv/issue884-molecular-vault-20260703T142944Z/fsv_summary.json`
+- Artifact hash list: `/home/croyse/calyx/fsv/issue884-molecular-vault-20260703T142944Z/fsv_artifact_hashes.sha256`
+
+Conclusion:
+- #884 is accepted: the real Calyx vault contains grounded clinical text, molecule, protein, and DNA rows measured through the live panel, with persisted Base/Anchor/slot/graph readback and a passing clinical-to-molecular bridge candidate.
