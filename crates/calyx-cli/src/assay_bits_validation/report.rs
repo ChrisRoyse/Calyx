@@ -86,6 +86,17 @@ pub(crate) struct PanelReport {
     pub(crate) ci_95: [f32; 2],
     pub(crate) estimate_bound: String,
     pub(crate) sufficiency_basis_bits: f32,
+    /// #1140 Finding C provenance. `joint_estimator` names the statistic;
+    /// `raw_joint_*` is the concatenated probe's own estimate before the
+    /// union-bound floor; `best_member_*` is the strongest single admitted lens
+    /// the basis is floored at; `joint_floored` is true when the floor lifted the
+    /// basis above the raw joint (i.e. the concat probe degraded with width).
+    pub(crate) joint_estimator: &'static str,
+    pub(crate) raw_joint_bits: f32,
+    pub(crate) raw_joint_ci_low: f32,
+    pub(crate) best_member_bits: f32,
+    pub(crate) best_member_ci_low: f32,
+    pub(crate) joint_floored: bool,
     pub(crate) power_calibration_status: Option<String>,
     pub(crate) power_recovery_ratio: Option<f32>,
     pub(crate) power_recovered_bits: Option<f32>,

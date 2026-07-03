@@ -79,6 +79,42 @@ fn synthetic_three_lens_admits_real_rejects_redundant() {
     assert!(report.panel.ci_95[1].is_finite());
     assert!(report.panel.ci_95[1] >= report.panel.ci_95[0]);
     assert_eq!(report.panel.estimate_bound, "lower_bound");
+
+    // #1140 Finding C: the panel sufficiency basis is union-bounded and can
+    // never report below the strongest single admitted member.
+    assert_eq!(report.panel.joint_estimator, "concat_probe_union_floor");
+    let best_admitted_ci_low = report
+        .lenses
+        .iter()
+        .filter(|lens| lens.admitted)
+        .map(|lens| lens.ci[0])
+        .fold(0.0_f32, f32::max);
+    assert!(
+        report.panel.sufficiency_basis_bits + 1e-6 >= best_admitted_ci_low,
+        "panel basis {} must hold at/above best admitted member ci_low {best_admitted_ci_low}",
+        report.panel.sufficiency_basis_bits
+    );
+    assert!(
+        report.panel.best_member_ci_low + 1e-6 >= best_admitted_ci_low,
+        "reported best_member_ci_low {} must match strongest admitted member {best_admitted_ci_low}",
+        report.panel.best_member_ci_low
+    );
+    assert!(report.panel.i_panel_anchor + 1e-6 >= report.panel.best_member_bits);
+    assert!(report.panel.raw_joint_bits.is_finite());
+    // Readback: provenance fields survive the persisted artifact round-trip.
+    let panel_rb: serde_json::Value =
+        serde_json::from_slice(&fs::read(&evidence.abundance_path).unwrap()).unwrap();
+    assert_eq!(
+        panel_rb["panel"]["joint_estimator"],
+        "concat_probe_union_floor"
+    );
+    assert!(
+        panel_rb["panel"]["sufficiency_basis_bits"]
+            .as_f64()
+            .unwrap()
+            + 1e-6
+            >= best_admitted_ci_low as f64
+    );
     assert_eq!(
         report.panel.power_calibration_status.as_deref(),
         Some("passed")

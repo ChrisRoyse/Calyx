@@ -2,7 +2,7 @@ use calyx_assay::{
     AssayCacheKey, AssayStore, AssaySubject, CorrelationEvidence, MiEstimate, PanelLensDecision,
     PanelResourceBudget, ResourceDensity, ResourceUsage, StratumBits, admit_lens_estimate,
     admit_lens_with_usage, ensure_informative_binary_labels,
-    logistic_probe_mi_multiseed_calibrated, stratified_bits,
+    logistic_probe_mi_multiseed_calibrated, panel_joint_with_union_floor, stratified_bits,
 };
 use calyx_aster::cf::CfRouter;
 use calyx_core::{AnchorKind, SlotId, VaultId};
@@ -249,6 +249,8 @@ pub(crate) fn evaluate_corpus(
     let panel = panel_mi(corpus, &admitted_order, &measurements, &anchor)?;
 
     // Per-stratum bits: stratify lens-0 by class label.
+    let panel_estimate = &panel.estimate;
+    let panel_basis = &panel.basis;
     let strata = stratify(corpus, &anchor)?;
     let strata_reports: Vec<StratumReport> = strata
         .strata
@@ -280,20 +282,26 @@ pub(crate) fn evaluate_corpus(
         lenses,
         panel: PanelReport {
             admitted_lenses: admitted_lens_names,
-            i_panel_anchor: panel.bits,
-            ci_95: [panel.ci_low, panel.ci_high],
-            estimate_bound: estimate_bound_name(panel.bound).to_string(),
-            sufficiency_basis_bits: panel.ci_low,
-            power_calibration_status: calibration_status(&panel),
-            power_recovery_ratio: panel
+            i_panel_anchor: panel_estimate.bits,
+            ci_95: [panel_estimate.ci_low, panel_estimate.ci_high],
+            estimate_bound: estimate_bound_name(panel_estimate.bound).to_string(),
+            sufficiency_basis_bits: panel_estimate.ci_low,
+            joint_estimator: "concat_probe_union_floor",
+            raw_joint_bits: panel_basis.raw_joint_bits,
+            raw_joint_ci_low: panel_basis.raw_joint_ci_low,
+            best_member_bits: panel_basis.best_member_bits,
+            best_member_ci_low: panel_basis.best_member_ci_low,
+            joint_floored: panel_basis.floored,
+            power_calibration_status: calibration_status(panel_estimate),
+            power_recovery_ratio: panel_estimate
                 .power_calibration
                 .as_ref()
                 .map(|calibration| calibration.recovery_ratio),
-            power_recovered_bits: panel
+            power_recovered_bits: panel_estimate
                 .power_calibration
                 .as_ref()
                 .map(|calibration| calibration.recovered_bits),
-            power_planted_bits: panel
+            power_planted_bits: panel_estimate
                 .power_calibration
                 .as_ref()
                 .map(|calibration| calibration.planted_bits),
@@ -308,12 +316,25 @@ pub(crate) fn evaluate_corpus(
     })
 }
 
+struct PanelMi {
+    estimate: MiEstimate,
+    basis: calyx_assay::PanelJointBasis,
+}
+
+/// Joint panel MI with a monotone, non-degrading sufficiency basis (#1140
+/// Finding C). The concatenated-feature probe still runs (it captures cross-lens
+/// synergy when width is modest), but its estimate is passed through the union
+/// bound `I(panel; Y) >= max_i I(lens_i; Y)`: the reported point estimate and its
+/// lower bound are floored at the strongest single admitted member. This keeps
+/// the sufficiency basis a valid lower bound and guarantees that admitting a
+/// stronger lens can only raise it, so the pre-gate remediation "admit stronger
+/// grounded content lenses" converges instead of moving the metric backwards.
 fn panel_mi(
     corpus: &AssayCorpus,
     admitted_order: &[usize],
     measurements: &[LensMeasurement],
     anchor: &[bool],
-) -> Result<MiEstimate, String> {
+) -> Result<PanelMi, String> {
     if admitted_order.is_empty() {
         return Err("CALYX_FSV_ASSAY_EMPTY_PANEL: no admitted lenses".to_string());
     }
@@ -328,7 +349,25 @@ fn panel_mi(
     let report =
         logistic_probe_mi_multiseed_calibrated(&joint, anchor, Some(&corpus.anchor_groups))
             .map_err(calyx_error_detail)?;
-    Ok(report.estimate)
+    let raw = report.estimate;
+
+    let members: Vec<MiEstimate> = admitted_order
+        .iter()
+        .map(|&idx| measurements[idx].estimate.clone())
+        .collect();
+    let basis = panel_joint_with_union_floor(&raw, &members).map_err(calyx_error_detail)?;
+
+    let mut estimate = MiEstimate::new(
+        basis.bits,
+        basis.ci_low,
+        basis.ci_high,
+        raw.n_samples,
+        raw.estimator,
+        raw.trust,
+    );
+    estimate.reliability = raw.reliability;
+    estimate.power_calibration = raw.power_calibration;
+    Ok(PanelMi { estimate, basis })
 }
 
 fn max_corr_evidence(

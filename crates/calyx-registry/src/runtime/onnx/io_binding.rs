@@ -32,6 +32,10 @@
 //!   distinct (batch, seq) shapes a GPU session may run; batch/seq bucketing
 //!   keeps real workloads far below it, so reaching it means a caller
 //!   regressed into unbounded shape diversity.
+//! - `CALYX_ONNX_CPU_FALLBACK_AUDIT` — `off` | `warn` | `fail` (#1142): parse
+//!   the ORT profiling trace after the first run and surface / refuse a
+//!   GPU-policy session that runs too many compute nodes on CPU (int8 graphs
+//!   have no CUDA kernels). See `cpu_fallback_audit`.
 
 use std::collections::BTreeSet;
 
@@ -40,6 +44,10 @@ use ort::memory::{AllocationDevice, AllocatorType, MemoryInfo, MemoryType};
 use ort::session::{RunOptions, Session, SessionInputValue, SessionOutputs};
 use ort::value::Tensor;
 
+use super::cpu_fallback_audit::{
+    AuditMode, audit_from_trace, configured_audit_mode, configured_max_cpu_fraction,
+    profiling_file_path,
+};
 use super::{OnnxProviderPolicy, config_invalid};
 
 pub(super) const CUDA_DEVICE_ENV: &str = "CALYX_ONNX_CUDA_DEVICE";
@@ -81,6 +89,9 @@ pub(super) struct OnnxRunPlan {
     require_static: bool,
     arena_shrink: ArenaShrinkPolicy,
     max_distinct_shapes: usize,
+    audit_mode: AuditMode,
+    max_cpu_fraction: f64,
+    audited: bool,
     bound_shape: Option<(usize, usize)>,
     seen_shapes: BTreeSet<(usize, usize)>,
 }
@@ -196,6 +207,16 @@ pub(super) fn build_session(
                 ))
             })?;
     }
+    // #1142: enable ORT profiling so the first run can be audited for per-node
+    // CPU fallback. Off by default, so the hot path pays nothing unless the
+    // operator opts in via CALYX_ONNX_CPU_FALLBACK_AUDIT.
+    if configured_audit_mode()?.enabled() {
+        builder = builder
+            .with_profiling(profiling_file_path(label))
+            .map_err(|err| {
+                config_invalid(format!("ONNX profiling enable failed for {label}: {err}"))
+            })?;
+    }
     builder.commit_from_file(model_file).map_err(|err| {
         config_invalid(format!(
             "load ONNX model failed for {label} (policy={} device_id={device_id}): {err}",
@@ -232,6 +253,8 @@ impl OnnxRunPlan {
         let arena_shrink = configured_arena_shrink()?;
         let max_distinct_shapes = configured_max_distinct_shapes()?;
         let mem_limit = configured_gpu_mem_limit()?;
+        let audit_mode = configured_audit_mode()?;
+        let max_cpu_fraction = configured_max_cpu_fraction()?;
         let (allocator, cpu_fallback) = if gpu_policy {
             (
                 if io_binding {
@@ -245,13 +268,14 @@ impl OnnxRunPlan {
             ("host", "cpu_explicit_policy")
         };
         eprintln!(
-            "CALYX_ONNX_RUNTIME phase=session_ready label={label} provider={} device_id={device_id} io_binding={io_binding} io_binding_env_off={binding_env_off} allocator={allocator} cpu_fallback={cpu_fallback} require_static_binding={require_static} disable_cpu_ep_fallback={} arena_extend=same_as_requested gpu_mem_limit_mib={} arena_shrink={} max_distinct_shapes={max_distinct_shapes}",
+            "CALYX_ONNX_RUNTIME phase=session_ready label={label} provider={} device_id={device_id} io_binding={io_binding} io_binding_env_off={binding_env_off} allocator={allocator} cpu_fallback={cpu_fallback} require_static_binding={require_static} disable_cpu_ep_fallback={} arena_extend=same_as_requested gpu_mem_limit_mib={} arena_shrink={} max_distinct_shapes={max_distinct_shapes} cpu_fallback_audit={} max_cpu_node_fraction={max_cpu_fraction:.4}",
             policy.as_str(),
             cpu_ep_fallback_disabled(),
             mem_limit
                 .map(|bytes| (bytes / (1024 * 1024)).to_string())
                 .unwrap_or_else(|| "none".to_string()),
-            arena_shrink.as_str()
+            arena_shrink.as_str(),
+            audit_mode.as_str()
         );
         Ok(Self {
             label,
@@ -261,6 +285,9 @@ impl OnnxRunPlan {
             require_static,
             arena_shrink,
             max_distinct_shapes,
+            audit_mode,
+            max_cpu_fraction,
+            audited: false,
             bound_shape: None,
             seen_shapes: BTreeSet::new(),
         })
@@ -331,7 +358,10 @@ impl OnnxRunPlan {
                 None => session.run(named),
             }
             .map_err(|err| config_invalid(format!("ONNX inference failed: {err}")))?;
-            return extract(&outputs);
+            let result = extract(&outputs)?;
+            drop(outputs);
+            self.audit_placement_once(session)?;
+            return Ok(result);
         }
         let output_names: Vec<String> = session
             .outputs()
@@ -386,7 +416,42 @@ impl OnnxRunPlan {
                 self.label
             ))
         })?;
-        extract(&outputs)
+        let result = extract(&outputs)?;
+        drop(outputs);
+        drop(binding);
+        self.audit_placement_once(session)?;
+        Ok(result)
+    }
+
+    /// Once per session, after the first successful run, read the ORT profiling
+    /// trace and audit per-provider node placement (#1142). No-op unless the
+    /// operator enabled CALYX_ONNX_CPU_FALLBACK_AUDIT. Marked audited even on
+    /// error so a failing gate does not re-run profiling every batch.
+    fn audit_placement_once(&mut self, session: &mut Session) -> Result<()> {
+        if !self.audit_mode.enabled() || self.audited {
+            return Ok(());
+        }
+        self.audited = true;
+        let trace_path = session.end_profiling().map_err(|err| {
+            config_invalid(format!(
+                "ONNX end_profiling failed for {}: {err}",
+                self.label
+            ))
+        })?;
+        let trace = std::fs::read_to_string(&trace_path).map_err(|err| {
+            config_invalid(format!(
+                "read ONNX profiling trace {trace_path} failed for {}: {err}",
+                self.label
+            ))
+        })?;
+        audit_from_trace(
+            &self.label,
+            &trace,
+            self.gpu_policy,
+            self.audit_mode,
+            self.max_cpu_fraction,
+        )
+        .map(|_| ())
     }
 
     /// Records the run shape; returns whether it is first-seen. GPU sessions
