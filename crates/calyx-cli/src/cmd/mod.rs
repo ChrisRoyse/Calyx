@@ -4,6 +4,7 @@ mod chain_walks;
 mod discovery_chain;
 mod domain_bridges;
 mod erase;
+mod evidence_substrate;
 mod graph_csr;
 mod healthcheck;
 mod hypothesis_evaluate;
@@ -45,7 +46,8 @@ create-vault add-lens retire-lens park-lens retire-vault list-panel profile-lens
 ingest ingest-status anchor measure erase search kernel-answer bits kernel guard abundance \
 propose-lens provenance verify-chain reproduce anneal-status rebuild-search-index kernel-build \
 weave-loom domain-bridges materialize-bridge-corpus discovery-chain chain-walks probe-matrix \
-spectral-communities materialize-graph-csr materialize-molecular-vault";
+spectral-communities materialize-graph-csr materialize-molecular-vault \
+materialize-evidence-substrate";
 
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) enum Subcommand {
@@ -83,6 +85,7 @@ pub(crate) enum Subcommand {
     SpectralCommunities(spectral_communities::SpectralCommunitiesArgs),
     MaterializeGraphCsr(graph_csr::MaterializeGraphCsrArgs),
     MaterializeMolecularVault(molecular_vault::MaterializeMolecularVaultArgs),
+    MaterializeEvidenceSubstrate(evidence_substrate::MaterializeEvidenceSubstrateArgs),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -231,6 +234,7 @@ fn run(command: Subcommand) -> CliResult {
         Subcommand::SpectralCommunities(_) => spectral_communities::run(command),
         Subcommand::MaterializeGraphCsr(_) => graph_csr::run(command),
         Subcommand::MaterializeMolecularVault(_) => molecular_vault::run(command),
+        Subcommand::MaterializeEvidenceSubstrate(_) => evidence_substrate::run(command),
     }
 }
 
@@ -273,6 +277,9 @@ pub(crate) fn parse(args: &[String]) -> CliResult<Subcommand> {
         "spectral-communities" => spectral_communities::parse_spectral_communities(rest),
         "materialize-graph-csr" => graph_csr::parse_materialize_graph_csr(rest),
         "materialize-molecular-vault" => molecular_vault::parse_materialize_molecular_vault(rest),
+        "materialize-evidence-substrate" => {
+            evidence_substrate::parse_materialize_evidence_substrate(rest)
+        }
         other => Err(CliError::usage(format!("unknown PH62 command {other}"))),
     }
 }

@@ -55,6 +55,7 @@ pub(crate) fn usage() -> &'static str {
        calyx weave-loom <vault> [--content-slot <u16>] [--candidate-selection covered|base-prefix] [--coverage-only] [--knn <n>] [--edge-cos-threshold <0..1>] [--max-groundedness-distance <n>] [--batch <n>] [--limit <n>] [--time-budget-ms <ms>]
        calyx materialize-bridge-corpus <name> --rows <jsonl> [--home <dir>]
        calyx materialize-molecular-vault <vault> --rows <jsonl> [--home <dir>]
+       calyx materialize-evidence-substrate <vault> --pubtator-root <dir> --clinicaltrials-root <dir> --dgidb-root <dir> [--collection <name>] [--report <json>] [--home <dir>]
        calyx reproduce <vault> <answer_id>
        calyx anneal-status <vault>
        calyx healthcheck [--vault <vault>] [--json|--no-json] [--tei <http://host:port[/path]>]

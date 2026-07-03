@@ -106,6 +106,7 @@ pub(super) fn subcommand_tokens(command: &Subcommand) -> Vec<String> {
         Subcommand::DomainBridges(args) => domain_bridges_tokens(args),
         Subcommand::MaterializeBridgeCorpus(args) => bridge_corpus_tokens(args),
         Subcommand::MaterializeMolecularVault(args) => molecular_vault_tokens(args),
+        Subcommand::MaterializeEvidenceSubstrate(args) => evidence_substrate_tokens(args),
         Subcommand::DiscoveryChain(args) => discovery_chain_tokens(args),
         Subcommand::ChainWalks(args) => chain_walks_tokens(args),
         Subcommand::ProbeMatrix(args) => probe_matrix_tokens(args),
@@ -142,6 +143,33 @@ fn molecular_vault_tokens(args: &molecular_vault::MaterializeMolecularVaultArgs)
         "--rows".to_string(),
         args.rows.to_string_lossy().into_owned(),
     ];
+    push_opt(
+        &mut out,
+        "--home",
+        args.home.as_ref().and_then(|p| p.to_str()),
+    );
+    out
+}
+
+fn evidence_substrate_tokens(
+    args: &evidence_substrate::MaterializeEvidenceSubstrateArgs,
+) -> Vec<String> {
+    let mut out = vec![
+        "materialize-evidence-substrate".to_string(),
+        args.vault.clone(),
+        "--pubtator-root".to_string(),
+        args.pubtator_root.to_string_lossy().into_owned(),
+        "--clinicaltrials-root".to_string(),
+        args.clinicaltrials_root.to_string_lossy().into_owned(),
+        "--dgidb-root".to_string(),
+        args.dgidb_root.to_string_lossy().into_owned(),
+    ];
+    push_opt(&mut out, "--collection", args.collection.as_deref());
+    push_opt(
+        &mut out,
+        "--report",
+        args.report.as_ref().and_then(|p| p.to_str()),
+    );
     push_opt(
         &mut out,
         "--home",
