@@ -120,7 +120,7 @@ The most repeated perturbation labels in the 1,500 top-50 rows were:
 
 | Perturbation | Pert ID | Rows | Min rank | Max score | Boundary |
 |---|---:|---:|---:|---:|---|
-| `-666` | `BRD-K84595254` | 252 | 1 | 0.1107 | placeholder-like; not rankable until #1199 resolves it |
+| `-666` | multiple BRD IDs | 252 | 1 | 0.1107 | placeholder label; corrected/resolved by #1199 |
 | CGP-60474 | `BRD-K79090631` | 76 | 1 | 0.0705 | lead signal only |
 | vorinostat | `BRD-K81418486` | 60 | 1 | 0.0936 | lead signal only |
 | trichostatin A | `BRD-A19037878` | 44 | 3 | 0.0749 | lead signal only |
@@ -130,8 +130,9 @@ The most repeated perturbation labels in the 1,500 top-50 rows were:
 | alvocidib | `BRD-K87909389` | 25 | 2 | 0.0591 | lead signal only |
 | Narciclasine | `BRD-K06792661` | 21 | 2 | 0.1033 | lead signal only |
 
-The `-666` row is a data-quality blocker, not a usable therapeutic lead. #1199
-tracks authoritative BRD metadata mapping and placeholder filtering.
+The `-666` row is a placeholder-label data-quality blocker, not a usable
+therapeutic lead. #1199 resolved this by mapping the underlying BRD perturbation
+IDs against authoritative LINCS/L1000FWD metadata and preserving unresolved rows.
 
 ## Conclusion
 

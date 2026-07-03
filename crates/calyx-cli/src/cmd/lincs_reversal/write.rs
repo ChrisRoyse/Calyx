@@ -148,7 +148,10 @@ pub(crate) fn write_to_calyx(
     drop(vault);
     eprintln!("lincs-reversal: reopening physical graph for readback");
     let physical = PhysicalPlainGraph::open_latest(&resolved.path, &collection)?;
-    eprintln!("lincs-reversal: reading back {} nodes", node_values.len());
+    eprintln!(
+        "lincs-reversal: reading back {} nodes by collection range",
+        node_values.len()
+    );
     read_back_nodes(&physical, &node_values)?;
     eprintln!("lincs-reversal: counting physical edge keys");
     let physical_edge_out_keys = physical.edge_out_key_count()?;
@@ -250,11 +253,23 @@ fn read_back_nodes(
     physical: &PhysicalPlainGraph,
     node_values: &BTreeMap<CxId, Vec<u8>>,
 ) -> CliResult {
-    for (id, expected) in node_values {
-        let actual = physical.get_node(*id)?.ok_or_else(|| {
+    let physical_nodes = physical.node_props()?;
+    if physical_nodes.len() != node_values.len() {
+        return Err(CliError::from(CalyxError {
+            code: "CALYX_LINCS_REVERSAL_NODE_KEY_READBACK_MISMATCH",
+            message: format!(
+                "physical Graph CF node range count mismatch: expected {} read {}",
+                node_values.len(),
+                physical_nodes.len()
+            ),
+            remediation: "do not trust the LINCS reversal collection until the physical node key range count matches the written node set",
+        }));
+    }
+    for (id, actual) in physical_nodes {
+        let expected = node_values.get(&id).ok_or_else(|| {
             CliError::from(CalyxError {
-                code: "CALYX_LINCS_REVERSAL_NODE_READBACK_MISSING",
-                message: format!("missing physical Graph CF node row {id}"),
+                code: "CALYX_LINCS_REVERSAL_NODE_READBACK_EXTRA",
+                message: format!("physical Graph CF node row {id} was not in the written node set"),
                 remediation: "do not trust the LINCS reversal collection until every node reads back",
             })
         })?;

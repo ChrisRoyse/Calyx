@@ -186,6 +186,11 @@ fn lincs_reversal_tokens(args: &lincs_reversal::MaterializeLincsReversalArgs) ->
         "--root".to_string(),
         args.root.to_string_lossy().into_owned(),
     ];
+    push_opt(
+        &mut out,
+        "--metadata-root",
+        args.metadata_root.as_ref().and_then(|p| p.to_str()),
+    );
     push_opt(&mut out, "--collection", args.collection.as_deref());
     push_opt(
         &mut out,
@@ -206,6 +211,7 @@ fn lincs_reversal_round_trips_through_tokens() {
         Subcommand::MaterializeLincsReversal(lincs_reversal::MaterializeLincsReversalArgs {
             vault: "corpus".to_string(),
             root: "/fsv/lincs".into(),
+            metadata_root: Some("/fsv/lincs-metadata".into()),
             collection: Some("biomed_lincs_cmap_reversal_v1".to_string()),
             report: Some("/fsv/readback.json".into()),
             home: Some("/home/calyx".into()),

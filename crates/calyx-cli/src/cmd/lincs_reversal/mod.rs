@@ -21,6 +21,7 @@ pub(crate) const DEFAULT_COLLECTION: &str = "biomed_lincs_cmap_reversal";
 pub(crate) struct MaterializeLincsReversalArgs {
     pub vault: String,
     pub root: PathBuf,
+    pub metadata_root: Option<PathBuf>,
     pub collection: Option<String>,
     pub report: Option<PathBuf>,
     pub home: Option<PathBuf>,
@@ -32,6 +33,7 @@ pub(crate) fn parse_materialize_lincs_reversal(rest: &[String]) -> CliResult<Sub
         .ok_or_else(|| CliError::usage("materialize-lincs-reversal requires <vault>"))?
         .clone();
     let mut root = None;
+    let mut metadata_root = None;
     let mut collection = None;
     let mut report = None;
     let mut home = None;
@@ -41,6 +43,10 @@ pub(crate) fn parse_materialize_lincs_reversal(rest: &[String]) -> CliResult<Sub
             "--root" => {
                 idx += 1;
                 root = Some(value(rest, idx, "--root")?.into());
+            }
+            "--metadata-root" => {
+                idx += 1;
+                metadata_root = Some(value(rest, idx, "--metadata-root")?.into());
             }
             "--collection" => {
                 idx += 1;
@@ -68,6 +74,7 @@ pub(crate) fn parse_materialize_lincs_reversal(rest: &[String]) -> CliResult<Sub
             root: root.ok_or_else(|| {
                 CliError::usage("materialize-lincs-reversal requires --root <dir>")
             })?,
+            metadata_root,
             collection,
             report,
             home,
@@ -92,7 +99,7 @@ fn materialize_with_home(
         "lincs-reversal: verifying source root {}",
         args.root.display()
     );
-    let (draft, source_report) = source::load_root(&args.root)?;
+    let (draft, source_report) = source::load_root(&args.root, args.metadata_root.as_deref())?;
     eprintln!(
         "lincs-reversal: source verified nodes={} edges={}",
         draft.nodes.len(),

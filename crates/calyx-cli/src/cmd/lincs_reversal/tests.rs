@@ -7,6 +7,8 @@ fn parses_required_root_and_optional_outputs() {
         "medical-vault",
         "--root",
         "/fsv/lincs",
+        "--metadata-root",
+        "/fsv/lincs-metadata",
         "--collection",
         "biomed_lincs_cmap_reversal_v1",
         "--report",
@@ -25,6 +27,7 @@ fn parses_required_root_and_optional_outputs() {
         Subcommand::MaterializeLincsReversal(MaterializeLincsReversalArgs {
             vault: "medical-vault".to_string(),
             root: "/fsv/lincs".into(),
+            metadata_root: Some("/fsv/lincs-metadata".into()),
             collection: Some("biomed_lincs_cmap_reversal_v1".to_string()),
             report: Some("/fsv/readback.json".into()),
             home: Some("/home/calyx".into()),
