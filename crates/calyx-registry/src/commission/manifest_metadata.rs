@@ -403,6 +403,7 @@ mod tests {
             truncate_dim: None,
             recall_delta: crate::spec::default_recall_delta(),
             max_batch: None,
+            batch_policy: None,
         };
         let manifest_path = root.join("manifest.json");
         fs::write(

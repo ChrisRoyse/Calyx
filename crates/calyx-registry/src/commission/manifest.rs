@@ -91,6 +91,44 @@ pub struct LensForgeManifest {
     pub recall_delta: f32,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub max_batch: Option<usize>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub batch_policy: Option<LensForgeBatchPolicy>,
+}
+
+/// Commission-time batch-limit provenance (#1157). GPU lenses must never be
+/// pinned at `max_batch: 1` without evidence: this records where `max_batch`
+/// came from (measured preflight vs operator assertion), the per-level probe
+/// results, and the explicit operator justification when a batch-1 or an
+/// unverified commission was allowed.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct LensForgeBatchPolicy {
+    /// `preflight-measured` (probe ran, max_batch = largest passing level),
+    /// `operator-verified` (operator requested max_batch, probe confirmed it),
+    /// or `operator-unverified` (preflight explicitly skipped).
+    pub max_batch_source: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub batch_1_reason: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub preflight_skip_reason: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub preflight_cap: Option<usize>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub preflight_levels: Vec<LensForgeBatchProbeLevel>,
+}
+
+/// One measured batch level from the commission preflight probe.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct LensForgeBatchProbeLevel {
+    pub batch: usize,
+    pub passed: bool,
+    pub elapsed_ms: u64,
+    pub ms_per_row: f64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub min_cosine_vs_single: Option<f32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_abs_delta_vs_single: Option<f32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub failure: Option<String>,
 }
 
 impl LensForgeManifest {

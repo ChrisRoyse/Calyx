@@ -88,13 +88,13 @@ pub(super) struct ProbeEvidence {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub(super) struct BatchStability {
-    pub(super) sample_rows: usize,
-    pub(super) min_cosine: f32,
-    pub(super) max_abs_delta: f32,
-    pub(super) min_batch_cosine: f32,
-    pub(super) max_allowed_abs_delta: f32,
-    pub(super) acceptable: bool,
+pub(in crate::lens_commands) struct BatchStability {
+    pub(in crate::lens_commands) sample_rows: usize,
+    pub(in crate::lens_commands) min_cosine: f32,
+    pub(in crate::lens_commands) max_abs_delta: f32,
+    pub(in crate::lens_commands) min_batch_cosine: f32,
+    pub(in crate::lens_commands) max_allowed_abs_delta: f32,
+    pub(in crate::lens_commands) acceptable: bool,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
