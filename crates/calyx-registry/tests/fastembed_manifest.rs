@@ -38,6 +38,7 @@ fn onnx_fastembed_manifest_preserves_core_file_order_and_sidecars() {
         truncate_dim: None,
         recall_delta: calyx_registry::spec::default_recall_delta(),
         max_batch: None,
+        batch_policy: None,
     };
     fs::write(
         root.join("manifest.json"),

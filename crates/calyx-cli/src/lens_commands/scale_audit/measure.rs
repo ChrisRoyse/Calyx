@@ -266,7 +266,7 @@ fn measure_chunks(
     Ok(out)
 }
 
-pub(super) fn compare_vectors(
+pub(in crate::lens_commands) fn compare_vectors(
     singles: &[SlotVector],
     batched: &[SlotVector],
     min_batch_cosine: f32,

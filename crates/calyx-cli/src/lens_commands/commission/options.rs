@@ -104,6 +104,9 @@ pub(super) struct CommissionFlags {
     norm_explicit: bool,
     pub(super) quant_target: String,
     pub(super) max_batch: Option<usize>,
+    pub(super) allow_batch_1: Option<String>,
+    pub(super) skip_batch_preflight: Option<String>,
+    pub(super) preflight_cap: Option<usize>,
 }
 
 impl CommissionFlags {
@@ -122,6 +125,9 @@ impl CommissionFlags {
         let mut norm_explicit = false;
         let mut quant_target = "avx2".to_string();
         let mut max_batch = None;
+        let mut allow_batch_1 = None;
+        let mut skip_batch_preflight = None;
+        let mut preflight_cap = None;
         let mut idx = 0;
         while idx < args.len() {
             match args[idx].as_str() {
@@ -181,6 +187,27 @@ impl CommissionFlags {
                         "--max-batch",
                     )?);
                 }
+                "--allow-batch-1" => {
+                    idx += 1;
+                    allow_batch_1 = Some(require_reason(
+                        value(args, idx, "--allow-batch-1")?,
+                        "--allow-batch-1",
+                    )?);
+                }
+                "--skip-batch-preflight" => {
+                    idx += 1;
+                    skip_batch_preflight = Some(require_reason(
+                        value(args, idx, "--skip-batch-preflight")?,
+                        "--skip-batch-preflight",
+                    )?);
+                }
+                "--preflight-cap" => {
+                    idx += 1;
+                    preflight_cap = Some(parse_positive_usize(
+                        value(args, idx, "--preflight-cap")?,
+                        "--preflight-cap",
+                    )?);
+                }
                 other => {
                     return Err(CliError::usage(format!(
                         "unexpected lens commission flag {other}"
@@ -207,6 +234,9 @@ impl CommissionFlags {
             norm_explicit,
             quant_target,
             max_batch,
+            allow_batch_1,
+            skip_batch_preflight,
+            preflight_cap,
         })
     }
 
@@ -258,6 +288,31 @@ impl CommissionFlags {
     }
 }
 
+#[cfg(test)]
+impl CommissionFlags {
+    pub(super) fn test_flags(runtime: CommissionRuntime) -> Self {
+        Self {
+            hf: "test/model".to_string(),
+            runtime,
+            home: None,
+            out: None,
+            name: None,
+            endpoint: None,
+            dim: None,
+            license: None,
+            non_commercial: false,
+            pooling: "mean".to_string(),
+            norm: "unit".to_string(),
+            norm_explicit: false,
+            quant_target: "avx2".to_string(),
+            max_batch: None,
+            allow_batch_1: None,
+            skip_batch_preflight: None,
+            preflight_cap: None,
+        }
+    }
+}
+
 fn require_nonempty(value: Option<String>, flag: &str) -> CliResult<String> {
     let value = value.ok_or_else(|| CliError::usage(format!("{flag} is required")))?;
     if value.trim().is_empty() {
@@ -273,6 +328,16 @@ fn validate_quant_target(raw: &str) -> CliResult {
             "--quant-target {other} is unsupported"
         ))),
     }
+}
+
+fn require_reason(raw: &str, flag: &str) -> CliResult<String> {
+    let reason = raw.trim();
+    if reason.is_empty() {
+        return Err(CliError::usage(format!(
+            "{flag} requires a non-empty justification recorded in the manifest"
+        )));
+    }
+    Ok(reason.to_string())
 }
 
 fn parse_positive_usize(raw: &str, flag: &str) -> CliResult<usize> {

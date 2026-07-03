@@ -43,6 +43,7 @@ fn explicit_colbert_shape_maps_to_multi_runtime() {
         truncate_dim: None,
         recall_delta: calyx_registry::spec::default_recall_delta(),
         max_batch: Some(1),
+        batch_policy: None,
     };
     let manifest_path = root.join("manifest.json");
     fs::write(

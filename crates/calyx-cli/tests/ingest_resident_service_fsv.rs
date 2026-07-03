@@ -273,6 +273,7 @@ fn write_algorithmic_catalog(root: &Path, count: usize) {
                 truncate_dim: None,
                 recall_delta: calyx_registry::spec::default_recall_delta(),
                 max_batch: Some(4),
+                batch_policy: None,
             };
             fs::write(
                 &manifest_path,

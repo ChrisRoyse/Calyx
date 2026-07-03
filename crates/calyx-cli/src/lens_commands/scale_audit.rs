@@ -6,6 +6,8 @@ mod report;
 mod runtime;
 mod worker;
 
+pub(in crate::lens_commands) use measure::compare_vectors;
+
 #[cfg(test)]
 mod tests;
 

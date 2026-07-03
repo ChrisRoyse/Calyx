@@ -9,6 +9,7 @@ use serde::Serialize;
 use serde_json::json;
 
 mod artifact;
+mod batch_preflight;
 mod fastembed;
 mod fastembed_special;
 mod log;
@@ -39,6 +40,8 @@ struct CommissionReport {
     output_dir: PathBuf,
     manifest: PathBuf,
     conversion_log: PathBuf,
+    max_batch: Option<usize>,
+    batch_policy: calyx_registry::LensForgeBatchPolicy,
     files: Vec<FileReport>,
     registered: AddReport,
 }
@@ -126,6 +129,21 @@ pub(crate) fn commission(args: &[String]) -> CliResult {
         output.source_hf_id.as_deref(),
         &mut log,
     )?;
+    let (max_batch, batch_policy) = match batch_preflight::apply(&flags, &manifest_path, &mut log) {
+        Ok(resolved) => resolved,
+        Err(error) => {
+            // Fail closed: a manifest that never passed the batch preflight
+            // must not linger on disk where a manual `lens add` could
+            // register it around the #1157 gate.
+            let removed = fs::remove_file(&manifest_path);
+            log.event(json!({
+                "event": "batch_preflight_failed_manifest_removed",
+                "manifest": manifest_path,
+                "removed": removed.is_ok(),
+            }))?;
+            return Err(error);
+        }
+    };
     let registered = add_manifest_to_catalog(flags.home.as_deref(), manifest_path.clone())?;
     log.event(json!({
         "event": "registered",
@@ -138,6 +156,8 @@ pub(crate) fn commission(args: &[String]) -> CliResult {
         output_dir: out,
         manifest: manifest_path,
         conversion_log: log.path,
+        max_batch,
+        batch_policy,
         files: output.artifacts.iter().map(file_report).collect(),
         registered,
     })
@@ -377,6 +397,8 @@ fn write_manifest(
         truncate_dim: None,
         recall_delta: calyx_registry::spec::default_recall_delta(),
         max_batch: flags.max_batch,
+        // Resolved by the #1157 batch preflight after this initial write.
+        batch_policy: None,
     };
     let path = out.join(MANIFEST_NAME);
     write_json_file(&path, &manifest)?;
