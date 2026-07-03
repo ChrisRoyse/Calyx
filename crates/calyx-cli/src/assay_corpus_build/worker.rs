@@ -48,11 +48,104 @@ pub(crate) fn measure_requested_lenses(
 ) -> Result<Vec<MeasuredLens>, String> {
     let root = worker_root(&request.out_dir);
     fs::create_dir_all(&root).map_err(io_error)?;
-    let mut measured = Vec::with_capacity(request.manifests.len());
-    for (idx, manifest) in request.manifests.iter().enumerate() {
-        measured.push(run_one_worker(request, rows, idx, manifest, &root)?);
+    if request.lens_parallelism <= 1 {
+        let mut measured = Vec::with_capacity(request.manifests.len());
+        for (idx, manifest) in request.manifests.iter().enumerate() {
+            measured.push(run_one_worker(request, rows, idx, manifest, &root)?);
+        }
+        return Ok(measured);
     }
-    Ok(measured)
+    measure_lenses_parallel(request, rows, &root)
+}
+
+/// #1160: schedule up to `lens_parallelism` single-lens worker processes
+/// concurrently. Lens indices, per-lens reports, and evidence files are
+/// identical to the sequential path; only start order and wall clock change.
+/// The first failing lens fails the build with its own attribution after
+/// in-flight workers drain.
+fn measure_lenses_parallel(
+    request: &CorpusBuildRequest,
+    rows: &BuildRows,
+    root: &Path,
+) -> Result<Vec<MeasuredLens>, String> {
+    use std::sync::mpsc;
+
+    super::parallel::ensure_worker_vram_budget(
+        request.lens_parallelism,
+        request.worker_gpu_mem_limit_mib,
+    )
+    .map_err(|message| worker_error("CALYX_FSV_ASSAY_CORPUS_BUILD_PARALLEL_VRAM", message))?;
+    let order = super::parallel::interleaved_start_order(&request.manifests);
+    let limit = request.lens_parallelism.min(request.manifests.len());
+    eprintln!(
+        "{}",
+        json!({
+            "event": "assay_corpus_build_lens_parallelism",
+            "lens_parallelism": limit,
+            "lens_total": request.manifests.len(),
+            "start_order": order,
+        })
+    );
+    let mut measured: Vec<Option<MeasuredLens>> = Vec::new();
+    measured.resize_with(request.manifests.len(), || None);
+    let mut failures: Vec<(usize, String)> = Vec::new();
+    std::thread::scope(|scope| {
+        let (sender, receiver) = mpsc::channel::<(usize, Result<MeasuredLens, String>)>();
+        let mut queue = order.into_iter();
+        let mut in_flight = 0usize;
+        loop {
+            while in_flight < limit && failures.is_empty() {
+                let Some(idx) = queue.next() else { break };
+                let sender = sender.clone();
+                let manifest = &request.manifests[idx];
+                scope.spawn(move || {
+                    let outcome = run_one_worker(request, rows, idx, manifest, root);
+                    let _ = sender.send((idx, outcome));
+                });
+                in_flight += 1;
+            }
+            if in_flight == 0 {
+                break;
+            }
+            let Ok((idx, outcome)) = receiver.recv() else {
+                failures.push((
+                    usize::MAX,
+                    "lens worker scheduler channel closed unexpectedly".to_string(),
+                ));
+                break;
+            };
+            in_flight -= 1;
+            match outcome {
+                Ok(lens) => measured[idx] = Some(lens),
+                Err(error) => failures.push((idx, error)),
+            }
+        }
+    });
+    if let Some((idx, error)) = failures.first() {
+        for (other_idx, other_error) in failures.iter().skip(1) {
+            eprintln!(
+                "{}",
+                json!({
+                    "event": "assay_corpus_build_worker_also_failed",
+                    "lens_index": other_idx,
+                    "error": other_error,
+                })
+            );
+        }
+        return Err(format!("lens_index={idx}: {error}"));
+    }
+    measured
+        .into_iter()
+        .enumerate()
+        .map(|(idx, lens)| {
+            lens.ok_or_else(|| {
+                worker_error(
+                    "CALYX_FSV_ASSAY_CORPUS_BUILD_WORKER_MISSING",
+                    format!("lens worker {idx} produced no report and no error"),
+                )
+            })
+        })
+        .collect()
 }
 
 fn run_one_worker(
@@ -70,6 +163,11 @@ fn run_one_worker(
     let stderr = File::create(&stderr_path).map_err(io_error)?;
     let mut command = Command::new(env::current_exe().map_err(io_error)?);
     add_worker_args(&mut command, request, manifest, &report);
+    if let Some(limit_mib) = request.worker_gpu_mem_limit_mib {
+        // #1160/#1143: every co-resident worker session gets an explicit CUDA
+        // arena budget so K-way parallelism fails at a defined limit.
+        command.env(super::parallel::GPU_MEM_LIMIT_ENV, limit_mib.to_string());
+    }
     eprintln!(
         "{}",
         json!({

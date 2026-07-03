@@ -43,6 +43,8 @@ pub(crate) struct Args {
     pub(crate) mode: StreamMode,
     pub(crate) worker_report: Option<PathBuf>,
     pub(crate) worker_slot: Option<usize>,
+    pub(crate) lens_parallelism: usize,
+    pub(crate) worker_gpu_mem_limit_mib: Option<usize>,
 }
 
 impl Args {
@@ -63,6 +65,8 @@ impl Args {
         let mut mode = StreamMode::Gate;
         let mut worker_report = None;
         let mut worker_slot = None;
+        let mut lens_parallelism = 1usize;
+        let mut worker_gpu_mem_limit_mib = None;
         let mut it = raw.iter();
         while let Some(flag) = it.next() {
             let mut next = || {
@@ -88,6 +92,10 @@ impl Args {
                 "--diagnostic" | "--baseline" => mode = StreamMode::Diagnostic,
                 "--worker-report" => worker_report = Some(PathBuf::from(next()?)),
                 "--worker-slot" => worker_slot = Some(parse_usize(&next()?, flag)?),
+                "--lens-parallelism" => lens_parallelism = parse_usize(&next()?, flag)?,
+                "--worker-gpu-mem-limit-mib" => {
+                    worker_gpu_mem_limit_mib = Some(parse_usize(&next()?, flag)?);
+                }
                 other => {
                     return Err(CliError::usage(format!(
                         "unknown assay stream-fbin arg: {other}"
@@ -116,6 +124,8 @@ impl Args {
             mode,
             worker_report,
             worker_slot,
+            lens_parallelism,
+            worker_gpu_mem_limit_mib,
         };
         args.validate()?;
         Ok(args)
@@ -133,6 +143,8 @@ impl Args {
             cost_override_json: self.cost_override_json.clone(),
             embedding_model_id: self.embedding_model_id.clone(),
             worker_report: None,
+            lens_parallelism: self.lens_parallelism,
+            worker_gpu_mem_limit_mib: self.worker_gpu_mem_limit_mib,
         }
     }
 
@@ -165,6 +177,17 @@ impl Args {
             return Err(CliError::usage(
                 "--min-bits must be finite and non-negative",
             ));
+        }
+        if self.lens_parallelism == 0 {
+            return Err(CliError::usage("--lens-parallelism must be > 0"));
+        }
+        if worker_mode && self.lens_parallelism != 1 {
+            return Err(CliError::usage(
+                "--lens-parallelism applies to the parent stream-fbin command, not workers",
+            ));
+        }
+        if matches!(self.worker_gpu_mem_limit_mib, Some(0)) {
+            return Err(CliError::usage("--worker-gpu-mem-limit-mib must be > 0"));
         }
         Ok(())
     }

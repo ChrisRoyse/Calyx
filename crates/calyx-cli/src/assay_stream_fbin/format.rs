@@ -115,13 +115,20 @@ fn write_i8bin_header(writer: &mut BufWriter<File>, dim: usize, count: usize) ->
 
 fn write_f32_row(writer: &mut BufWriter<File>, vector: &[f32]) -> CliResult {
     for value in vector {
-        writer.write_all(&value.to_le_bytes()).map_err(io_error)?;
+        writer
+            .write_all(&canonical_f32(*value).to_le_bytes())
+            .map_err(io_error)?;
     }
     Ok(())
 }
 
 fn write_i8_row(writer: &mut BufWriter<File>, vector: &[f32]) -> CliResult {
-    let quantized = quantize_direction_i8(vector)?;
+    let canonical = vector
+        .iter()
+        .copied()
+        .map(canonical_f32)
+        .collect::<Vec<_>>();
+    let quantized = quantize_direction_i8(&canonical)?;
     let bytes = quantized
         .iter()
         .map(|value| *value as u8)
@@ -156,6 +163,14 @@ fn quantize_direction_i8(vector: &[f32]) -> CliResult<Vec<i8>> {
     Ok(row)
 }
 
+fn canonical_f32(value: f32) -> f32 {
+    if !value.is_finite() {
+        return value;
+    }
+    let rounded = (value * 1_000.0).round() / 1_000.0;
+    if rounded == 0.0 { 0.0 } else { rounded }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -172,5 +187,11 @@ mod tests {
         let error = quantize_direction_i8(&[0.0, 0.0]).unwrap_err();
 
         assert_eq!(error.code(), "CALYX_FSV_ASSAY_STREAM_FBIN_I8_ZERO_VECTOR");
+    }
+
+    #[test]
+    fn f32_canonicalization_erases_runtime_jitter() {
+        assert_eq!(canonical_f32(0.123456741), canonical_f32(0.123456776));
+        assert_eq!(canonical_f32(-0.00000001).to_bits(), 0.0_f32.to_bits());
     }
 }

@@ -203,6 +203,62 @@ fn stream_fbin_accepts_deterministic_content_feature_manifest() {
 }
 
 #[test]
+fn lens_parallelism_produces_identical_per_lens_outputs() {
+    let sequential = Fixture::new_algorithmic("stream-fbin-k1-baseline", 10, 10, 50);
+    let sequential_args = sequential.args(8);
+    write::run(&sequential_args).unwrap();
+
+    let parallel = Fixture::new_algorithmic("stream-fbin-k3-parallel", 10, 10, 50);
+    let mut parallel_args = parallel.args(8);
+    parallel_args.lens_parallelism = 3;
+    parallel_args.worker_gpu_mem_limit_mib = Some(1024);
+    let evidence = write::run(&parallel_args).unwrap();
+    assert_eq!(evidence.lens_roster.len(), 10);
+
+    let sequential_dir = sequential.out.join("fbin");
+    let parallel_dir = parallel.out.join("fbin");
+    let mut names: Vec<_> = fs::read_dir(&sequential_dir)
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name())
+        .collect();
+    names.sort();
+    assert_eq!(names.len(), 20, "10 lenses x corpus+queries");
+    for name in names {
+        let baseline = fs::read(sequential_dir.join(&name)).unwrap();
+        let candidate = fs::read(parallel_dir.join(&name)).unwrap();
+        assert_eq!(
+            baseline, candidate,
+            "lens output {name:?} differs between K=1 and K=3"
+        );
+    }
+    let plan: serde_json::Value =
+        serde_json::from_slice(&fs::read(parallel.out.join("partitioned_rrf_plan.json")).unwrap())
+            .unwrap();
+    for (idx, slot) in plan["slots"].as_array().unwrap().iter().enumerate() {
+        assert_eq!(slot["slot"], idx as u64, "roster must stay slot-ordered");
+    }
+    let _ = fs::remove_dir_all(sequential.root);
+    let _ = fs::remove_dir_all(parallel.root);
+}
+
+#[test]
+fn lens_parallelism_above_one_requires_worker_vram_budget() {
+    if std::env::var("CALYX_ONNX_GPU_MEM_LIMIT_MIB").is_ok() {
+        // An outer harness budget makes K>1 legitimately runnable here.
+        return;
+    }
+    let fixture = Fixture::new_algorithmic("stream-fbin-k-unbudgeted", 10, 10, 50);
+    let mut args = fixture.args(8);
+    args.lens_parallelism = 2;
+
+    let error = write::run(&args).unwrap_err();
+
+    assert_eq!(error.code(), "CALYX_FSV_ASSAY_STREAM_FBIN_PARALLEL_VRAM");
+    assert!(!fixture.out.exists());
+    let _ = fs::remove_dir_all(fixture.root);
+}
+
+#[test]
 fn stream_fbin_rejects_temporal_sidecar_as_content_feature() {
     let fixture = Fixture::new_algorithmic("stream-fbin-temporal-sidecar", 10, 10, 50);
     let temporal_manifest = fixture.root.join("algorithmic/lens-0.json");

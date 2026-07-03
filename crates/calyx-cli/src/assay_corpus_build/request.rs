@@ -14,6 +14,8 @@ pub(crate) struct CorpusBuildRequest {
     pub(crate) cost_override_json: Option<PathBuf>,
     pub(crate) embedding_model_id: Option<String>,
     pub(crate) worker_report: Option<PathBuf>,
+    pub(crate) lens_parallelism: usize,
+    pub(crate) worker_gpu_mem_limit_mib: Option<usize>,
 }
 
 impl CorpusBuildRequest {
@@ -28,6 +30,8 @@ impl CorpusBuildRequest {
         let mut cost_override_json = None;
         let mut embedding_model_id = None;
         let mut worker_report = None;
+        let mut lens_parallelism = 1usize;
+        let mut worker_gpu_mem_limit_mib = None;
         let mut idx = 0;
         while idx < args.len() {
             match args[idx].as_str() {
@@ -73,6 +77,15 @@ impl CorpusBuildRequest {
                     worker_report = Some(PathBuf::from(value(args, idx, "--worker-report")?));
                     idx += 2;
                 }
+                "--lens-parallelism" => {
+                    lens_parallelism = parse_usize(args, idx, "--lens-parallelism")?;
+                    idx += 2;
+                }
+                "--worker-gpu-mem-limit-mib" => {
+                    worker_gpu_mem_limit_mib =
+                        Some(parse_usize(args, idx, "--worker-gpu-mem-limit-mib")?);
+                    idx += 2;
+                }
                 other => return Err(format!("unknown assay corpus-build arg: {other}")),
             }
         }
@@ -87,6 +100,8 @@ impl CorpusBuildRequest {
             cost_override_json,
             embedding_model_id,
             worker_report,
+            lens_parallelism,
+            worker_gpu_mem_limit_mib,
         };
         request.validate()?;
         Ok(request)
@@ -133,6 +148,24 @@ impl CorpusBuildRequest {
         {
             return Err(
                 "CALYX_FSV_ASSAY_CORPUS_BUILD_INVALID_CONFIG: --embedding-model-id must be non-empty"
+                    .to_string(),
+            );
+        }
+        if self.lens_parallelism == 0 {
+            return Err(
+                "CALYX_FSV_ASSAY_CORPUS_BUILD_INVALID_CONFIG: --lens-parallelism must be > 0"
+                    .to_string(),
+            );
+        }
+        if self.worker_report.is_some() && self.lens_parallelism != 1 {
+            return Err(
+                "CALYX_FSV_ASSAY_CORPUS_BUILD_INVALID_CONFIG: --lens-parallelism applies to the parent corpus-build command, not workers"
+                    .to_string(),
+            );
+        }
+        if matches!(self.worker_gpu_mem_limit_mib, Some(0)) {
+            return Err(
+                "CALYX_FSV_ASSAY_CORPUS_BUILD_INVALID_CONFIG: --worker-gpu-mem-limit-mib must be > 0"
                     .to_string(),
             );
         }

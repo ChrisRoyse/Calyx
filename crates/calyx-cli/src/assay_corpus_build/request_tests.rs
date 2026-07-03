@@ -50,6 +50,8 @@ fn corpus_build_writes_single_manifest_candidate_outputs() {
         cost_override_json: None,
         embedding_model_id: None,
         worker_report: None,
+        lens_parallelism: 1,
+        worker_gpu_mem_limit_mib: None,
     };
 
     let rows = data::load_rows(&request).unwrap();

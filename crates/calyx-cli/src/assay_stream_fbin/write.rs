@@ -16,6 +16,7 @@ use super::{io_error, local_error};
 mod bits;
 mod evidence;
 mod panel;
+mod parallel;
 mod paths;
 mod pre_gate;
 mod progress;
@@ -104,15 +105,8 @@ fn run_staged(
         lenses.len(),
         staging,
     )?;
-    for (slot, selected) in lenses.into_iter().enumerate() {
-        let meta = worker::lens_meta(args, slot, &selected)?;
-        progress.lens_started(&meta)?;
-        let report = worker::run_one_worker(args, stats, slot, &selected, staging, &worker_root)?;
-        progress.lens_finished(
-            report.corpus_rows_written,
-            report.query_rows_written,
-            report.elapsed_ms,
-        )?;
+    let reports = parallel::run_lenses(args, stats, lenses, staging, &worker_root, &mut progress)?;
+    for report in reports {
         roster.push(report.into_lens_evidence(args)?);
     }
     write_plan(

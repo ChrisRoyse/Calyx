@@ -161,7 +161,12 @@ fn write_vectors(rows: &BuildRows, lenses: &[MeasuredLens], path: &Path) -> Resu
     for (row_idx, row) in rows.rows.iter().enumerate() {
         let mut lens_map = serde_json::Map::new();
         for lens in lenses {
-            lens_map.insert(lens.name.clone(), json!(lens.vectors[row_idx]));
+            let vector = lens.vectors[row_idx]
+                .iter()
+                .copied()
+                .map(canonical_f32)
+                .collect::<Vec<_>>();
+            lens_map.insert(lens.name.clone(), json!(vector));
         }
         let line = json!({
             "id": row.id,
@@ -181,6 +186,14 @@ fn write_vectors(rows: &BuildRows, lenses: &[MeasuredLens], path: &Path) -> Resu
         writer.write_all(b"\n").map_err(io_error)?;
     }
     writer.flush().map_err(io_error)
+}
+
+fn canonical_f32(value: f32) -> f32 {
+    if !value.is_finite() {
+        return value;
+    }
+    let rounded = (value * 1_000.0).round() / 1_000.0;
+    if rounded == 0.0 { 0.0 } else { rounded }
 }
 
 fn temporal_evidence(rows: &BuildRows) -> TemporalEvidence {

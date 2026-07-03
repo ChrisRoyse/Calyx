@@ -6,6 +6,7 @@
 
 mod data;
 pub(crate) mod lens;
+pub(crate) mod parallel;
 pub(crate) mod request;
 mod worker;
 mod write;
@@ -29,3 +30,5 @@ pub(crate) fn run(args: &[String]) -> CliResult {
 mod request_tests;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_parallel;

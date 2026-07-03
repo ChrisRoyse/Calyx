@@ -71,6 +71,8 @@ impl Fixture {
             mode: StreamMode::Gate,
             worker_report: None,
             worker_slot: None,
+            lens_parallelism: 1,
+            worker_gpu_mem_limit_mib: None,
         }
     }
 }

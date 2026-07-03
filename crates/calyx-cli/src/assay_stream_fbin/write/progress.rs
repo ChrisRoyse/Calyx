@@ -60,6 +60,9 @@ struct ProgressState {
     completed_corpus_rows: usize,
     completed_query_rows: usize,
     current_lens: Option<LensProgress>,
+    /// #1160: lenses in flight under `--lens-parallelism` > 1, slot-sorted.
+    /// Always empty on the sequential path so K=1 snapshots stay identical.
+    in_flight: Vec<LensProgress>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -107,6 +110,8 @@ struct Snapshot<'a> {
     completed_query_rows: usize,
     current_lens: Option<&'a LensProgress>,
     current_lens_elapsed_ms: Option<u64>,
+    #[serde(skip_serializing_if = "<[_]>::is_empty")]
+    in_flight_lenses: &'a [LensProgress],
     total_lens_corpus_rows_expected: usize,
     total_lens_query_rows_expected: usize,
     percent_complete_basis: &'static str,
@@ -147,6 +152,7 @@ impl ProgressLog {
                 completed_corpus_rows: 0,
                 completed_query_rows: 0,
                 current_lens: None,
+                in_flight: Vec::new(),
             },
             sequence: 0,
             last_snapshot_row: 0,
@@ -156,25 +162,60 @@ impl ProgressLog {
     }
 
     pub(super) fn lens_started(&mut self, lens: &LensProgressMeta) -> CliResult {
-        let started_unix_ms = unix_ms()?;
-        self.state.current_lens = Some(LensProgress {
-            slot: u16::try_from(lens.slot).map_err(|_| CliError::usage("slot exceeds u16"))?,
-            name: lens.name.clone(),
-            lens_id: lens.lens_id.clone(),
-            weights_sha256: lens.weights_sha256.clone(),
-            bits_about: lens.bits_about,
-            dim: lens.dim,
-            max_batch: lens.max_batch,
-            effective_batch_size: lens.effective_batch_size,
-            manifest: lens.manifest.clone(),
-            started_unix_ms,
-            elapsed_ms: None,
-            corpus_rows_written: 0,
-            query_rows_written: 0,
-            last_row_idx: None,
-        });
+        self.state.current_lens = Some(lens_progress(lens)?);
         self.last_snapshot_row = 0;
         self.write_snapshot("lens_started")
+    }
+
+    /// #1160 parallel path: track the started lens in the slot-sorted
+    /// in-flight set; `current_lens` mirrors the lowest in-flight slot so
+    /// consumers of the v1 schema keep a meaningful value.
+    pub(super) fn lens_started_slot(&mut self, lens: &LensProgressMeta) -> CliResult {
+        let progress = lens_progress(lens)?;
+        self.state.in_flight.push(progress);
+        self.state.in_flight.sort_by_key(|lens| lens.slot);
+        self.state.current_lens = self.state.in_flight.first().cloned();
+        self.write_snapshot("lens_started")
+    }
+
+    /// #1160 parallel path: settle one slot's completion.
+    pub(super) fn lens_finished_slot(
+        &mut self,
+        slot: u16,
+        corpus_rows_written: usize,
+        query_rows_written: usize,
+        elapsed_ms: u64,
+    ) -> CliResult {
+        let Some(position) = self
+            .state
+            .in_flight
+            .iter()
+            .position(|lens| lens.slot == slot)
+        else {
+            return Err(local_error(
+                "CALYX_FSV_ASSAY_STREAM_FBIN_PROGRESS_SLOT",
+                format!("slot {slot} finished without a matching lens_started record"),
+                "fix the stream-fbin scheduler before trusting progress output",
+            ));
+        };
+        let mut finished = self.state.in_flight.remove(position);
+        finished.corpus_rows_written = corpus_rows_written;
+        finished.query_rows_written = query_rows_written;
+        finished.elapsed_ms = Some(elapsed_ms);
+        finished.last_row_idx = corpus_rows_written.checked_sub(1);
+        self.state.lenses_completed += 1;
+        self.state.completed_corpus_rows += corpus_rows_written;
+        self.state.completed_query_rows += query_rows_written;
+        self.state.current_lens = self.state.in_flight.first().cloned().or(Some(finished));
+        self.write_snapshot("lens_finished")
+    }
+
+    /// #1160 parallel path: a slot failed; remove it from the in-flight set
+    /// without counting it complete so the failure stays visible in totals.
+    pub(super) fn lens_failed_slot(&mut self, slot: u16) -> CliResult {
+        self.state.in_flight.retain(|lens| lens.slot != slot);
+        self.state.current_lens = self.state.in_flight.first().cloned();
+        self.write_snapshot("lens_failed")
     }
 
     pub(super) fn batch_written(
@@ -286,12 +327,32 @@ impl ProgressLog {
             completed_query_rows: self.state.completed_query_rows,
             current_lens: self.state.current_lens.as_ref(),
             current_lens_elapsed_ms,
+            in_flight_lenses: &self.state.in_flight,
             total_lens_corpus_rows_expected: expected_corpus,
             total_lens_query_rows_expected: expected_queries,
             percent_complete_basis: "completed_content_lens_corpus_rows",
             percent_complete,
         })
     }
+}
+
+fn lens_progress(lens: &LensProgressMeta) -> CliResult<LensProgress> {
+    Ok(LensProgress {
+        slot: u16::try_from(lens.slot).map_err(|_| CliError::usage("slot exceeds u16"))?,
+        name: lens.name.clone(),
+        lens_id: lens.lens_id.clone(),
+        weights_sha256: lens.weights_sha256.clone(),
+        bits_about: lens.bits_about,
+        dim: lens.dim,
+        max_batch: lens.max_batch,
+        effective_batch_size: lens.effective_batch_size,
+        manifest: lens.manifest.clone(),
+        started_unix_ms: unix_ms()?,
+        elapsed_ms: None,
+        corpus_rows_written: 0,
+        query_rows_written: 0,
+        last_row_idx: None,
+    })
 }
 
 fn unix_ms() -> CliResult<u64> {
@@ -355,6 +416,7 @@ mod tests {
                 completed_corpus_rows: 0,
                 completed_query_rows: 0,
                 current_lens: None,
+                in_flight: Vec::new(),
             },
             sequence: 0,
             last_snapshot_row: 10_000,

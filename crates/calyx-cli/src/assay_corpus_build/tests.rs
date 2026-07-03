@@ -43,6 +43,8 @@ fn corpus_build_measures_algorithmic_code_and_sparse_lenses() {
         cost_override_json: None,
         embedding_model_id: Some("calyx-algorithmic-code+sparse".to_string()),
         worker_report: None,
+        lens_parallelism: 1,
+        worker_gpu_mem_limit_mib: None,
     };
 
     let rows = data::load_rows(&request).unwrap();
@@ -173,6 +175,8 @@ fn corpus_build_measures_input_path_bytes_for_image_rows() {
         cost_override_json: None,
         embedding_model_id: Some("calyx-image-path-bytes".to_string()),
         worker_report: None,
+        lens_parallelism: 1,
+        worker_gpu_mem_limit_mib: None,
     };
 
     let loaded = data::load_rows(&request).unwrap();
@@ -232,6 +236,8 @@ fn corpus_build_worker_writes_single_lens_report() {
         cost_override_json: None,
         embedding_model_id: None,
         worker_report: Some(report.clone()),
+        lens_parallelism: 1,
+        worker_gpu_mem_limit_mib: None,
     };
 
     worker::run_worker(&request).unwrap();
@@ -388,6 +394,8 @@ fn rows_request(rows_jsonl: &Path, out_dir: &Path) -> CorpusBuildRequest {
         cost_override_json: None,
         embedding_model_id: None,
         worker_report: None,
+        lens_parallelism: 1,
+        worker_gpu_mem_limit_mib: None,
     }
 }
 

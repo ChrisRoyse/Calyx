@@ -186,6 +186,14 @@ fn run_worker_process(
 ) -> Result<ExitStatus, crate::error::CliError> {
     let mut command = Command::new(env::current_exe().map_err(io_error)?);
     add_worker_args(&mut command, args, selected, slot, staging, report);
+    if let Some(limit_mib) = args.worker_gpu_mem_limit_mib {
+        // #1160/#1143: every co-resident worker session gets an explicit CUDA
+        // arena budget so K-way parallelism fails at a defined limit.
+        command.env(
+            crate::assay_corpus_build::parallel::GPU_MEM_LIMIT_ENV,
+            limit_mib.to_string(),
+        );
+    }
     command
         .stdout(stdout)
         .stderr(stderr)
