@@ -145,38 +145,22 @@ fn measure(
 ) -> CliResult<MeasureResponse> {
     let started = Instant::now();
     let input = Input::new(modality, bytes);
-    let mut measured = 0;
-    let mut absent = 0;
-    let mut slots = Vec::new();
-    for slot in &service.state.build.panel.slots {
-        let (measured_slot, vector, absent_reason) = if slot.state != SlotState::Active {
-            (false, None, Some(AbsentReason::LensInactive))
-        } else if slot.modality != modality {
-            (false, None, Some(AbsentReason::NotApplicable))
-        } else if !service.state.build.registry.contains(slot.lens_id) {
-            (false, None, Some(AbsentReason::LensUnavailable))
-        } else {
-            let vector = service.state.build.registry.measure(slot.lens_id, &input)?;
-            (true, Some(vector), None)
-        };
-        if measured_slot {
-            measured += 1;
-        } else {
-            absent += 1;
-        }
-        slots.push(slot_measure(slot, measured_slot, vector, absent_reason));
-    }
+    // #1153: single-input measure fans out across slots exactly like the
+    // batch path — one warm panel walk, all runnable lenses concurrent.
+    let measured_by_lens =
+        super::parallel::measure_chunk_lenses(service, modality, std::slice::from_ref(&input))?;
+    let row = super::stream::assemble_row(service, modality, &measured_by_lens, 0, 0, &input)?;
     Ok(MeasureResponse {
         schema: MEASURE_SCHEMA.to_string(),
         ready: true,
         process_id: std::process::id(),
         template_source: service.state.template_source.clone(),
         modality,
-        input_len: input.bytes.len(),
+        input_len: row.input_len,
         elapsed_ms: started.elapsed().as_millis(),
-        measured_slot_count: measured,
-        absent_slot_count: absent,
-        slots,
+        measured_slot_count: row.measured_slot_count,
+        absent_slot_count: row.absent_slot_count,
+        slots: row.slots,
     })
 }
 
