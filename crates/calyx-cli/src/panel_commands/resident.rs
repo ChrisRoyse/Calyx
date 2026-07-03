@@ -50,6 +50,7 @@ const MAX_RESIDENT_SERVICE_FRAME_BYTES: usize = 2 * 1024 * 1024 * 1024;
 mod client;
 mod codec;
 mod dispatch;
+mod parallel;
 mod server;
 mod stream;
 

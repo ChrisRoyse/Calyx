@@ -11,6 +11,7 @@
 
 use super::codec::{decode_binary, encode_binary, read_frame, write_frame};
 use super::dispatch::slot_measure;
+use super::parallel::measure_chunk_lenses;
 use super::server::ResidentService;
 use super::*;
 
@@ -75,49 +76,7 @@ pub(super) fn measure_batch_chunked(
     Ok(elapsed_ms)
 }
 
-fn measure_chunk_lenses(
-    service: &ResidentService,
-    modality: Modality,
-    chunk: &[Input],
-) -> CliResult<BTreeMap<LensId, Vec<SlotVector>>> {
-    let mut measured_by_lens = BTreeMap::<LensId, Vec<SlotVector>>::new();
-    for slot in &service.state.build.panel.slots {
-        if slot.state != SlotState::Active
-            || slot.modality != modality
-            || !service.state.build.registry.contains(slot.lens_id)
-            || measured_by_lens.contains_key(&slot.lens_id)
-        {
-            continue;
-        }
-        let lens_started = Instant::now();
-        let vectors = service
-            .state
-            .build
-            .registry
-            .measure_batch(slot.lens_id, chunk)?;
-        if vectors.len() != chunk.len() {
-            return Err(CalyxError::lens_dim_mismatch(format!(
-                "resident measure_batch lens {} returned {} vectors for {} inputs",
-                slot.lens_id,
-                vectors.len(),
-                chunk.len()
-            ))
-            .into());
-        }
-        eprintln!(
-            "CALYX_PANEL_RESIDENT_RUNTIME phase=measure_batch_lens_ok process_id={} lens_id={} slot={} inputs={} elapsed_ms={}",
-            std::process::id(),
-            slot.lens_id,
-            slot.slot_id.get(),
-            chunk.len(),
-            lens_started.elapsed().as_millis()
-        );
-        measured_by_lens.insert(slot.lens_id, vectors);
-    }
-    Ok(measured_by_lens)
-}
-
-fn assemble_row(
+pub(super) fn assemble_row(
     service: &ResidentService,
     modality: Modality,
     measured_by_lens: &BTreeMap<LensId, Vec<SlotVector>>,
