@@ -6,7 +6,7 @@
 use std::sync::{Mutex, MutexGuard};
 
 use super::super::fastembed_runtime::execution_providers;
-use super::super::{OnnxProviderPolicy, io_binding};
+use super::super::{OnnxProviderPolicy, arena, io_binding};
 
 static ARENA_ENV_LOCK: Mutex<()> = Mutex::new(());
 
@@ -43,7 +43,7 @@ fn gpu_mem_limit_env_applies_and_fails_closed_on_garbage() {
     // SAFETY: single-threaded within the arena env lock; restored before unlock.
     unsafe { std::env::set_var("CALYX_ONNX_GPU_MEM_LIMIT_MIB", "4096") };
     assert_eq!(
-        io_binding::configured_gpu_mem_limit().unwrap(),
+        arena::configured_gpu_mem_limit().unwrap(),
         Some(4096 * 1024 * 1024)
     );
     assert!(execution_providers(OnnxProviderPolicy::CudaFailLoud).is_ok());
@@ -57,7 +57,7 @@ fn gpu_mem_limit_env_applies_and_fails_closed_on_garbage() {
     assert_eq!(error.code, "CALYX_ONNX_GPU_MEM_LIMIT_INVALID");
 
     unsafe { std::env::remove_var("CALYX_ONNX_GPU_MEM_LIMIT_MIB") };
-    assert_eq!(io_binding::configured_gpu_mem_limit().unwrap(), None);
+    assert_eq!(arena::configured_gpu_mem_limit().unwrap(), None);
     assert!(execution_providers(OnnxProviderPolicy::CudaFailLoud).is_ok());
 }
 

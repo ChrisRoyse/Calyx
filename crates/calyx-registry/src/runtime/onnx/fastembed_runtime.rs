@@ -175,7 +175,7 @@ pub fn execution_providers_on_device(
                 .with_conv_algorithm_search(ConvAlgorithmSearch::Heuristic)
                 .with_conv_max_workspace(false)
                 .with_arena_extend_strategy(ArenaExtendStrategy::SameAsRequested);
-            if let Some(limit) = super::io_binding::configured_gpu_mem_limit()? {
+            if let Some(limit) = super::arena::configured_gpu_mem_limit()? {
                 cuda = cuda.with_memory_limit(limit);
             }
             Ok(vec![cuda.build().error_on_failure()])
