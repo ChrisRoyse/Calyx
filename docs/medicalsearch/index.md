@@ -96,4 +96,5 @@ still requires experimental confirmation.
 | `72_generated_candidate_falsification_sweep.md` | #1223 generated disease-hunt candidate falsification sweep | complete FSV for one flag per generated candidate, support/counter evidence, fail-closed safety/trial blocks, and native Calyx bridge-corpus materialization |
 | `73_human_review_biomedical_hypothesis_atlas.md` | #1193 human-review biomedical hypothesis atlas | complete FSV for 1,877 hypothesis-only atlas rows, filters, evidence bundles, review statuses, and native Calyx bridge-corpus materialization |
 | `74_drug_combination_hypotheses.md` | #1190 drug-combination and synergy hypothesis miner | complete FSV for 1,750 fail-closed combination rows, DrugComb exact-pair matches, safety/interaction flags, and native Calyx bridge-corpus materialization |
+| `75_nci_almanac_external_synergy.md` | #1229 NCI ALMANAC external combination evidence ingest | complete FSV for ALMANAC source bytes, 306,365 atomic cell-line combo-score rows, 1,750 candidate joins, and native Calyx bridge-corpus materialization |
 | (added as work proceeds) | | |
