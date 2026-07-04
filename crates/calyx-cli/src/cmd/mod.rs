@@ -1,3 +1,4 @@
+mod association_validation;
 mod bridge_corpus;
 mod build_info;
 mod chain_walks;
@@ -52,6 +53,7 @@ propose-lens provenance verify-chain reproduce anneal-status rebuild-search-inde
 weave-loom domain-bridges materialize-bridge-corpus discovery-chain chain-walks probe-matrix \
 spectral-communities materialize-graph-csr materialize-molecular-vault \
 materialize-evidence-substrate materialize-lincs-reversal \
+association-validation-gates \
 graph-collection-generations graph-collection-state";
 
 #[derive(Clone, Debug, PartialEq)]
@@ -94,6 +96,7 @@ pub(crate) enum Subcommand {
     MaterializeMolecularVault(molecular_vault::MaterializeMolecularVaultArgs),
     MaterializeEvidenceSubstrate(evidence_substrate::MaterializeEvidenceSubstrateArgs),
     MaterializeLincsReversal(lincs_reversal::MaterializeLincsReversalArgs),
+    AssociationValidationGates(association_validation::AssociationValidationArgs),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -247,6 +250,7 @@ fn run(command: Subcommand) -> CliResult {
         Subcommand::MaterializeMolecularVault(_) => molecular_vault::run(command),
         Subcommand::MaterializeEvidenceSubstrate(_) => evidence_substrate::run(command),
         Subcommand::MaterializeLincsReversal(_) => lincs_reversal::run(command),
+        Subcommand::AssociationValidationGates(_) => association_validation::run(command),
     }
 }
 
@@ -295,6 +299,9 @@ pub(crate) fn parse(args: &[String]) -> CliResult<Subcommand> {
             evidence_substrate::parse_materialize_evidence_substrate(rest)
         }
         "materialize-lincs-reversal" => lincs_reversal::parse_materialize_lincs_reversal(rest),
+        "association-validation-gates" => {
+            association_validation::parse_association_validation_gates(rest)
+        }
         other => Err(CliError::usage(format!("unknown PH62 command {other}"))),
     }
 }

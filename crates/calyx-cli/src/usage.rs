@@ -57,6 +57,7 @@ pub(crate) fn usage() -> &'static str {
        calyx materialize-molecular-vault <vault> --rows <jsonl> [--home <dir>]
        calyx materialize-evidence-substrate <vault> --pubtator-root <dir> --clinicaltrials-root <dir> --dgidb-root <dir> [--collection <name>] [--report <json>] [--home <dir>]
        calyx materialize-lincs-reversal <vault> --root <dir> [--metadata-root <dir>] [--collection <name>] [--report <json>] [--home <dir>]
+       calyx association-validation-gates --typed-root <dir> --open-targets-root <dir> --pubtator-root <dir> --clinicaltrials-root <dir> --dgidb-root <dir> --out-dir <dir> [--cutoff-year <yyyy>] [--score-threshold <0..1>] [--min-auroc <0..1>] [--min-positive-recall <0..1>] [--min-negative-suppression <0..1>]
        calyx graph-collection-generations <vault> [--collection <name>] [--home <dir>]
        calyx graph-collection-state <vault> --collection <name> --generation <id> --state <writing|accepted|failed|tombstoned> --command <name> [--reason <text>] [--detail <k=v>] [--home <dir>]
        calyx reproduce <vault> <answer_id>
