@@ -1,5 +1,5 @@
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -16,6 +16,7 @@ use crate::output::print_json;
 mod support;
 use support::{index_path, now_ms, relative_to_home, retire_error};
 mod index;
+mod supersession;
 
 use index::{
     active_position, active_vault_count, push_retired_record, read_index_value, required_entry_str,
@@ -37,6 +38,19 @@ const REMEDIATION: &str = "inspect vaults/index.json, the vault CURRENT/manifest
 pub(crate) struct RetireVaultArgs {
     pub(crate) vault: String,
     pub(crate) reason: String,
+    pub(crate) superseded_by: Option<String>,
+    pub(crate) source_issue: Option<String>,
+    pub(crate) fsv_readback: Option<PathBuf>,
+    pub(crate) fsv_sha256: Option<String>,
+}
+
+impl RetireVaultArgs {
+    fn supersession_requested(&self) -> bool {
+        self.superseded_by.is_some()
+            || self.source_issue.is_some()
+            || self.fsv_readback.is_some()
+            || self.fsv_sha256.is_some()
+    }
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -82,7 +96,7 @@ struct VaultRetirementRecord {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
-struct FileEvidence {
+pub(super) struct FileEvidence {
     path: String,
     sha256: String,
     bytes: u64,
@@ -91,9 +105,17 @@ struct FileEvidence {
 pub(crate) fn parse_retire_vault(rest: &[String]) -> CliResult<Subcommand> {
     let vault = rest
         .first()
-        .ok_or_else(|| CliError::usage("retire-vault requires <vault> --reason <text>"))?
+        .ok_or_else(|| {
+            CliError::usage(
+                "retire-vault requires <vault> --reason <text> [--superseded-by <vault> --source-issue <issue> --fsv-readback <json> --fsv-sha256 <sha256>]",
+            )
+        })?
         .clone();
     let mut reason = None;
+    let mut superseded_by = None;
+    let mut source_issue = None;
+    let mut fsv_readback = None;
+    let mut fsv_sha256 = None;
     let mut index = 1;
     while index < rest.len() {
         match rest[index].as_str() {
@@ -102,6 +124,37 @@ pub(crate) fn parse_retire_vault(rest: &[String]) -> CliResult<Subcommand> {
                 reason = Some(
                     rest.get(index)
                         .ok_or_else(|| CliError::usage("--reason requires a value"))?
+                        .clone(),
+                );
+            }
+            "--superseded-by" | "--replacement-vault" => {
+                index += 1;
+                superseded_by = Some(
+                    rest.get(index)
+                        .ok_or_else(|| CliError::usage("--superseded-by requires a value"))?
+                        .clone(),
+                );
+            }
+            "--source-issue" => {
+                index += 1;
+                source_issue = Some(
+                    rest.get(index)
+                        .ok_or_else(|| CliError::usage("--source-issue requires a value"))?
+                        .clone(),
+                );
+            }
+            "--fsv-readback" => {
+                index += 1;
+                fsv_readback =
+                    Some(PathBuf::from(rest.get(index).ok_or_else(|| {
+                        CliError::usage("--fsv-readback requires a value")
+                    })?));
+            }
+            "--fsv-sha256" => {
+                index += 1;
+                fsv_sha256 = Some(
+                    rest.get(index)
+                        .ok_or_else(|| CliError::usage("--fsv-sha256 requires a value"))?
                         .clone(),
                 );
             }
@@ -117,7 +170,47 @@ pub(crate) fn parse_retire_vault(rest: &[String]) -> CliResult<Subcommand> {
     if reason.trim().is_empty() {
         return Err(CliError::usage("retire-vault --reason must not be empty"));
     }
-    Ok(Subcommand::RetireVault(RetireVaultArgs { vault, reason }))
+    let supersession_flag_count = [
+        superseded_by.is_some(),
+        source_issue.is_some(),
+        fsv_readback.is_some(),
+        fsv_sha256.is_some(),
+    ]
+    .into_iter()
+    .filter(|present| *present)
+    .count();
+    if supersession_flag_count != 0 && supersession_flag_count != 4 {
+        return Err(CliError::usage(
+            "retire-vault supersession requires --superseded-by, --source-issue, --fsv-readback, and --fsv-sha256 together",
+        ));
+    }
+    for (name, value) in [
+        ("--superseded-by", superseded_by.as_deref()),
+        ("--source-issue", source_issue.as_deref()),
+        ("--fsv-sha256", fsv_sha256.as_deref()),
+    ] {
+        if value.is_some_and(|value| value.trim().is_empty()) {
+            return Err(CliError::usage(format!(
+                "retire-vault {name} must not be empty"
+            )));
+        }
+    }
+    if fsv_readback
+        .as_ref()
+        .is_some_and(|path| path.as_os_str().is_empty())
+    {
+        return Err(CliError::usage(
+            "retire-vault --fsv-readback must not be empty",
+        ));
+    }
+    Ok(Subcommand::RetireVault(RetireVaultArgs {
+        vault,
+        reason,
+        superseded_by,
+        source_issue,
+        fsv_readback,
+        fsv_sha256,
+    }))
 }
 
 pub(crate) fn run(args: RetireVaultArgs) -> CliResult {
@@ -126,6 +219,10 @@ pub(crate) fn run(args: RetireVaultArgs) -> CliResult {
 }
 
 fn run_with_home(home: &Path, args: RetireVaultArgs) -> CliResult {
+    if args.supersession_requested() {
+        return supersession::run_with_home(home, args);
+    }
+
     let index_path = index_path(home);
     let (mut index, before_bytes) = read_index_value(&index_path)?;
     let before_hash = sha256_hex(&before_bytes);
@@ -273,7 +370,7 @@ fn build_record(
     })
 }
 
-fn current_pointer(home: &Path, vault_dir: &Path) -> CliResult<(FileEvidence, String)> {
+pub(super) fn current_pointer(home: &Path, vault_dir: &Path) -> CliResult<(FileEvidence, String)> {
     let path = vault_dir.join("CURRENT");
     let (evidence, bytes) = file_evidence(home, &path)?;
     let value = String::from_utf8(bytes).map_err(|error| {
@@ -361,7 +458,7 @@ fn registry_file_evidence(home: &Path, vault_dir: &Path) -> CliResult<Vec<FileEv
         .collect()
 }
 
-fn file_evidence(home: &Path, path: &Path) -> CliResult<(FileEvidence, Vec<u8>)> {
+pub(super) fn file_evidence(home: &Path, path: &Path) -> CliResult<(FileEvidence, Vec<u8>)> {
     let bytes = fs::read(path).map_err(|error| {
         retire_error(
             SOURCE_MISSING_CODE,

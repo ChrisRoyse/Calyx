@@ -44,12 +44,23 @@ pub(super) fn subcommand_tokens(command: &Subcommand) -> Vec<String> {
         }
         Subcommand::RetireLens(args) => slot_tokens("retire-lens", args),
         Subcommand::ParkLens(args) => slot_tokens("park-lens", args),
-        Subcommand::RetireVault(args) => vec![
-            "retire-vault".to_string(),
-            args.vault.clone(),
-            "--reason".to_string(),
-            args.reason.clone(),
-        ],
+        Subcommand::RetireVault(args) => {
+            let mut out = vec![
+                "retire-vault".to_string(),
+                args.vault.clone(),
+                "--reason".to_string(),
+                args.reason.clone(),
+            ];
+            push_opt(&mut out, "--superseded-by", args.superseded_by.as_deref());
+            push_opt(&mut out, "--source-issue", args.source_issue.as_deref());
+            push_opt(
+                &mut out,
+                "--fsv-readback",
+                args.fsv_readback.as_ref().and_then(|path| path.to_str()),
+            );
+            push_opt(&mut out, "--fsv-sha256", args.fsv_sha256.as_deref());
+            out
+        }
         Subcommand::ListPanel(args) => vec!["list-panel".to_string(), args.vault.clone()],
         Subcommand::Ingest(args) => ingest_tokens(args),
         Subcommand::IngestStatus(args) => vec![
@@ -220,7 +231,6 @@ fn lincs_reversal_tokens(args: &lincs_reversal::MaterializeLincsReversalArgs) ->
     out
 }
 
-#[test]
 fn lincs_reversal_round_trips_through_tokens() {
     let command =
         Subcommand::MaterializeLincsReversal(lincs_reversal::MaterializeLincsReversalArgs {

@@ -125,7 +125,7 @@ pub(super) fn retired_vault_count(index: &Value) -> CliResult<usize> {
     Ok(retired_array(index)?.len())
 }
 
-fn vaults_array(index: &Value) -> CliResult<&Vec<Value>> {
+pub(super) fn vaults_array(index: &Value) -> CliResult<&Vec<Value>> {
     index
         .get("vaults")
         .and_then(Value::as_array)
