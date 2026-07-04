@@ -37,6 +37,7 @@ pub(crate) struct HypothesisEvaluatorArgs {
     pub input: PathBuf,
     pub out: PathBuf,
     pub endpoint: String,
+    pub auth_env: Option<String>,
     pub model: String,
     pub temperatures: Vec<u16>,
     pub timeout_ms: u64,
@@ -49,6 +50,7 @@ impl Default for HypothesisEvaluatorArgs {
             input: PathBuf::new(),
             out: PathBuf::new(),
             endpoint: String::new(),
+            auth_env: None,
             model: String::new(),
             temperatures: vec![20, 80],
             timeout_ms: 30_000,
@@ -121,6 +123,7 @@ fn run_hypothesis_evaluator(args: HypothesisEvaluatorArgs) -> CliResult {
             args.input.display()
         )));
     }
+    let auth = http::EvaluatorAuth::for_endpoint(&args.endpoint, args.auth_env.as_deref())?;
     let prompt_set_hash = prompt_set_sha256();
     let templates = prompt_templates();
     for input in &mut input_file.inputs {
@@ -133,6 +136,7 @@ fn run_hypothesis_evaluator(args: HypothesisEvaluatorArgs) -> CliResult {
                     *temperature,
                     &prompt_set_hash,
                     &args,
+                    &auth,
                 )?);
             }
         }
@@ -143,7 +147,7 @@ fn run_hypothesis_evaluator(args: HypothesisEvaluatorArgs) -> CliResult {
     let artifact = DriverArtifact {
         schema_version: DRIVER_SCHEMA_VERSION,
         model: args.model.clone(),
-        endpoint: args.endpoint.clone(),
+        endpoint: http::artifact_endpoint(&args.endpoint),
         prompt_set_id: PROMPT_SET_ID.to_string(),
         prompt_set_sha256: prompt_set_hash,
         temperatures_x100: args.temperatures.clone(),
@@ -174,6 +178,7 @@ fn run_variant(
     temperature_x100: u16,
     prompt_set_hash: &str,
     args: &HypothesisEvaluatorArgs,
+    auth: &http::EvaluatorAuth,
 ) -> CliResult<EvaluatorRun> {
     let evidence_ids = input
         .retrieved_evidence
@@ -194,6 +199,7 @@ fn run_variant(
         &args.endpoint,
         &request,
         Duration::from_millis(args.timeout_ms),
+        auth,
     )
     .map_err(|error| variant_error(error, input, template, temperature_x100))?;
     let parsed = parse_evaluator_json(raw)
@@ -229,6 +235,10 @@ fn parse_hypothesis_evaluator(rest: &[String]) -> CliResult<HypothesisEvaluatorA
             "--endpoint" => {
                 idx += 1;
                 args.endpoint = value(rest, idx, "--endpoint")?.to_string();
+            }
+            "--auth-env" => {
+                idx += 1;
+                args.auth_env = Some(value(rest, idx, "--auth-env")?.to_string());
             }
             "--model" => {
                 idx += 1;

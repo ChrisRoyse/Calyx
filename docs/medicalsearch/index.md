@@ -79,6 +79,8 @@ still requires experimental confirmation.
 | `56_ksg_subsample_ci.md` | #1208 KSG no-replacement subsample CI | complete FSV for duplicate-free subsamples, independent-control lower bound, planted-signal coverage, and small-sample fail-closed edge |
 | `57_blind_spot_calibration.md` | #1209 blind-spot detector calibration | complete FSV for scale-normalized per-pair calibration, null-FDR control, and uncalibrated-pair fail-closed skip |
 | `58_weighted_graph_csr.md` | #1213 weighted graph CSR evidence edges | complete FSV for persisted CSR weights, weighted reach/betweenness/spectral scoring, and invalid edge-value fail-closed cases |
+| `60_hypothesis_evaluator_driver.md` | #1201 hypothesis evaluator driver | complete FSV for persisted evaluator runs, citation validation, aggregate readback, and fail-closed endpoint/malformed/citation cases |
 | `62_discovery_manifest_redaction.md` | #1221 discovery-run manifest ledger redaction | complete FSV for long benign manifest provenance and true-secret rejection |
 | `63_native_discovery_bridges.md` | #1220 native discovery bridge CLIs | complete FSV for real #1219 miner/falsification artifacts, downstream evaluator/ranker acceptance, and stale preflight fail-closed behavior |
+| `64_hypothesis_evaluator_https_provider.md` | #1216 native HTTPS/OpenAI-compatible evaluator provider | complete FSV for HTTPS auth/redaction behavior, persisted evaluator output readback, and missing-auth fail-closed no-artifact proof |
 | (added as work proceeds) | | |

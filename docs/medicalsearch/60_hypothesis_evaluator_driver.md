@@ -1,6 +1,6 @@
 # Hypothesis Evaluator Driver
 
-Issue: #1201
+Issues: #1201, #1216
 
 `calyx hypothesis-evaluator-driver` replaces manual evaluator JSON plumbing for
 biomedical A-B-C hypotheses. It consumes the persisted evidence bundle produced
@@ -14,15 +14,21 @@ the resulting evaluator runs, and writes one replayable artifact.
 calyx hypothesis-evaluator-driver \
   --input <input.json> \
   --out <artifact.json> \
-  --endpoint <http://host:port/path> \
+  --endpoint <http(s)://host[:port]/path> \
   --model <id> \
+  [--auth-env <VAR>] \
   [--temperature <f>] \
   [--timeout-ms <ms>]
 ```
 
 Default temperatures are `0.2` and `0.8`, giving two prompt templates and two
-temperature variants per hypothesis. The endpoint contract is OpenAI-like JSON
-or direct evaluator JSON. The persisted artifact records:
+temperature variants per hypothesis. `http://` endpoints are supported for
+local deterministic stubs. `https://` endpoints are OpenAI-compatible and
+require `--auth-env <VAR>`; the named environment variable must contain the
+bearer token. The token is never persisted or printed, and persisted endpoint
+values are redacted to remove userinfo, query strings, and fragments. The
+endpoint contract is OpenAI-like JSON or direct evaluator JSON. The persisted
+artifact records:
 
 - schema version
 - model id
@@ -40,6 +46,12 @@ The driver refuses to persist an artifact when any evaluator variant fails:
 
 - endpoint unreachable:
   `CALYX_HYPOTHESIS_EVALUATOR_ENDPOINT_UNREACHABLE`
+- missing HTTPS bearer-token environment configuration:
+  `CALYX_HYPOTHESIS_EVALUATOR_AUTH_MISSING`
+- HTTPS bearer-token rejected:
+  `CALYX_HYPOTHESIS_EVALUATOR_AUTH_FAILED`
+- HTTPS endpoint returned a non-auth non-2xx status:
+  `CALYX_HYPOTHESIS_EVALUATOR_ENDPOINT_STATUS`
 - malformed evaluator response:
   `CALYX_HYPOTHESIS_EVALUATOR_MALFORMED_RESPONSE`
 - cited evidence id missing from the input bundle:
