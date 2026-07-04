@@ -3,15 +3,16 @@ use super::durable::DurableVault;
 use crate::cf::ColumnFamily;
 use crate::compaction::{
     CompactionCatalog, CompactionResult, CompactionScheduler, CompactionSchedulerOptions,
-    CompactionThrottle, catalog_from_vault_tiers,
+    CompactionThrottle, DEFAULT_COMPACTION_TARGET_BYTES, RollingSstWriter,
+    catalog_from_vault_tiers, durable_compaction_slot_path,
 };
 use crate::mvcc::is_tombstone_value;
 use crate::recurrence::{StoredRecurrenceRow, decode_recurrence_row};
-use crate::sst::{SstReader, write_sst};
+use crate::sst::SstReader;
 use crate::storage_names::{SstName, classify_sst};
 use calyx_core::{CalyxError, Clock, Result};
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 #[derive(Debug)]
@@ -62,7 +63,7 @@ where
             if let Some(CompactionResult::Compacted(report)) = &mut result
                 && cf == ColumnFamily::Recurrence
             {
-                ensure_reclaim_output_manifest_bounded(&report.output_path, durable_seq)?;
+                ensure_reclaim_outputs_manifest_bounded(&report.output_paths, durable_seq)?;
                 report.reclaimed_input_files = reclaim_recurrence_inputs(report)?;
                 prune_recurrence_tombstones(report)?;
             }
@@ -152,7 +153,7 @@ fn purge_tombstoned_cf_once(
         return Ok(());
     };
     prune_mvcc_tombstones(report)?;
-    ensure_reclaim_output_manifest_bounded(&report.output_path, seq)?;
+    ensure_reclaim_outputs_manifest_bounded(&report.output_paths, seq)?;
     report.reclaimed_input_files = reclaim_compaction_inputs(report)?;
     Ok(())
 }
@@ -183,16 +184,25 @@ pub(super) fn ensure_reclaim_output_manifest_bounded(
     })
 }
 
+pub(super) fn ensure_reclaim_outputs_manifest_bounded(
+    output_paths: &[PathBuf],
+    manifest_durable_seq: u64,
+) -> Result<()> {
+    for output_path in output_paths {
+        ensure_reclaim_output_manifest_bounded(output_path, manifest_durable_seq)?;
+    }
+    Ok(())
+}
+
 fn reclaim_compaction_inputs(report: &crate::compaction::CompactionReport) -> Result<usize> {
-    let output = fs::canonicalize(&report.output_path)
-        .map_err(|error| CalyxError::disk_pressure(format!("stat compacted SST: {error}")))?;
+    let outputs = canonical_output_paths(report, "stat compacted SST")?;
     let mut reclaimed = 0;
     for input in &report.input_paths {
         let input = match fs::canonicalize(input) {
             Ok(path) => path,
             Err(_) => continue,
         };
-        if input == output {
+        if outputs.contains(&input) {
             continue;
         }
         if classify_sst(&input)?.is_none() {
@@ -210,8 +220,7 @@ fn reclaim_compaction_inputs(report: &crate::compaction::CompactionReport) -> Re
 }
 
 fn reclaim_recurrence_inputs(report: &crate::compaction::CompactionReport) -> Result<usize> {
-    let output = fs::canonicalize(&report.output_path)
-        .map_err(|error| CalyxError::disk_pressure(format!("stat compacted SST: {error}")))?;
+    let outputs = canonical_output_paths(report, "stat compacted SST")?;
     let parent = fs::canonicalize(&report.staging_parent)
         .map_err(|error| CalyxError::disk_pressure(format!("stat compaction parent: {error}")))?;
     let mut reclaimed = 0;
@@ -220,7 +229,7 @@ fn reclaim_recurrence_inputs(report: &crate::compaction::CompactionReport) -> Re
             Ok(path) => path,
             Err(_) => continue,
         };
-        if input == output {
+        if outputs.contains(&input) {
             continue;
         }
         if input.parent() != Some(parent.as_path()) {
@@ -238,6 +247,20 @@ fn reclaim_recurrence_inputs(report: &crate::compaction::CompactionReport) -> Re
         reclaimed += 1;
     }
     Ok(reclaimed)
+}
+
+fn canonical_output_paths(
+    report: &crate::compaction::CompactionReport,
+    context: &str,
+) -> Result<Vec<PathBuf>> {
+    report
+        .output_paths
+        .iter()
+        .map(|path| {
+            fs::canonicalize(path)
+                .map_err(|error| CalyxError::disk_pressure(format!("{context}: {error}")))
+        })
+        .collect()
 }
 
 fn prune_mvcc_tombstones(report: &mut crate::compaction::CompactionReport) -> Result<()> {
@@ -266,48 +289,83 @@ fn rewrite_compacted_without(
     should_prune: impl Fn(&[u8]) -> Result<bool>,
     reason: &str,
 ) -> Result<()> {
-    let mut retained = Vec::<(Vec<u8>, Vec<u8>)>::new();
     let mut pruned = 0_u64;
-    for entry in SstReader::open(&report.output_path)?.iter()? {
-        if should_prune(&entry.value)? {
-            pruned += 1;
-            continue;
+    let original_outputs = report.output_paths.clone();
+    for output_path in &original_outputs {
+        for entry in SstReader::open(output_path)?.iter()? {
+            if should_prune(&entry.value)? {
+                pruned += 1;
+            }
         }
-        retained.push((entry.key, entry.value));
     }
     if pruned == 0 {
         return Ok(());
     }
 
-    let seq = compacted_seq(&report.output_path)?;
-    let reclaimed_path = report.staging_parent.join(format!("{seq:020}-9999.sst"));
-    let entries = retained
+    let seq = compaction_output_seq(&report.output_path)?;
+    let reclaimed_path = durable_compaction_slot_path(&report.staging_parent, seq)?;
+    let mut writer = RollingSstWriter::new(&reclaimed_path, DEFAULT_COMPACTION_TARGET_BYTES)?;
+    let mut retained = 0_u64;
+    let mut logical_bytes = 0_u64;
+    for output_path in &original_outputs {
+        for entry in SstReader::open(output_path)?.iter()? {
+            if should_prune(&entry.value)? {
+                continue;
+            }
+            logical_bytes = logical_bytes.saturating_add(entry.value.len() as u64);
+            retained = retained.saturating_add(1);
+            writer.push(entry.key, entry.value)?;
+        }
+    }
+    let summaries = writer.finish(retained == 0)?;
+
+    for output_path in &original_outputs {
+        fs::remove_file(output_path).map_err(|error| {
+            CalyxError::disk_pressure(format!(
+                "remove {reason} compaction file {}: {error}",
+                output_path.display()
+            ))
+        })?;
+    }
+    report.output_paths = summaries
         .iter()
-        .map(|(key, value)| (key.as_slice(), value.as_slice()));
-    let summary = write_sst(&reclaimed_path, entries)?;
-    fs::remove_file(&report.output_path).map_err(|error| {
-        CalyxError::disk_pressure(format!(
-            "remove {reason} compaction file {}: {error}",
-            report.output_path.display()
-        ))
-    })?;
-    report.output_path = summary.path;
-    report.output_bytes = summary.bytes;
-    report.logical_bytes = retained.iter().map(|(_, value)| value.len() as u64).sum();
+        .map(|summary| summary.path.clone())
+        .collect::<Vec<_>>();
+    report.output_path = report
+        .output_paths
+        .first()
+        .cloned()
+        .ok_or_else(|| CalyxError::disk_pressure("tombstone rewrite produced no output SST"))?;
+    report.output_bytes = summaries
+        .iter()
+        .map(|summary| summary.bytes)
+        .fold(0_u64, u64::saturating_add);
+    report.logical_bytes = logical_bytes;
     report.write_amp_milli =
         report.output_bytes.saturating_mul(1_000) / report.logical_bytes.max(1);
+    report.debt_after = crate::compaction::CompactionDebt::measure(
+        &summaries
+            .iter()
+            .map(|summary| crate::compaction::SstShard {
+                cf: report.cf,
+                path: summary.path.clone(),
+                level: 0,
+                bytes: summary.bytes,
+            })
+            .collect::<Vec<_>>(),
+        DEFAULT_COMPACTION_TARGET_BYTES,
+    );
     Ok(())
 }
 
-fn compacted_seq(path: &Path) -> Result<u64> {
-    let stem = path
-        .file_stem()
-        .and_then(|value| value.to_str())
-        .ok_or_else(|| CalyxError::aster_corrupt_shard("compacted recurrence SST has no stem"))?;
-    let seq = stem.strip_prefix("compacted-").ok_or_else(|| {
-        CalyxError::aster_corrupt_shard(format!("unexpected compacted SST name {stem}"))
-    })?;
-    seq.parse().map_err(|error| {
-        CalyxError::aster_corrupt_shard(format!("parse compacted recurrence seq: {error}"))
-    })
+fn compaction_output_seq(path: &Path) -> Result<u64> {
+    match classify_sst(path)? {
+        Some(SstName::Compacted { seq } | SstName::DurableBatch { seq, .. }) => Ok(seq),
+        Some(SstName::RouterLegacy { .. } | SstName::Flush { .. }) | None => {
+            Err(CalyxError::aster_corrupt_shard(format!(
+                "unexpected compacted SST name {}",
+                path.display()
+            )))
+        }
+    }
 }

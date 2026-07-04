@@ -1,13 +1,13 @@
 //! Snapshot-safe SST compaction and hot/cold tier placement.
 
+mod rolling;
 mod scan;
 mod tiering;
 
 use crate::cf::ColumnFamily;
-use crate::sst::{SstReader, write_sst};
+use crate::sst::SstReader;
 use crate::storage_names::{SstName, classify_sst};
 use calyx_core::{CalyxError, Result};
-use std::collections::BTreeMap;
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -19,7 +19,11 @@ use std::time::Duration;
 /// Default per-CF compaction target used for debt scoring (PRD 24 §8).
 pub const DEFAULT_COMPACTION_TARGET_BYTES: u64 = 64 * 1024 * 1024;
 const WRITE_AMP_SCALE: u64 = 1_000;
+const COMPACTION_ADOPTION_FIRST_INDEX: usize = 9_000;
+const COMPACTION_ADOPTION_LAST_INDEX: usize = 9_999;
 
+pub(crate) use rolling::RollingSstWriter;
+use rolling::compact_shards_with_target;
 pub use scan::{catalog_from_vault_dir, catalog_from_vault_tiers};
 pub use tiering::{StorageTier, TierPlacement, TierWrite, TieringPolicy};
 
@@ -113,7 +117,11 @@ impl CompactionCatalog {
         };
 
         let next_level = inputs.iter().map(|shard| shard.level).max().unwrap_or(0) + 1;
-        let compacted = SstShard::new(cf, &report.output_path, next_level)?;
+        let compacted = report
+            .output_paths
+            .iter()
+            .map(|path| SstShard::new(cf, path, next_level))
+            .collect::<Result<Vec<_>>>()?;
         let mut next: Vec<_> = self
             .active
             .read()
@@ -122,7 +130,7 @@ impl CompactionCatalog {
             .filter(|shard| shard.cf != cf)
             .cloned()
             .collect();
-        next.push(compacted);
+        next.extend(compacted);
         *self.active.write().expect("catalog lock") = Arc::new(next);
         Ok(CompactionResult::Compacted(report))
     }
@@ -307,9 +315,7 @@ pub fn commit_domain_output_path(dir: &Path, inputs: &[SstShard]) -> Result<Path
 /// command and the background scheduler so every commit-domain compaction
 /// output is named through one implementation.
 pub fn durable_compaction_slot_path(dir: &Path, seq: u64) -> Result<PathBuf> {
-    const FIRST_INDEX: u16 = 9_000;
-    const LAST_INDEX: u16 = 9_999;
-    for index in (FIRST_INDEX..=LAST_INDEX).rev() {
+    for index in (COMPACTION_ADOPTION_FIRST_INDEX..=COMPACTION_ADOPTION_LAST_INDEX).rev() {
         let path = dir.join(format!("{seq:020}-{index:04}.sst"));
         if !path.exists() {
             return Ok(path);
@@ -318,8 +324,9 @@ pub fn durable_compaction_slot_path(dir: &Path, seq: u64) -> Result<PathBuf> {
     Err(CalyxError {
         code: "CALYX_ASTER_COMPACTION_SLOTS_EXHAUSTED",
         message: format!(
-            "no compaction adoption slot ({FIRST_INDEX}..={LAST_INDEX}) remains for commit seq \
-             {seq} in {}",
+            "no compaction adoption slot ({}..={}) remains for commit seq {seq} in {}",
+            COMPACTION_ADOPTION_FIRST_INDEX,
+            COMPACTION_ADOPTION_LAST_INDEX,
             dir.display()
         ),
         remediation: "advance the vault's durable seq (write and flush) so compaction outputs \
@@ -389,6 +396,7 @@ pub struct CompactionReport {
     pub debt_before: CompactionDebt,
     pub debt_after: CompactionDebt,
     pub output_path: PathBuf,
+    pub output_paths: Vec<PathBuf>,
     pub staging_parent: PathBuf,
 }
 
@@ -398,61 +406,16 @@ pub fn compact_shards(
     output_path: impl AsRef<Path>,
     throttle: CompactionThrottle,
 ) -> Result<CompactionResult> {
-    let debt_before = CompactionDebt::measure(inputs, DEFAULT_COMPACTION_TARGET_BYTES);
-    if inputs.len() < 2 {
-        return Ok(CompactionResult::Skipped { debt: debt_before });
-    }
-    if let Some(max) = throttle.max_input_bytes
-        && debt_before.pending_bytes > max
-    {
-        return Ok(CompactionResult::Skipped { debt: debt_before });
-    }
-
-    let mut merged = BTreeMap::new();
-    for shard in inputs {
-        for entry in SstReader::open(&shard.path)?.iter()? {
-            merged.insert(entry.key, entry.value);
-        }
-    }
-    let entries: Vec<_> = merged
-        .iter()
-        .map(|(key, value)| (key.as_slice(), value.as_slice()))
-        .collect();
-    let logical_bytes = merged.values().map(|value| value.len() as u64).sum::<u64>();
-    let output_path = output_path.as_ref().to_path_buf();
-    let parent = output_path
-        .parent()
-        .ok_or_else(|| CalyxError::disk_pressure("compaction output has no parent"))?
-        .to_path_buf();
-    fs::create_dir_all(&parent).map_err(|error| {
-        CalyxError::disk_pressure(format!("create compaction output dir: {error}"))
-    })?;
-    let summary = write_sst(&output_path, entries)?;
-    let output = SstShard {
+    compact_shards_with_target(
         cf,
-        path: summary.path.clone(),
-        level: inputs.iter().map(|shard| shard.level).max().unwrap_or(0) + 1,
-        bytes: summary.bytes,
-    };
-    let debt_after = CompactionDebt::measure(&[output], DEFAULT_COMPACTION_TARGET_BYTES);
-    let input_bytes = debt_before.pending_bytes;
-    let write_amp_milli = summary.bytes.saturating_mul(WRITE_AMP_SCALE) / logical_bytes.max(1);
-
-    Ok(CompactionResult::Compacted(CompactionReport {
-        cf,
-        input_files: inputs.len(),
-        input_paths: inputs.iter().map(|shard| shard.path.clone()).collect(),
-        input_bytes,
-        output_bytes: summary.bytes,
-        logical_bytes,
-        write_amp_milli,
-        reclaimed_input_files: 0,
-        debt_before,
-        debt_after,
+        inputs,
         output_path,
-        staging_parent: parent,
-    }))
+        throttle,
+        DEFAULT_COMPACTION_TARGET_BYTES,
+    )
 }
 
+#[cfg(test)]
+mod streaming_tests;
 #[cfg(test)]
 mod tests;

@@ -10,6 +10,7 @@ use crate::storage_names::{classify_sst, sst_order_key};
 use crate::vault::AsterVault;
 use calyx_core::{CalyxError, Clock, Result};
 use std::fs;
+use std::path::PathBuf;
 
 impl<C> AsterVault<C>
 where
@@ -116,8 +117,8 @@ where
             if let CompactionResult::Compacted(report) =
                 compact_shards(cf, &inputs, output, CompactionThrottle::unlimited())?
             {
-                super::compaction_bridge::ensure_reclaim_output_manifest_bounded(
-                    &report.output_path,
+                super::compaction_bridge::ensure_reclaim_outputs_manifest_bounded(
+                    &report.output_paths,
                     manifest_durable_seq,
                 )?;
                 let net = report.input_bytes.saturating_sub(report.output_bytes) as usize;
@@ -135,15 +136,14 @@ where
 }
 
 fn reclaim_snapshot_inputs(report: &crate::compaction::CompactionReport) -> Result<usize> {
-    let output = fs::canonicalize(&report.output_path)
-        .map_err(|error| CalyxError::disk_pressure(format!("stat snapshot GC output: {error}")))?;
+    let outputs = canonical_output_paths(report)?;
     let mut reclaimed = 0;
     for input in &report.input_paths {
         let input = match fs::canonicalize(input) {
             Ok(path) => path,
             Err(_) => continue,
         };
-        if input == output {
+        if outputs.contains(&input) {
             continue;
         }
         if classify_sst(&input)?.is_none() {
@@ -158,4 +158,16 @@ fn reclaim_snapshot_inputs(report: &crate::compaction::CompactionReport) -> Resu
         reclaimed += 1;
     }
     Ok(reclaimed)
+}
+
+fn canonical_output_paths(report: &crate::compaction::CompactionReport) -> Result<Vec<PathBuf>> {
+    report
+        .output_paths
+        .iter()
+        .map(|path| {
+            fs::canonicalize(path).map_err(|error| {
+                CalyxError::disk_pressure(format!("stat snapshot GC output: {error}"))
+            })
+        })
+        .collect()
 }
