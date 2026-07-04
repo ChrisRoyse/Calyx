@@ -2,7 +2,8 @@
 
 Issue: #1210
 
-Status: complete FSV for the local physical-vault proof path.
+Status: complete FSV for the local physical-vault proof path and the real
+aiwonder biomedical graph vault.
 
 The persisted `PlainGraphCsr` stream now uses a binary columnar layout inside
 the existing manifest-plus-segment framing:
@@ -65,6 +66,70 @@ Observed physical readback:
 
 The existing large in-crate sharding test still exercises segmentation after
 the binary shrink: `segments=2 total_bytes=1269682`.
+
+## Real Biomedical Graph FSV
+
+Remote source of truth:
+
+```text
+aiwonder:/home/croyse/calyx/vaults/01KVYX0KYVBQSGVC6N2S00FX6J
+vault name: corpus-anchored-869-20260625T080546Z
+collection: default
+```
+
+Remote command:
+
+```text
+CALYX_HOME=/home/croyse/calyx \
+  ./target/release/calyx materialize-graph-csr \
+  corpus-anchored-869-20260625T080546Z \
+  --collection default
+```
+
+Remote FSV artifacts:
+
+```text
+/home/croyse/calyx/fsv/issue1210-binary-csr-real-20260704T101500Z
+/home/croyse/calyx/fsv/issue1210-binary-csr-real-20260704T101500Z/issue1210_real_fsv_summary.json
+```
+
+Observed real-vault readback:
+
+- git head: `9f105f4be07b08de18887597407fbfe9afd34b5f`
+- status: `ok`
+- prior CSR before-state: stale manifest v2 rejected as
+  `CALYX_GRAPH_CORRUPT_ROW`
+- source of truth: physical Graph CF latest readback through
+  `PhysicalPlainGraph::read_csr`, `assoc_graph`, and independent node/edge key
+  enumeration
+- old JSON baseline bytes: `157072071`
+- binary CSR bytes: `63235522`
+- bytes saved: `93836549`
+- size ratio vs old JSON baseline: `0.4025892165132272`
+- binary less than half old JSON: `true`
+- CSR SHA-256:
+  `7c7a2928e12b4200d5c6c287008f982286490f8e003f4f6b9ee645331249ffd0`
+- CSR blake3:
+  `df9d23867f8feafd9a9ef15bb25207d60d4b000e67ba8b9cfd106b486c178662`
+- nodes: `198993`
+- CSR edges: `2435817`
+- association edge count: `2435817`
+- physical node keys: `198993`
+- physical edge-out keys: `2435817`
+- edge weight decode policy: `explicit-weight-or-legacy-unit`
+- explicit weighted edges: `0`
+- legacy unit-weight edges: `2435817`
+- elapsed materialize/readback time: `81221 ms`
+
+The real vault required two hardening fixes discovered only by FSV:
+
+- stale persisted CSR manifests are recorded as before-state evidence and then
+  rebuilt instead of blocking materialization
+- legacy unweighted graph edge payloads are upgraded through an explicit,
+  counted unit-weight policy; malformed explicit weights still fail closed
+- the materializer builds the projection from physical graph range scans instead
+  of `scan edge keys -> per-edge point read`, which avoided the real-vault CPU
+  wall and completed the readback in about 81 seconds
 
 ## Boundary
 
