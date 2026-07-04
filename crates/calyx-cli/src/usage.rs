@@ -87,6 +87,7 @@ pub(crate) fn usage() -> &'static str {
        calyx panel batch-limit --vault <vault> --set <name-or-id>=<max_batch> [--set <name-or-id>=<max_batch> ...] [--preflight-text <text>] [--preflight-repeat <n>]
        calyx panel registry-audit --vault <vault>
        calyx panel registry-repair --vault <vault> (--slot <u16>|--all)
+       calyx panel manifest-restore --vault <vault> --panel-asset <panel/panel-vNNNN.json> --registry-asset <registry/registry-xxxx.json>
        calyx panel warm --template <name-or-id> [--home <dir>] [--hold-secs <n>] [--out <json>] [--progress-out <jsonl>] [--max-resident-vram-mib <n>] [--resident-overhead-multiplier <n>] [--max-load-secs <n>] [--load-parallelism <n>]
        calyx panel resident serve (--template <name-or-id>|--vault <vault>) [--home <dir>] [--modality <name>] [--slot <u16>]... [--bind <addr>] [--ready-out <json>] [--progress-out <jsonl>] [--max-resident-vram-mib <n>] [--resident-overhead-multiplier <n>] [--max-load-secs <n>] [--load-parallelism <n>]
        calyx panel resident ready [--addr <127.0.0.1:port>] [--out <json>]

@@ -5,6 +5,7 @@ use std::str::FromStr;
 
 mod a38_bundle;
 mod batch_limit;
+mod manifest_restore;
 mod registry_contract;
 mod resident;
 mod template_cards;
@@ -30,6 +31,7 @@ use serde::{Deserialize, Serialize};
 use crate::error::{CliError, CliResult};
 use crate::output::print_json;
 
+use manifest_restore::manifest_restore;
 use registry_contract::{registry_audit, registry_repair};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -176,6 +178,7 @@ pub(crate) fn run(topic: &str, rest: &[String]) -> CliResult {
     match topic {
         "a38-bundle" => a38_bundle::run(rest),
         "batch-limit" => batch_limit::batch_limit(rest),
+        "manifest-restore" => manifest_restore(rest),
         "registry-audit" => registry_audit(rest),
         "registry-repair" => registry_repair(rest),
         "status" => status(rest),
@@ -183,7 +186,7 @@ pub(crate) fn run(topic: &str, rest: &[String]) -> CliResult {
         "resident" => resident::run(rest),
         "warm" => warm::run(rest),
         other => Err(CliError::usage(format!(
-            "unknown panel subcommand {other}; expected a38-bundle, batch-limit, registry-audit, registry-repair, status, template, resident, or warm"
+            "unknown panel subcommand {other}; expected a38-bundle, batch-limit, manifest-restore, registry-audit, registry-repair, status, template, resident, or warm"
         ))),
     }
 }
