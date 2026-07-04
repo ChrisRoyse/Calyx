@@ -84,6 +84,10 @@ pub enum LodestarError {
     DfvsGenusTooLarge { genus: usize },
     #[error("CALYX_DISCOVERY_NO_SUFFICIENCY_ASSAY: {detail}")]
     DiscoveryNoSufficiencyAssay { detail: String },
+    #[error("CALYX_MOLECULAR_KERNEL_MISSING: {detail}")]
+    MolecularKernelMissing { detail: String },
+    #[error("CALYX_MOLECULAR_KERNEL_UNGROUNDED: {detail}")]
+    MolecularKernelUngrounded { detail: String },
     #[error("CALYX_HYPOTHESIS_EVIDENCE_MISSING_PROVENANCE: no evidence provenance for {cx_id}")]
     HypothesisEvidenceMissingProvenance { cx_id: calyx_core::CxId },
     #[error("CALYX_HYPOTHESIS_EVIDENCE_EMPTY_ABSTRACT: empty evidence text for {cx_id}")]
@@ -135,6 +139,8 @@ impl LodestarError {
             Self::DfvsVerificationFailed { .. } => "CALYX_DFVS_VERIFICATION_FAILED",
             Self::DfvsGenusTooLarge { .. } => "CALYX_DFVS_GENUS_TOO_LARGE",
             Self::DiscoveryNoSufficiencyAssay { .. } => "CALYX_DISCOVERY_NO_SUFFICIENCY_ASSAY",
+            Self::MolecularKernelMissing { .. } => "CALYX_MOLECULAR_KERNEL_MISSING",
+            Self::MolecularKernelUngrounded { .. } => "CALYX_MOLECULAR_KERNEL_UNGROUNDED",
             Self::HypothesisEvidenceMissingProvenance { .. } => {
                 "CALYX_HYPOTHESIS_EVIDENCE_MISSING_PROVENANCE"
             }

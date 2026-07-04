@@ -6,6 +6,7 @@ pub mod aster_bridge;
 pub mod blind_spot_sweep;
 pub mod chain_walks;
 pub mod corpus_weave_report;
+pub mod cross_vault_chain;
 pub mod dfvs;
 pub mod discovery_chain;
 pub mod domain_bridges;
@@ -54,6 +55,12 @@ pub use chain_walks::{
 pub use corpus_weave_report::{
     CORPUS_WEAVE_REPORT_SCHEMA_VERSION, CorpusWeaveReport, CorpusWeaveReportParams,
     corpus_weave_report,
+};
+pub use cross_vault_chain::{
+    CROSS_VAULT_CHAIN_SCHEMA_VERSION, ClinicalFrontier, CrossVaultChainCandidate,
+    CrossVaultChainParams, CrossVaultChainReport, CrossVaultDeficit, CrossVaultMolecularCandidate,
+    CrossVaultMolecularGateVerdict, MolecularEndpoint, MolecularKernelState,
+    run_cross_vault_grounded_chain,
 };
 pub use dfvs::{
     DfvsMethod, DfvsResult, bounded_genus_approx, dfvs_approx, genus_estimate, is_tournament,
