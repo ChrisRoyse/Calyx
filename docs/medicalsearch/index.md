@@ -110,4 +110,5 @@ still requires experimental confirmation.
 | `86_europepmc_safety_counter_review.md` | #1246 Europe PMC safety/counter falsification review | complete FSV for 363 scoped rollups, 310 evidence-review rows, safety/counter category separation, and native Calyx bridge-corpus materialization |
 | `87_openfda_independent_safety_validation.md` | #1248 openFDA independent safety-source validation for Europe PMC safety/counter rollups | complete FSV for 202 pair-key openFDA label queries, 363 blocked no-hit rollup statuses, and native Calyx bridge-corpus materialization |
 | `88_europepmc_endpoint_outcome_review.md` | #1247 Europe PMC endpoint/outcome review for relation-context rollups | complete FSV for 108 scoped rollups, 107 evidence-review rows, endpoint/outcome category separation, blocked validation status, and native Calyx bridge-corpus materialization |
+| `89_clinicaltrials_endpoint_validation.md` | #1250 ClinicalTrials.gov endpoint validation for Europe PMC relation-context rollups | complete FSV for 72 pair-key registry queries, 108 blocked no-hit rollup statuses, and native Calyx bridge-corpus materialization |
 | (added as work proceeds) | | |
