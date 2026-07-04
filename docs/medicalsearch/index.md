@@ -118,4 +118,5 @@ still requires experimental confirmation.
 | `94_pubchem_synonym_source_mining.md` | #1245 PubChem synonym/equivalence source mining after Europe PMC no-hit | complete FSV for 152 PubChem term queries, zero pair-equivalence hits, 532 blocked candidate statuses, and native Calyx bridge-corpus materialization |
 | `95_chembl_source_mining.md` | #1254 ChEMBL source mining after PubChem no-hit | complete FSV for 353 ChEMBL molecule-search queries, zero same-record pair hits, 532 blocked candidate statuses, and native Calyx bridge-corpus materialization |
 | `96_drugcentral_source_mining.md` | #1255 DrugCentral source mining after ChEMBL no-hit | complete FSV for DrugCentral table snapshots, 7,621 DDI rows, zero structured pair hits, 532 blocked candidate statuses, and native Calyx bridge-corpus materialization |
+| `97_pharmgkb_source_mining.md` | #1256 PharmGKB source mining after DrugCentral no-hit | complete FSV for PharmGKB/ClinPGx source docs, 7 downloaded archives, 11 TSV tables, zero same-row two-term hits, 532 blocked candidate statuses, and native Calyx bridge-corpus materialization |
 | (added as work proceeds) | | |
