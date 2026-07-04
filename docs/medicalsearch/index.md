@@ -113,4 +113,5 @@ still requires experimental confirmation.
 | `89_clinicaltrials_endpoint_validation.md` | #1250 ClinicalTrials.gov endpoint validation for Europe PMC relation-context rollups | complete FSV for 72 pair-key registry queries, 108 blocked no-hit rollup statuses, and native Calyx bridge-corpus materialization |
 | `90_europepmc_source_local_endpoint_expansion.md` | #1251 Europe PMC source-local endpoint expansion after ClinicalTrials no-hit | complete FSV for 107 bounded source-window reviews, 35 source-local endpoint rollups, blocked effect-validation status, and native Calyx bridge-corpus materialization |
 | `91_effect_result_falsification_gate.md` | #1252 effect-result and falsification gate for source-local endpoint rollups | complete FSV for 33 source-local endpoint evidence reviews, 35 blocked rollup statuses, and native Calyx bridge-corpus materialization |
+| `92_independent_effect_result_validation.md` | #1253 independent validation for #1252 effect-result candidates | complete FSV for 51 independent source queries, 24 blocked no-hit candidate rollups, and native Calyx bridge-corpus materialization |
 | (added as work proceeds) | | |
