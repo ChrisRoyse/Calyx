@@ -109,25 +109,53 @@ pub(super) fn plain_graph_edge_raw_weight_with_policy(
     value: &[u8],
     policy: EdgeWeightPolicy,
 ) -> Result<ParsedEdgeWeight> {
+    let value = trim_ascii_whitespace(value);
     if value.is_empty() {
         return Err(graph_corrupt(
             "graph edge value is empty; scoring edges require a positive JSON weight",
         ));
     }
+    if policy == EdgeWeightPolicy::LegacyUnit {
+        return legacy_unit_edge_raw_weight(value);
+    }
     let json: Value = match serde_json::from_slice(value) {
         Ok(json) => json,
         Err(error) => {
-            if policy == EdgeWeightPolicy::LegacyUnit {
-                return Ok(ParsedEdgeWeight {
-                    raw: 1.0,
-                    source: EdgeWeightSource::LegacyUnit,
-                });
-            }
             return Err(graph_corrupt(format!(
                 "graph edge value must be a JSON number or object with numeric weight: {error}"
             )));
         }
     };
+    parsed_json_edge_raw_weight(json, policy)
+}
+
+fn legacy_unit_edge_raw_weight(value: &[u8]) -> Result<ParsedEdgeWeight> {
+    if looks_like_json_number(value) {
+        let raw = std::str::from_utf8(value)
+            .ok()
+            .and_then(|text| text.parse::<f64>().ok())
+            .ok_or_else(|| {
+                graph_corrupt(
+                    "graph edge value must be a JSON number or object with numeric weight",
+                )
+            })?;
+        return validate_parsed_edge_weight(raw as f32, EdgeWeightSource::Explicit);
+    }
+    if value.first() == Some(&b'{') && contains_weight_key(value) {
+        let json: Value = serde_json::from_slice(value).map_err(|error| {
+            graph_corrupt(format!(
+                "graph edge value must be a JSON number or object with numeric weight: {error}"
+            ))
+        })?;
+        return parsed_json_edge_raw_weight(json, EdgeWeightPolicy::LegacyUnit);
+    }
+    Ok(ParsedEdgeWeight {
+        raw: 1.0,
+        source: EdgeWeightSource::LegacyUnit,
+    })
+}
+
+fn parsed_json_edge_raw_weight(json: Value, policy: EdgeWeightPolicy) -> Result<ParsedEdgeWeight> {
     let raw = match json {
         Value::Number(number) => number.as_f64(),
         Value::Object(object) => {
@@ -153,17 +181,43 @@ pub(super) fn plain_graph_edge_raw_weight_with_policy(
     .ok_or_else(|| {
         graph_corrupt("graph edge value must carry a positive numeric evidence weight")
     })?;
-    let raw = raw as f32;
+    validate_parsed_edge_weight(raw as f32, EdgeWeightSource::Explicit)
+}
+
+fn validate_parsed_edge_weight(raw: f32, source: EdgeWeightSource) -> Result<ParsedEdgeWeight> {
     if raw.is_finite() && raw > 0.0 {
-        Ok(ParsedEdgeWeight {
-            raw,
-            source: EdgeWeightSource::Explicit,
-        })
+        Ok(ParsedEdgeWeight { raw, source })
     } else {
         Err(graph_corrupt(format!(
             "graph edge evidence weight must be finite and > 0; got {raw}"
         )))
     }
+}
+
+fn trim_ascii_whitespace(mut value: &[u8]) -> &[u8] {
+    while let Some((first, rest)) = value.split_first() {
+        if !first.is_ascii_whitespace() {
+            break;
+        }
+        value = rest;
+    }
+    while let Some((last, rest)) = value.split_last() {
+        if !last.is_ascii_whitespace() {
+            break;
+        }
+        value = rest;
+    }
+    value
+}
+
+fn looks_like_json_number(value: &[u8]) -> bool {
+    matches!(value.first(), Some(b'-' | b'0'..=b'9'))
+}
+
+fn contains_weight_key(value: &[u8]) -> bool {
+    value
+        .windows(br#""weight""#.len())
+        .any(|window| window == br#""weight""#)
 }
 
 pub fn plain_graph_normalized_edge_weight(raw: f32, max_raw: f32) -> Result<f32> {
