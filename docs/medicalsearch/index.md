@@ -117,4 +117,5 @@ still requires experimental confirmation.
 | `93_openfda_faers_safety_expansion.md` | #1249 openFDA FAERS safety-source expansion after label no-hit | complete FSV for 202 FAERS pair queries, 45 adverse-event co-report evidence rows, 363 blocked rollup statuses, and native Calyx bridge-corpus materialization |
 | `94_pubchem_synonym_source_mining.md` | #1245 PubChem synonym/equivalence source mining after Europe PMC no-hit | complete FSV for 152 PubChem term queries, zero pair-equivalence hits, 532 blocked candidate statuses, and native Calyx bridge-corpus materialization |
 | `95_chembl_source_mining.md` | #1254 ChEMBL source mining after PubChem no-hit | complete FSV for 353 ChEMBL molecule-search queries, zero same-record pair hits, 532 blocked candidate statuses, and native Calyx bridge-corpus materialization |
+| `96_drugcentral_source_mining.md` | #1255 DrugCentral source mining after ChEMBL no-hit | complete FSV for DrugCentral table snapshots, 7,621 DDI rows, zero structured pair hits, 532 blocked candidate statuses, and native Calyx bridge-corpus materialization |
 | (added as work proceeds) | | |
