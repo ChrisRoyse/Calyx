@@ -93,4 +93,5 @@ still requires experimental confirmation.
 | `69_infectious_normalization_repair.md` | #1225 infectious/immunology concept normalization repair | complete FSV for deterministic high-value mappings, before/after unresolved accounting, required row examples, and new co-mention coverage |
 | `70_neuro_normalization_repair.md` | #1222 neuro concept normalization repair | complete FSV for deterministic neuro mappings, typed overlay delta, and #1187 rerun count/hash deltas |
 | `71_neuro_druggability_expansion.md` | #1224 neuropsychiatric target druggability expansion | complete FSV for target list, live DGIdb/ChEMBL source hashes, BindingDB accession scan, bridge rows, and explicit no-hit rows |
+| `72_generated_candidate_falsification_sweep.md` | #1223 generated disease-hunt candidate falsification sweep | complete FSV for one flag per generated candidate, support/counter evidence, fail-closed safety/trial blocks, and native Calyx bridge-corpus materialization |
 | (added as work proceeds) | | |
