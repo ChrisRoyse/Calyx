@@ -5,6 +5,7 @@ mod build_info;
 mod chain_walks;
 mod discovery_chain;
 mod discovery_gate;
+mod discovery_run;
 mod domain_bridges;
 mod erase;
 mod evidence_substrate;
@@ -183,6 +184,7 @@ pub(crate) fn try_run(args: &[String]) -> Option<CliResult> {
         readback::try_run,
         healthcheck::try_run,
         build_info::try_run,
+        discovery_run::try_run,
         hypothesis_evaluate::try_run,
         hypothesis_evaluator::try_run,
         hypothesis_rank::try_run,

@@ -57,6 +57,7 @@ pub(crate) fn usage() -> &'static str {
        calyx chain-walks <vault> --seed-file <json> (--anchor <cx>|--anchor-file <path>) [--assay-domain <domain>] [--assay-anchor <reward|label:name|test_pass|tie_formed|thumbs|speaker_match|style_hold|recurrence>] [--max-hops <n>] [--branch-width <n>] [--probe-width <n>] [--max-groundedness-distance <n>] [--min-gate-confidence <f>] [--novelty-weight <f>] [--max-hypotheses-per-seed <n>] [--min-terminal-confidence <f>] [--out <json>]
        calyx assemble-hypothesis-evidence <vault> --chain <chain.json> --out <input.json>
        calyx hypothesis-evaluator-driver --input <input.json> --out <artifact.json> --endpoint <http://host:port/path> --model <id> [--temperature <f>] [--timeout-ms <ms>]
+       calyx discovery-run (seal --manifest <manifest.json> --ledger <ledger-dir> --out <seal.json> | reproduce --manifest <manifest.json> --observed <observed.json> --out <report.json> | verify --manifest <manifest.json> --ledger <ledger-dir> --seq <n> --out <verify.json>)
        calyx materialize-bridge-corpus <name> --rows <jsonl> [--home <dir>]
        calyx materialize-molecular-vault <vault> --rows <jsonl> [--home <dir>]
        calyx materialize-evidence-substrate <vault> --pubtator-root <dir> --clinicaltrials-root <dir> --dgidb-root <dir> [--collection <name>] [--report <json>] [--home <dir>]
