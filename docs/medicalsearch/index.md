@@ -79,4 +79,5 @@ still requires experimental confirmation.
 | `56_ksg_subsample_ci.md` | #1208 KSG no-replacement subsample CI | complete FSV for duplicate-free subsamples, independent-control lower bound, planted-signal coverage, and small-sample fail-closed edge |
 | `57_blind_spot_calibration.md` | #1209 blind-spot detector calibration | complete FSV for scale-normalized per-pair calibration, null-FDR control, and uncalibrated-pair fail-closed skip |
 | `58_weighted_graph_csr.md` | #1213 weighted graph CSR evidence edges | complete FSV for persisted CSR weights, weighted reach/betweenness/spectral scoring, and invalid edge-value fail-closed cases |
+| `62_discovery_manifest_redaction.md` | #1221 discovery-run manifest ledger redaction | complete FSV for long benign manifest provenance and true-secret rejection |
 | (added as work proceeds) | | |

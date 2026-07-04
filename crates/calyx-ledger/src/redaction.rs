@@ -8,6 +8,7 @@ use crate::entry::ActorId;
 
 const SECRET_TOKEN_MIN: usize = 40;
 const MAX_HASH_OR_ID_LEN: usize = 64;
+const MAX_DISCOVERY_MANIFEST_TOKEN_LEN: usize = 160;
 const MAX_QUANT_SLOT_METADATA_LEN: usize = 4096;
 const MAX_SOURCE_METADATA_LEN: usize = 128;
 
@@ -205,6 +206,12 @@ fn allowed_stable_identifier(token: &str, field: Option<&str>) -> bool {
     if field == "signature" {
         return token.len() == 128 && is_hex(token);
     }
+    if field == "git_sha" {
+        return matches!(token.len(), 7..=40) && is_hex(token);
+    }
+    if field_allows_manifest_slug(&field) && is_manifest_slug(token) {
+        return true;
+    }
     if is_public_key_field(&field) {
         return token.len() == MAX_HASH_OR_ID_LEN && is_hex(token);
     }
@@ -225,12 +232,31 @@ fn field_allows_stable_identifier(field: &str) -> bool {
         || field == "input_hash"
         || field == "root"
         || field == "signature"
+        || field == "git_sha"
         || field == "weights_sha256"
         || is_public_key_field(&field)
         || field.ends_with("_hash")
         || field.ends_with("_id")
         || field.ends_with("_sha256")
         || field.ends_with("_digest")
+}
+
+fn field_allows_manifest_slug(field: &str) -> bool {
+    matches!(
+        field,
+        "run_id" | "corpus_vault_id" | "stage_id" | "upstream_stage_id" | "command",
+    )
+}
+
+fn is_manifest_slug(token: &str) -> bool {
+    !token.is_empty()
+        && token.len() <= MAX_DISCOVERY_MANIFEST_TOKEN_LEN
+        && token
+            .chars()
+            .any(|ch| matches!(ch, '-' | '_' | ':' | '/' | '.'))
+        && token
+            .chars()
+            .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_' | ':' | '/' | '.'))
 }
 
 fn is_source_metadata_field(field: &str) -> bool {
@@ -358,140 +384,4 @@ fn secret_error(message: impl Into<String>) -> CalyxError {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use serde_json::json;
-
-    const INPUT_HASH: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
-
-    #[test]
-    fn check_payload_allows_hash_and_ids() {
-        let payload = json!({
-            "input_hash": INPUT_HASH,
-            "cx_id": "0123456789abcdef0123456789abcdef",
-            "lens_id": "abcdef0123456789abcdef0123456789",
-        });
-        let bytes = serde_json::to_vec(&payload).unwrap();
-
-        assert!(RedactionPolicy::check_payload(&bytes).is_ok());
-    }
-
-    #[test]
-    fn check_payload_allows_public_checkpoint_signature_fields() {
-        let payload = json!({
-            "tag": "checkpoint_v1",
-            "root": INPUT_HASH,
-            "signature": "a".repeat(128),
-            "signer_pubkey": INPUT_HASH,
-        });
-        let bytes = serde_json::to_vec(&payload).unwrap();
-
-        assert!(RedactionPolicy::check_payload(&bytes).is_ok());
-
-        let secret_key = serde_json::to_vec(&json!({"api_key": INPUT_HASH})).unwrap();
-        assert_secret(secret_key);
-    }
-
-    #[test]
-    fn check_payload_rejects_secret_fields_and_tokens() {
-        let password = serde_json::to_vec(&json!({"password": "hunter2"})).unwrap();
-        assert_secret(password);
-
-        let bearer = b"mF9zK4sQ7xP2nT8vB3cD6eG1hJ5lR0uW9yA2bC4dE6";
-        assert_secret(bearer.to_vec());
-    }
-
-    #[test]
-    fn check_payload_edges_are_fail_closed() {
-        assert!(RedactionPolicy::check_payload(b"").is_ok());
-
-        let hash_payload = serde_json::to_vec(&json!({"input_hash": INPUT_HASH})).unwrap();
-        assert!(RedactionPolicy::check_payload(&hash_payload).is_ok());
-
-        assert_secret(b"0123456789ABCDEFGHIJabcdefghij!@#$%^&*()".to_vec());
-    }
-
-    #[test]
-    fn check_payload_allows_quant_slot_hex_metadata() {
-        let bytes = serde_json::to_vec(
-            &json!({"restore":{"candidate":{"metadata":{"quant_slot_0":"ab".repeat(128)}}}}),
-        )
-        .unwrap();
-        assert!(RedactionPolicy::check_payload(&bytes).is_ok());
-    }
-
-    #[test]
-    fn redacted_input_ref_omits_pointer() {
-        let input = InputRef {
-            hash: [7; 32],
-            pointer: Some("s3://vault/raw/password-path".to_string()),
-            redacted: false,
-        };
-
-        let redacted = RedactionPolicy::default().redact_input_ref(&input);
-        let bytes = serde_json::to_vec(&redacted).unwrap();
-
-        assert_eq!(redacted.hash, [7; 32]);
-        assert!(redacted.redacted);
-        assert_eq!(redacted.pointer, None);
-        assert!(!String::from_utf8(bytes).unwrap().contains("password-path"));
-    }
-
-    #[test]
-    fn apply_to_payload_keeps_ids_hashes_and_strips_raw_material() {
-        let mut builder = PayloadBuilder::default();
-        builder
-            .insert_str("cx_id", "0123456789abcdef0123456789abcdef")
-            .insert_str("lens_id", "abcdef0123456789abcdef0123456789")
-            .insert_str("input_hash", INPUT_HASH)
-            .insert_str("raw_bytes", "raw password text")
-            .insert_str("api_key", "do-not-keep")
-            .insert_u64("ts", 123);
-
-        let bytes = RedactionPolicy::default().apply_to_payload(&builder);
-        let value: Value = serde_json::from_slice(&bytes).unwrap();
-
-        assert!(value.get("cx_id").is_some());
-        assert!(value.get("lens_id").is_some());
-        assert!(value.get("input_hash").is_some());
-        assert_eq!(value.get("ts"), Some(&json!(123)));
-        assert!(value.get("raw_bytes").is_none());
-        assert!(value.get("api_key").is_none());
-        assert!(RedactionPolicy::check_payload(&bytes).is_ok());
-    }
-
-    #[test]
-    fn apply_to_payload_keeps_source_metadata_identifiers() {
-        let mut builder = PayloadBuilder::default();
-        builder.insert_value(
-            "metadata",
-            json!({
-                "chunk_id": "chunk-source-20260614-long-but-bounded",
-                "database_name": "production-db/main-source-20260614-long-but-bounded",
-                "raw_bytes": "do not keep",
-            }),
-        );
-
-        let bytes = RedactionPolicy::default().apply_to_payload(&builder);
-        let value: Value = serde_json::from_slice(&bytes).unwrap();
-        let metadata = value.get("metadata").unwrap();
-
-        assert_eq!(
-            metadata.get(METADATA_CHUNK_ID),
-            Some(&json!("chunk-source-20260614-long-but-bounded"))
-        );
-        assert_eq!(
-            metadata.get(METADATA_DATABASE_NAME),
-            Some(&json!(
-                "production-db/main-source-20260614-long-but-bounded"
-            ))
-        );
-        assert!(metadata.get("raw_bytes").is_none());
-        assert!(RedactionPolicy::check_payload(&bytes).is_ok());
-    }
-
-    fn assert_secret(payload: Vec<u8>) {
-        let error = RedactionPolicy::check_payload(&payload).unwrap_err();
-        assert_eq!(error.code, "CALYX_LEDGER_SECRET_IN_PAYLOAD");
-    }
-}
+mod tests;

@@ -49,6 +49,60 @@ fn seal_verify_and_reproduce_round_trip_disk_ledger() {
 }
 
 #[test]
+fn seal_accepts_long_benign_manifest_provenance_tokens() {
+    let root = temp_root("long-benign-manifest");
+    let manifest_path = root.join("manifest.json");
+    let ledger = root.join("ledger");
+    let seal_out = root.join("seal.json");
+    write_manifest(&manifest_path, &long_benign_manifest());
+
+    run_seal(SealArgs {
+        manifest: manifest_path,
+        ledger,
+        out: seal_out.clone(),
+    })
+    .unwrap();
+
+    let seal: SealArtifact = read_json(&seal_out).unwrap();
+    assert_eq!(seal.verify_chain, "Intact { count: 1 }");
+    assert_eq!(
+        seal.ledger_payload["run_id"],
+        "issue1221-biomedical-discovery-run-20260704T065206Z"
+    );
+    assert_eq!(
+        seal.ledger_payload["corpus_vault_id"],
+        "issue1221-biomedical-discovery-fsv-vault"
+    );
+    assert_eq!(
+        seal.ledger_payload["stages"][0]["git_sha"],
+        "faac5d1a6b391c584ab8264c33fcbee4892bd53a"
+    );
+    cleanup(root);
+}
+
+#[test]
+fn seal_rejects_secret_like_manifest_token_without_artifact() {
+    let root = temp_root("secret-manifest");
+    let manifest_path = root.join("manifest.json");
+    let ledger = root.join("ledger");
+    let out = root.join("seal.json");
+    let mut manifest = manifest();
+    manifest.stages[0].stage_id = "mF9zK4sQ7xP2nT8vB3cD6eG1hJ5lR0uW9yA2bC4dE6".to_string();
+    write_manifest(&manifest_path, &manifest);
+
+    let err = run_seal(SealArgs {
+        manifest: manifest_path,
+        ledger,
+        out: out.clone(),
+    })
+    .unwrap_err();
+
+    assert_eq!(err.code(), "CALYX_LEDGER_SECRET_IN_PAYLOAD");
+    assert!(!out.exists());
+    cleanup(root);
+}
+
+#[test]
 fn reproduce_drift_fails_without_artifact() {
     let root = temp_root("drift");
     let manifest_path = root.join("manifest.json");
@@ -178,6 +232,31 @@ fn manifest() -> DiscoveryRunManifest {
     }
 }
 
+fn long_benign_manifest() -> DiscoveryRunManifest {
+    DiscoveryRunManifest {
+        schema_version: 1,
+        run_id: "issue1221-biomedical-discovery-run-20260704T065206Z".to_string(),
+        corpus_vault_id: "issue1221-biomedical-discovery-fsv-vault".to_string(),
+        panel_manifest_sha256: sha('a'),
+        stages: vec![
+            stage(
+                "bridge-falsification-to-evaluate",
+                "calyx-discovery-run/bridge-falsification-to-evaluate",
+                None,
+                sha('0'),
+                sha('1'),
+            ),
+            stage(
+                "hypothesis-rank",
+                "calyx hypothesis-rank",
+                Some("bridge-falsification-to-evaluate"),
+                sha('1'),
+                sha('2'),
+            ),
+        ],
+    }
+}
+
 fn stage(
     stage_id: &str,
     command: &str,
@@ -192,7 +271,7 @@ fn stage(
         upstream_stage_id: upstream_stage_id.map(ToString::to_string),
         input_sha256,
         output_sha256,
-        git_sha: "51ade0aa".to_string(),
+        git_sha: "faac5d1a6b391c584ab8264c33fcbee4892bd53a".to_string(),
     }
 }
 
