@@ -4,6 +4,7 @@ use calyx_core::Result;
 use calyx_paths::AssocGraph;
 
 use super::key::{graph_corrupt, path_error};
+use super::types::validate_plain_graph_csr_weight;
 use super::{PlainGraphCsr, PlainGraphCsrEdge};
 
 pub(super) fn assoc_graph_from_csr(csr: &PlainGraphCsr) -> Result<AssocGraph> {
@@ -49,7 +50,10 @@ pub(super) fn assoc_graph_from_csr(csr: &PlainGraphCsr) -> Result<AssocGraph> {
                     edge.dst
                 )));
             }
-            builder.add_edge(src, edge.dst, 1.0).map_err(path_error)?;
+            let weight = validate_plain_graph_csr_weight(edge.weight)?;
+            builder
+                .add_edge(src, edge.dst, weight)
+                .map_err(path_error)?;
         }
     }
     let graph = builder.build();

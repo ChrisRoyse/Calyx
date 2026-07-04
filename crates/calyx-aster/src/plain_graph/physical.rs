@@ -10,7 +10,9 @@ use super::assoc_graph::assoc_graph_from_csr;
 use super::csr_store;
 use super::key::{GraphKeyspace, graph_corrupt, path_error};
 use super::lifecycle::{GraphCollectionGenerationStatus, PhysicalGraphCollectionLifecycle};
-use super::types::{PlainGraphCsr, PlainGraphEdge};
+use super::types::{
+    PlainGraphCsr, PlainGraphEdge, plain_graph_edge_raw_weight, plain_graph_normalized_edge_weight,
+};
 
 pub struct PhysicalPlainGraph {
     router: CfRouter,
@@ -133,14 +135,19 @@ impl PhysicalPlainGraph {
         for node in &nodes {
             builder.add_node(*node, 1.0).map_err(path_error)?;
         }
-        for key in self.scan_keys_at(&self.keys.edge_out_range())? {
-            let edge = self.keys.decode_edge_out_key(&key)?;
+        let mut edges = Vec::new();
+        let mut max_raw_weight = 0.0_f32;
+        for edge in self.edge_out_props()? {
             if !node_set.contains(&edge.src) || !node_set.contains(&edge.dst) {
                 return Err(graph_corrupt("graph edge endpoint has no node row"));
             }
-            builder
-                .add_edge(edge.src, edge.dst, 1.0)
-                .map_err(path_error)?;
+            let raw_weight = plain_graph_edge_raw_weight(&edge.value)?;
+            max_raw_weight = max_raw_weight.max(raw_weight);
+            edges.push((edge.src, edge.dst, raw_weight));
+        }
+        for (src, dst, raw_weight) in edges {
+            let weight = plain_graph_normalized_edge_weight(raw_weight, max_raw_weight)?;
+            builder.add_edge(src, dst, weight).map_err(path_error)?;
         }
         Ok(builder.build())
     }

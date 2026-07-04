@@ -27,8 +27,18 @@ pub use lifecycle::{
 pub use physical::PhysicalPlainGraph;
 pub use types::{
     CsrCommit, GraphEdgeCommit, PlainGraphCsr, PlainGraphCsrEdge, PlainGraphDirection,
-    PlainGraphEdge, TraverseOptions,
+    PlainGraphEdge, TraverseOptions, plain_graph_edge_raw_weight,
+    plain_graph_normalized_edge_weight,
 };
+
+#[derive(Clone, Debug)]
+struct WeightedEdgeDraft {
+    src: CxId,
+    src_index: usize,
+    dst: CxId,
+    edge_type: String,
+    raw_weight: f32,
+}
 
 pub struct PlainGraph<'a, C: Clock> {
     vault: &'a AsterVault<C>,
@@ -163,7 +173,8 @@ impl<'a, C: Clock> PlainGraph<'a, C> {
         for node in &nodes {
             builder.add_node(*node, 1.0).map_err(path_error)?;
         }
-        let mut by_src = vec![Vec::<PlainGraphCsrEdge>::new(); nodes.len()];
+        let mut drafts = Vec::new();
+        let mut max_raw_weight = 0.0_f32;
         for key in self.scan_keys_at(snapshot, &self.keys.edge_out_range())? {
             let edge = self.keys.decode_edge_out_key(&key)?;
             let src = *node_index.get(&edge.src).ok_or_else(|| {
@@ -175,12 +186,30 @@ impl<'a, C: Clock> PlainGraph<'a, C> {
                     edge.dst
                 )));
             }
-            builder
-                .add_edge(edge.src, edge.dst, 1.0)
-                .map_err(path_error)?;
-            by_src[src].push(PlainGraphCsrEdge {
+            let value = self
+                .vault
+                .read_cf_at(snapshot, ColumnFamily::Graph, &key)?
+                .ok_or_else(|| graph_corrupt("graph edge row disappeared during CSR projection"))?;
+            let raw_weight = plain_graph_edge_raw_weight(&value)?;
+            max_raw_weight = max_raw_weight.max(raw_weight);
+            drafts.push(WeightedEdgeDraft {
+                src: edge.src,
+                src_index: src,
                 dst: edge.dst,
                 edge_type: edge.edge_type,
+                raw_weight,
+            });
+        }
+        let mut by_src = vec![Vec::<PlainGraphCsrEdge>::new(); nodes.len()];
+        for draft in drafts {
+            let weight = plain_graph_normalized_edge_weight(draft.raw_weight, max_raw_weight)?;
+            builder
+                .add_edge(draft.src, draft.dst, weight)
+                .map_err(path_error)?;
+            by_src[draft.src_index].push(PlainGraphCsrEdge {
+                dst: draft.dst,
+                edge_type: draft.edge_type,
+                weight,
             });
         }
         let association_edge_count = builder.build().edge_count();
@@ -253,13 +282,31 @@ impl<'a, C: Clock> PlainGraph<'a, C> {
         for node in &nodes {
             builder.add_node(*node, 1.0).map_err(path_error)?;
         }
+        let mut drafts = Vec::new();
+        let mut max_raw_weight = 0.0_f32;
         for key in self.scan_keys_at(snapshot, &self.keys.edge_out_range())? {
             let edge = self.keys.decode_edge_out_key(&key)?;
             if !node_set.contains(&edge.src) || !node_set.contains(&edge.dst) {
                 return Err(graph_corrupt("graph edge endpoint has no node row"));
             }
+            let value = self
+                .vault
+                .read_cf_at(snapshot, ColumnFamily::Graph, &key)?
+                .ok_or_else(|| graph_corrupt("graph edge row disappeared during assoc scan"))?;
+            let raw_weight = plain_graph_edge_raw_weight(&value)?;
+            max_raw_weight = max_raw_weight.max(raw_weight);
+            drafts.push(WeightedEdgeDraft {
+                src: edge.src,
+                src_index: 0,
+                dst: edge.dst,
+                edge_type: edge.edge_type,
+                raw_weight,
+            });
+        }
+        for draft in drafts {
+            let weight = plain_graph_normalized_edge_weight(draft.raw_weight, max_raw_weight)?;
             builder
-                .add_edge(edge.src, edge.dst, 1.0)
+                .add_edge(draft.src, draft.dst, weight)
                 .map_err(path_error)?;
         }
         Ok(builder.build())

@@ -529,6 +529,7 @@ dependencies = [
  "calyx-forge",
  "calyx-fsv",
  "calyx-ledger",
+ "calyx-mincut",
  "calyx-paths",
  "crc32fast",
  "criterion",

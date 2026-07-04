@@ -8,9 +8,9 @@
 //! `PlainGraphCsr` bytes are chunked into ordered `KIND_CSR_SEGMENT` rows.
 //! Readers reassemble the stream, verify length and hash, then decode —
 //! any missing/torn/stale segment state fails closed as `graph_corrupt`,
-//! never as a silently partial graph. Legacy single-row CSRs (written before
-//! sharding) are still readable: a row that does not decode as a manifest is
-//! decoded directly as `PlainGraphCsr`.
+//! never as a silently partial graph. Version 3 includes per-edge weights;
+//! older manifests must be rebuilt instead of being interpreted as weighted
+//! graph evidence.
 
 use calyx_core::{Result, Seq};
 use serde::{Deserialize, Serialize};
@@ -18,7 +18,7 @@ use serde::{Deserialize, Serialize};
 use super::key::{GraphKeyspace, graph_corrupt};
 use super::types::PlainGraphCsr;
 
-pub(super) const CSR_MANIFEST_VERSION: u32 = 2;
+pub(super) const CSR_MANIFEST_VERSION: u32 = 3;
 /// Segment payload cap. Keeps every row within the graph value ceiling and
 /// far below the router memtable cap so segment writes never backpressure.
 pub(super) const CSR_SEGMENT_MAX_BYTES: usize = 1 << 20;
@@ -75,7 +75,8 @@ pub(super) fn load_csr_bytes(
         return Ok(None);
     };
     let Some(manifest) = decode_manifest(&row) else {
-        // Legacy single-row CSR: the row bytes are the projection itself.
+        // Single-row projections have no schema manifest; decode will reject
+        // old unweighted rows because PlainGraphCsrEdge now requires weight.
         return Ok(Some(row));
     };
     if manifest.csr_manifest_version != CSR_MANIFEST_VERSION {

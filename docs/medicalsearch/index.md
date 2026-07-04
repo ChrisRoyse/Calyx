@@ -78,4 +78,5 @@ still requires experimental confirmation.
 | `55_ksg_mixed_discrete_estimator.md` | #1207 mixed continuous-discrete KSG estimator | complete FSV for planted-signal recovery, fail-closed small classes, and real labeled Assay CF readback |
 | `56_ksg_subsample_ci.md` | #1208 KSG no-replacement subsample CI | complete FSV for duplicate-free subsamples, independent-control lower bound, planted-signal coverage, and small-sample fail-closed edge |
 | `57_blind_spot_calibration.md` | #1209 blind-spot detector calibration | complete FSV for scale-normalized per-pair calibration, null-FDR control, and uncalibrated-pair fail-closed skip |
+| `58_weighted_graph_csr.md` | #1213 weighted graph CSR evidence edges | complete FSV for persisted CSR weights, weighted reach/betweenness/spectral scoring, and invalid edge-value fail-closed cases |
 | (added as work proceeds) | | |

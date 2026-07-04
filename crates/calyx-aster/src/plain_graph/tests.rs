@@ -93,8 +93,8 @@ fn csr_projection_is_rebuildable_and_persisted() {
     graph.put_node(cx(1), b"{}").unwrap();
     graph.put_node(cx(2), b"{}").unwrap();
     graph.put_node(cx(3), b"{}").unwrap();
-    graph.put_edge(cx(1), "knows", cx(2), b"ab").unwrap();
-    graph.put_edge(cx(1), "likes", cx(3), b"ac").unwrap();
+    graph.put_edge(cx(1), "knows", cx(2), b"2").unwrap();
+    graph.put_edge(cx(1), "likes", cx(3), b"1").unwrap();
     let commit = graph.rebuild_csr(vault.latest_seq()).unwrap();
     assert_eq!(commit.projection.nodes, vec![cx(1), cx(2), cx(3)]);
     assert_eq!(commit.projection.offsets, vec![0, 2, 2, 2]);
@@ -156,7 +156,7 @@ fn legacy_single_row_csr_is_still_readable() {
     let graph = PlainGraph::new(&vault, "plain").unwrap();
     graph.put_node(cx(1), b"{}").unwrap();
     graph.put_node(cx(2), b"{}").unwrap();
-    graph.put_edge(cx(1), "knows", cx(2), b"ab").unwrap();
+    graph.put_edge(cx(1), "knows", cx(2), b"1").unwrap();
     let legacy = graph.csr_projection(vault.latest_seq()).unwrap();
     let seq = vault
         .write_cf(
@@ -184,8 +184,8 @@ fn physical_assoc_graph_prefers_persisted_csr_projection() {
     graph.put_node(cx(1), b"{}").unwrap();
     graph.put_node(cx(2), b"{}").unwrap();
     graph.put_node(cx(3), b"{}").unwrap();
-    graph.put_edge(cx(1), "knows", cx(2), b"ab").unwrap();
-    graph.put_edge(cx(1), "likes", cx(3), b"ac").unwrap();
+    graph.put_edge(cx(1), "knows", cx(2), b"2").unwrap();
+    graph.put_edge(cx(1), "likes", cx(3), b"1").unwrap();
     let commit = graph.rebuild_csr(vault.latest_seq()).unwrap();
     vault.flush().unwrap();
 
@@ -296,11 +296,11 @@ fn issue638_plain_graph_fsv() {
     ] {
         graph.put_node(id, props).unwrap();
     }
-    let ab = graph.put_edge(cx(1), "knows", cx(2), b"ab").unwrap();
-    let bc = graph.put_edge(cx(2), "knows", cx(3), b"bc").unwrap();
-    graph.put_edge(cx(3), "knows", cx(4), b"cd").unwrap();
-    graph.put_edge(cx(3), "knows", cx(1), b"cycle").unwrap();
-    graph.put_edge(cx(4), "likes", cx(2), b"db").unwrap();
+    let ab = graph.put_edge(cx(1), "knows", cx(2), b"1").unwrap();
+    let bc = graph.put_edge(cx(2), "knows", cx(3), b"1").unwrap();
+    graph.put_edge(cx(3), "knows", cx(4), b"1").unwrap();
+    graph.put_edge(cx(3), "knows", cx(1), b"1").unwrap();
+    graph.put_edge(cx(4), "likes", cx(2), b"1").unwrap();
     let snapshot = vault.latest_seq();
     let expected_two_hop = vec![cx(2), cx(3)];
     let actual_two_hop = graph

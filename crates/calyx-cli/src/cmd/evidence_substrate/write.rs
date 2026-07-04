@@ -6,7 +6,7 @@ use calyx_aster::cf::ColumnFamily;
 use calyx_aster::plain_graph::{
     GraphCollectionGenerationState, GraphCollectionGenerationStatus, GraphCollectionLifecycle,
     PhysicalGraphCollectionLifecycle, PhysicalPlainGraph, PlainGraph, PlainGraphCsr,
-    PlainGraphCsrEdge,
+    PlainGraphCsrEdge, plain_graph_edge_raw_weight, plain_graph_normalized_edge_weight,
 };
 use calyx_aster::vault::{AsterVault, VaultOptions};
 use calyx_core::{AnchorKind, CalyxError, CxId, VaultStore};
@@ -417,9 +417,10 @@ fn build_csr_projection(
         .enumerate()
         .map(|(index, id)| (*id, index))
         .collect::<BTreeMap<_, _>>();
-    let mut by_src = vec![Vec::<PlainGraphCsrEdge>::new(); nodes.len()];
+    let mut drafts = Vec::new();
+    let mut max_raw_weight = 0.0_f32;
     let mut association_edges = BTreeSet::new();
-    for (src, edge_type, dst, _) in edge_values {
+    for (src, edge_type, dst, value) in edge_values {
         let Some(src_index) = node_index.get(src).copied() else {
             return Err(CliError::runtime(format!(
                 "CSR source {src} has no node row"
@@ -430,11 +431,18 @@ fn build_csr_projection(
                 "CSR destination {dst} has no node row"
             )));
         }
-        by_src[src_index].push(PlainGraphCsrEdge {
-            dst: *dst,
-            edge_type: edge_type.clone(),
-        });
+        let raw_weight = plain_graph_edge_raw_weight(value)?;
+        max_raw_weight = max_raw_weight.max(raw_weight);
+        drafts.push((src_index, *dst, edge_type.clone(), raw_weight));
         association_edges.insert((*src, *dst));
+    }
+    let mut by_src = vec![Vec::<PlainGraphCsrEdge>::new(); nodes.len()];
+    for (src_index, dst, edge_type, raw_weight) in drafts {
+        by_src[src_index].push(PlainGraphCsrEdge {
+            dst,
+            edge_type,
+            weight: plain_graph_normalized_edge_weight(raw_weight, max_raw_weight)?,
+        });
     }
     let mut offsets = Vec::with_capacity(nodes.len() + 1);
     let mut edges = Vec::with_capacity(edge_values.len());

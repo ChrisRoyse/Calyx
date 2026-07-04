@@ -30,6 +30,7 @@ zeroize.workspace = true
 [dev-dependencies]
 calyx-fsv = { path = "../calyx-fsv" }
 calyx-ledger = { path = "../calyx-ledger" }
+calyx-mincut = { path = "../calyx-mincut" }
 criterion.workspace = true
 proptest.workspace = true
 ulid.workspace = true
