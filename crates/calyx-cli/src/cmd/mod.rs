@@ -10,6 +10,7 @@ mod graph_csr;
 mod graph_lifecycle;
 mod healthcheck;
 mod hypothesis_evaluate;
+mod hypothesis_falsification;
 mod hypothesis_rank;
 mod ingest;
 mod intelligence;
@@ -54,7 +55,7 @@ propose-lens provenance verify-chain reproduce anneal-status rebuild-search-inde
 weave-loom domain-bridges materialize-bridge-corpus discovery-chain chain-walks probe-matrix \
 spectral-communities materialize-graph-csr materialize-molecular-vault \
 materialize-evidence-substrate materialize-lincs-reversal \
-association-validation-gates typed-association-miner \
+association-validation-gates typed-association-miner hypothesis-falsification-sweep \
 graph-collection-generations graph-collection-state";
 
 #[derive(Clone, Debug, PartialEq)]
@@ -99,6 +100,7 @@ pub(crate) enum Subcommand {
     MaterializeLincsReversal(lincs_reversal::MaterializeLincsReversalArgs),
     AssociationValidationGates(association_validation::AssociationValidationArgs),
     TypedAssociationMiner(typed_association_miner::TypedAssociationMinerArgs),
+    HypothesisFalsificationSweep(hypothesis_falsification::HypothesisFalsificationArgs),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -254,6 +256,7 @@ fn run(command: Subcommand) -> CliResult {
         Subcommand::MaterializeLincsReversal(_) => lincs_reversal::run(command),
         Subcommand::AssociationValidationGates(_) => association_validation::run(command),
         Subcommand::TypedAssociationMiner(_) => typed_association_miner::run(command),
+        Subcommand::HypothesisFalsificationSweep(_) => hypothesis_falsification::run(command),
     }
 }
 
@@ -306,6 +309,9 @@ pub(crate) fn parse(args: &[String]) -> CliResult<Subcommand> {
             association_validation::parse_association_validation_gates(rest)
         }
         "typed-association-miner" => typed_association_miner::parse_typed_association_miner(rest),
+        "hypothesis-falsification-sweep" => {
+            hypothesis_falsification::parse_hypothesis_falsification_sweep(rest)
+        }
         other => Err(CliError::usage(format!("unknown PH62 command {other}"))),
     }
 }

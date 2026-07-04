@@ -59,6 +59,7 @@ pub(crate) fn usage() -> &'static str {
        calyx materialize-lincs-reversal <vault> --root <dir> [--metadata-root <dir>] [--collection <name>] [--report <json>] [--home <dir>]
        calyx association-validation-gates --typed-root <dir> --open-targets-root <dir> --pubtator-root <dir> --clinicaltrials-root <dir> --dgidb-root <dir> --out-dir <dir> [--cutoff-year <yyyy>] [--score-threshold <0..1>] [--min-auroc <0..1>] [--min-positive-recall <0..1>] [--min-negative-suppression <0..1>]
        calyx typed-association-miner --typed-root <dir> --validation-report <json> --out-dir <dir> [--source-type <concept-type>] [--target-type <concept-type>] [--name-contains <text>] [--source-issue <n>] [--min-support <n>] [--max-pairs <n>] [--max-input-edges <n>] [--max-paths-per-pair <n>]
+       calyx hypothesis-falsification-sweep --hypotheses-report <json> [--hypotheses-report <json> ...] --pubtator-root <dir> --clinicaltrials-root <dir> --dgidb-root <dir> --open-targets-root <dir> --out-dir <dir> [--max-hypotheses <n>]
        calyx graph-collection-generations <vault> [--collection <name>] [--home <dir>]
        calyx graph-collection-state <vault> --collection <name> --generation <id> --state <writing|accepted|failed|tombstoned> --command <name> [--reason <text>] [--detail <k=v>] [--home <dir>]
        calyx reproduce <vault> <answer_id>

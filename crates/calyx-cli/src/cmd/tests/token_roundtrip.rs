@@ -7,6 +7,8 @@ use flows::{
     chain_walks_tokens, discovery_chain_tokens, graph_collection_generations_tokens,
     graph_collection_state_tokens, probe_matrix_tokens,
 };
+mod falsification_tokens;
+use falsification_tokens::hypothesis_falsification_tokens;
 mod validation_tokens;
 use validation_tokens::association_validation_tokens;
 mod typed_miner_tokens;
@@ -117,6 +119,7 @@ pub(super) fn subcommand_tokens(command: &Subcommand) -> Vec<String> {
         Subcommand::MaterializeLincsReversal(args) => lincs_reversal_tokens(args),
         Subcommand::AssociationValidationGates(args) => association_validation_tokens(args),
         Subcommand::TypedAssociationMiner(args) => typed_association_miner_tokens(args),
+        Subcommand::HypothesisFalsificationSweep(args) => hypothesis_falsification_tokens(args),
         Subcommand::GraphCollectionGenerations(args) => graph_collection_generations_tokens(args),
         Subcommand::GraphCollectionState(args) => graph_collection_state_tokens(args),
         Subcommand::DiscoveryChain(args) => discovery_chain_tokens(args),
