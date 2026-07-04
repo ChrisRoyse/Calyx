@@ -113,7 +113,7 @@ fn large_csr_projection_shards_into_segments_and_roundtrips() {
         bytes[2] = 7;
         CxId::from_bytes(bytes)
     };
-    const NODES: u16 = 160;
+    const NODES: u16 = 230;
     for index in 0..NODES {
         graph.put_node(node(index), b"{}").unwrap();
     }
