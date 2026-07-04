@@ -83,4 +83,5 @@ still requires experimental confirmation.
 | `62_discovery_manifest_redaction.md` | #1221 discovery-run manifest ledger redaction | complete FSV for long benign manifest provenance and true-secret rejection |
 | `63_native_discovery_bridges.md` | #1220 native discovery bridge CLIs | complete FSV for real #1219 miner/falsification artifacts, downstream evaluator/ranker acceptance, and stale preflight fail-closed behavior |
 | `64_hypothesis_evaluator_https_provider.md` | #1216 native HTTPS/OpenAI-compatible evaluator provider | complete FSV for HTTPS auth/redaction behavior, persisted evaluator output readback, and missing-auth fail-closed no-artifact proof |
+| `65_association_native_doctrine_context_update.md` | #863/#860 association-native doctrine/context update | complete context update folding the builder handbook into repo doctrine and issue-state obligations |
 | (added as work proceeds) | | |
