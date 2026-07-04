@@ -12,6 +12,7 @@ mod graph_csr;
 mod graph_lifecycle;
 mod healthcheck;
 mod hypothesis_evaluate;
+mod hypothesis_evaluator;
 mod hypothesis_evidence;
 mod hypothesis_falsification;
 mod hypothesis_rank;
@@ -178,20 +179,17 @@ pub(crate) struct ProfileLensArgs {
 }
 
 pub(crate) fn try_run(args: &[String]) -> Option<CliResult> {
-    if let Some(result) = readback::try_run(args) {
-        return Some(result);
-    }
-    if let Some(result) = healthcheck::try_run(args) {
-        return Some(result);
-    }
-    if let Some(result) = build_info::try_run(args) {
-        return Some(result);
-    }
-    if let Some(result) = hypothesis_evaluate::try_run(args) {
-        return Some(result);
-    }
-    if let Some(result) = hypothesis_rank::try_run(args) {
-        return Some(result);
+    for direct in [
+        readback::try_run,
+        healthcheck::try_run,
+        build_info::try_run,
+        hypothesis_evaluate::try_run,
+        hypothesis_evaluator::try_run,
+        hypothesis_rank::try_run,
+    ] {
+        if let Some(result) = direct(args) {
+            return Some(result);
+        }
     }
     if !args.first().is_some_and(|command| is_cmd(command)) {
         return None;
