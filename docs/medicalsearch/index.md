@@ -107,4 +107,5 @@ still requires experimental confirmation.
 | `83_dailymed_spl_title_source_mining.md` | #1242 DailyMed SPL title source mining after RxNorm recheck | complete FSV for 640 DailyMed pair-key query rows, zero SPL metadata hits, 1,019 remaining no-hit rows, and native Calyx bridge-corpus materialization |
 | `84_europepmc_pair_search_mining.md` | #1243 Europe PMC pair-search source mining after DailyMed SPL title recheck | complete FSV for 640 Europe PMC pair-key queries, 598 verified co-mention evidence rows, 487 candidate-row hits, 532 remaining no-hit rows, and native Calyx bridge-corpus materialization |
 | `85_europepmc_relation_validation.md` | #1244 Europe PMC source-text relation/safety/outcome validation | complete FSV for 598 evidence rows, 487 hit-candidate rollups, bounded relation classes, blocked safety/counter review rows, and native Calyx bridge-corpus materialization |
+| `86_europepmc_safety_counter_review.md` | #1246 Europe PMC safety/counter falsification review | complete FSV for 363 scoped rollups, 310 evidence-review rows, safety/counter category separation, and native Calyx bridge-corpus materialization |
 | (added as work proceeds) | | |
