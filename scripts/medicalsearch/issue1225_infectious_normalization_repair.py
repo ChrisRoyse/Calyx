@@ -63,8 +63,15 @@ def mapping_rows() -> list[dict[str, Any]]:
             "Lupus Erythematosus, Systemic",
             "D008180",
             ["Systemic lupus erythematosus"],
+            lookup_label="Lupus Erythematosus, Systemic",
         ),
-        mesh("arthritis_rheumatoid", "Arthritis, Rheumatoid", "D001172", ["Rheumatoid arthritis"]),
+        mesh(
+            "arthritis_rheumatoid",
+            "Arthritis, Rheumatoid",
+            "D001172",
+            ["Rheumatoid arthritis"],
+            lookup_label="Arthritis, Rheumatoid",
+        ),
         mesh("yellow_fever", "Yellow Fever", "D015004", ["yellow fever"]),
         chemical("leukotrienes", "Leukotrienes", "D015289", ["Leukotriene"]),
         chemical(
@@ -108,7 +115,14 @@ def mapping_rows() -> list[dict[str, Any]]:
     ]
 
 
-def mesh(key: str, name: str, mesh_id: str, synonyms: list[str]) -> dict[str, Any]:
+def mesh(
+    key: str,
+    name: str,
+    mesh_id: str,
+    synonyms: list[str],
+    lookup_label: str | None = None,
+) -> dict[str, Any]:
+    label = lookup_label or key.replace("_", " ")
     return {
         "concept_type": "disease",
         "normalized_id": "@" + "DISEASE_" + re.sub(r"[^A-Za-z0-9]+", "_", name).strip("_"),
@@ -118,7 +132,10 @@ def mesh(key: str, name: str, mesh_id: str, synonyms: list[str]) -> dict[str, An
         "synonyms": synonyms,
         "match_strategy": "exact_mesh_descriptor_or_entry_term",
         "lookup_key": f"nlm_mesh_lookup:{key}",
-        "lookup_url": f"https://id.nlm.nih.gov/mesh/lookup/descriptor?label={key.replace('_', '+')}&match=exact&limit=10",
+        "lookup_url": (
+            "https://id.nlm.nih.gov/mesh/lookup/descriptor?label="
+            f"{label.replace(' ', '+')}&match=exact&limit=10"
+        ),
         "confidence": 1.0,
     }
 
