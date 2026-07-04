@@ -22,11 +22,7 @@ fn issue968_exact_replay_with_missing_base_anchors_preserves_stored_slots() {
     let (root, resolved) = test_vault_with_registered_dense_lens("issue968");
     let plain = resolved.path.join("plain.jsonl");
     let anchored = resolved.path.join("anchored.jsonl");
-    fs::write(
-        &plain,
-        r#"{"text":"alpha issue968 replay","metadata":{"source_dataset":"issue968"}}"#,
-    )
-    .unwrap();
+    fs::write(&plain, format!("{}\n", plain_row())).unwrap();
     fs::write(&anchored, anchored_row()).unwrap();
 
     ingest_batch_streaming(&resolved, &plain).expect("plain ingest");
@@ -95,11 +91,7 @@ fn issue986_plain_replay_after_anchored_existing_row_uses_stored_readback_truth(
     let anchored = resolved.path.join("anchored.jsonl");
     let plain = resolved.path.join("plain.jsonl");
     fs::write(&anchored, anchored_row()).unwrap();
-    fs::write(
-        &plain,
-        r#"{"text":"alpha issue968 replay","metadata":{"source_dataset":"issue968"}}"#,
-    )
-    .unwrap();
+    fs::write(&plain, format!("{}\n", plain_row())).unwrap();
 
     ingest_batch_streaming(&resolved, &anchored).expect("anchored ingest");
     let vault = open_vault(&resolved).unwrap();
@@ -135,16 +127,37 @@ fn issue986_plain_replay_after_anchored_existing_row_uses_stored_readback_truth(
     fs::remove_dir_all(root).ok();
 }
 
-fn anchored_row() -> &'static str {
-    concat!(
-        r#"{"text":"alpha issue968 replay","metadata":{"source_dataset":"issue968"},"#,
-        r#""anchors":["#,
-        r#"{"kind":"label:campaign","value":"calyx15000-2m","source":"issue968","confidence":1.0},"#,
-        r#"{"kind":"label:source_type","value":"ops_script","source":"issue968","confidence":1.0},"#,
-        r#"{"kind":"label:source_path","value":"scripts\\build-calyx-ingest-batch.ps1","source":"issue968","confidence":1.0}"#,
-        r#"]}"#,
-        "\n",
+fn plain_row() -> String {
+    json!({
+        "text": "alpha issue968 replay",
+        "metadata": provenance_metadata(),
+    })
+    .to_string()
+}
+
+fn anchored_row() -> String {
+    format!(
+        "{}\n",
+        json!({
+            "text": "alpha issue968 replay",
+            "metadata": provenance_metadata(),
+            "anchors": [
+                {"kind":"label:campaign","value":"calyx15000-2m","source":"issue968","confidence":1.0},
+                {"kind":"label:source_type","value":"ops_script","source":"issue968","confidence":1.0},
+                {"kind":"label:source_path","value":"scripts\\build-calyx-ingest-batch.ps1","source":"issue968","confidence":1.0}
+            ],
+        })
     )
+}
+
+fn provenance_metadata() -> Value {
+    json!({
+        "source_dataset": "issue968",
+        "source_sha256": "sha256-alpha-issue968-replay",
+        "source_url": "https://example.test/issue968/alpha",
+        "license": "CC-BY-4.0",
+        "retrieval_ts": "2026-07-04T00:00:00Z",
+    })
 }
 
 fn write_issue986_fsv(

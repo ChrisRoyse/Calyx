@@ -44,11 +44,16 @@ fn gpu_placed_persisted_lens_uses_resident_binary_worker_and_persists_cfs() {
         before
     );
     let batch = vault_path.join("resident-worker.jsonl");
-    fs::write(
-        &batch,
-        "{\"text\":\"resident worker process FSV alpha\"}\n{\"text\":\"resident worker process FSV beta\"}\n",
-    )
-    .expect("write resident-worker batch");
+    let batch_body = [
+        "resident worker process FSV alpha",
+        "resident worker process FSV beta",
+    ]
+    .into_iter()
+    .map(batch_line)
+    .collect::<Vec<_>>()
+    .join("\n")
+        + "\n";
+    fs::write(&batch, batch_body).expect("write resident-worker batch");
 
     let output = Command::new(calyx_exe())
         .env("CALYX_HOME", &root)
@@ -204,6 +209,37 @@ fn cf_state(vault_path: &Path, vault_id: VaultId, salt: Vec<u8>) -> Value {
         "ledger_rows": vault.scan_cf_at(snapshot, ColumnFamily::Ledger).expect("scan Ledger CF").len(),
         "slot_00_rows": vault.scan_cf_at(snapshot, ColumnFamily::slot(SlotId::new(0))).expect("scan slot_00 CF").len(),
     })
+}
+
+fn batch_line(text: &str) -> String {
+    serde_json::to_string(&serde_json::json!({
+        "text": text,
+        "metadata": provenance_metadata("resident-worker-fsv", text),
+    }))
+    .expect("serialize resident-worker batch row")
+}
+
+fn provenance_metadata(dataset: &str, text: &str) -> Value {
+    let slug = provenance_slug(text);
+    serde_json::json!({
+        "source_dataset": dataset,
+        "source_sha256": format!("sha256-{slug}"),
+        "source_url": format!("https://example.test/{dataset}/{slug}"),
+        "license": "CC-BY-4.0",
+        "retrieval_ts": "2026-07-04T00:00:00Z",
+    })
+}
+
+fn provenance_slug(text: &str) -> String {
+    text.chars()
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() {
+                ch.to_ascii_lowercase()
+            } else {
+                '-'
+            }
+        })
+        .collect()
 }
 
 fn calyx_exe() -> PathBuf {

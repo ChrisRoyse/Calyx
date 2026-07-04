@@ -17,7 +17,11 @@ fn batch_ingest_stakes_then_clears_rebuild_marker_and_publishes_fresh_manifest()
     let jsonl = resolved.path.join("marker-happy.jsonl");
     fs::write(
         &jsonl,
-        "{\"text\":\"issue1089 alpha row\"}\n{\"text\":\"issue1089 beta row\"}\n",
+        format!(
+            "{}\n{}\n",
+            batch_line("issue1089 alpha row"),
+            batch_line("issue1089 beta row")
+        ),
     )
     .unwrap();
     let marker_path = rebuild_required_marker_path(&resolved.path);
@@ -58,7 +62,7 @@ fn batch_ingest_stakes_then_clears_rebuild_marker_and_publishes_fresh_manifest()
 fn replay_only_batch_leaves_foreign_marker_in_place() {
     let (root, resolved) = test_vault_with_registered_dense_lens("issue1089-marker-foreign");
     let jsonl = resolved.path.join("marker-foreign.jsonl");
-    fs::write(&jsonl, "{\"text\":\"issue1089 replay row\"}\n").unwrap();
+    fs::write(&jsonl, format!("{}\n", batch_line("issue1089 replay row"))).unwrap();
     ingest_batch_streaming(&resolved, &jsonl).unwrap();
     let mut foreign = RebuildRequiredMarker::new(
         "batch_ingest",
@@ -103,7 +107,11 @@ fn replay_only_batch_keeps_fresh_search_available() {
     let jsonl = resolved.path.join("replay-fresh.jsonl");
     fs::write(
         &jsonl,
-        "{\"text\":\"issue1100 gamma row\"}\n{\"text\":\"issue1100 delta row\"}\n",
+        format!(
+            "{}\n{}\n",
+            batch_line("issue1100 gamma row"),
+            batch_line("issue1100 delta row")
+        ),
     )
     .unwrap();
     ingest_batch_streaming(&resolved, &jsonl).unwrap();
@@ -147,7 +155,11 @@ fn replay_only_batch_keeps_fresh_search_available() {
 fn failed_post_commit_rebuild_leaves_marker_recording_committed_seq() {
     let (root, resolved) = test_vault_with_registered_dense_lens("issue1089-marker-fail");
     let jsonl = resolved.path.join("marker-fail.jsonl");
-    fs::write(&jsonl, "{\"text\":\"issue1089 rebuild failure row\"}\n").unwrap();
+    fs::write(
+        &jsonl,
+        format!("{}\n", batch_line("issue1089 rebuild failure row")),
+    )
+    .unwrap();
     // Corrupt pre-existing manifest makes the post-commit rebuild fail after
     // the Base rows are durable — the same partial-commit shape as the
     // incident's external timeout kill.

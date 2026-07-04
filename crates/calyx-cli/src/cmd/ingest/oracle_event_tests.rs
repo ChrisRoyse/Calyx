@@ -26,12 +26,21 @@ fn batch_ingest_structures_oracle_recurrence_for_reverse_query() {
     let jsonl = resolved.path.join("oracle.jsonl");
     fs::write(
         &jsonl,
-        concat!(
-            r#"{"text":"What treats type 2 diabetes? A metformin B aspirin","#,
-            r#""anchors":[{"kind":"label:answer","value":"A"},{"kind":"test-pass","value":"true"}],"#,
-            r#""oracle":{"domain":"endocrinology","action":"What treats type 2 diabetes?","#,
-            r#""outcome":"A","t_secs":1700000000}}"#,
-            "\n",
+        format!(
+            "{}\n",
+            oracle_row(
+                "What treats type 2 diabetes? A metformin B aspirin",
+                json!([
+                    {"kind":"label:answer","value":"A"},
+                    {"kind":"test-pass","value":"true"}
+                ]),
+                json!({
+                    "domain":"endocrinology",
+                    "action":"What treats type 2 diabetes?",
+                    "outcome":"A",
+                    "t_secs":1700000000
+                }),
+            )
         ),
     )
     .unwrap();
@@ -125,10 +134,18 @@ fn oracle_reingest_does_not_duplicate_recurrence_occurrence() {
     let jsonl = resolved.path.join("oracle.jsonl");
     fs::write(
         &jsonl,
-        concat!(
-            r#"{"text":"Question one","oracle":{"domain":"cardiology","#,
-            r#""action":"Question one","outcome":"yes","outcome_kind":"label:answer"}}"#,
-            "\n",
+        format!(
+            "{}\n",
+            oracle_row(
+                "Question one",
+                json!([]),
+                json!({
+                    "domain":"cardiology",
+                    "action":"Question one",
+                    "outcome":"yes",
+                    "outcome_kind":"label:answer"
+                }),
+            )
         ),
     )
     .unwrap();
@@ -148,7 +165,11 @@ fn oracle_reingest_does_not_duplicate_recurrence_occurrence() {
 fn malformed_oracle_event_is_loud_usage_error() {
     let err = parse_batch_line(
         0,
-        r#"{"text":"x","oracle":{"domain":"","action":"q","outcome":"A"}}"#,
+        &oracle_row(
+            "x",
+            json!([]),
+            json!({"domain":"","action":"q","outcome":"A"}),
+        ),
     )
     .unwrap_err();
     assert_eq!(err.code(), "CALYX_CLI_USAGE_ERROR");
@@ -156,7 +177,11 @@ fn malformed_oracle_event_is_loud_usage_error() {
 
     let err = parse_batch_line(
         1,
-        r#"{"text":"x","oracle":{"domain":"d","action":"q","outcome":"A","t_secs":-1}}"#,
+        &oracle_row(
+            "x",
+            json!([]),
+            json!({"domain":"d","action":"q","outcome":"A","t_secs":-1}),
+        ),
     )
     .unwrap_err();
     assert_eq!(err.code(), "CALYX_CLI_USAGE_ERROR");
@@ -231,6 +256,22 @@ fn cleanup_root(root: PathBuf) {
     if calyx_fsv::fsv_root("CALYX_FSV_ROOT").is_none() {
         fs::remove_dir_all(root).ok();
     }
+}
+
+fn oracle_row(text: &str, anchors: serde_json::Value, oracle: serde_json::Value) -> String {
+    json!({
+        "text": text,
+        "metadata": {
+            "source_dataset": "oracle-event-tests",
+            "source_sha256": "sha256-oracle-event-test",
+            "source_url": "https://example.test/oracle-event",
+            "license": "CC-BY-4.0",
+            "retrieval_ts": "2026-07-04T00:00:00Z",
+        },
+        "anchors": anchors,
+        "oracle": oracle,
+    })
+    .to_string()
 }
 
 fn temp_root(name: &str) -> PathBuf {

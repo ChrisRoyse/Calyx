@@ -43,7 +43,7 @@ struct BatchLine {
     /// Per-record source provenance (source_url, doi, pmid, license, ...). Stored
     /// verbatim on the constellation metadata map; survives raw-source deletion.
     #[serde(default)]
-    metadata: BTreeMap<String, String>,
+    metadata: Option<BTreeMap<String, String>>,
     /// Typed grounding anchors for this record. Threaded onto the constellation at
     /// ingest (same base-CF + Anchors-CF write the `calyx anchor` command performs),
     /// so the kernel can reach them via `groundedness_distance` without a separate
@@ -84,6 +84,7 @@ pub(super) fn parse_batch_line(index: usize, line: &str) -> CliResult<Option<Bat
     let parsed: BatchLine = serde_json::from_str(line)
         .map_err(|err| CliError::io(format!("batch JSONL line {} is invalid: {err}", index + 1)))?;
     validate_text(&parsed.text)?;
+    let metadata = validate_provenance(index, parsed.metadata)?;
     let mut anchors = Vec::with_capacity(parsed.anchors.len());
     for spec in parsed.anchors {
         anchors.push(parse_anchor_spec(index, spec)?);
@@ -92,7 +93,7 @@ pub(super) fn parse_batch_line(index: usize, line: &str) -> CliResult<Option<Bat
         .oracle
         .map(|spec| parse_oracle_event(index, spec))
         .transpose()?;
-    Ok(Some((parsed.text, parsed.metadata, anchors, oracle)))
+    Ok(Some((parsed.text, metadata, anchors, oracle)))
 }
 
 /// Parser-only preflight for a JSONL batch file.
@@ -117,6 +118,46 @@ pub(super) fn validate_batch_file(path: &Path) -> CliResult<BatchValidation> {
         }
     }
     Ok(validation)
+}
+
+fn validate_provenance(
+    index: usize,
+    metadata: Option<BTreeMap<String, String>>,
+) -> CliResult<BTreeMap<String, String>> {
+    let line = index + 1;
+    let metadata = metadata.unwrap_or_default();
+    for required in ["source_dataset", "source_sha256", "license", "retrieval_ts"] {
+        require_metadata_value(line, &metadata, required)?;
+    }
+    if !["source_url", "doi", "pmid", "pmcid"]
+        .iter()
+        .any(|key| has_metadata_value(&metadata, key))
+    {
+        return Err(CliError::usage(format!(
+            "batch JSONL line {line} metadata requires one source locator: source_url, doi, pmid, or pmcid"
+        )));
+    }
+    Ok(metadata)
+}
+
+fn require_metadata_value(
+    line: usize,
+    metadata: &BTreeMap<String, String>,
+    key: &str,
+) -> CliResult {
+    if has_metadata_value(metadata, key) {
+        Ok(())
+    } else {
+        Err(CliError::usage(format!(
+            "batch JSONL line {line} metadata requires {key}"
+        )))
+    }
+}
+
+fn has_metadata_value(metadata: &BTreeMap<String, String>, key: &str) -> bool {
+    metadata
+        .get(key)
+        .is_some_and(|value| !value.trim().is_empty())
 }
 
 /// Build a validated `Anchor` from a JSONL `AnchorSpec`, reusing the exact same

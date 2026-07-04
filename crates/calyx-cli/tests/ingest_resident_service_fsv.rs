@@ -341,11 +341,40 @@ fn write_batch(root: &Path, name: &str, texts: &[&str]) -> PathBuf {
     let path = root.join(name);
     let mut body = String::new();
     for text in texts {
-        body.push_str(&serde_json::to_string(&json!({ "text": text })).unwrap());
+        body.push_str(
+            &serde_json::to_string(&json!({
+                "text": *text,
+                "metadata": provenance_metadata("resident-service-fsv", text),
+            }))
+            .unwrap(),
+        );
         body.push('\n');
     }
     fs::write(&path, body).expect("write batch jsonl");
     path
+}
+
+fn provenance_metadata(dataset: &str, text: &str) -> Value {
+    let slug = provenance_slug(text);
+    json!({
+        "source_dataset": dataset,
+        "source_sha256": format!("sha256-{slug}"),
+        "source_url": format!("https://example.test/{dataset}/{slug}"),
+        "license": "CC-BY-4.0",
+        "retrieval_ts": "2026-07-04T00:00:00Z",
+    })
+}
+
+fn provenance_slug(text: &str) -> String {
+    text.chars()
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() {
+                ch.to_ascii_lowercase()
+            } else {
+                '-'
+            }
+        })
+        .collect()
 }
 
 fn cf_state(vault_path: &Path, vault_id: VaultId, name: &str) -> Value {

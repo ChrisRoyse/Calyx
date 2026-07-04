@@ -100,7 +100,11 @@ fn batch_ingest_returns_bounded_summary_verified_by_base_cf() {
     let jsonl = resolved.path.join("summary.jsonl");
     fs::write(
         &jsonl,
-        "{\"text\":\"alpha summary signal\"}\n{\"text\":\"beta summary signal\"}\n",
+        format!(
+            "{}\n{}\n",
+            batch_line("alpha summary signal"),
+            batch_line("beta summary signal")
+        ),
     )
     .unwrap();
 
@@ -129,7 +133,11 @@ fn batch_ingest_returns_bounded_summary_verified_by_base_cf() {
 fn batch_summary_emits_before_post_commit_index_rebuild_failure() {
     let (root, resolved) = test_vault_with_registered_dense_lens("issue1035-rebuild-fail");
     let jsonl = resolved.path.join("summary-before-rebuild-fail.jsonl");
-    fs::write(&jsonl, "{\"text\":\"issue1035 post commit summary row\"}\n").unwrap();
+    fs::write(
+        &jsonl,
+        format!("{}\n", batch_line("issue1035 post commit summary row")),
+    )
+    .unwrap();
     let manifest_path = resolved.path.join("idx/search/manifest.json");
     fs::create_dir_all(manifest_path.parent().unwrap()).unwrap();
     fs::write(&manifest_path, b"{not-json").unwrap();
@@ -178,13 +186,13 @@ fn batch_ingest_measure_window_persists_all_rows_to_physical_cfs() {
     fs::write(
         &jsonl,
         [
-            "{\"text\":\"issue999 row 01\"}",
-            "{\"text\":\"issue999 row 02\"}",
-            "{\"text\":\"issue999 row 03\"}",
-            "{\"text\":\"issue999 row 04\"}",
-            "{\"text\":\"issue999 row 05\"}",
-            "{\"text\":\"issue999 row 06\"}",
-            "",
+            batch_line("issue999 row 01"),
+            batch_line("issue999 row 02"),
+            batch_line("issue999 row 03"),
+            batch_line("issue999 row 04"),
+            batch_line("issue999 row 05"),
+            batch_line("issue999 row 06"),
+            String::new(),
         ]
         .join("\n"),
     )
@@ -217,7 +225,11 @@ fn batch_summary_counts_distinct_physical_base_materialization() {
     let jsonl = resolved.path.join("duplicate.jsonl");
     fs::write(
         &jsonl,
-        "{\"text\":\"issue1031 duplicate physical source truth\"}\n{\"text\":\"issue1031 duplicate physical source truth\"}\n",
+        format!(
+            "{}\n{}\n",
+            batch_line("issue1031 duplicate physical source truth"),
+            batch_line("issue1031 duplicate physical source truth")
+        ),
     )
     .unwrap();
     let before = ingest_cf_state(&resolved);
@@ -248,7 +260,11 @@ fn batch_reingest_existing_rows_skips_measurement_and_uses_base_cf_source_of_tru
     let jsonl = resolved.path.join("existing.jsonl");
     fs::write(
         &jsonl,
-        "{\"text\":\"existing row alpha\"}\n{\"text\":\"existing row beta\"}\n",
+        format!(
+            "{}\n{}\n",
+            batch_line("existing row alpha"),
+            batch_line("existing row beta")
+        ),
     )
     .unwrap();
 
@@ -301,13 +317,24 @@ fn batch_reingest_existing_anchored_rows_uses_base_anchor_cfs_source_of_truth() 
     let jsonl = resolved.path.join("anchored-existing.jsonl");
     fs::write(
         &jsonl,
-        concat!(
-            r#"{"text":"anchored existing row alpha","metadata":{"source_dataset":"issue999"},"#,
-            r#""anchors":[{"kind":"label:campaign","value":"calyx15000"},{"kind":"label:source_type","value":"test"}]}"#,
-            "\n",
-            r#"{"text":"anchored existing row beta","metadata":{"source_dataset":"issue999"},"#,
-            r#""anchors":[{"kind":"label:campaign","value":"calyx15000"},{"kind":"label:source_type","value":"test"}]}"#,
-            "\n",
+        format!(
+            "{}\n{}\n",
+            batch_line_with_dataset_and_anchors(
+                "anchored existing row alpha",
+                "issue999",
+                json!([
+                    {"kind":"label:campaign","value":"calyx15000"},
+                    {"kind":"label:source_type","value":"test"}
+                ]),
+            ),
+            batch_line_with_dataset_and_anchors(
+                "anchored existing row beta",
+                "issue999",
+                json!([
+                    {"kind":"label:campaign","value":"calyx15000"},
+                    {"kind":"label:source_type","value":"test"}
+                ]),
+            )
         ),
     )
     .unwrap();
@@ -364,10 +391,18 @@ fn batch_mixed_existing_and_new_rows_still_fails_loud_when_runtime_is_missing() 
     let (root, resolved) = test_vault_with_registered_dense_lens("mixed-fast-path-reject");
     let first_jsonl = resolved.path.join("first.jsonl");
     let mixed_jsonl = resolved.path.join("mixed.jsonl");
-    fs::write(&first_jsonl, "{\"text\":\"existing row alpha\"}\n").unwrap();
+    fs::write(
+        &first_jsonl,
+        format!("{}\n", batch_line("existing row alpha")),
+    )
+    .unwrap();
     fs::write(
         &mixed_jsonl,
-        "{\"text\":\"existing row alpha\"}\n{\"text\":\"new row beta\"}\n",
+        format!(
+            "{}\n{}\n",
+            batch_line("existing row alpha"),
+            batch_line("new row beta")
+        ),
     )
     .unwrap();
 

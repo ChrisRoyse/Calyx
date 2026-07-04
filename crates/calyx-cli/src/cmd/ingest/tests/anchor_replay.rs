@@ -6,10 +6,16 @@ fn batch_ingest_threads_anchors_into_base_cf_and_anchors_cf() {
     let jsonl = resolved.path.join("anchored.jsonl");
     fs::write(
         &jsonl,
-        concat!(
-            r#"{"text":"alpha north signal","metadata":{"source_dataset":"medqa"},"#,
-            r#""anchors":[{"kind":"label:answer","value":"B"},{"kind":"test-pass","value":"true"}]}"#,
-            "\n",
+        format!(
+            "{}\n",
+            batch_line_with_dataset_and_anchors(
+                "alpha north signal",
+                "medqa",
+                json!([
+                    {"kind":"label:answer","value":"B"},
+                    {"kind":"test-pass","value":"true"}
+                ]),
+            )
         ),
     )
     .unwrap();
@@ -57,13 +63,15 @@ fn batch_reingest_merges_anchors_for_existing_cx() {
     let (root, resolved) = test_vault_with_registered_dense_lens("anchors-backfill");
     let plain = resolved.path.join("plain-backfill.jsonl");
     let anchored = resolved.path.join("anchored-backfill.jsonl");
-    fs::write(&plain, "{\"text\":\"alpha north signal\"}\n").unwrap();
+    fs::write(&plain, format!("{}\n", batch_line("alpha north signal"))).unwrap();
     fs::write(
         &anchored,
-        concat!(
-            r#"{"text":"alpha north signal","#,
-            r#""anchors":[{"kind":"label:answer","value":"B"}]}"#,
-            "\n",
+        format!(
+            "{}\n",
+            batch_line_with_anchors(
+                "alpha north signal",
+                json!([{"kind":"label:answer","value":"B"}]),
+            )
         ),
     )
     .unwrap();
@@ -111,10 +119,13 @@ fn batch_reingest_same_anchored_row_is_idempotent_noop() {
     let jsonl = resolved.path.join("anchored-replay.jsonl");
     fs::write(
         &jsonl,
-        concat!(
-            r#"{"text":"alpha north signal","metadata":{"source_dataset":"medqa"},"#,
-            r#""anchors":[{"kind":"label:answer","value":"B"}]}"#,
-            "\n",
+        format!(
+            "{}\n",
+            batch_line_with_dataset_and_anchors(
+                "alpha north signal",
+                "medqa",
+                json!([{"kind":"label:answer","value":"B"}]),
+            )
         ),
     )
     .unwrap();
@@ -180,19 +191,25 @@ fn batch_reingest_same_anchor_changed_metadata_fails_loud() {
     let changed_jsonl = resolved.path.join("anchored-changed.jsonl");
     fs::write(
         &first_jsonl,
-        concat!(
-            r#"{"text":"alpha north signal","metadata":{"source_dataset":"medqa"},"#,
-            r#""anchors":[{"kind":"label:answer","value":"B"}]}"#,
-            "\n",
+        format!(
+            "{}\n",
+            batch_line_with_dataset_and_anchors(
+                "alpha north signal",
+                "medqa",
+                json!([{"kind":"label:answer","value":"B"}]),
+            )
         ),
     )
     .unwrap();
     fs::write(
         &changed_jsonl,
-        concat!(
-            r#"{"text":"alpha north signal","metadata":{"source_dataset":"other"},"#,
-            r#""anchors":[{"kind":"label:answer","value":"B"}]}"#,
-            "\n",
+        format!(
+            "{}\n",
+            batch_line_with_dataset_and_anchors(
+                "alpha north signal",
+                "other",
+                json!([{"kind":"label:answer","value":"B"}]),
+            )
         ),
     )
     .unwrap();
@@ -237,22 +254,30 @@ fn batch_mixed_new_then_changed_metadata_fails_before_partial_write() {
     let mixed_jsonl = resolved.path.join("anchored-mixed-conflict.jsonl");
     fs::write(
         &first_jsonl,
-        concat!(
-            r#"{"text":"alpha north signal","metadata":{"source_dataset":"medqa"},"#,
-            r#""anchors":[{"kind":"label:answer","value":"B"}]}"#,
-            "\n",
+        format!(
+            "{}\n",
+            batch_line_with_dataset_and_anchors(
+                "alpha north signal",
+                "medqa",
+                json!([{"kind":"label:answer","value":"B"}]),
+            )
         ),
     )
     .unwrap();
     fs::write(
         &mixed_jsonl,
-        concat!(
-            r#"{"text":"new row before conflict","metadata":{"source_dataset":"medqa"},"#,
-            r#""anchors":[{"kind":"label:answer","value":"A"}]}"#,
-            "\n",
-            r#"{"text":"alpha north signal","metadata":{"source_dataset":"other"},"#,
-            r#""anchors":[{"kind":"label:answer","value":"B"}]}"#,
-            "\n",
+        format!(
+            "{}\n{}\n",
+            batch_line_with_dataset_and_anchors(
+                "new row before conflict",
+                "medqa",
+                json!([{"kind":"label:answer","value":"A"}]),
+            ),
+            batch_line_with_dataset_and_anchors(
+                "alpha north signal",
+                "other",
+                json!([{"kind":"label:answer","value":"B"}]),
+            )
         ),
     )
     .unwrap();
@@ -305,19 +330,25 @@ fn batch_reingest_same_anchor_changed_value_fails_loud() {
     let changed_jsonl = resolved.path.join("anchored-value-conflict.jsonl");
     fs::write(
         &first_jsonl,
-        concat!(
-            r#"{"text":"alpha north signal","metadata":{"source_dataset":"medqa"},"#,
-            r#""anchors":[{"kind":"label:answer","value":"B"}]}"#,
-            "\n",
+        format!(
+            "{}\n",
+            batch_line_with_dataset_and_anchors(
+                "alpha north signal",
+                "medqa",
+                json!([{"kind":"label:answer","value":"B"}]),
+            )
         ),
     )
     .unwrap();
     fs::write(
         &changed_jsonl,
-        concat!(
-            r#"{"text":"alpha north signal","metadata":{"source_dataset":"medqa"},"#,
-            r#""anchors":[{"kind":"label:answer","value":"C"}]}"#,
-            "\n",
+        format!(
+            "{}\n",
+            batch_line_with_dataset_and_anchors(
+                "alpha north signal",
+                "medqa",
+                json!([{"kind":"label:answer","value":"C"}]),
+            )
         ),
     )
     .unwrap();
@@ -379,7 +410,7 @@ fn batch_staging_predicate_requires_new_cx_or_new_anchor_kind() {
 fn batch_ingest_without_anchors_stays_ungrounded() {
     let (root, resolved) = test_vault_with_registered_dense_lens("no-anchors-at-ingest");
     let jsonl = resolved.path.join("plain.jsonl");
-    fs::write(&jsonl, "{\"text\":\"beta south signal\"}\n").unwrap();
+    fs::write(&jsonl, format!("{}\n", batch_line("beta south signal"))).unwrap();
 
     ingest_batch_streaming(&resolved, &jsonl).unwrap();
 
@@ -406,7 +437,7 @@ fn batch_jsonl_malformed_anchor_is_loud_usage_error() {
     // Unknown anchor kind must fail loudly (no silent drop of a grounding truth).
     let bad_kind = parse_batch_line(
         0,
-        "{\"text\":\"x\",\"anchors\":[{\"kind\":\"bogus\",\"value\":\"y\"}]}",
+        &batch_line_with_anchors("x", json!([{"kind":"bogus","value":"y"}])),
     )
     .unwrap_err();
     assert_eq!(bad_kind.code(), "CALYX_CLI_USAGE_ERROR");
@@ -415,7 +446,10 @@ fn batch_jsonl_malformed_anchor_is_loud_usage_error() {
     // Out-of-range confidence is rejected at parse time.
     let bad_conf = parse_batch_line(
         4,
-        "{\"text\":\"x\",\"anchors\":[{\"kind\":\"label:a\",\"value\":\"v\",\"confidence\":1.5}]}",
+        &batch_line_with_anchors(
+            "x",
+            json!([{"kind":"label:a","value":"v","confidence":1.5}]),
+        ),
     )
     .unwrap_err();
     assert_eq!(bad_conf.code(), "CALYX_CLI_USAGE_ERROR");

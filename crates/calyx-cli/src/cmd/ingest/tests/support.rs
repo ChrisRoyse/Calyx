@@ -145,6 +145,55 @@ pub(super) fn temp_root(name: &str) -> std::path::PathBuf {
     ))
 }
 
+pub(super) fn batch_line(text: &str) -> String {
+    batch_line_with_dataset(text, "test-dataset")
+}
+
+pub(super) fn batch_line_with_dataset(text: &str, dataset: &str) -> String {
+    json!({
+        "text": text,
+        "metadata": provenance_metadata(text, dataset),
+    })
+    .to_string()
+}
+
+pub(super) fn batch_line_with_anchors(text: &str, anchors: serde_json::Value) -> String {
+    batch_line_with_dataset_and_anchors(text, "test-dataset", anchors)
+}
+
+pub(super) fn batch_line_with_dataset_and_anchors(
+    text: &str,
+    dataset: &str,
+    anchors: serde_json::Value,
+) -> String {
+    json!({
+        "text": text,
+        "metadata": provenance_metadata(text, dataset),
+        "anchors": anchors,
+    })
+    .to_string()
+}
+
+fn provenance_metadata(text: &str, dataset: &str) -> serde_json::Value {
+    let slug = text
+        .chars()
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() {
+                ch.to_ascii_lowercase()
+            } else {
+                '-'
+            }
+        })
+        .collect::<String>();
+    json!({
+        "source_dataset": dataset,
+        "source_sha256": format!("sha256-{slug}"),
+        "source_url": format!("https://example.test/{slug}"),
+        "license": "CC-BY-4.0",
+        "retrieval_ts": "2026-07-04T00:00:00Z",
+    })
+}
+
 pub(super) fn tokens<const N: usize>(items: [&str; N]) -> Vec<String> {
     items.into_iter().map(str::to_string).collect()
 }

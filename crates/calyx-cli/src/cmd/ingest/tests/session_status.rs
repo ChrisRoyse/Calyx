@@ -9,7 +9,11 @@ fn batch_ingest_writes_durable_session_status_readback() {
     let jsonl = resolved.path.join("issue1065-ok.jsonl");
     fs::write(
         &jsonl,
-        "{\"text\":\"issue1065 durable session alpha\"}\n{\"text\":\"issue1065 durable session beta\"}\n",
+        format!(
+            "{}\n{}\n",
+            batch_line("issue1065 durable session alpha"),
+            batch_line("issue1065 durable session beta")
+        ),
     )
     .unwrap();
     let session_id = "issue1065-session-ok";
@@ -66,7 +70,11 @@ fn batch_ingest_writes_durable_session_status_readback() {
 fn batch_ingest_session_fails_closed_on_reused_session_id() {
     let (root, resolved) = test_vault_with_registered_dense_lens("issue1065-session-reuse");
     let jsonl = resolved.path.join("issue1065-reuse.jsonl");
-    fs::write(&jsonl, "{\"text\":\"issue1065 session reuse alpha\"}\n").unwrap();
+    fs::write(
+        &jsonl,
+        format!("{}\n", batch_line("issue1065 session reuse alpha")),
+    )
+    .unwrap();
     let session_id = "issue1065-reused-session";
     let validation = validate_batch_file(&jsonl).unwrap();
     let mut session =
@@ -99,7 +107,11 @@ fn batch_ingest_session_fails_closed_on_reused_session_id() {
 fn batch_ingest_session_records_post_commit_failure() {
     let (root, resolved) = test_vault_with_registered_dense_lens("issue1065-session-failed");
     let jsonl = resolved.path.join("issue1065-failed.jsonl");
-    fs::write(&jsonl, "{\"text\":\"issue1065 session failure alpha\"}\n").unwrap();
+    fs::write(
+        &jsonl,
+        format!("{}\n", batch_line("issue1065 session failure alpha")),
+    )
+    .unwrap();
     let manifest_path = resolved.path.join("idx/search/manifest.json");
     fs::create_dir_all(manifest_path.parent().unwrap()).unwrap();
     fs::write(&manifest_path, b"{not-json").unwrap();
