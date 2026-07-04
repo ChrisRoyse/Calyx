@@ -14,6 +14,9 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
+use super::discovery_run_preflight::{
+    DiscoveryRunPreflightArgs, RUN_MANIFEST_FLAG, RUN_STAGE_ID_FLAG, preflight_input_bytes,
+};
 use super::value;
 use crate::error::{CliError, CliResult};
 use crate::output::print_json;
@@ -37,6 +40,7 @@ pub(crate) struct HypothesisEvaluatorArgs {
     pub model: String,
     pub temperatures: Vec<u16>,
     pub timeout_ms: u64,
+    pub preflight: DiscoveryRunPreflightArgs,
 }
 
 impl Default for HypothesisEvaluatorArgs {
@@ -48,6 +52,7 @@ impl Default for HypothesisEvaluatorArgs {
             model: String::new(),
             temperatures: vec![20, 80],
             timeout_ms: 30_000,
+            preflight: DiscoveryRunPreflightArgs::default(),
         }
     }
 }
@@ -106,6 +111,7 @@ pub(crate) fn try_run(args: &[String]) -> Option<CliResult> {
 fn run_hypothesis_evaluator(args: HypothesisEvaluatorArgs) -> CliResult {
     let input_bytes = fs::read(&args.input)
         .map_err(|error| CliError::io(format!("read --input {}: {error}", args.input.display())))?;
+    let preflight = preflight_input_bytes(&args.preflight, &input_bytes)?;
     let mut input_file: InputFile = serde_json::from_slice(&input_bytes).map_err(|error| {
         CliError::runtime(format!("parse --input {}: {error}", args.input.display()))
     })?;
@@ -150,6 +156,7 @@ fn run_hypothesis_evaluator(args: HypothesisEvaluatorArgs) -> CliResult {
     print_json(&json!({
         "status": "ok",
         "input": args.input,
+        "preflight": preflight,
         "out": persisted.path,
         "out_bytes": persisted.bytes,
         "out_sha256": persisted.sha256,
@@ -238,6 +245,14 @@ fn parse_hypothesis_evaluator(rest: &[String]) -> CliResult<HypothesisEvaluatorA
                     .parse::<u64>()
                     .map_err(|err| CliError::usage(format!("parse --timeout-ms: {err}")))?;
             }
+            RUN_MANIFEST_FLAG => {
+                idx += 1;
+                args.preflight.manifest = Some(PathBuf::from(value(rest, idx, RUN_MANIFEST_FLAG)?));
+            }
+            RUN_STAGE_ID_FLAG => {
+                idx += 1;
+                args.preflight.stage_id = Some(value(rest, idx, RUN_STAGE_ID_FLAG)?.to_string());
+            }
             other => {
                 return Err(CliError::usage(format!(
                     "unexpected hypothesis-evaluator-driver flag {other}"
@@ -259,6 +274,8 @@ fn parse_hypothesis_evaluator(rest: &[String]) -> CliResult<HypothesisEvaluatorA
             "hypothesis-evaluator-driver requires --endpoint <url> and --model <id>",
         ));
     }
+    args.preflight
+        .validate_for_command("hypothesis-evaluator-driver")?;
     Ok(args)
 }
 

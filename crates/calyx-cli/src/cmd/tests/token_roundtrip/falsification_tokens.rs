@@ -24,6 +24,15 @@ pub(super) fn hypothesis_falsification_tokens(
         "--max-hypotheses".to_string(),
         args.max_hypotheses.to_string(),
     ]);
+    if let Some(manifest) = &args.preflight.manifest {
+        out.extend([
+            "--run-manifest".to_string(),
+            manifest.to_string_lossy().into_owned(),
+        ]);
+    }
+    if let Some(stage_id) = &args.preflight.stage_id {
+        out.extend(["--run-stage-id".to_string(), stage_id.clone()]);
+    }
     out
 }
 
@@ -41,6 +50,7 @@ fn hypothesis_falsification_round_trips_through_tokens() {
             open_targets_root: "/fsv/open-targets".into(),
             out_dir: "/fsv/falsification".into(),
             max_hypotheses: 300,
+            preflight: Default::default(),
         },
     );
     let tokens = super::subcommand_tokens(&command);

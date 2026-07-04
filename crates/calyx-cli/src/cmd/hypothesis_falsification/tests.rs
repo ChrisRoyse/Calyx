@@ -180,6 +180,7 @@ fn args(root: &Path) -> HypothesisFalsificationArgs {
         open_targets_root: root.join("open_targets"),
         out_dir: root.join("out"),
         max_hypotheses: 10,
+        preflight: Default::default(),
     }
 }
 

@@ -6,6 +6,7 @@ mod chain_walks;
 mod discovery_chain;
 mod discovery_gate;
 mod discovery_run;
+pub(crate) mod discovery_run_preflight;
 mod domain_bridges;
 mod erase;
 mod evidence_substrate;
@@ -34,7 +35,6 @@ mod typed_association_miner;
 pub(crate) mod vault;
 mod vault_retire;
 mod weave;
-
 use calyx_core::Modality;
 pub(crate) use ingest::run_lens_worker as run_ingest_lens_worker;
 use ingest::{IngestOutput, IngestStatusArgs};

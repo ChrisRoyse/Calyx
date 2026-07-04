@@ -25,6 +25,7 @@ fn driver_hits_stub_endpoint_and_persists_known_aggregate_readback() {
         model: "stub-model-v1".to_string(),
         temperatures: vec![20, 80],
         timeout_ms: 2_000,
+        preflight: DiscoveryRunPreflightArgs::default(),
     })
     .unwrap();
     assert_eq!(handle.join().unwrap(), 4);
@@ -58,6 +59,7 @@ fn endpoint_down_fails_without_artifact() {
         model: "stub-model-v1".to_string(),
         temperatures: vec![20],
         timeout_ms: 100,
+        preflight: DiscoveryRunPreflightArgs::default(),
     })
     .unwrap_err();
 
@@ -84,6 +86,7 @@ fn malformed_variant_fails_without_artifact() {
         model: "stub-model-v1".to_string(),
         temperatures: vec![20],
         timeout_ms: 2_000,
+        preflight: DiscoveryRunPreflightArgs::default(),
     })
     .unwrap_err();
 
@@ -109,6 +112,7 @@ fn bogus_citation_fails_without_artifact() {
         model: "stub-model-v1".to_string(),
         temperatures: vec![20],
         timeout_ms: 2_000,
+        preflight: DiscoveryRunPreflightArgs::default(),
     })
     .unwrap_err();
 

@@ -3,6 +3,8 @@ use std::path::PathBuf;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+use crate::cmd::discovery_run_preflight::DiscoveryRunPreflightArgs;
+
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct TypedAssociationMinerArgs {
     pub typed_root: PathBuf,
@@ -16,6 +18,7 @@ pub(crate) struct TypedAssociationMinerArgs {
     pub max_pairs: usize,
     pub max_input_edges: usize,
     pub max_paths_per_pair: usize,
+    pub preflight: DiscoveryRunPreflightArgs,
 }
 
 impl Default for TypedAssociationMinerArgs {
@@ -32,6 +35,7 @@ impl Default for TypedAssociationMinerArgs {
             max_pairs: 100,
             max_input_edges: 100_000,
             max_paths_per_pair: 8,
+            preflight: DiscoveryRunPreflightArgs::default(),
         }
     }
 }

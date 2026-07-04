@@ -2,6 +2,8 @@ use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
+use crate::cmd::discovery_run_preflight::DiscoveryRunPreflightArgs;
+
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct HypothesisFalsificationArgs {
     pub hypotheses_reports: Vec<PathBuf>,
@@ -11,6 +13,7 @@ pub(crate) struct HypothesisFalsificationArgs {
     pub open_targets_root: PathBuf,
     pub out_dir: PathBuf,
     pub max_hypotheses: usize,
+    pub preflight: DiscoveryRunPreflightArgs,
 }
 
 impl Default for HypothesisFalsificationArgs {
@@ -23,6 +26,7 @@ impl Default for HypothesisFalsificationArgs {
             open_targets_root: PathBuf::new(),
             out_dir: PathBuf::new(),
             max_hypotheses: 10_000,
+            preflight: DiscoveryRunPreflightArgs::default(),
         }
     }
 }

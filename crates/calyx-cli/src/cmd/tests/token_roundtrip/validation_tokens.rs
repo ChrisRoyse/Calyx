@@ -3,7 +3,7 @@ use super::super::super::*;
 pub(super) fn association_validation_tokens(
     args: &association_validation::AssociationValidationArgs,
 ) -> Vec<String> {
-    vec![
+    let mut out = vec![
         "association-validation-gates".to_string(),
         "--typed-root".to_string(),
         args.typed_root.to_string_lossy().into_owned(),
@@ -27,7 +27,17 @@ pub(super) fn association_validation_tokens(
         args.min_positive_recall.to_string(),
         "--min-negative-suppression".to_string(),
         args.min_negative_suppression.to_string(),
-    ]
+    ];
+    if let Some(manifest) = &args.preflight.manifest {
+        out.extend([
+            "--run-manifest".to_string(),
+            manifest.to_string_lossy().into_owned(),
+        ]);
+    }
+    if let Some(stage_id) = &args.preflight.stage_id {
+        out.extend(["--run-stage-id".to_string(), stage_id.clone()]);
+    }
+    out
 }
 
 #[test]
@@ -45,6 +55,7 @@ fn association_validation_round_trips_through_tokens() {
             min_auroc: 0.65,
             min_positive_recall: 0.70,
             min_negative_suppression: 0.80,
+            preflight: Default::default(),
         });
     let tokens = super::subcommand_tokens(&command);
     assert_eq!(parse(&tokens).unwrap(), command);

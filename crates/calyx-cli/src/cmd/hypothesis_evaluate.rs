@@ -11,6 +11,9 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use sha2::{Digest, Sha256};
 
+use super::discovery_run_preflight::{
+    DiscoveryRunPreflightArgs, RUN_MANIFEST_FLAG, RUN_STAGE_ID_FLAG, preflight_input_bytes,
+};
 use super::value;
 use crate::error::{CliError, CliResult};
 use crate::output::print_json;
@@ -27,6 +30,7 @@ pub(crate) struct HypothesisEvaluateArgs {
     pub min_retrieved_evidence: usize,
     pub retain_score_floor: f32,
     pub max_ranked: usize,
+    pub preflight: DiscoveryRunPreflightArgs,
 }
 
 impl Default for HypothesisEvaluateArgs {
@@ -41,6 +45,7 @@ impl Default for HypothesisEvaluateArgs {
             min_retrieved_evidence: params.min_retrieved_evidence,
             retain_score_floor: params.retain_score_floor,
             max_ranked: params.max_ranked,
+            preflight: DiscoveryRunPreflightArgs::default(),
         }
     }
 }
@@ -76,12 +81,16 @@ pub(crate) fn try_run(args: &[String]) -> Option<CliResult> {
     if command != "hypothesis-evaluate" {
         return None;
     }
+    if matches!(rest, [flag] if flag == "--help" || flag == "-h") {
+        return Some(crate::usage::print_command_usage(command));
+    }
     Some(parse_hypothesis_evaluate(rest).and_then(run_hypothesis_evaluate))
 }
 
 pub(crate) fn run_hypothesis_evaluate(args: HypothesisEvaluateArgs) -> CliResult {
     let input_bytes = fs::read(&args.input)
         .map_err(|error| CliError::io(format!("read --input {}: {error}", args.input.display())))?;
+    let preflight = preflight_input_bytes(&args.preflight, &input_bytes)?;
     let input_file: HypothesisEvaluateInputFile =
         serde_json::from_slice(&input_bytes).map_err(|error| {
             CliError::runtime(format!("parse --input {}: {error}", args.input.display()))
@@ -108,6 +117,7 @@ pub(crate) fn run_hypothesis_evaluate(args: HypothesisEvaluateArgs) -> CliResult
         "input": args.input,
         "input_bytes": artifact.source_input_bytes,
         "input_sha256": artifact.source_input_sha256,
+        "preflight": preflight,
         "out": persisted.path,
         "out_bytes": persisted.bytes,
         "out_sha256": persisted.sha256,
@@ -178,6 +188,14 @@ fn parse_hypothesis_evaluate(rest: &[String]) -> CliResult<HypothesisEvaluateArg
                 args.max_ranked =
                     parse_usize(value(rest, idx, "--max-ranked")?, "--max-ranked", 1)?;
             }
+            RUN_MANIFEST_FLAG => {
+                idx += 1;
+                args.preflight.manifest = Some(PathBuf::from(value(rest, idx, RUN_MANIFEST_FLAG)?));
+            }
+            RUN_STAGE_ID_FLAG => {
+                idx += 1;
+                args.preflight.stage_id = Some(value(rest, idx, RUN_STAGE_ID_FLAG)?.to_string());
+            }
             other => {
                 return Err(CliError::usage(format!(
                     "unexpected hypothesis-evaluate flag {other}"
@@ -194,6 +212,7 @@ fn parse_hypothesis_evaluate(rest: &[String]) -> CliResult<HypothesisEvaluateArg
     if args.out.as_os_str().is_empty() {
         return Err(CliError::usage("hypothesis-evaluate requires --out <json>"));
     }
+    args.preflight.validate_for_command("hypothesis-evaluate")?;
     Ok(args)
 }
 
@@ -297,6 +316,10 @@ fn hex_lower(bytes: &[u8]) -> String {
 
 #[cfg(test)]
 mod tests {
+    use std::fs;
+
+    use calyx_lodestar::{DiscoveryRunManifest, DiscoveryRunStage};
+
     use super::*;
 
     #[test]
@@ -325,6 +348,10 @@ mod tests {
             "0.7".to_string(),
             "--max-ranked".to_string(),
             "12".to_string(),
+            "--run-manifest".to_string(),
+            "target/manifest.json".to_string(),
+            "--run-stage-id".to_string(),
+            "hypothesis-evaluate".to_string(),
         ])
         .unwrap();
         assert_eq!(args.input, PathBuf::from("target/in.json"));
@@ -333,5 +360,100 @@ mod tests {
         assert_eq!(args.min_retrieved_evidence, 2);
         assert_eq!(args.retain_score_floor, 0.7);
         assert_eq!(args.max_ranked, 12);
+        assert_eq!(
+            args.preflight.manifest,
+            Some(PathBuf::from("target/manifest.json"))
+        );
+        assert_eq!(
+            args.preflight.stage_id.as_deref(),
+            Some("hypothesis-evaluate")
+        );
+    }
+
+    #[test]
+    fn stale_preflight_input_fails_before_output() {
+        let root = temp_root("stale-preflight");
+        let input = root.join("input.json");
+        let out = root.join("evaluation.json");
+        let manifest = root.join("manifest.json");
+        fs::write(&input, b"not json").unwrap();
+        write_manifest(
+            &manifest,
+            &manifest_for_stage("hypothesis-evaluate", &sha256_hex(b"fresh")),
+        );
+
+        let err = run_hypothesis_evaluate(HypothesisEvaluateArgs {
+            input,
+            out: out.clone(),
+            preflight: DiscoveryRunPreflightArgs {
+                manifest: Some(manifest),
+                stage_id: Some("hypothesis-evaluate".to_string()),
+            },
+            ..HypothesisEvaluateArgs::default()
+        })
+        .unwrap_err();
+
+        assert_eq!(err.code(), "CALYX_DISCOVERY_RUN_MANIFEST_CHAIN_BROKEN");
+        assert!(!out.exists());
+        cleanup(root);
+    }
+
+    fn manifest_for_stage(stage_id: &str, input_sha256: &str) -> DiscoveryRunManifest {
+        DiscoveryRunManifest {
+            schema_version: 1,
+            run_id: "issue1218-evaluate".to_string(),
+            corpus_vault_id: "clinical-vault".to_string(),
+            panel_manifest_sha256: sha('a'),
+            stages: vec![
+                stage("upstream-stage", None, sha('0'), input_sha256.to_string()),
+                stage(
+                    stage_id,
+                    Some("upstream-stage"),
+                    input_sha256.to_string(),
+                    sha('2'),
+                ),
+            ],
+        }
+    }
+
+    fn stage(
+        stage_id: &str,
+        upstream_stage_id: Option<&str>,
+        input_sha256: String,
+        output_sha256: String,
+    ) -> DiscoveryRunStage {
+        DiscoveryRunStage {
+            stage_id: stage_id.to_string(),
+            command: format!("calyx {stage_id}"),
+            args: Vec::new(),
+            upstream_stage_id: upstream_stage_id.map(ToString::to_string),
+            input_sha256,
+            output_sha256,
+            git_sha: "issue1218".to_string(),
+        }
+    }
+
+    fn write_manifest(path: &Path, manifest: &DiscoveryRunManifest) {
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(path, serde_json::to_vec_pretty(manifest).unwrap()).unwrap();
+    }
+
+    fn temp_root(name: &str) -> PathBuf {
+        let root = std::env::temp_dir().join(format!(
+            "calyx-hypothesis-evaluate-{name}-{}-{}",
+            std::process::id(),
+            ulid::Ulid::new()
+        ));
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(&root).unwrap();
+        root
+    }
+
+    fn cleanup(path: PathBuf) {
+        fs::remove_dir_all(path).unwrap();
+    }
+
+    fn sha(ch: char) -> String {
+        std::iter::repeat_n(ch, 64).collect()
     }
 }

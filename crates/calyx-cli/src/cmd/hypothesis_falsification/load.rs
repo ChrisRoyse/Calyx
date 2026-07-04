@@ -13,6 +13,7 @@ use super::model::{
     EvidenceRow, HypothesisFalsificationArgs, HypothesisFlag, InputHypothesis, LoadedSources,
     RawQueryManifestRow, SkippedEvidenceRow,
 };
+use crate::cmd::discovery_run_preflight::{PreflightInput, preflight_input_files};
 use crate::error::{CliError, CliResult};
 
 pub(super) struct HypothesisLoad {
@@ -23,8 +24,17 @@ pub(super) struct HypothesisLoad {
 pub(super) fn load_hypotheses(args: &HypothesisFalsificationArgs) -> CliResult<HypothesisLoad> {
     let mut input_count = 0_usize;
     let mut deduped = BTreeMap::<String, InputHypothesis>::new();
+    let mut report_bytes = Vec::new();
     for report_path in &args.hypotheses_reports {
         let bytes = fs::read(report_path)?;
+        report_bytes.push((report_path.clone(), bytes));
+    }
+    let preflight_inputs = report_bytes
+        .iter()
+        .map(|(path, bytes)| PreflightInput::new(path, bytes))
+        .collect::<Vec<_>>();
+    preflight_input_files(&args.preflight, &preflight_inputs)?;
+    for (report_path, bytes) in report_bytes {
         let report: Value = serde_json::from_slice(&bytes).map_err(|error| {
             CliError::runtime(format!(
                 "parse hypotheses report {}: {error}",

@@ -12,6 +12,7 @@ mod tests;
 pub(crate) use model::HypothesisFalsificationArgs;
 use model::{FalsificationReport, FalsificationSummary};
 
+use super::discovery_run_preflight::{RUN_MANIFEST_FLAG, RUN_STAGE_ID_FLAG};
 use super::{Subcommand, value};
 use crate::error::{CliError, CliResult};
 use crate::output::print_json;
@@ -56,6 +57,14 @@ pub(crate) fn parse_hypothesis_falsification_sweep(rest: &[String]) -> CliResult
                 args.max_hypotheses =
                     parse_usize(value(rest, idx, "--max-hypotheses")?, 1, "--max-hypotheses")?;
             }
+            RUN_MANIFEST_FLAG => {
+                idx += 1;
+                args.preflight.manifest = Some(value(rest, idx, RUN_MANIFEST_FLAG)?.into());
+            }
+            RUN_STAGE_ID_FLAG => {
+                idx += 1;
+                args.preflight.stage_id = Some(value(rest, idx, RUN_STAGE_ID_FLAG)?.to_string());
+            }
             other => {
                 return Err(CliError::usage(format!(
                     "unexpected hypothesis-falsification-sweep flag {other}"
@@ -84,6 +93,8 @@ pub(crate) fn parse_hypothesis_falsification_sweep(rest: &[String]) -> CliResult
             "hypothesis-falsification-sweep --max-hypotheses exceeds hard safety limit",
         ));
     }
+    args.preflight
+        .validate_for_command("hypothesis-falsification-sweep")?;
     Ok(Subcommand::HypothesisFalsificationSweep(args))
 }
 

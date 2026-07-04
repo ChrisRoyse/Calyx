@@ -29,6 +29,15 @@ pub(super) fn typed_association_miner_tokens(
         "--max-paths-per-pair".to_string(),
         args.max_paths_per_pair.to_string(),
     ]);
+    if let Some(manifest) = &args.preflight.manifest {
+        out.extend([
+            "--run-manifest".to_string(),
+            manifest.to_string_lossy().into_owned(),
+        ]);
+    }
+    if let Some(stage_id) = &args.preflight.stage_id {
+        out.extend(["--run-stage-id".to_string(), stage_id.clone()]);
+    }
     out
 }
 
@@ -47,6 +56,7 @@ fn typed_association_miner_round_trips_through_tokens() {
             max_pairs: 50,
             max_input_edges: 200_000,
             max_paths_per_pair: 4,
+            preflight: Default::default(),
         });
     let tokens = super::subcommand_tokens(&command);
     assert_eq!(parse(&tokens).unwrap(), command);

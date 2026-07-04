@@ -5,6 +5,10 @@ use std::path::PathBuf;
 
 use serde::Serialize;
 
+use super::discovery_run_preflight::{
+    DiscoveryRunPreflightArgs, RUN_MANIFEST_FLAG, RUN_STAGE_ID_FLAG, preflight_input_sha256,
+    sha256_hex,
+};
 use super::{Subcommand, value};
 use crate::error::{CliError, CliResult};
 use crate::output::print_json;
@@ -30,6 +34,7 @@ pub(crate) struct AssociationValidationArgs {
     pub min_auroc: f64,
     pub min_positive_recall: f64,
     pub min_negative_suppression: f64,
+    pub preflight: DiscoveryRunPreflightArgs,
 }
 
 impl Default for AssociationValidationArgs {
@@ -46,6 +51,7 @@ impl Default for AssociationValidationArgs {
             min_auroc: 0.70,
             min_positive_recall: 0.75,
             min_negative_suppression: 0.75,
+            preflight: DiscoveryRunPreflightArgs::default(),
         }
     }
 }
@@ -114,6 +120,14 @@ pub(crate) fn parse_association_validation_gates(rest: &[String]) -> CliResult<S
                 args.min_negative_suppression =
                     parse_unit(value(rest, idx, "--min-negative-suppression")?)?;
             }
+            RUN_MANIFEST_FLAG => {
+                idx += 1;
+                args.preflight.manifest = Some(PathBuf::from(value(rest, idx, RUN_MANIFEST_FLAG)?));
+            }
+            RUN_STAGE_ID_FLAG => {
+                idx += 1;
+                args.preflight.stage_id = Some(value(rest, idx, RUN_STAGE_ID_FLAG)?.to_string());
+            }
             other => {
                 return Err(CliError::usage(format!(
                     "unexpected association-validation-gates flag {other}"
@@ -128,6 +142,8 @@ pub(crate) fn parse_association_validation_gates(rest: &[String]) -> CliResult<S
     require_path(&args.clinicaltrials_root, "--clinicaltrials-root")?;
     require_path(&args.dgidb_root, "--dgidb-root")?;
     require_path(&args.out_dir, "--out-dir")?;
+    args.preflight
+        .validate_for_command("association-validation-gates")?;
     Ok(Subcommand::AssociationValidationGates(args))
 }
 
@@ -166,6 +182,9 @@ fn build_report(args: &AssociationValidationArgs) -> CliResult<AssociationValida
         min_negative_suppression: args.min_negative_suppression,
     };
     let loaded = load::load_sources(args, &params)?;
+    let manifest_bytes = serde_json::to_vec(&loaded.manifests)
+        .map_err(|error| CliError::runtime(format!("serialize source manifests: {error}")))?;
+    preflight_input_sha256(&args.preflight, sha256_hex(&manifest_bytes))?;
     metrics::score_and_report(params, loaded)
 }
 

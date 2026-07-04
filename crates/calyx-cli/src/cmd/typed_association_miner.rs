@@ -14,6 +14,7 @@ mod tests;
 pub(crate) use model::TypedAssociationMinerArgs;
 use model::{MinerCliSummary, MinerReport};
 
+use super::discovery_run_preflight::{RUN_MANIFEST_FLAG, RUN_STAGE_ID_FLAG, preflight_input_bytes};
 use super::{Subcommand, value};
 use crate::error::{CliError, CliResult};
 use crate::output::print_json;
@@ -79,6 +80,14 @@ pub(crate) fn parse_typed_association_miner(rest: &[String]) -> CliResult<Subcom
                     "--max-paths-per-pair",
                 )?;
             }
+            RUN_MANIFEST_FLAG => {
+                idx += 1;
+                args.preflight.manifest = Some(value(rest, idx, RUN_MANIFEST_FLAG)?.into());
+            }
+            RUN_STAGE_ID_FLAG => {
+                idx += 1;
+                args.preflight.stage_id = Some(value(rest, idx, RUN_STAGE_ID_FLAG)?.to_string());
+            }
             other => {
                 return Err(CliError::usage(format!(
                     "unexpected typed-association-miner flag {other}"
@@ -98,6 +107,8 @@ pub(crate) fn parse_typed_association_miner(rest: &[String]) -> CliResult<Subcom
             "typed-association-miner bounds exceed hard safety limits",
         ));
     }
+    args.preflight
+        .validate_for_command("typed-association-miner")?;
     Ok(Subcommand::TypedAssociationMiner(args))
 }
 
@@ -125,6 +136,7 @@ pub(crate) fn run(command: Subcommand) -> CliResult {
 
 fn build_report(args: &TypedAssociationMinerArgs) -> CliResult<MinerReport> {
     let validation_bytes = fs::read(&args.validation_report)?;
+    preflight_input_bytes(&args.preflight, &validation_bytes)?;
     let validation_sha = sha256_hex(&validation_bytes);
     let validation: Value = serde_json::from_slice(&validation_bytes).map_err(|error| {
         CliError::runtime(format!(
