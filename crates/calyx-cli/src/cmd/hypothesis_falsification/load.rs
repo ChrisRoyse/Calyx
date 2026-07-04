@@ -6,10 +6,12 @@ use std::path::Path;
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 
-use super::matching::{needs_safety_triage, pair_matches, source_applicable};
+use super::matching::{
+    asserted_relation, needs_safety_triage, relation_matches, source_applicable,
+};
 use super::model::{
     EvidenceRow, HypothesisFalsificationArgs, HypothesisFlag, InputHypothesis, LoadedSources,
-    RawQueryManifestRow,
+    RawQueryManifestRow, SkippedEvidenceRow,
 };
 use crate::error::{CliError, CliResult};
 
@@ -224,11 +226,26 @@ fn scan_source(
         if classes.is_empty() {
             continue;
         }
+        let relation = match asserted_relation(system, role, &row) {
+            Ok(relation) => relation,
+            Err(reason_code) => {
+                out.skipped_evidence.push(SkippedEvidenceRow {
+                    source_system: system.to_string(),
+                    role: role.to_string(),
+                    reason_code: reason_code.to_string(),
+                    source_path: path.display().to_string(),
+                    source_sha256: source_sha.clone(),
+                    source_row_index: idx + 1,
+                    summary: format!("{system} {role} row lacks asserted relation endpoints"),
+                });
+                continue;
+            }
+        };
         for hypothesis in hypotheses {
             if !source_applicable(system, hypothesis) {
                 continue;
             }
-            if !pair_matches(hypothesis, &row) {
+            if !relation_matches(hypothesis, &relation) {
                 continue;
             }
             for class in &classes {

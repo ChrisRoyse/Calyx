@@ -54,6 +54,17 @@ pub(super) struct EvidenceRow {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
+pub(super) struct SkippedEvidenceRow {
+    pub source_system: String,
+    pub role: String,
+    pub reason_code: String,
+    pub source_path: String,
+    pub source_sha256: String,
+    pub source_row_index: usize,
+    pub summary: String,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub(super) struct HypothesisFlag {
     pub hypothesis_id: String,
     pub source_name: String,
@@ -94,10 +105,12 @@ pub(super) struct FalsificationReport {
     pub raw_query_manifest_count: usize,
     pub support_evidence_count: usize,
     pub counter_evidence_count: usize,
+    pub skipped_evidence_count: usize,
     pub flagged_with_counter_evidence_count: usize,
     pub hypothesis_flags: Vec<HypothesisFlag>,
     pub support_evidence: Vec<EvidenceRow>,
     pub counter_evidence: Vec<EvidenceRow>,
+    pub skipped_evidence: Vec<SkippedEvidenceRow>,
     pub raw_query_manifest: Vec<RawQueryManifestRow>,
 }
 
@@ -111,6 +124,8 @@ pub(super) struct FalsificationSummary {
     pub support_evidence_sha256: String,
     pub counter_evidence_jsonl: String,
     pub counter_evidence_sha256: String,
+    pub skipped_evidence_jsonl: String,
+    pub skipped_evidence_sha256: String,
     pub hypothesis_flags_jsonl: String,
     pub hypothesis_flags_sha256: String,
     pub raw_query_manifest_jsonl: String,
@@ -119,6 +134,7 @@ pub(super) struct FalsificationSummary {
     pub deduped_hypothesis_count: usize,
     pub support_evidence_count: usize,
     pub counter_evidence_count: usize,
+    pub skipped_evidence_count: usize,
     pub flagged_with_counter_evidence_count: usize,
     pub readback_flag_count: usize,
 }
@@ -127,5 +143,6 @@ pub(super) struct FalsificationSummary {
 pub(super) struct LoadedSources {
     pub support_evidence: Vec<EvidenceRow>,
     pub counter_evidence: Vec<EvidenceRow>,
+    pub skipped_evidence: Vec<SkippedEvidenceRow>,
     pub raw_query_manifest: Vec<RawQueryManifestRow>,
 }

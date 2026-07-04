@@ -48,6 +48,7 @@ fn sweep_flags_counter_evidence_and_persists_readback() {
     assert_eq!(report.deduped_hypothesis_count, 1);
     assert_eq!(report.support_evidence_count, 2);
     assert_eq!(report.counter_evidence_count, 1);
+    assert_eq!(report.skipped_evidence_count, 0);
     assert_eq!(report.flagged_with_counter_evidence_count, 1);
     assert_eq!(
         report.hypothesis_flags[0].sweep_status,
@@ -56,6 +57,93 @@ fn sweep_flags_counter_evidence_and_persists_readback() {
     let readback = persist(&args.out_dir, &report).expect("persist");
     assert_eq!(readback.flag_count, 1);
     assert_eq!(readback.report_sha256.len(), 64);
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn stopped_trial_comention_does_not_count_without_asserted_pair() {
+    let root = temp_root("falsification-trial-comention");
+    seed_hypothesis(
+        &root,
+        "typed-assoc:metformin::kidney",
+        "concept:metformin",
+        "metformin",
+        "chemical",
+        "concept:kidney-disease",
+        "kidney disease",
+        "disease",
+    );
+    seed_empty_sources(&root);
+    write(
+        root.join("clinicaltrials/parsed/clinicaltrials_trial_rows.jsonl"),
+        r#"{"query_intervention":"metformin","query_condition":"type 2 diabetes","brief_title":"metformin kidney disease exploratory note","overall_status":"TERMINATED","why_stopped":"administrative"}"#,
+    );
+    let report = build_report(&args(&root)).expect("build report");
+    assert_eq!(report.counter_evidence_count, 0);
+    assert_eq!(report.hypothesis_flags[0].counter_evidence_count, 0);
+    assert_eq!(
+        report.hypothesis_flags[0].sweep_status,
+        "complete_no_counterevidence_found_in_current_sources"
+    );
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn identifier_match_requires_asserted_endpoint_id_not_numeric_tail() {
+    let root = temp_root("falsification-id-match");
+    seed_hypothesis(
+        &root,
+        "typed-assoc:chembl123::alk",
+        "CHEMBL:CHEMBL123",
+        "test drug",
+        "chemical",
+        "HGNC:427",
+        "ALK",
+        "gene",
+    );
+    seed_empty_sources(&root);
+    write(
+        root.join("dgidb/parsed/seed_pair_graphql_interactions.jsonl"),
+        concat!(
+            r#"{"source_overlay_id":"CHEMBL:CHEMBL999","drug":"test drug","#,
+            r#""target_overlay_id":"HGNC:427","gene":"ALK","interaction_score":1.0}"#,
+            "\n",
+            r#"{"source_overlay_id":"CHEMBL:CHEMBL123","drug":"test drug","#,
+            r#""target_overlay_id":"HGNC:427","gene":"ALK","interaction_score":1.0}"#,
+        ),
+    );
+    let report = build_report(&args(&root)).expect("build report");
+    assert_eq!(report.support_evidence_count, 1);
+    assert_eq!(report.support_evidence[0].source_row_index, 2);
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn unstructured_classifiable_row_is_skipped_not_counted() {
+    let root = temp_root("falsification-unstructured");
+    seed_hypothesis(
+        &root,
+        "typed-assoc:metformin::diabetes",
+        "concept:metformin",
+        "metformin",
+        "chemical",
+        "concept:type2diabetes",
+        "type 2 diabetes",
+        "disease",
+    );
+    seed_empty_sources(&root);
+    write(
+        root.join("pubtator/parsed/supporting_literature.jsonl"),
+        r#"{"pmid":"99","relation_count":3,"support_basis":"mentions metformin and type 2 diabetes but has no asserted endpoints"}"#,
+    );
+    let report = build_report(&args(&root)).expect("build report");
+    assert_eq!(report.support_evidence_count, 0);
+    assert_eq!(report.counter_evidence_count, 0);
+    assert_eq!(report.skipped_evidence_count, 1);
+    assert_eq!(
+        report.skipped_evidence[0].reason_code,
+        "CALYX_FALSIFY_UNSTRUCTURED_ROW"
+    );
     let _ = fs::remove_dir_all(root);
 }
 
@@ -72,10 +160,17 @@ fn args(root: &Path) -> HypothesisFalsificationArgs {
 }
 
 fn seed(root: &Path) {
-    write(
-        root.join("miner_report.json"),
-        r#"{"hypotheses":[{"hypothesis_id":"typed-assoc:metformin::diabetes","source_id":"concept:metformin","source_name":"metformin","source_type":"chemical","target_id":"concept:type2diabetes","target_name":"type 2 diabetes","target_type":"disease","support_count":3,"score":0.9}]}"#,
+    seed_hypothesis(
+        root,
+        "typed-assoc:metformin::diabetes",
+        "concept:metformin",
+        "metformin",
+        "chemical",
+        "concept:type2diabetes",
+        "type 2 diabetes",
+        "disease",
     );
+    seed_empty_sources(root);
     write(
         root.join("pubtator/parsed/supporting_literature.jsonl"),
         r#"{"pmid":"1","left_id":"@CHEMICAL_Metformin","right_id":"@DISEASE_Diabetes_Mellitus_Type_2","relation_count":2,"support_basis":"fixture Metformin type 2 diabetes support"}"#,
@@ -87,6 +182,36 @@ fn seed(root: &Path) {
     write(
         root.join("clinicaltrials/parsed/clinicaltrials_seed_summaries.jsonl"),
         r#"{"intervention":"metformin","condition":"type 2 diabetes","total_count":5,"with_results_count":2,"exact_intervention_match_count":5,"stopped_status_count":0}"#,
+    );
+}
+
+fn seed_hypothesis(
+    root: &Path,
+    hypothesis_id: &str,
+    source_id: &str,
+    source_name: &str,
+    source_type: &str,
+    target_id: &str,
+    target_name: &str,
+    target_type: &str,
+) {
+    write(
+        root.join("miner_report.json"),
+        &format!(
+            r#"{{"hypotheses":[{{"hypothesis_id":"{hypothesis_id}","source_id":"{source_id}","source_name":"{source_name}","source_type":"{source_type}","target_id":"{target_id}","target_name":"{target_name}","target_type":"{target_type}","support_count":3,"score":0.9}}]}}"#
+        ),
+    );
+}
+
+fn seed_empty_sources(root: &Path) {
+    write(root.join("pubtator/parsed/supporting_literature.jsonl"), "");
+    write(
+        root.join("pubtator/parsed/contradicting_or_negative_literature.jsonl"),
+        "",
+    );
+    write(
+        root.join("clinicaltrials/parsed/clinicaltrials_seed_summaries.jsonl"),
+        "",
     );
     write(
         root.join("clinicaltrials/parsed/clinicaltrials_trial_rows.jsonl"),

@@ -14,6 +14,8 @@ pub(super) struct Persisted {
     pub support_evidence_sha256: String,
     pub counter_evidence: PathBuf,
     pub counter_evidence_sha256: String,
+    pub skipped_evidence: PathBuf,
+    pub skipped_evidence_sha256: String,
     pub hypothesis_flags: PathBuf,
     pub hypothesis_flags_sha256: String,
     pub raw_query_manifest: PathBuf,
@@ -26,6 +28,7 @@ pub(super) fn persist(out_dir: &Path, report: &FalsificationReport) -> CliResult
     let report_path = out_dir.join("falsification_sweep_report.json");
     let support_path = out_dir.join("support_evidence.jsonl");
     let counter_path = out_dir.join("counter_evidence.jsonl");
+    let skipped_path = out_dir.join("skipped_evidence.jsonl");
     let flags_path = out_dir.join("hypothesis_flags.jsonl");
     let raw_manifest_path = out_dir.join("raw_query_manifest.jsonl");
     let report_bytes = serde_json::to_vec_pretty(report)
@@ -33,6 +36,7 @@ pub(super) fn persist(out_dir: &Path, report: &FalsificationReport) -> CliResult
     write_if_same(&report_path, &report_bytes)?;
     write_if_same(&support_path, &jsonl(&report.support_evidence)?)?;
     write_if_same(&counter_path, &jsonl(&report.counter_evidence)?)?;
+    write_if_same(&skipped_path, &jsonl(&report.skipped_evidence)?)?;
     write_if_same(&flags_path, &jsonl(&report.hypothesis_flags)?)?;
     write_if_same(&raw_manifest_path, &jsonl(&report.raw_query_manifest)?)?;
     let report_readback = fs::read(&report_path)?;
@@ -47,6 +51,8 @@ pub(super) fn persist(out_dir: &Path, report: &FalsificationReport) -> CliResult
         support_evidence_sha256: sha256_hex(&fs::read(&support_path)?),
         counter_evidence: counter_path.clone(),
         counter_evidence_sha256: sha256_hex(&fs::read(&counter_path)?),
+        skipped_evidence: skipped_path.clone(),
+        skipped_evidence_sha256: sha256_hex(&fs::read(&skipped_path)?),
         hypothesis_flags: flags_path.clone(),
         hypothesis_flags_sha256: sha256_hex(&fs::read(&flags_path)?),
         raw_query_manifest: raw_manifest_path.clone(),

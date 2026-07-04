@@ -16,7 +16,7 @@ use super::{Subcommand, value};
 use crate::error::{CliError, CliResult};
 use crate::output::print_json;
 
-const SCHEMA_VERSION: u32 = 1;
+const SCHEMA_VERSION: u32 = 2;
 
 pub(crate) fn parse_hypothesis_falsification_sweep(rest: &[String]) -> CliResult<Subcommand> {
     let mut args = HypothesisFalsificationArgs::default();
@@ -102,6 +102,8 @@ pub(crate) fn run(command: Subcommand) -> CliResult {
         support_evidence_sha256: readback.support_evidence_sha256,
         counter_evidence_jsonl: readback.counter_evidence.display().to_string(),
         counter_evidence_sha256: readback.counter_evidence_sha256,
+        skipped_evidence_jsonl: readback.skipped_evidence.display().to_string(),
+        skipped_evidence_sha256: readback.skipped_evidence_sha256,
         hypothesis_flags_jsonl: readback.hypothesis_flags.display().to_string(),
         hypothesis_flags_sha256: readback.hypothesis_flags_sha256,
         raw_query_manifest_jsonl: readback.raw_query_manifest.display().to_string(),
@@ -110,6 +112,7 @@ pub(crate) fn run(command: Subcommand) -> CliResult {
         deduped_hypothesis_count: report.deduped_hypothesis_count,
         support_evidence_count: report.support_evidence_count,
         counter_evidence_count: report.counter_evidence_count,
+        skipped_evidence_count: report.skipped_evidence_count,
         flagged_with_counter_evidence_count: report.flagged_with_counter_evidence_count,
         readback_flag_count: readback.flag_count,
     })
@@ -130,6 +133,7 @@ fn build_report(args: &HypothesisFalsificationArgs) -> CliResult<FalsificationRe
     let flags = load::flag_hypotheses(&hypotheses, &sources);
     let support_evidence_count = sources.support_evidence.len();
     let counter_evidence_count = sources.counter_evidence.len();
+    let skipped_evidence_count = sources.skipped_evidence.len();
     let flagged_with_counter_evidence_count = flags
         .iter()
         .filter(|flag| flag.counter_evidence_count > 0)
@@ -151,10 +155,12 @@ fn build_report(args: &HypothesisFalsificationArgs) -> CliResult<FalsificationRe
         raw_query_manifest_count: sources.raw_query_manifest.len(),
         support_evidence_count,
         counter_evidence_count,
+        skipped_evidence_count,
         flagged_with_counter_evidence_count,
         hypothesis_flags: flags,
         support_evidence: sources.support_evidence,
         counter_evidence: sources.counter_evidence,
+        skipped_evidence: sources.skipped_evidence,
         raw_query_manifest: sources.raw_query_manifest,
     })
 }
