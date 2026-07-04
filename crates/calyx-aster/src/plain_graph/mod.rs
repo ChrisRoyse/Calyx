@@ -27,9 +27,10 @@ pub use lifecycle::{
 pub use physical::PhysicalPlainGraph;
 pub use types::{
     CsrCommit, GraphEdgeCommit, PlainGraphCsr, PlainGraphCsrEdge, PlainGraphDirection,
-    PlainGraphEdge, TraverseOptions, plain_graph_edge_raw_weight,
+    PlainGraphEdge, PlainGraphEdgeWeightStats, TraverseOptions, plain_graph_edge_raw_weight,
     plain_graph_normalized_edge_weight,
 };
+use types::{EdgeWeightPolicy, EdgeWeightSource, plain_graph_edge_raw_weight_with_policy};
 
 #[derive(Clone, Debug)]
 struct WeightedEdgeDraft {
@@ -163,6 +164,15 @@ impl<'a, C: Clock> PlainGraph<'a, C> {
     }
 
     pub fn csr_projection(&self, snapshot: Seq) -> Result<PlainGraphCsr> {
+        self.csr_projection_with_weight_policy(snapshot, EdgeWeightPolicy::Strict)
+            .map(|(projection, _stats)| projection)
+    }
+
+    fn csr_projection_with_weight_policy(
+        &self,
+        snapshot: Seq,
+        weight_policy: EdgeWeightPolicy,
+    ) -> Result<(PlainGraphCsr, PlainGraphEdgeWeightStats)> {
         let nodes = self.node_ids(snapshot)?;
         let node_index = nodes
             .iter()
@@ -173,6 +183,7 @@ impl<'a, C: Clock> PlainGraph<'a, C> {
         for node in &nodes {
             builder.add_node(*node, 1.0).map_err(path_error)?;
         }
+        let mut stats = PlainGraphEdgeWeightStats::default();
         let mut drafts = Vec::new();
         let mut max_raw_weight = 0.0_f32;
         for key in self.scan_keys_at(snapshot, &self.keys.edge_out_range())? {
@@ -190,14 +201,18 @@ impl<'a, C: Clock> PlainGraph<'a, C> {
                 .vault
                 .read_cf_at(snapshot, ColumnFamily::Graph, &key)?
                 .ok_or_else(|| graph_corrupt("graph edge row disappeared during CSR projection"))?;
-            let raw_weight = plain_graph_edge_raw_weight(&value)?;
-            max_raw_weight = max_raw_weight.max(raw_weight);
+            let parsed = plain_graph_edge_raw_weight_with_policy(&value, weight_policy)?;
+            match parsed.source {
+                EdgeWeightSource::Explicit => stats.explicit_weight_edges += 1,
+                EdgeWeightSource::LegacyUnit => stats.legacy_unit_weight_edges += 1,
+            }
+            max_raw_weight = max_raw_weight.max(parsed.raw);
             drafts.push(WeightedEdgeDraft {
                 src: edge.src,
                 src_index: src,
                 dst: edge.dst,
                 edge_type: edge.edge_type,
-                raw_weight,
+                raw_weight: parsed.raw,
             });
         }
         let mut by_src = vec![Vec::<PlainGraphCsrEdge>::new(); nodes.len()];
@@ -214,14 +229,15 @@ impl<'a, C: Clock> PlainGraph<'a, C> {
         }
         let association_edge_count = builder.build().edge_count();
         let (offsets, edges) = flatten_csr_edges(by_src);
-        Ok(PlainGraphCsr {
+        let projection = PlainGraphCsr {
             collection: self.keys.collection_name(),
             source_snapshot: snapshot,
             nodes,
             offsets,
             edges,
             association_edge_count,
-        })
+        };
+        Ok((projection, stats))
     }
 
     /// Persist the collection-local CSR projection as ordered byte segments plus
@@ -231,12 +247,19 @@ impl<'a, C: Clock> PlainGraph<'a, C> {
     /// key ranges; unrelated Graph CF collections are outside the key prefixes
     /// used by `self.keys`.
     ///
-    /// The manifest row is written last so a reader never sees a manifest
-    /// whose segments have not been written yet; the manifest's stream hash
-    /// fails any torn/stale segment state closed on read.
     pub fn rebuild_csr(&self, snapshot: Seq) -> Result<CsrCommit> {
         let projection = self.csr_projection(snapshot)?;
         self.write_csr_projection(projection)
+    }
+
+    pub fn rebuild_csr_with_legacy_unit_weights(
+        &self,
+        snapshot: Seq,
+    ) -> Result<(CsrCommit, PlainGraphEdgeWeightStats)> {
+        let (projection, stats) =
+            self.csr_projection_with_weight_policy(snapshot, EdgeWeightPolicy::LegacyUnit)?;
+        self.write_csr_projection(projection)
+            .map(|commit| (commit, stats))
     }
 
     pub fn write_csr_projection(&self, projection: PlainGraphCsr) -> Result<CsrCommit> {
@@ -468,6 +491,8 @@ impl<'a, C: Clock> PlainGraph<'a, C> {
 mod csr_binary_tests;
 #[cfg(test)]
 mod csr_fail_closed_tests;
+#[cfg(test)]
+mod legacy_weight_tests;
 #[cfg(test)]
 mod lifecycle_tests;
 #[cfg(test)]

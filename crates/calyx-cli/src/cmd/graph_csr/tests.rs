@@ -213,6 +213,58 @@ fn materialize_rebuilds_unsupported_prior_csr_version() {
 }
 
 #[test]
+fn materialize_upgrades_legacy_unweighted_edge_values() {
+    let home = temp_home("legacy-unweighted");
+    let vault_id = VaultId::from_ulid(Ulid::new());
+    let vault_path = home.join("vaults").join(vault_id.to_string());
+    let vault = AsterVault::new_durable(
+        &vault_path,
+        vault_id,
+        vault_salt(vault_id, "legacy-unweighted"),
+        VaultOptions::default(),
+    )
+    .expect("create graph vault");
+    let graph = PlainGraph::new(&vault, DEFAULT_ASTER_ASSOC_COLLECTION).expect("plain graph");
+    for id in [cx(1), cx(2), cx(3)] {
+        graph.put_node(id, b"{}").unwrap();
+    }
+    graph
+        .put_edge(cx(1), "assoc", cx(2), b"legacy-bytes")
+        .unwrap();
+    graph
+        .put_edge(cx(2), "assoc", cx(3), br#"{"support":1}"#)
+        .unwrap();
+    assert!(graph.csr_projection(vault.latest_seq()).is_err());
+    vault.flush().unwrap();
+    drop(graph);
+    drop(vault);
+
+    run_materialize_graph_csr_with_home(
+        &home,
+        MaterializeGraphCsrArgs {
+            vault: vault_path.display().to_string(),
+            collection: DEFAULT_ASTER_ASSOC_COLLECTION.to_string(),
+        },
+    )
+    .expect("materialize legacy unweighted CSR");
+    let physical =
+        PhysicalPlainGraph::open_latest(&vault_path, DEFAULT_ASTER_ASSOC_COLLECTION).unwrap();
+    let raw = physical
+        .read_csr_bytes()
+        .unwrap()
+        .expect("rebuilt CSR bytes");
+    assert_eq!(&raw[..8], b"CALYXCSR");
+    let csr = physical.read_csr().unwrap().expect("rebuilt CSR");
+    assert_eq!(csr.edges.len(), 2);
+    assert!(
+        csr.edges
+            .iter()
+            .all(|edge| (edge.weight - 1.0).abs() < f32::EPSILON)
+    );
+    std::fs::remove_dir_all(home).ok();
+}
+
+#[test]
 fn empty_graph_materializes_empty_csr() {
     let home = temp_home("empty");
     let vault_path = graph_vault(&home, "empty", &[]);

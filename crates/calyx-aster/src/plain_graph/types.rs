@@ -69,6 +69,12 @@ pub struct CsrCommit {
     pub projection: PlainGraphCsr,
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct PlainGraphEdgeWeightStats {
+    pub explicit_weight_edges: usize,
+    pub legacy_unit_weight_edges: usize,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) struct DecodedEdge {
     pub src: CxId,
@@ -76,20 +82,72 @@ pub(super) struct DecodedEdge {
     pub edge_type: String,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum EdgeWeightPolicy {
+    Strict,
+    LegacyUnit,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(super) struct ParsedEdgeWeight {
+    pub raw: f32,
+    pub source: EdgeWeightSource,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum EdgeWeightSource {
+    Explicit,
+    LegacyUnit,
+}
+
 pub fn plain_graph_edge_raw_weight(value: &[u8]) -> Result<f32> {
+    plain_graph_edge_raw_weight_with_policy(value, EdgeWeightPolicy::Strict)
+        .map(|parsed| parsed.raw)
+}
+
+pub(super) fn plain_graph_edge_raw_weight_with_policy(
+    value: &[u8],
+    policy: EdgeWeightPolicy,
+) -> Result<ParsedEdgeWeight> {
     if value.is_empty() {
         return Err(graph_corrupt(
             "graph edge value is empty; scoring edges require a positive JSON weight",
         ));
     }
-    let json: Value = serde_json::from_slice(value).map_err(|error| {
-        graph_corrupt(format!(
-            "graph edge value must be a JSON number or object with numeric weight: {error}"
-        ))
-    })?;
+    let json: Value = match serde_json::from_slice(value) {
+        Ok(json) => json,
+        Err(error) => {
+            if policy == EdgeWeightPolicy::LegacyUnit {
+                return Ok(ParsedEdgeWeight {
+                    raw: 1.0,
+                    source: EdgeWeightSource::LegacyUnit,
+                });
+            }
+            return Err(graph_corrupt(format!(
+                "graph edge value must be a JSON number or object with numeric weight: {error}"
+            )));
+        }
+    };
     let raw = match json {
         Value::Number(number) => number.as_f64(),
-        Value::Object(object) => object.get("weight").and_then(Value::as_f64),
+        Value::Object(object) => {
+            if let Some(weight) = object.get("weight") {
+                weight.as_f64().or_else(|| Some(f64::NAN))
+            } else if policy == EdgeWeightPolicy::LegacyUnit {
+                return Ok(ParsedEdgeWeight {
+                    raw: 1.0,
+                    source: EdgeWeightSource::LegacyUnit,
+                });
+            } else {
+                None
+            }
+        }
+        _ if policy == EdgeWeightPolicy::LegacyUnit => {
+            return Ok(ParsedEdgeWeight {
+                raw: 1.0,
+                source: EdgeWeightSource::LegacyUnit,
+            });
+        }
         _ => None,
     }
     .ok_or_else(|| {
@@ -97,7 +155,10 @@ pub fn plain_graph_edge_raw_weight(value: &[u8]) -> Result<f32> {
     })?;
     let raw = raw as f32;
     if raw.is_finite() && raw > 0.0 {
-        Ok(raw)
+        Ok(ParsedEdgeWeight {
+            raw,
+            source: EdgeWeightSource::Explicit,
+        })
     } else {
         Err(graph_corrupt(format!(
             "graph edge evidence weight must be finite and > 0; got {raw}"

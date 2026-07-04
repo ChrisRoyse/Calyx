@@ -112,9 +112,15 @@ pub(crate) fn run_materialize_graph_csr_with_home(
     )?;
     let graph = PlainGraph::new(&vault, &args.collection)?;
     let snapshot = vault.snapshot();
-    let commit = graph
-        .rebuild_csr(snapshot)
+    let (commit, edge_weight_stats) = graph
+        .rebuild_csr_with_legacy_unit_weights(snapshot)
         .map_err(|error| csr_materialize_failed(&args, &resolved.path, &error))?;
+    if edge_weight_stats.legacy_unit_weight_edges > 0 {
+        eprintln!(
+            "materialize-graph-csr: upgraded legacy unweighted edge rows legacy_unit_edge_values={} explicit_weight_edge_values={}",
+            edge_weight_stats.legacy_unit_weight_edges, edge_weight_stats.explicit_weight_edges
+        );
+    }
     vault.flush()?;
     eprintln!(
         "materialize-graph-csr: committed seq={} nodes={} edges={} association_edges={} elapsed_ms={}",
@@ -189,6 +195,11 @@ pub(crate) fn run_materialize_graph_csr_with_home(
         "nodes": csr.nodes.len(),
         "csr_edges": csr.edges.len(),
         "association_edge_count": csr.association_edge_count,
+        "edge_weight_decode": {
+            "policy": "explicit-weight-or-legacy-unit",
+            "explicit_weight_edges": edge_weight_stats.explicit_weight_edges,
+            "legacy_unit_weight_edges": edge_weight_stats.legacy_unit_weight_edges,
+        },
         "readback": {
             "source_of_truth": "physical Graph CF latest readback via PhysicalPlainGraph::read_csr + assoc_graph + independent node/edge key enumeration",
             "assoc_graph_nodes": assoc.node_count(),
