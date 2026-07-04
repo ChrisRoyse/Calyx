@@ -25,6 +25,7 @@ mod kernel_build;
 mod lens;
 mod lincs_reversal;
 mod molecular_vault;
+mod novelty_split;
 mod panel_templates;
 mod parse_helpers;
 mod probe_matrix;
@@ -61,7 +62,8 @@ propose-lens provenance verify-chain reproduce anneal-status rebuild-search-inde
 weave-loom domain-bridges materialize-bridge-corpus discovery-chain chain-walks probe-matrix spectral-communities \
 materialize-graph-csr materialize-molecular-vault materialize-evidence-substrate materialize-lincs-reversal \
 assemble-hypothesis-evidence association-validation-gates typed-association-miner hypothesis-falsification-sweep \
-bridge-falsification-evaluate bridge-evaluate-rank graph-collection-generations graph-collection-state";
+bridge-falsification-evaluate bridge-evaluate-rank novelty-calibration-split \
+graph-collection-generations graph-collection-state";
 
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) enum Subcommand {
@@ -185,6 +187,7 @@ pub(crate) fn try_run(args: &[String]) -> Option<CliResult> {
         build_info::try_run,
         discovery_run::try_run,
         discovery_bridge::try_run,
+        novelty_split::try_run,
         hypothesis_evaluate::try_run,
         hypothesis_evaluator::try_run,
         hypothesis_rank::try_run,
@@ -197,7 +200,7 @@ pub(crate) fn try_run(args: &[String]) -> Option<CliResult> {
         return None;
     }
     if let [command, flag] = args
-        && is_help_flag(flag)
+        && matches!(flag.as_str(), "--help" | "-h")
     {
         return Some(crate::usage::print_command_usage(command));
     }
@@ -212,10 +215,6 @@ pub(crate) fn try_run(args: &[String]) -> Option<CliResult> {
         return None;
     }
     Some(parse(args).and_then(run))
-}
-
-fn is_help_flag(flag: &str) -> bool {
-    matches!(flag, "--help" | "-h")
 }
 
 fn run(command: Subcommand) -> CliResult {
