@@ -24,6 +24,7 @@ mod provenance;
 mod readback;
 mod search;
 mod spectral_communities;
+mod typed_association_miner;
 pub(crate) mod vault;
 mod vault_retire;
 mod weave;
@@ -53,7 +54,7 @@ propose-lens provenance verify-chain reproduce anneal-status rebuild-search-inde
 weave-loom domain-bridges materialize-bridge-corpus discovery-chain chain-walks probe-matrix \
 spectral-communities materialize-graph-csr materialize-molecular-vault \
 materialize-evidence-substrate materialize-lincs-reversal \
-association-validation-gates \
+association-validation-gates typed-association-miner \
 graph-collection-generations graph-collection-state";
 
 #[derive(Clone, Debug, PartialEq)]
@@ -97,6 +98,7 @@ pub(crate) enum Subcommand {
     MaterializeEvidenceSubstrate(evidence_substrate::MaterializeEvidenceSubstrateArgs),
     MaterializeLincsReversal(lincs_reversal::MaterializeLincsReversalArgs),
     AssociationValidationGates(association_validation::AssociationValidationArgs),
+    TypedAssociationMiner(typed_association_miner::TypedAssociationMinerArgs),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -251,6 +253,7 @@ fn run(command: Subcommand) -> CliResult {
         Subcommand::MaterializeEvidenceSubstrate(_) => evidence_substrate::run(command),
         Subcommand::MaterializeLincsReversal(_) => lincs_reversal::run(command),
         Subcommand::AssociationValidationGates(_) => association_validation::run(command),
+        Subcommand::TypedAssociationMiner(_) => typed_association_miner::run(command),
     }
 }
 
@@ -302,6 +305,7 @@ pub(crate) fn parse(args: &[String]) -> CliResult<Subcommand> {
         "association-validation-gates" => {
             association_validation::parse_association_validation_gates(rest)
         }
+        "typed-association-miner" => typed_association_miner::parse_typed_association_miner(rest),
         other => Err(CliError::usage(format!("unknown PH62 command {other}"))),
     }
 }

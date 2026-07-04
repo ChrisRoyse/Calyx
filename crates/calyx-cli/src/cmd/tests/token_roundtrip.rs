@@ -9,6 +9,8 @@ use flows::{
 };
 mod validation_tokens;
 use validation_tokens::association_validation_tokens;
+mod typed_miner_tokens;
+use typed_miner_tokens::typed_association_miner_tokens;
 
 pub(super) fn subcommand_tokens(command: &Subcommand) -> Vec<String> {
     match command {
@@ -114,6 +116,7 @@ pub(super) fn subcommand_tokens(command: &Subcommand) -> Vec<String> {
         Subcommand::MaterializeEvidenceSubstrate(args) => evidence_substrate_tokens(args),
         Subcommand::MaterializeLincsReversal(args) => lincs_reversal_tokens(args),
         Subcommand::AssociationValidationGates(args) => association_validation_tokens(args),
+        Subcommand::TypedAssociationMiner(args) => typed_association_miner_tokens(args),
         Subcommand::GraphCollectionGenerations(args) => graph_collection_generations_tokens(args),
         Subcommand::GraphCollectionState(args) => graph_collection_state_tokens(args),
         Subcommand::DiscoveryChain(args) => discovery_chain_tokens(args),
