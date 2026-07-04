@@ -71,6 +71,7 @@ impl ProbeMatrixProgressWriter {
                 "lengths": self.args.lengths,
                 "top_k": self.args.top_k,
                 "guard": format!("{:?}", self.args.guard),
+                "stale_ok": self.args.stale_ok,
                 "out": self.args.out.as_ref().map(|path| path.display().to_string()),
                 "max_variants": self.args.max_variants,
                 "time_budget_ms": self.args.time_budget_ms,

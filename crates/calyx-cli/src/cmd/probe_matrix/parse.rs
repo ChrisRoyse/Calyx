@@ -61,6 +61,9 @@ pub(crate) fn parse_probe_matrix(rest: &[String]) -> CliResult<Subcommand> {
                 idx += 1;
                 args.guard_tau = Some(parse_guard_tau(value(rest, idx, "--guard-tau")?)?);
             }
+            "--stale-ok" => {
+                args.stale_ok = true;
+            }
             "--out" => {
                 idx += 1;
                 args.out = Some(value(rest, idx, "--out")?.into());

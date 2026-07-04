@@ -48,6 +48,7 @@ fn parses_probe_matrix_axes() {
         "3",
         "--time-budget-ms",
         "5000",
+        "--stale-ok",
     ])
     .unwrap();
 
@@ -61,6 +62,7 @@ fn parses_probe_matrix_axes() {
     assert_eq!(args.resident_addr, Some("127.0.0.1:8787".parse().unwrap()));
     assert_eq!(args.max_variants, Some(3));
     assert_eq!(args.time_budget_ms, Some(5000));
+    assert!(args.stale_ok);
 }
 
 #[test]
@@ -187,6 +189,7 @@ fn run_persists_matrix_then_reads_back_source_of_truth() {
             top_k: 1,
             guard: GuardChoice::Off,
             guard_tau: None,
+            stale_ok: false,
             out: None,
             resident_addr: None,
             max_variants: None,
@@ -277,6 +280,7 @@ fn requested_missing_slot_fails_before_artifact_write() {
             top_k: 1,
             guard: GuardChoice::Off,
             guard_tau: None,
+            stale_ok: false,
             out: None,
             resident_addr: None,
             max_variants: None,

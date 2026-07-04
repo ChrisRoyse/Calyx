@@ -54,6 +54,7 @@ pub(crate) struct ProbeMatrixArgs {
     pub top_k: usize,
     pub guard: GuardChoice,
     pub guard_tau: Option<f32>,
+    pub stale_ok: bool,
     pub out: Option<PathBuf>,
     pub resident_addr: Option<SocketAddr>,
     pub max_variants: Option<usize>,
@@ -74,6 +75,7 @@ impl Default for ProbeMatrixArgs {
             top_k: ProbeMatrixSpec::new("frontier", vec![SlotId::new(0)]).top_k,
             guard: GuardChoice::Off,
             guard_tau: None,
+            stale_ok: false,
             out: None,
             resident_addr: None,
             max_variants: None,
@@ -124,6 +126,7 @@ struct ProbeVariantContext<'a> {
     vault_dir: &'a Path,
     guard: GuardChoice,
     guard_tau: Option<f32>,
+    stale_ok: bool,
     query_cache: &'a mut QueryVectorCache,
     search_cache: &'a mut calyx_search::SearchSlotCache,
     guard_diagnostics: &'a mut Vec<diagnostics::ProbeMatrixVariantDiagnostic>,
@@ -170,7 +173,11 @@ fn probe_variant(
         Some(u64::from(ctx.state.panel.version)),
         None,
         false,
-        SearchFreshness::Fresh,
+        if ctx.stale_ok {
+            SearchFreshness::StaleOk
+        } else {
+            SearchFreshness::Fresh
+        },
         SearchBudget::new(&mut budget_check),
         Some(ctx.search_cache),
         Some(&mut trace_sink),

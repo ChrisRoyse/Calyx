@@ -343,6 +343,7 @@ pub(crate) fn run_probe_matrix_with_home(home: &Path, args: ProbeMatrixArgs) -> 
             vault_dir: &resolved.path,
             guard: args.guard,
             guard_tau: args.guard_tau,
+            stale_ok: args.stale_ok,
             query_cache: &mut query_cache,
             search_cache: &mut search_cache,
             guard_diagnostics: &mut guards,
