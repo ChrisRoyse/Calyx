@@ -1,9 +1,11 @@
 use std::path::{Path, PathBuf};
 
+use calyx_aster::cf::ColumnFamily;
 use calyx_aster::plain_graph::{PhysicalPlainGraph, PlainGraph};
 use calyx_aster::vault::{AsterVault, VaultOptions};
 use calyx_core::{CxId, VaultId};
 use calyx_lodestar::DEFAULT_ASTER_ASSOC_COLLECTION;
+use serde_json::Value;
 use ulid::Ulid;
 
 use super::{MaterializeGraphCsrArgs, run_materialize_graph_csr_with_home};
@@ -140,6 +142,73 @@ fn materialize_sees_router_flushed_rows_after_reopen() {
     let csr = physical.read_csr().unwrap().expect("decode CSR");
     assert_eq!(csr.nodes.len(), 4, "all router-flushed nodes in CSR");
     assert_eq!(csr.edges.len(), 4, "all router-flushed edges in CSR");
+    std::fs::remove_dir_all(home).ok();
+}
+
+#[test]
+fn materialize_rebuilds_unsupported_prior_csr_version() {
+    let home = temp_home("old-csr-version");
+    let vault_id = VaultId::from_ulid(Ulid::new());
+    let vault_path = home.join("vaults").join(vault_id.to_string());
+    let vault = AsterVault::new_durable(
+        &vault_path,
+        vault_id,
+        vault_salt(vault_id, "old-csr-version"),
+        VaultOptions::default(),
+    )
+    .expect("create graph vault");
+    let graph = PlainGraph::new(&vault, DEFAULT_ASTER_ASSOC_COLLECTION).expect("plain graph");
+    for id in [cx(1), cx(2)] {
+        graph.put_node(id, b"{}").unwrap();
+    }
+    graph.put_edge(cx(1), "assoc", cx(2), b"1").unwrap();
+    let commit = graph.rebuild_csr(vault.latest_seq()).unwrap();
+    let mut manifest: Value = serde_json::from_slice(
+        &vault
+            .read_cf_at(commit.seq, ColumnFamily::Graph, &commit.key)
+            .unwrap()
+            .expect("CSR manifest row"),
+    )
+    .unwrap();
+    manifest["csr_manifest_version"] = Value::from(3_u64);
+    vault
+        .write_cf(
+            ColumnFamily::Graph,
+            commit.key.clone(),
+            serde_json::to_vec(&manifest).unwrap(),
+        )
+        .unwrap();
+    vault.flush().unwrap();
+    drop(graph);
+    drop(vault);
+
+    let physical =
+        PhysicalPlainGraph::open_latest(&vault_path, DEFAULT_ASTER_ASSOC_COLLECTION).unwrap();
+    let stale = physical.read_csr_bytes().unwrap_err();
+    assert!(
+        stale
+            .message
+            .contains("persisted CSR manifest version 3 is not supported")
+    );
+    drop(physical);
+
+    run_materialize_graph_csr_with_home(
+        &home,
+        MaterializeGraphCsrArgs {
+            vault: vault_path.display().to_string(),
+            collection: DEFAULT_ASTER_ASSOC_COLLECTION.to_string(),
+        },
+    )
+    .expect("materialize over unsupported prior CSR");
+    let physical =
+        PhysicalPlainGraph::open_latest(&vault_path, DEFAULT_ASTER_ASSOC_COLLECTION).unwrap();
+    let raw = physical
+        .read_csr_bytes()
+        .unwrap()
+        .expect("rebuilt CSR bytes");
+    assert_eq!(&raw[..8], b"CALYXCSR");
+    let csr = physical.read_csr().unwrap().expect("rebuilt CSR");
+    assert_eq!(csr.edges.len(), 1);
     std::fs::remove_dir_all(home).ok();
 }
 
