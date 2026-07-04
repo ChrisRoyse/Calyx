@@ -98,4 +98,5 @@ still requires experimental confirmation.
 | `74_drug_combination_hypotheses.md` | #1190 drug-combination and synergy hypothesis miner | complete FSV for 1,750 fail-closed combination rows, DrugComb exact-pair matches, safety/interaction flags, and native Calyx bridge-corpus materialization |
 | `75_nci_almanac_external_synergy.md` | #1229 NCI ALMANAC external combination evidence ingest | complete FSV for ALMANAC source bytes, 306,365 atomic cell-line combo-score rows, 1,750 candidate joins, and native Calyx bridge-corpus materialization |
 | `76_external_combo_source_expansion.md` | #1231 CDCDB external combination source expansion | complete FSV for CDCDB source bytes, schema fingerprint, 1,750 candidate rechecks, 1,682 prior no-hit rechecks, and native Calyx bridge-corpus materialization |
+| `77_clinicaltrials_current_recheck.md` | #1232 ClinicalTrials.gov current direct source recheck | complete FSV for 1,546 remaining no-hit row queries, 1,618 API pages, 204 registry hits, and native Calyx bridge-corpus materialization |
 | (added as work proceeds) | | |
