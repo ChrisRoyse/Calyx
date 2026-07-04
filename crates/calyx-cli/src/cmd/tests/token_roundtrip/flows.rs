@@ -2,7 +2,7 @@
 //! of token_roundtrip.rs to satisfy the 500-line file gate.
 
 use super::super::super::*;
-use super::push_opt;
+use super::{anchor_kind_name, push_opt};
 
 pub(super) fn probe_matrix_tokens(args: &probe_matrix::ProbeMatrixArgs) -> Vec<String> {
     let mut out = vec![
@@ -69,6 +69,10 @@ pub(super) fn discovery_chain_tokens(args: &discovery_chain::DiscoveryChainArgs)
         args.min_gate_confidence.to_string(),
         "--novelty-weight".to_string(),
         args.novelty_weight.to_string(),
+        "--assay-domain".to_string(),
+        args.assay_domain.clone(),
+        "--assay-anchor".to_string(),
+        anchor_kind_name(&args.assay_anchor),
     ]);
     push_opt(
         &mut out,
@@ -104,6 +108,10 @@ pub(super) fn chain_walks_tokens(args: &chain_walks::ChainWalksArgs) -> Vec<Stri
         args.max_hypotheses_per_seed.to_string(),
         "--min-terminal-confidence".to_string(),
         args.min_terminal_confidence.to_string(),
+        "--assay-domain".to_string(),
+        args.assay_domain.clone(),
+        "--assay-anchor".to_string(),
+        anchor_kind_name(&args.assay_anchor),
     ]);
     push_opt(
         &mut out,

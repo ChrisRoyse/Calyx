@@ -5,16 +5,23 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
-use calyx_core::CxId;
+use calyx_assay::AssayStore;
+use calyx_aster::vault::{AsterVault, VaultOptions};
+use calyx_core::{AnchorKind, CxId};
 use calyx_lodestar::{
     AssocStore, DEFAULT_ASTER_ASSOC_COLLECTION, DiscoveryChainLog, DiscoveryChainParams,
-    LodestarError, PhysicalAsterAssocSnapshot, run_grounded_discovery_chain,
+    LodestarError, PhysicalAsterAssocSnapshot, run_discovery_chain_with_gate,
 };
+use calyx_registry::load_vault_panel_state;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use sha2::{Digest, Sha256};
 
-use super::vault::{home_dir, resolve_vault_info};
+use super::artifact_hash::sha256_hex;
+use super::discovery_gate::{
+    DEFAULT_DISCOVERY_ASSAY_DOMAIN, DiscoverySufficiencyGate, anchor_kind_label, parse_anchor_kind,
+    parse_nonempty,
+};
+use super::vault::{home_dir, resolve_vault_info, vault_salt};
 use super::{Subcommand, value};
 use crate::error::{CliError, CliResult};
 use crate::output::print_json;
@@ -33,6 +40,8 @@ pub(crate) struct DiscoveryChainArgs {
     pub max_groundedness_distance: usize,
     pub min_gate_confidence: f32,
     pub novelty_weight: f32,
+    pub assay_domain: String,
+    pub assay_anchor: AnchorKind,
     pub out: Option<PathBuf>,
 }
 
@@ -50,6 +59,8 @@ impl Default for DiscoveryChainArgs {
             max_groundedness_distance: params.max_groundedness_distance,
             min_gate_confidence: params.min_gate_confidence,
             novelty_weight: params.novelty_weight,
+            assay_domain: DEFAULT_DISCOVERY_ASSAY_DOMAIN.to_string(),
+            assay_anchor: AnchorKind::Reward,
             out: None,
         }
     }
@@ -92,6 +103,14 @@ pub(crate) fn run_discovery_chain_with_home(home: &Path, args: DiscoveryChainArg
     );
     let store = PhysicalAsterAssocSnapshot::latest(&resolved.path, DEFAULT_ASTER_ASSOC_COLLECTION)?;
     let graph = store.full_graph()?;
+    let panel_state = load_vault_panel_state(&resolved.path)?;
+    let assay_vault = AsterVault::new_durable(
+        &resolved.path,
+        resolved.vault_id,
+        vault_salt(resolved.vault_id, &resolved.name),
+        VaultOptions::default(),
+    )?;
+    let assay_store = AssayStore::load_from_vault(&assay_vault)?;
     let anchors = load_effective_anchors(&args)?;
     let params = DiscoveryChainParams {
         max_hops: args.max_hops,
@@ -101,18 +120,31 @@ pub(crate) fn run_discovery_chain_with_home(home: &Path, args: DiscoveryChainArg
         min_gate_confidence: args.min_gate_confidence,
         novelty_weight: args.novelty_weight,
     };
+    let gate = DiscoverySufficiencyGate::from_store(
+        &assay_store,
+        &panel_state.panel,
+        resolved.vault_id,
+        &args.assay_domain,
+        args.assay_anchor.clone(),
+    )?;
     eprintln!(
-        "discovery-chain: running nodes={} edges={} starts={} anchors={} max_hops={} branch_width={} probe_width={} rayon_threads={}",
+        "discovery-chain: running nodes={} edges={} starts={} anchors={} panel_version={} assay_domain={} assay_anchor={} max_hops={} branch_width={} probe_width={} rayon_threads={}",
         graph.node_count(),
         graph.edge_count(),
         args.starts.len(),
         anchors.len(),
+        panel_state.panel.version,
+        args.assay_domain,
+        anchor_kind_label(&args.assay_anchor),
         params.max_hops,
         params.branch_width,
         params.probe_width,
         rayon::current_num_threads()
     );
-    let log = run_grounded_discovery_chain(&graph, &args.starts, &anchors, &params)?;
+    let log =
+        run_discovery_chain_with_gate(&graph, &args.starts, &anchors, &params, |candidate| {
+            gate.verdict(candidate, &params)
+        })?;
     ensure_useful_chain(&log)?;
     let artifact = DiscoveryChainArtifact {
         schema_version: DISCOVERY_CHAIN_ARTIFACT_SCHEMA_VERSION,
@@ -134,6 +166,7 @@ pub(crate) fn run_discovery_chain_with_home(home: &Path, args: DiscoveryChainArg
         "vault": resolved.name,
         "vault_dir": resolved.path.display().to_string(),
         "params": params,
+        "assay": gate.summary_json(),
         "anchor_files": args.anchor_files,
         "chain": artifact,
         "artifacts": {
@@ -214,6 +247,15 @@ pub(crate) fn parse_discovery_chain(rest: &[String]) -> CliResult<Subcommand> {
                 args.novelty_weight =
                     parse_unit(value(rest, idx, "--novelty-weight")?, "--novelty-weight")?;
             }
+            "--assay-domain" => {
+                idx += 1;
+                args.assay_domain =
+                    parse_nonempty(value(rest, idx, "--assay-domain")?, "--assay-domain")?;
+            }
+            "--assay-anchor" => {
+                idx += 1;
+                args.assay_anchor = parse_anchor_kind(value(rest, idx, "--assay-anchor")?)?;
+            }
             "--out" => {
                 idx += 1;
                 args.out = Some(value(rest, idx, "--out")?.into());
@@ -282,6 +324,16 @@ fn ensure_useful_chain(log: &DiscoveryChainLog) -> CliResult {
         .into());
     }
     if log.gate_pass_count == 0 || log.accepted_hops.is_empty() {
+        if let Some(row) = log
+            .candidates
+            .iter()
+            .find(|row| row.gate.code == "CALYX_DISCOVERY_NO_SUFFICIENCY_ASSAY")
+        {
+            return Err(LodestarError::DiscoveryNoSufficiencyAssay {
+                detail: row.gate.reason.clone(),
+            }
+            .into());
+        }
         return Err(LodestarError::KernelInvalidParams {
             detail: format!(
                 "discovery chain had no accepted gate-PASS hops; refused_count={} termination={:?}",
@@ -396,20 +448,6 @@ fn parse_unit(raw: &str, flag: &str) -> CliResult<f32> {
         )));
     }
     Ok(value)
-}
-
-fn sha256_hex(bytes: &[u8]) -> String {
-    hex_lower(&Sha256::digest(bytes))
-}
-
-fn hex_lower(bytes: &[u8]) -> String {
-    const HEX: &[u8; 16] = b"0123456789abcdef";
-    let mut out = String::with_capacity(bytes.len() * 2);
-    for byte in bytes {
-        out.push(HEX[(byte >> 4) as usize] as char);
-        out.push(HEX[(byte & 0x0f) as usize] as char);
-    }
-    out
 }
 
 #[cfg(test)]

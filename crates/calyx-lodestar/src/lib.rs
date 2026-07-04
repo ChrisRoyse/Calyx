@@ -48,7 +48,7 @@ pub use blind_spot_sweep::{
 };
 pub use chain_walks::{
     AbcHypothesis, CHAIN_WALK_SCHEMA_VERSION, ChainWalkParams, ChainWalkReport, ChainWalkResult,
-    ChainWalkSeed, ChainWalkSeedKind, run_grounded_chain_walks,
+    ChainWalkSeed, ChainWalkSeedKind, run_chain_walks_with_gate, run_grounded_chain_walks,
 };
 pub use corpus_weave_report::{
     CORPUS_WEAVE_REPORT_SCHEMA_VERSION, CorpusWeaveReport, CorpusWeaveReportParams,
@@ -61,7 +61,8 @@ pub use dfvs::{
 pub use discovery_chain::{
     DISCOVERY_CHAIN_SCHEMA_VERSION, DiscoveryAcceptedHop, DiscoveryCandidate,
     DiscoveryCandidateLog, DiscoveryChainLog, DiscoveryChainParams, DiscoveryGateVerdict,
-    DiscoveryTermination, run_discovery_chain_with_gate, run_grounded_discovery_chain,
+    DiscoveryTermination, reachability_prior_gate, run_discovery_chain_with_gate,
+    run_grounded_discovery_chain,
 };
 pub use domain_bridges::{
     DOMAIN_BRIDGE_SCHEMA_VERSION, DomainBridgeCandidate, DomainBridgeGateVerdict,

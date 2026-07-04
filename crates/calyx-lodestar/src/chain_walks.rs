@@ -5,8 +5,8 @@ use calyx_paths::AssocGraph;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    DiscoveryCandidateLog, DiscoveryChainLog, DiscoveryChainParams, LodestarError, Result,
-    run_grounded_discovery_chain,
+    DiscoveryCandidate, DiscoveryCandidateLog, DiscoveryChainLog, DiscoveryChainParams,
+    DiscoveryGateVerdict, LodestarError, Result, run_discovery_chain_with_gate,
 };
 
 pub const CHAIN_WALK_SCHEMA_VERSION: u32 = 1;
@@ -88,10 +88,33 @@ pub fn run_grounded_chain_walks(
     params: &ChainWalkParams,
 ) -> Result<ChainWalkReport> {
     validate_inputs(graph, seeds, params)?;
+    for anchor in anchors {
+        graph.require_node_index(*anchor)?;
+    }
+    for seed in seeds {
+        graph.require_node_index(seed.start)?;
+    }
+    Err(LodestarError::DiscoveryNoSufficiencyAssay {
+        detail: "chain-walks requires an injected calibrated bits-sufficiency gate; reachability is only a prior".to_string(),
+    })
+}
+
+pub fn run_chain_walks_with_gate<G>(
+    graph: &AssocGraph,
+    seeds: &[ChainWalkSeed],
+    anchors: &[CxId],
+    params: &ChainWalkParams,
+    mut gate: G,
+) -> Result<ChainWalkReport>
+where
+    G: FnMut(&DiscoveryCandidate) -> DiscoveryGateVerdict,
+{
+    validate_inputs(graph, seeds, params)?;
     let mut results = Vec::with_capacity(seeds.len());
     for seed in seeds {
         graph.require_node_index(seed.start)?;
-        let log = run_grounded_discovery_chain(graph, &[seed.start], anchors, &params.chain)?;
+        let log =
+            run_discovery_chain_with_gate(graph, &[seed.start], anchors, &params.chain, &mut gate)?;
         let hypotheses = hypotheses_from_log(graph, seed, &log, params)?;
         results.push(ChainWalkResult {
             seed: seed.clone(),

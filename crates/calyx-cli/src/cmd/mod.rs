@@ -1,8 +1,10 @@
+mod artifact_hash;
 mod association_validation;
 mod bridge_corpus;
 mod build_info;
 mod chain_walks;
 mod discovery_chain;
+mod discovery_gate;
 mod domain_bridges;
 mod erase;
 mod evidence_substrate;

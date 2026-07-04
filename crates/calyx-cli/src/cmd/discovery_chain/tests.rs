@@ -2,13 +2,20 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use calyx_assay::{
+    AssayCacheKey, AssayStore, AssaySubject, EstimatorKind, MiEstimate, PowerCalibration, TrustTag,
+};
 use calyx_aster::plain_graph::PlainGraph;
 use calyx_aster::vault::{AsterVault, VaultOptions};
-use calyx_core::{CxId, VaultId};
+use calyx_core::{
+    AnchorKind, Asymmetry, CxId, LensId, Modality, Panel, QuantPolicy, Slot, SlotId, SlotKey,
+    SlotShape, SlotState, VaultId,
+};
 use calyx_lodestar::{
     AsterAssocNodeProps, DEFAULT_ASTER_ASSOC_COLLECTION, DiscoveryTermination,
     encode_assoc_node_props,
 };
+use calyx_registry::{Registry, persist_vault_panel_state};
 
 use super::*;
 use crate::cmd::vault::vault_salt;
@@ -44,6 +51,10 @@ fn parses_required_ids_and_tuning_flags() {
         "0.30",
         "--novelty-weight",
         "0.40",
+        "--assay-domain",
+        "issue1205",
+        "--assay-anchor",
+        "label:known-outcome",
     ])
     .unwrap();
 
@@ -57,6 +68,11 @@ fn parses_required_ids_and_tuning_flags() {
     assert_eq!(args.max_groundedness_distance, 5);
     assert_eq!(args.min_gate_confidence, 0.30);
     assert_eq!(args.novelty_weight, 0.40);
+    assert_eq!(args.assay_domain, "issue1205");
+    assert_eq!(
+        args.assay_anchor,
+        AnchorKind::Label("known-outcome".to_string())
+    );
 }
 
 #[test]
@@ -99,7 +115,7 @@ fn invalid_start_id_fails_closed() {
 
 #[test]
 fn run_persists_chain_then_reads_back_source_of_truth() {
-    let (home, vault_dir) = seed_home("happy", SeedShape::GroundedChain);
+    let (home, vault_dir) = seed_home("happy", SeedShape::SufficientAssay);
     let anchor_file = home.join("anchors.txt");
     fs::write(&anchor_file, format!("{}\n", cx(4))).unwrap();
 
@@ -116,6 +132,8 @@ fn run_persists_chain_then_reads_back_source_of_truth() {
             max_groundedness_distance: 3,
             min_gate_confidence: 0.25,
             novelty_weight: 0.35,
+            assay_domain: DEFAULT_DISCOVERY_ASSAY_DOMAIN.to_string(),
+            assay_anchor: AnchorKind::Reward,
             out: None,
         },
     )
@@ -139,6 +157,16 @@ fn run_persists_chain_then_reads_back_source_of_truth() {
     assert_eq!(artifact.log.accepted_hops[1].to, cx(3));
     assert_eq!(artifact.log.accepted_hops[2].to, cx(4));
     assert_eq!(
+        artifact.log.accepted_hops[0].gate_code,
+        "CALYX_DISCOVERY_SUFFICIENCY_PASS"
+    );
+    assert!(
+        artifact.log.accepted_hops[0]
+            .gate_evidence
+            .iter()
+            .any(|row| row == "ci_low=1.100000")
+    );
+    assert_eq!(
         artifact.node_metadata[&cx(4)]
             .get("term")
             .map(String::as_str),
@@ -153,7 +181,7 @@ fn run_persists_chain_then_reads_back_source_of_truth() {
 
 #[test]
 fn strict_gate_refuses_before_artifact_write() {
-    let (home, vault_dir) = seed_home("strict", SeedShape::GroundedChain);
+    let (home, vault_dir) = seed_home("strict", SeedShape::SufficientAssay);
 
     let err = run_discovery_chain_with_home(
         &home,
@@ -168,6 +196,8 @@ fn strict_gate_refuses_before_artifact_write() {
             max_groundedness_distance: 3,
             min_gate_confidence: 0.99,
             novelty_weight: 0.35,
+            assay_domain: DEFAULT_DISCOVERY_ASSAY_DOMAIN.to_string(),
+            assay_anchor: AnchorKind::Reward,
             out: None,
         },
     )
@@ -179,8 +209,69 @@ fn strict_gate_refuses_before_artifact_write() {
 }
 
 #[test]
+fn insufficient_assay_refuses_before_artifact_write() {
+    let (home, vault_dir) = seed_home("insufficient", SeedShape::InsufficientAssay);
+
+    let err = run_discovery_chain_with_home(
+        &home,
+        DiscoveryChainArgs {
+            vault: "insufficient".to_string(),
+            starts: vec![cx(1)],
+            anchors: vec![cx(4)],
+            anchor_files: Vec::new(),
+            max_hops: 4,
+            branch_width: 1,
+            probe_width: 4,
+            max_groundedness_distance: 3,
+            min_gate_confidence: 0.25,
+            novelty_weight: 0.35,
+            assay_domain: DEFAULT_DISCOVERY_ASSAY_DOMAIN.to_string(),
+            assay_anchor: AnchorKind::Reward,
+            out: None,
+        },
+    )
+    .unwrap_err();
+
+    assert_eq!(err.code(), "CALYX_DISCOVERY_NO_SUFFICIENCY_ASSAY");
+    assert!(err.message().contains("ci_low"));
+    assert!(!vault_dir.join("idx").join("discovery_chains").exists());
+}
+
+#[test]
+fn missing_assay_refuses_before_artifact_write() {
+    let (home, vault_dir) = seed_home("missing-assay", SeedShape::NoAssay);
+
+    let err = run_discovery_chain_with_home(
+        &home,
+        DiscoveryChainArgs {
+            vault: "missing-assay".to_string(),
+            starts: vec![cx(1)],
+            anchors: vec![cx(4)],
+            anchor_files: Vec::new(),
+            max_hops: 4,
+            branch_width: 1,
+            probe_width: 4,
+            max_groundedness_distance: 3,
+            min_gate_confidence: 0.25,
+            novelty_weight: 0.35,
+            assay_domain: DEFAULT_DISCOVERY_ASSAY_DOMAIN.to_string(),
+            assay_anchor: AnchorKind::Reward,
+            out: None,
+        },
+    )
+    .unwrap_err();
+
+    assert_eq!(err.code(), "CALYX_DISCOVERY_NO_SUFFICIENCY_ASSAY");
+    assert!(
+        err.message()
+            .contains("missing discovery-chain sufficiency assay row")
+    );
+    assert!(!vault_dir.join("idx").join("discovery_chains").exists());
+}
+
+#[test]
 fn unknown_start_fails_before_artifact_write() {
-    let (home, vault_dir) = seed_home("missing", SeedShape::GroundedChain);
+    let (home, vault_dir) = seed_home("missing", SeedShape::SufficientAssay);
 
     let err = run_discovery_chain_with_home(
         &home,
@@ -195,6 +286,8 @@ fn unknown_start_fails_before_artifact_write() {
             max_groundedness_distance: 3,
             min_gate_confidence: 0.25,
             novelty_weight: 0.35,
+            assay_domain: DEFAULT_DISCOVERY_ASSAY_DOMAIN.to_string(),
+            assay_anchor: AnchorKind::Reward,
             out: None,
         },
     )
@@ -206,10 +299,12 @@ fn unknown_start_fails_before_artifact_write() {
 
 #[derive(Clone, Copy)]
 enum SeedShape {
-    GroundedChain,
+    SufficientAssay,
+    InsufficientAssay,
+    NoAssay,
 }
 
-fn seed_home(name: &str, _shape: SeedShape) -> (PathBuf, PathBuf) {
+fn seed_home(name: &str, shape: SeedShape) -> (PathBuf, PathBuf) {
     let home = std::env::temp_dir().join(format!(
         "calyx-discovery-chain-{name}-{}",
         std::process::id()
@@ -232,13 +327,23 @@ fn seed_home(name: &str, _shape: SeedShape) -> (PathBuf, PathBuf) {
     )
     .unwrap();
 
+    let panel = panel();
     let vault = AsterVault::new_durable(
         &vault_dir,
         vault_id,
         vault_salt(vault_id, name),
-        VaultOptions::default(),
+        VaultOptions {
+            panel: Some(panel.clone()),
+            ..VaultOptions::default()
+        },
     )
     .unwrap();
+    persist_vault_panel_state(&vault_dir, &panel, &Registry::new()).unwrap();
+    match shape {
+        SeedShape::SufficientAssay => put_assay(&vault, &panel, 1.25, 1.10, 1.40),
+        SeedShape::InsufficientAssay => put_assay(&vault, &panel, 0.80, 0.40, 1.20),
+        SeedShape::NoAssay => {}
+    }
     let graph = PlainGraph::new(&vault, DEFAULT_ASTER_ASSOC_COLLECTION).unwrap();
     for (seed, term) in [
         (1, "clinical start"),
@@ -254,6 +359,79 @@ fn seed_home(name: &str, _shape: SeedShape) -> (PathBuf, PathBuf) {
     }
     vault.flush().unwrap();
     (home, vault_dir)
+}
+
+fn put_assay(vault: &AsterVault, panel: &Panel, bits: f32, ci_low: f32, ci_high: f32) {
+    let mut store = AssayStore::default();
+    let key = AssayCacheKey::scoped(
+        panel.version,
+        DEFAULT_DISCOVERY_ASSAY_DOMAIN,
+        vault_id(),
+        AnchorKind::Reward,
+    );
+    store.put(
+        key.clone(),
+        AssaySubject::Panel,
+        estimate(bits, ci_low, ci_high, EstimatorKind::PanelSufficiency)
+            .with_power_calibration(passed_calibration()),
+        "issue1205 discovery-chain panel sufficiency fixture",
+        1205,
+    );
+    store.put(
+        key.clone(),
+        AssaySubject::OutcomeEntropy,
+        estimate(1.0, 1.0, 1.0, EstimatorKind::OutcomeEntropy),
+        "issue1205 discovery-chain entropy fixture",
+        1205,
+    );
+    for slot in [SlotId::new(0), SlotId::new(1)] {
+        store.put(
+            key.clone(),
+            AssaySubject::Lens { slot },
+            estimate(0.60, 0.55, 0.70, EstimatorKind::Ksg),
+            "issue1205 discovery-chain lens fixture",
+            1205,
+        );
+    }
+    assert_eq!(store.persist_to_vault(vault).unwrap(), 4);
+}
+
+fn estimate(bits: f32, ci_low: f32, ci_high: f32, estimator: EstimatorKind) -> MiEstimate {
+    MiEstimate::new(bits, ci_low, ci_high, 120, estimator, TrustTag::Trusted)
+}
+
+fn passed_calibration() -> PowerCalibration {
+    PowerCalibration::new(1.0, 1.0, 0.50, 120, 2, 0).unwrap()
+}
+
+fn panel() -> Panel {
+    Panel {
+        version: 1205,
+        slots: vec![slot(0), slot(1)],
+        created_at: 1_786_000_000,
+        kernel_ref: None,
+        guard_ref: None,
+    }
+}
+
+fn slot(id: u16) -> Slot {
+    let slot_id = SlotId::new(id);
+    Slot {
+        slot_id,
+        slot_key: SlotKey::new(slot_id, format!("issue1205-slot-{id}")),
+        lens_id: LensId::from_bytes([id as u8; 16]),
+        shape: SlotShape::Dense(2),
+        modality: Modality::Text,
+        asymmetry: Asymmetry::None,
+        quant: QuantPolicy::None,
+        resource: Default::default(),
+        axis: Some("issue1205-discovery-chain".to_string()),
+        retrieval_only: false,
+        excluded_from_dedup: false,
+        bits_about: BTreeMap::new(),
+        state: SlotState::Active,
+        added_at_panel_version: 1205,
+    }
 }
 
 fn put_node<C: calyx_core::Clock>(graph: &PlainGraph<'_, C>, seed: u8, term: &str) {

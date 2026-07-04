@@ -268,6 +268,8 @@ fn chain_walks_round_trips_through_tokens() {
         novelty_weight: 0.25,
         max_hypotheses_per_seed: 3,
         min_terminal_confidence: 0.5,
+        assay_domain: "issue1205".to_string(),
+        assay_anchor: AnchorKind::Label("known-outcome".to_string()),
         out: Some("target/chain-walks.json".into()),
     });
     let tokens = subcommand_tokens(&command);

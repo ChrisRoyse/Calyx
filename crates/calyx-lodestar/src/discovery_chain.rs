@@ -70,6 +70,10 @@ pub struct DiscoveryAcceptedHop {
     pub to: CxId,
     pub candidate_score: f32,
     pub gate_confidence: f32,
+    #[serde(default)]
+    pub gate_code: String,
+    #[serde(default)]
+    pub gate_evidence: Vec<String>,
     pub path: Vec<CxId>,
 }
 
@@ -100,9 +104,10 @@ pub fn run_grounded_discovery_chain(
     anchors: &[CxId],
     params: &DiscoveryChainParams,
 ) -> Result<DiscoveryChainLog> {
-    run_discovery_chain_with_gate(graph, starts, anchors, params, |candidate| {
-        grounded_gate(candidate, params)
-    })
+    validate_inputs(graph, starts, anchors, params)?;
+    Err(no_sufficiency_assay(
+        "discovery-chain requires an injected calibrated bits-sufficiency gate; reachability is only a prior",
+    ))
 }
 
 pub fn run_discovery_chain_with_gate<G>(
@@ -213,6 +218,8 @@ where
                 to: pass.candidate.to,
                 candidate_score: pass.candidate.candidate_score,
                 gate_confidence: pass.gate.confidence,
+                gate_code: pass.gate.code.clone(),
+                gate_evidence: pass.gate.evidence.clone(),
                 path: pass.path.clone(),
             });
             next_frontier.push(FrontierNode {
@@ -227,7 +234,7 @@ where
     Ok(log)
 }
 
-fn grounded_gate(
+pub fn reachability_prior_gate(
     candidate: &DiscoveryCandidate,
     params: &DiscoveryChainParams,
 ) -> DiscoveryGateVerdict {
@@ -238,8 +245,8 @@ fn grounded_gate(
                 DiscoveryGateVerdict {
                     passed: true,
                     confidence,
-                    code: "CALYX_DISCOVERY_GATE_PASS".to_string(),
-                    reason: "candidate reaches an anchored node within the groundedness radius"
+                    code: "CALYX_DISCOVERY_REACHABILITY_PRIOR_PASS".to_string(),
+                    reason: "diagnostic prior only: candidate reaches an anchor within radius"
                         .to_string(),
                     evidence: vec![format!("groundedness_distance={distance}")],
                 }
@@ -264,6 +271,12 @@ fn grounded_gate(
             reason: "candidate has no reachable anchor inside the groundedness radius".to_string(),
             evidence: vec!["groundedness_distance=null".to_string()],
         },
+    }
+}
+
+fn no_sufficiency_assay(detail: impl Into<String>) -> LodestarError {
+    LodestarError::DiscoveryNoSufficiencyAssay {
+        detail: detail.into(),
     }
 }
 

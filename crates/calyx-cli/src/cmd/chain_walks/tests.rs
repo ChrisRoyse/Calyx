@@ -31,6 +31,10 @@ fn parse_chain_walks_command() {
         "3",
         "--min-terminal-confidence",
         "0.5",
+        "--assay-domain",
+        "issue1205",
+        "--assay-anchor",
+        "label:known-outcome",
         "--out",
         "target/chain-walks.json",
     ]))
@@ -50,6 +54,8 @@ fn parse_chain_walks_command() {
             novelty_weight: 0.25,
             max_hypotheses_per_seed: 3,
             min_terminal_confidence: 0.5,
+            assay_domain: "issue1205".to_string(),
+            assay_anchor: AnchorKind::Label("known-outcome".to_string()),
             out: Some("target/chain-walks.json".into()),
         })
     );

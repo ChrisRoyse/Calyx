@@ -2,8 +2,8 @@ use std::fs;
 
 use calyx_core::CxId;
 use calyx_lodestar::{
-    ChainWalkParams, ChainWalkSeed, ChainWalkSeedKind, DiscoveryChainParams,
-    run_grounded_chain_walks,
+    ChainWalkParams, ChainWalkSeed, ChainWalkSeedKind, DiscoveryCandidate, DiscoveryChainParams,
+    DiscoveryGateVerdict, LodestarError, run_chain_walks_with_gate, run_grounded_chain_walks,
 };
 use calyx_paths::AssocGraph;
 use serde_json::json;
@@ -16,7 +16,8 @@ fn id(label: &str) -> CxId {
 fn runs_static_and_operator_seeds_into_terminal_abc_hypotheses() {
     let (graph, anchors) = graph();
     let seeds = seeds();
-    let report = run_grounded_chain_walks(&graph, &seeds, &anchors, &params()).unwrap();
+    let report =
+        run_chain_walks_with_gate(&graph, &seeds, &anchors, &params(), fixture_gate).unwrap();
 
     assert_eq!(report.schema_version, 1);
     assert_eq!(report.seed_count, 2);
@@ -66,7 +67,8 @@ fn hypothesis_limit_truncates_after_ranking() {
     };
     let (graph, anchors) = long_graph();
 
-    let report = run_grounded_chain_walks(&graph, &[seed], &anchors, &params).unwrap();
+    let report =
+        run_chain_walks_with_gate(&graph, &[seed], &anchors, &params, fixture_gate).unwrap();
 
     assert_eq!(report.hypothesis_count, 1);
     assert_eq!(report.results[0].hypotheses.len(), 1);
@@ -95,12 +97,27 @@ fn invalid_seeds_fail_closed() {
 }
 
 #[test]
+fn grounded_chain_walks_without_sufficiency_gate_fail_closed() {
+    let (graph, anchors) = graph();
+    let seeds = seeds();
+
+    let err = run_grounded_chain_walks(&graph, &seeds, &anchors, &params()).unwrap_err();
+
+    assert_eq!(err.code(), "CALYX_DISCOVERY_NO_SUFFICIENCY_ASSAY");
+    assert!(matches!(
+        err,
+        LodestarError::DiscoveryNoSufficiencyAssay { .. }
+    ));
+}
+
+#[test]
 fn writes_fsv_readback_when_root_is_set() {
     let Some(root) = calyx_fsv::fsv_root("CALYX_FSV_ROOT") else {
         return;
     };
     let (graph, anchors) = graph();
-    let report = run_grounded_chain_walks(&graph, &seeds(), &anchors, &params()).unwrap();
+    let report =
+        run_chain_walks_with_gate(&graph, &seeds(), &anchors, &params(), fixture_gate).unwrap();
     let top = &report.results[0].hypotheses[0];
     let value = json!({
         "issue": 880,
@@ -124,6 +141,13 @@ fn writes_fsv_readback_when_root_is_set() {
     assert_eq!(readback["seed_count"], 2);
     assert_eq!(readback["completed_chain_count"], 2);
     assert_eq!(readback["hypothesis_count"], 2);
+    assert!(
+        readback["full_report"]["results"][0]["hypotheses"][0]["provenance"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|value| value.as_str().unwrap().starts_with("ci_low="))
+    );
     println!("issue880_fsv_path={} bytes={}", path.display(), bytes.len());
 }
 
@@ -211,5 +235,28 @@ fn params() -> ChainWalkParams {
         },
         max_hypotheses_per_seed: 8,
         min_terminal_confidence: 0.25,
+    }
+}
+
+fn fixture_gate(candidate: &DiscoveryCandidate) -> DiscoveryGateVerdict {
+    match candidate.groundedness_distance {
+        Some(distance) => DiscoveryGateVerdict {
+            passed: true,
+            confidence: 1.0,
+            code: "CALYX_DISCOVERY_SUFFICIENCY_PASS".to_string(),
+            reason: "fixture calibrated sufficiency pass".to_string(),
+            evidence: vec![
+                "ci_low=1.100000".to_string(),
+                "anchor_entropy_bits=1.000000".to_string(),
+                format!("reachability_prior_distance={distance}"),
+            ],
+        },
+        None => DiscoveryGateVerdict {
+            passed: false,
+            confidence: 0.0,
+            code: "CALYX_DISCOVERY_NO_SUFFICIENCY_ASSAY".to_string(),
+            reason: "fixture refuses without sufficiency evidence".to_string(),
+            evidence: vec!["groundedness_distance=null".to_string()],
+        },
     }
 }

@@ -5,16 +5,23 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
-use calyx_core::CxId;
+use calyx_assay::AssayStore;
+use calyx_aster::vault::{AsterVault, VaultOptions};
+use calyx_core::{AnchorKind, CxId};
 use calyx_lodestar::{
     AssocStore, ChainWalkParams, ChainWalkReport, ChainWalkSeed, DEFAULT_ASTER_ASSOC_COLLECTION,
-    DiscoveryChainParams, LodestarError, PhysicalAsterAssocSnapshot, run_grounded_chain_walks,
+    DiscoveryChainParams, LodestarError, PhysicalAsterAssocSnapshot, run_chain_walks_with_gate,
 };
+use calyx_registry::load_vault_panel_state;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use sha2::{Digest, Sha256};
 
-use super::vault::{home_dir, resolve_vault_info};
+use super::artifact_hash::sha256_hex;
+use super::discovery_gate::{
+    DEFAULT_DISCOVERY_ASSAY_DOMAIN, DiscoverySufficiencyGate, anchor_kind_label, parse_anchor_kind,
+    parse_nonempty,
+};
+use super::vault::{home_dir, resolve_vault_info, vault_salt};
 use super::{Subcommand, value};
 use crate::error::{CliError, CliResult};
 use crate::output::print_json;
@@ -35,6 +42,8 @@ pub(crate) struct ChainWalksArgs {
     pub novelty_weight: f32,
     pub max_hypotheses_per_seed: usize,
     pub min_terminal_confidence: f32,
+    pub assay_domain: String,
+    pub assay_anchor: AnchorKind,
     pub out: Option<PathBuf>,
 }
 
@@ -55,6 +64,8 @@ impl Default for ChainWalksArgs {
             novelty_weight: chain.novelty_weight,
             max_hypotheses_per_seed: params.max_hypotheses_per_seed,
             min_terminal_confidence: params.min_terminal_confidence,
+            assay_domain: DEFAULT_DISCOVERY_ASSAY_DOMAIN.to_string(),
+            assay_anchor: AnchorKind::Reward,
             out: None,
         }
     }
@@ -96,6 +107,14 @@ pub(crate) fn run_chain_walks_with_home(home: &Path, args: ChainWalksArgs) -> Cl
     );
     let store = PhysicalAsterAssocSnapshot::latest(&resolved.path, DEFAULT_ASTER_ASSOC_COLLECTION)?;
     let graph = store.full_graph()?;
+    let panel_state = load_vault_panel_state(&resolved.path)?;
+    let assay_vault = AsterVault::new_durable(
+        &resolved.path,
+        resolved.vault_id,
+        vault_salt(resolved.vault_id, &resolved.name),
+        VaultOptions::default(),
+    )?;
+    let assay_store = AssayStore::load_from_vault(&assay_vault)?;
     let seeds = load_seed_file(&args.seed_file)?;
     let anchors = load_effective_anchors(&args)?;
     let params = ChainWalkParams {
@@ -110,18 +129,30 @@ pub(crate) fn run_chain_walks_with_home(home: &Path, args: ChainWalksArgs) -> Cl
         max_hypotheses_per_seed: args.max_hypotheses_per_seed,
         min_terminal_confidence: args.min_terminal_confidence,
     };
+    let gate = DiscoverySufficiencyGate::from_store(
+        &assay_store,
+        &panel_state.panel,
+        resolved.vault_id,
+        &args.assay_domain,
+        args.assay_anchor.clone(),
+    )?;
     eprintln!(
-        "chain-walks: running nodes={} edges={} seeds={} anchors={} max_hops={} branch_width={} probe_width={} rayon_threads={}",
+        "chain-walks: running nodes={} edges={} seeds={} anchors={} panel_version={} assay_domain={} assay_anchor={} max_hops={} branch_width={} probe_width={} rayon_threads={}",
         graph.node_count(),
         graph.edge_count(),
         seeds.len(),
         anchors.len(),
+        panel_state.panel.version,
+        args.assay_domain,
+        anchor_kind_label(&args.assay_anchor),
         params.chain.max_hops,
         params.chain.branch_width,
         params.chain.probe_width,
         rayon::current_num_threads()
     );
-    let report = run_grounded_chain_walks(&graph, &seeds, &anchors, &params)?;
+    let report = run_chain_walks_with_gate(&graph, &seeds, &anchors, &params, |candidate| {
+        gate.verdict(candidate, &params.chain)
+    })?;
     ensure_useful_report(&report)?;
     let artifact = ChainWalksArtifact {
         schema_version: CHAIN_WALKS_ARTIFACT_SCHEMA_VERSION,
@@ -145,6 +176,7 @@ pub(crate) fn run_chain_walks_with_home(home: &Path, args: ChainWalksArgs) -> Cl
         "seed_file": args.seed_file,
         "anchor_files": args.anchor_files,
         "params": params,
+        "assay": gate.summary_json(),
         "chain_walks": artifact,
         "artifacts": {
             "report_json": persisted.path,
@@ -237,6 +269,15 @@ pub(crate) fn parse_chain_walks(rest: &[String]) -> CliResult<Subcommand> {
                     "--min-terminal-confidence",
                 )?;
             }
+            "--assay-domain" => {
+                idx += 1;
+                args.assay_domain =
+                    parse_nonempty(value(rest, idx, "--assay-domain")?, "--assay-domain")?;
+            }
+            "--assay-anchor" => {
+                idx += 1;
+                args.assay_anchor = parse_anchor_kind(value(rest, idx, "--assay-anchor")?)?;
+            }
             "--out" => {
                 idx += 1;
                 args.out = Some(value(rest, idx, "--out")?.into());
@@ -312,6 +353,17 @@ fn load_anchor_file(path: &Path) -> CliResult<Vec<CxId>> {
 
 fn ensure_useful_report(report: &ChainWalkReport) -> CliResult {
     if report.completed_chain_count == 0 || report.hypothesis_count == 0 {
+        if let Some(row) = report
+            .results
+            .iter()
+            .flat_map(|result| result.log.candidates.iter())
+            .find(|row| row.gate.code == "CALYX_DISCOVERY_NO_SUFFICIENCY_ASSAY")
+        {
+            return Err(LodestarError::DiscoveryNoSufficiencyAssay {
+                detail: row.gate.reason.clone(),
+            }
+            .into());
+        }
         return Err(LodestarError::KernelInvalidParams {
             detail: format!(
                 "chain-walk report produced no terminal A-B-C hypotheses; completed_chains={} seeds={}",
@@ -432,20 +484,6 @@ fn parse_unit(raw: &str, flag: &str) -> CliResult<f32> {
         )));
     }
     Ok(value)
-}
-
-fn sha256_hex(bytes: &[u8]) -> String {
-    hex_lower(&Sha256::digest(bytes))
-}
-
-fn hex_lower(bytes: &[u8]) -> String {
-    const HEX: &[u8; 16] = b"0123456789abcdef";
-    let mut out = String::with_capacity(bytes.len() * 2);
-    for byte in bytes {
-        out.push(HEX[(byte >> 4) as usize] as char);
-        out.push(HEX[(byte & 0x0f) as usize] as char);
-    }
-    out
 }
 
 #[cfg(test)]
