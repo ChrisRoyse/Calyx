@@ -110,10 +110,16 @@ pub(crate) fn run_materialize_graph_csr_with_home(
             ..VaultOptions::default()
         },
     )?;
-    let graph = PlainGraph::new(&vault, &args.collection)?;
     let snapshot = vault.snapshot();
-    let (commit, edge_weight_stats) = graph
-        .rebuild_csr_with_legacy_unit_weights(snapshot)
+    let physical_source = PhysicalPlainGraph::open_latest(&resolved.path, &args.collection)?;
+    eprintln!("materialize-graph-csr: projecting CSR from physical graph range scans");
+    let (projection, edge_weight_stats) = physical_source
+        .csr_projection_with_legacy_unit_weights(snapshot)
+        .map_err(|error| csr_materialize_failed(&args, &resolved.path, &error))?;
+    drop(physical_source);
+    let graph = PlainGraph::new(&vault, &args.collection)?;
+    let commit = graph
+        .write_csr_projection(projection)
         .map_err(|error| csr_materialize_failed(&args, &resolved.path, &error))?;
     if edge_weight_stats.legacy_unit_weight_edges > 0 {
         eprintln!(

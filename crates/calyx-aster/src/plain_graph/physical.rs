@@ -1,17 +1,19 @@
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
-use calyx_core::{CalyxError, CxId, Result};
+use calyx_core::{CalyxError, CxId, Result, Seq};
 use calyx_paths::AssocGraph;
 
 use crate::cf::{CfRouter, ColumnFamily, KeyRange};
 use crate::mvcc::is_tombstone_value;
 
-use super::assoc_graph::assoc_graph_from_csr;
+use super::assoc_graph::{assoc_graph_from_csr, flatten_csr_edges};
 use super::csr_store;
 use super::key::{GraphKeyspace, graph_corrupt, path_error};
 use super::lifecycle::{GraphCollectionGenerationStatus, PhysicalGraphCollectionLifecycle};
 use super::types::{
-    PlainGraphCsr, PlainGraphEdge, plain_graph_edge_raw_weight, plain_graph_normalized_edge_weight,
+    EdgeWeightPolicy, EdgeWeightSource, PlainGraphCsr, PlainGraphCsrEdge, PlainGraphEdge,
+    PlainGraphEdgeWeightStats, plain_graph_edge_raw_weight,
+    plain_graph_edge_raw_weight_with_policy, plain_graph_normalized_edge_weight,
 };
 
 pub struct PhysicalPlainGraph {
@@ -113,6 +115,69 @@ impl PhysicalPlainGraph {
 
     pub fn read_csr(&self) -> Result<Option<PlainGraphCsr>> {
         csr_store::load_csr(&self.keys, |key| self.router.get(ColumnFamily::Graph, key))
+    }
+
+    pub fn csr_projection_with_legacy_unit_weights(
+        &self,
+        source_snapshot: Seq,
+    ) -> Result<(PlainGraphCsr, PlainGraphEdgeWeightStats)> {
+        let nodes = self
+            .node_props()?
+            .into_iter()
+            .map(|(id, _value)| id)
+            .collect::<Vec<_>>();
+        let node_index = nodes
+            .iter()
+            .enumerate()
+            .map(|(index, id)| (*id, index))
+            .collect::<BTreeMap<_, _>>();
+        let mut builder = AssocGraph::builder();
+        for node in &nodes {
+            builder.add_node(*node, 1.0).map_err(path_error)?;
+        }
+        let mut stats = PlainGraphEdgeWeightStats::default();
+        let mut drafts = Vec::new();
+        let mut max_raw_weight = 0.0_f32;
+        for edge in self.edge_out_props()? {
+            let src_index = *node_index.get(&edge.src).ok_or_else(|| {
+                graph_corrupt(format!("edge source {} has no node row", edge.src))
+            })?;
+            if !node_index.contains_key(&edge.dst) {
+                return Err(graph_corrupt(format!(
+                    "edge destination {} has no node row",
+                    edge.dst
+                )));
+            }
+            let parsed =
+                plain_graph_edge_raw_weight_with_policy(&edge.value, EdgeWeightPolicy::LegacyUnit)?;
+            match parsed.source {
+                EdgeWeightSource::Explicit => stats.explicit_weight_edges += 1,
+                EdgeWeightSource::LegacyUnit => stats.legacy_unit_weight_edges += 1,
+            }
+            max_raw_weight = max_raw_weight.max(parsed.raw);
+            drafts.push((edge.src, src_index, edge.dst, edge.edge_type, parsed.raw));
+        }
+        let mut by_src = vec![Vec::<PlainGraphCsrEdge>::new(); nodes.len()];
+        for (src, src_index, dst, edge_type, raw_weight) in drafts {
+            let weight = plain_graph_normalized_edge_weight(raw_weight, max_raw_weight)?;
+            builder.add_edge(src, dst, weight).map_err(path_error)?;
+            by_src[src_index].push(PlainGraphCsrEdge {
+                dst,
+                edge_type,
+                weight,
+            });
+        }
+        let association_edge_count = builder.build().edge_count();
+        let (offsets, edges) = flatten_csr_edges(by_src);
+        let projection = PlainGraphCsr {
+            collection: self.keys.collection_name(),
+            source_snapshot,
+            nodes,
+            offsets,
+            edges,
+            association_edge_count,
+        };
+        Ok((projection, stats))
     }
 
     pub fn assoc_graph(&self) -> Result<AssocGraph> {
