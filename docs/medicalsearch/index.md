@@ -89,4 +89,5 @@ still requires experimental confirmation.
 | `66_binary_csr_persistence.md` | #1210 binary CSR persistence for PlainGraph | complete FSV for binary CSR physical readback, size reduction versus JSON, segmentation, and corruption fail-closed cases |
 | `67_novelty_calibration_split.md` | #1226 novelty/calibration split for disease-hunt rankings | complete FSV for preserving original disease-hunt rows while splitting calibration/known-positive proof rows from novelty-prioritized research leads |
 | `68_native_novelty_calibration_split.md` | #1227 native novelty/calibration splitter stage | complete FSV for native sealed-input splitter parity with #1226 plus stale-manifest fail-closed proof |
+| `69_infectious_normalization_repair.md` | #1225 infectious/immunology concept normalization repair | complete FSV for deterministic high-value mappings, before/after unresolved accounting, required row examples, and new co-mention coverage |
 | (added as work proceeds) | | |
