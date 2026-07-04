@@ -4,7 +4,7 @@ use std::collections::BTreeMap;
 
 use calyx_assay::{
     AssayCacheKey, AssayRow, AssayStore, AssaySubject, DeficitRoutingContext, PanelSufficiency,
-    TrustTag, panel_sufficiency_with_context, per_sensor_attribution,
+    TrustTag, panel_sufficiency_from_estimate_with_context, per_sensor_attribution,
 };
 use calyx_aster::vault::AsterVault;
 use calyx_core::{AnchorKind, CalyxError, Clock, LensId, Panel, SlotId};
@@ -46,15 +46,15 @@ where
 {
     let report = assay.panel_sufficiency(panel, &domain, clock)?;
     validate_report(&report)?;
-    let sufficient = report.panel_bits >= report.anchor_entropy_bits;
+    let sufficient = report.sufficiency_basis_bits >= report.anchor_entropy_bits;
     let per_sensor_deficit = if sufficient {
         Vec::new()
     } else {
         lens_deficits(panel, &report)?
     };
     let bound = SufficiencyBound {
-        i_panel_oracle: report.panel_bits,
-        dpi_ceiling: report.panel_bits,
+        i_panel_oracle: report.sufficiency_basis_bits,
+        dpi_ceiling: report.sufficiency_basis_bits,
         sufficient,
         per_sensor_deficit,
     };
@@ -99,7 +99,7 @@ where
             self.vault.vault_id(),
             AnchorKind::Reward,
         );
-        let panel_bits = bits(required_row(&store, &key, &AssaySubject::Panel)?, "panel")?;
+        let panel_estimate = &required_row(&store, &key, &AssaySubject::Panel)?.estimate;
         let outcome_entropy_bits = bits(
             required_row(&store, &key, &AssaySubject::OutcomeEntropy)?,
             "outcome entropy",
@@ -114,8 +114,8 @@ where
             .collect::<Result<Vec<_>, OracleError>>()?;
 
         let attributions = per_sensor_attribution(&slot_bits, SOLE_CARRIER_BITS);
-        Ok(panel_sufficiency_with_context(
-            panel_bits,
+        panel_sufficiency_from_estimate_with_context(
+            panel_estimate,
             outcome_entropy_bits,
             &attributions,
             trust(&store, &key),
@@ -125,7 +125,8 @@ where
                 computed_at_seq: clock.now(),
                 observation_scope: None,
             },
-        ))
+        )
+        .map_err(OracleError::from)
     }
 }
 
@@ -164,6 +165,8 @@ fn trust(store: &AssayStore, key: &AssayCacheKey) -> TrustTag {
 fn validate_report(report: &PanelSufficiency) -> Result<(), OracleError> {
     if report.panel_bits.is_finite()
         && report.panel_bits >= 0.0
+        && report.sufficiency_basis_bits.is_finite()
+        && report.sufficiency_basis_bits >= 0.0
         && report.anchor_entropy_bits.is_finite()
         && report.anchor_entropy_bits >= 0.0
     {

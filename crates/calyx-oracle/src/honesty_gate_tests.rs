@@ -2,7 +2,8 @@ use std::collections::BTreeMap;
 
 use calyx_assay::{
     AssayCacheKey, AssayStore, AssaySubject, DeficitRoutingContext, EstimatorKind, MiEstimate,
-    PanelSufficiency, TrustTag, panel_sufficiency_with_context, per_sensor_attribution,
+    PanelSufficiency, PowerCalibration, TrustTag, panel_sufficiency_with_context,
+    per_sensor_attribution,
 };
 use calyx_aster::vault::AsterVault;
 use calyx_core::{
@@ -128,6 +129,62 @@ fn exact_equality_is_sufficient_boundary() {
 }
 
 #[test]
+fn point_estimate_above_entropy_but_ci_low_below_refuses() {
+    let vault = vault();
+    let panel = panel(&[1, 2]);
+    put_evidence_with_panel_ci(
+        &vault,
+        &panel,
+        1.20,
+        0.82,
+        1.0,
+        &[(SlotId::new(1), 0.72), (SlotId::new(2), 0.48)],
+        Some(passed_calibration()),
+    );
+
+    let error = check_sufficiency(
+        &vault,
+        &panel,
+        DomainId::from(DOMAIN),
+        &FixedClock::new(107),
+    )
+    .expect_err("lower confidence bound below entropy must refuse");
+
+    assert_eq!(error.code(), CALYX_ORACLE_INSUFFICIENT);
+    let bound = insufficient_bound(error);
+    assert_close(bound.i_panel_oracle, 0.82);
+    assert_close(bound.dpi_ceiling, 0.82);
+    assert!(!bound.sufficient);
+    assert!(!bound.per_sensor_deficit.is_empty());
+}
+
+#[test]
+fn missing_power_calibration_fails_closed() {
+    let vault = vault();
+    let panel = panel(&[1]);
+    put_evidence_with_panel_ci(
+        &vault,
+        &panel,
+        1.20,
+        1.10,
+        1.0,
+        &[(SlotId::new(1), 1.20)],
+        None,
+    );
+
+    let error = check_sufficiency(
+        &vault,
+        &panel,
+        DomainId::from(DOMAIN),
+        &FixedClock::new(108),
+    )
+    .expect_err("uncalibrated estimator must not pass the oracle gate");
+
+    assert_eq!(error.code(), "CALYX_ASSAY_ESTIMATOR_UNDERPOWERED");
+    assert!(!matches!(error, OracleError::Insufficient { .. }));
+}
+
+#[test]
 fn assay_failure_propagates_without_sufficient_bound() {
     let panel = panel(&[1]);
     let error = check_sufficiency_with_assay(
@@ -205,12 +262,32 @@ fn put_evidence(
     entropy_bits: f32,
     slot_bits: &[(SlotId, f32)],
 ) {
+    put_evidence_with_panel_ci(
+        vault,
+        panel,
+        panel_bits,
+        panel_bits,
+        entropy_bits,
+        slot_bits,
+        Some(passed_calibration()),
+    );
+}
+
+fn put_evidence_with_panel_ci(
+    vault: &AsterVault<FixedClock>,
+    panel: &Panel,
+    panel_bits: f32,
+    panel_ci_low: f32,
+    entropy_bits: f32,
+    slot_bits: &[(SlotId, f32)],
+    panel_calibration: Option<PowerCalibration>,
+) {
     let mut store = AssayStore::default();
     let key = AssayCacheKey::scoped(panel.version, DOMAIN, vault_id(), AnchorKind::Reward);
     store.put(
         key.clone(),
         AssaySubject::Panel,
-        estimate(panel_bits, EstimatorKind::PanelSufficiency),
+        panel_estimate(panel_bits, panel_ci_low, panel_calibration),
         "oracle panel bits",
         1,
     );
@@ -250,7 +327,27 @@ fn report(panel_bits: f32, entropy_bits: f32, slots: &[(SlotId, f32)]) -> PanelS
 }
 
 fn estimate(bits: f32, estimator: EstimatorKind) -> MiEstimate {
-    MiEstimate::point(bits, 120, estimator, TrustTag::Trusted)
+    MiEstimate::new(bits, bits, bits, 120, estimator, TrustTag::Trusted)
+}
+
+fn panel_estimate(bits: f32, ci_low: f32, calibration: Option<PowerCalibration>) -> MiEstimate {
+    let estimate = MiEstimate::new(
+        bits,
+        ci_low,
+        bits.max(ci_low),
+        120,
+        EstimatorKind::PanelSufficiency,
+        TrustTag::Trusted,
+    );
+    if let Some(calibration) = calibration {
+        estimate.with_power_calibration(calibration)
+    } else {
+        estimate
+    }
+}
+
+fn passed_calibration() -> PowerCalibration {
+    PowerCalibration::new(1.0, 0.9, 0.5, 120, 2, 0).unwrap()
 }
 
 fn panel(slots: &[u16]) -> Panel {

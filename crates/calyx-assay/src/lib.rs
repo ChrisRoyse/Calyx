@@ -126,8 +126,9 @@ pub use sufficiency::{
     ObservationScope, PanelJointBasis, PanelSufficiency, ScopedSufficiencyReport,
     SufficiencyDeficit, SufficiencyDeficitSink, SufficiencyScopeInput, entropy_bits,
     panel_joint_with_union_floor, panel_sufficiency, panel_sufficiency_by_scope,
-    panel_sufficiency_from_estimate, panel_sufficiency_with_anchor,
-    panel_sufficiency_with_anchor_and_context, panel_sufficiency_with_context,
+    panel_sufficiency_from_estimate, panel_sufficiency_from_estimate_with_context,
+    panel_sufficiency_with_anchor, panel_sufficiency_with_anchor_and_context,
+    panel_sufficiency_with_context,
 };
 pub use total_correlation::{
     CALYX_TC_INSUFFICIENT_SAMPLES, DEFAULT_TC_BOOTSTRAP_RESAMPLES, DEFAULT_TC_K, IIResult, IISign,

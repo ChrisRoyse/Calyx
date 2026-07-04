@@ -1,5 +1,7 @@
 //! Panel sufficiency and deficit routing.
 
+mod joint;
+
 use std::collections::{BTreeMap, BTreeSet};
 
 use calyx_core::{Anchor, AnchorKind, CalyxError, Result, SlotId};
@@ -10,6 +12,8 @@ use crate::calibration::{PowerCalibration, PowerCalibrationStatus, underpowered}
 use crate::estimate::{
     EstimateBound, MiEstimate, TrustTag, provisional_without_anchor, trust_for_anchor,
 };
+
+pub use joint::{PanelJointBasis, panel_joint_with_union_floor};
 
 pub const CALYX_ASSAY_INVALID_SCOPE: &str = "CALYX_ASSAY_INVALID_SCOPE";
 
@@ -111,67 +115,6 @@ pub struct PanelSufficiency {
     pub power_calibration: Option<PowerCalibration>,
 }
 
-/// Union-bounded panel joint estimate (#1140 Finding C). A concatenated-feature
-/// probe loses power as panel width grows, so its raw joint MI can fall *below*
-/// the strongest single member — impossible for a true lower bound, since
-/// `I(panel; Y) >= max_i I(lens_i; Y)`. This floors the panel point estimate and
-/// its lower bound at the best admitted member: a valid, monotone sufficiency
-/// basis where admitting a stronger lens can only raise it. When the joint probe
-/// genuinely captures synergy (`raw_joint > best_member`) the floor is a no-op.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct PanelJointBasis {
-    pub bits: f32,
-    pub ci_low: f32,
-    pub ci_high: f32,
-    pub raw_joint_bits: f32,
-    pub raw_joint_ci_low: f32,
-    pub best_member_bits: f32,
-    pub best_member_ci_low: f32,
-    /// True when the union bound raised the basis above the raw joint estimate
-    /// (i.e. the concatenated probe degraded below its best single member).
-    pub floored: bool,
-}
-
-pub fn panel_joint_with_union_floor(
-    joint: &MiEstimate,
-    members: &[MiEstimate],
-) -> Result<PanelJointBasis> {
-    if members.is_empty() {
-        return Err(CalyxError::assay_insufficient_samples(
-            "panel joint union floor requires at least one admitted member estimate",
-        ));
-    }
-    if !joint.bits.is_finite() || !joint.ci_low.is_finite() || !joint.ci_high.is_finite() {
-        return Err(underpowered(
-            "panel joint estimate must be finite to apply the union-bound floor",
-        ));
-    }
-    let mut best_member_bits = 0.0_f32;
-    let mut best_member_ci_low = 0.0_f32;
-    for member in members {
-        if !member.bits.is_finite() || !member.ci_low.is_finite() {
-            return Err(underpowered(
-                "admitted member estimate must be finite to apply the union-bound floor",
-            ));
-        }
-        best_member_bits = best_member_bits.max(member.bits);
-        best_member_ci_low = best_member_ci_low.max(member.ci_low);
-    }
-    let bits = joint.bits.max(best_member_bits);
-    let ci_low = joint.ci_low.max(best_member_ci_low);
-    let ci_high = joint.ci_high.max(bits);
-    Ok(PanelJointBasis {
-        bits,
-        ci_low,
-        ci_high,
-        raw_joint_bits: joint.bits,
-        raw_joint_ci_low: joint.ci_low,
-        best_member_bits,
-        best_member_ci_low,
-        floored: ci_low > joint.ci_low,
-    })
-}
-
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct SufficiencyScopeInput {
     pub scope: ObservationScope,
@@ -233,6 +176,22 @@ pub fn panel_sufficiency_from_estimate(
     slots: &[SlotAttribution],
     trust: TrustTag,
 ) -> Result<PanelSufficiency> {
+    panel_sufficiency_from_estimate_with_context(
+        estimate,
+        anchor_entropy_bits,
+        slots,
+        trust,
+        DeficitRoutingContext::default(),
+    )
+}
+
+pub fn panel_sufficiency_from_estimate_with_context(
+    estimate: &MiEstimate,
+    anchor_entropy_bits: f32,
+    slots: &[SlotAttribution],
+    trust: TrustTag,
+    context: DeficitRoutingContext,
+) -> Result<PanelSufficiency> {
     let calibration = passing_calibration(estimate)?;
     Ok(panel_sufficiency_with_trust_and_basis(
         SufficiencyBasis {
@@ -244,7 +203,7 @@ pub fn panel_sufficiency_from_estimate(
         anchor_entropy_bits,
         slots,
         provisional_without_anchor(trust),
-        DeficitRoutingContext::default(),
+        context,
     ))
 }
 

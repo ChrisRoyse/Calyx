@@ -70,4 +70,5 @@ still requires experimental confirmation.
 | `47_precision_oncology_validation.md` | #1180 precision-oncology validation sources | complete FSV for CIViC source bytes, parsed rows, mapped rows, and unresolved accounting |
 | `48_oncology_deep_hunt.md` | #1185 oncology deep association hunt | complete FSV for oncology hypothesis atlas, source hashes, falsification state, and safety-trial flags |
 | `49_drug_safety_triage.md` | #1181 drug safety/adverse-event triage | complete FSV for FDA label/event source readback, parsed safety rows, mapped candidate safety, and ranker block flags |
+| `50_oracle_honesty_ci_low_gate.md` | #1204 Oracle honesty gate CI-low/calibration hardening | complete FSV for calibrated lower-bound sufficiency and fail-closed missing calibration |
 | (added as work proceeds) | | |
