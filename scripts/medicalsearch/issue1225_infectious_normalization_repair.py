@@ -237,7 +237,7 @@ def with_lookup_hashes(mappings: list[dict[str, Any]], raw_lookup_dir: Path | No
         key = str(mapping["lookup_key"]).split(":", 1)[1].lower().replace("-", "_")
         if key == "hla_b":
             key = "hla_b_hgnc_fetch"
-        path = lookup_files.get(key)
+        path = lookup_files.get(key) or lookup_files.get(f"{key}_esearch")
         if path is not None:
             mapping["lookup_response_path"] = str(path)
             mapping["lookup_response_sha256"] = sha256_path(path)
