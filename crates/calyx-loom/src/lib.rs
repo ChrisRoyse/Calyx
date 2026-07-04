@@ -15,7 +15,10 @@ pub use abundance::{
     meaning_compression_yield,
 };
 pub use agreement_graph::{AgreementEdge, LoomStore};
-pub use blind_spot::{BlindSpotAlert, Severity, detect_blind_spot};
+pub use blind_spot::{
+    BlindSpotAlert, BlindSpotCalibration, BlindSpotCalibrationEvidence, BlindSpotCalibrationParams,
+    Severity, detect_blind_spot, detect_blind_spot_calibrated,
+};
 pub use cross_term::{
     CrossTermKey, CrossTermKind, CrossTermValue, SignalProvenanceTag, agreement_batch_cpu,
     agreement_batch_gpu, agreement_scalar, agreement_weight, concat_vec, delta_vec,
@@ -24,10 +27,10 @@ pub use cross_term::{
 pub use error::{
     CALYX_LOOM_DIM_MISMATCH, CALYX_LOOM_FORGE_UNAVAILABLE, CALYX_LOOM_NON_FINITE_VECTOR,
     CALYX_LOOM_SERIES_READ_ERROR, CALYX_LOOM_SLOT_MISSING, CALYX_LOOM_TEMPORAL_XTERM_CORRUPT,
-    CALYX_LOOM_ZERO_NORM_VECTOR, CALYX_REACTIVE_DRAIN_OVERFLOW, CALYX_REACTIVE_QUEUE_FULL,
-    CALYX_REACTIVE_REGISTRY_FULL, CALYX_REACTIVE_ROW_CORRUPT, CALYX_REACTIVE_SIGNAL_UNAVAILABLE,
-    CALYX_REACTIVE_SUBSCRIPTION_NOT_FOUND, CALYX_RECURRENCE_CONTEXT_TOO_LARGE,
-    CALYX_RECURRENCE_INVALID_RETENTION, loom_error,
+    CALYX_LOOM_UNCALIBRATED_BLINDSPOT, CALYX_LOOM_ZERO_NORM_VECTOR, CALYX_REACTIVE_DRAIN_OVERFLOW,
+    CALYX_REACTIVE_QUEUE_FULL, CALYX_REACTIVE_REGISTRY_FULL, CALYX_REACTIVE_ROW_CORRUPT,
+    CALYX_REACTIVE_SIGNAL_UNAVAILABLE, CALYX_REACTIVE_SUBSCRIPTION_NOT_FOUND,
+    CALYX_RECURRENCE_CONTEXT_TOO_LARGE, CALYX_RECURRENCE_INVALID_RETENTION, loom_error,
 };
 pub use lru_cache::LruCache;
 pub use materialization::{

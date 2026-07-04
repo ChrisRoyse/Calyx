@@ -18,43 +18,49 @@ fn slot(value: u16) -> SlotId {
 
 #[test]
 fn ranks_gate_passing_high_severity_disagreements() {
-    let observations = vec![
+    let observations = calibrated_observations(vec![
         observation("candidate-low", 0.91, 0.08, true, 0.60),
         observation("candidate-top", 0.98, 0.02, true, 0.90),
         observation("gate-refused", 0.99, 0.01, false, 0.95),
         observation("not-a-blind-spot", 0.55, 0.20, true, 0.90),
-    ];
+    ]);
 
     let log = sweep_blind_spots(&observations, &BlindSpotSweepParams::default()).unwrap();
 
-    assert_eq!(log.observation_count, 4);
+    assert_eq!(log.observation_count, 64);
     assert_eq!(log.detected_alert_count, 3);
     assert_eq!(log.gate_refused_count, 1);
-    assert_eq!(log.candidates.len(), 2);
-    assert!(log.candidates[0].rank_score > log.candidates[1].rank_score);
+    assert_eq!(log.severity_filtered_count, 1);
+    assert_eq!(log.candidates.len(), 1);
     assert!(log.candidates[0].text.contains("candidate-top"));
     assert_eq!(log.candidates[0].alert.severity, Severity::High);
+    assert!(log.candidates[0].alert.calibration.is_some());
     assert_eq!(log.candidates[0].lens_a_neighbors.len(), 2);
     assert_eq!(log.candidates[0].lens_b_neighbors.len(), 2);
 }
 
 #[test]
 fn severity_filter_drops_medium_alerts() {
-    let observations = vec![observation("medium", 0.75, 0.08, true, 0.90)];
+    let observations = calibrated_observations(vec![
+        observation("medium", 0.75, 0.08, true, 0.90),
+        observation("higher-refused-1", 0.95, 0.02, false, 0.90),
+        observation("higher-refused-2", 0.96, 0.02, false, 0.90),
+    ]);
 
     let log = sweep_blind_spots(&observations, &BlindSpotSweepParams::default()).unwrap();
 
-    assert_eq!(log.detected_alert_count, 1);
+    assert_eq!(log.detected_alert_count, 3);
+    assert_eq!(log.gate_refused_count, 2);
     assert_eq!(log.severity_filtered_count, 1);
     assert!(log.candidates.is_empty());
 }
 
 #[test]
 fn max_candidates_truncates_after_ranking() {
-    let observations = vec![
+    let observations = calibrated_observations(vec![
         observation("second", 0.92, 0.02, true, 0.60),
         observation("first", 0.99, 0.01, true, 0.95),
-    ];
+    ]);
     let params = BlindSpotSweepParams {
         max_candidates: 1,
         ..BlindSpotSweepParams::default()
@@ -79,21 +85,41 @@ fn invalid_input_fails_closed() {
 }
 
 #[test]
+fn uncalibrated_pair_skips_without_legacy_threshold() {
+    let observations = vec![observation(
+        "would-pass-old-threshold",
+        0.99,
+        0.01,
+        true,
+        0.95,
+    )];
+
+    let log = sweep_blind_spots(&observations, &BlindSpotSweepParams::default()).unwrap();
+
+    assert_eq!(log.observation_count, 1);
+    assert_eq!(log.uncalibrated_observation_count, 1);
+    assert_eq!(log.detected_alert_count, 0);
+    assert!(log.candidates.is_empty());
+}
+
+#[test]
 fn writes_fsv_readback_when_root_is_set() {
     let Some(root) = calyx_fsv::fsv_root("CALYX_FSV_ROOT") else {
         return;
     };
-    let observations = vec![
+    let observations = calibrated_observations(vec![
         observation("fsv-top", 0.99, 0.01, true, 0.90),
         observation("fsv-refused", 0.98, 0.02, false, 0.90),
         observation("fsv-medium", 0.74, 0.08, true, 0.90),
-    ];
+        observation("fsv-higher-refused", 0.96, 0.02, false, 0.90),
+    ]);
     let log = sweep_blind_spots(&observations, &BlindSpotSweepParams::default()).unwrap();
     let value = json!({
         "issue": 875,
         "schema_version": log.schema_version,
         "observation_count": log.observation_count,
         "detected_alert_count": log.detected_alert_count,
+        "uncalibrated_observation_count": log.uncalibrated_observation_count,
         "gate_refused_count": log.gate_refused_count,
         "severity_filtered_count": log.severity_filtered_count,
         "candidate_count": log.candidates.len(),
@@ -113,6 +139,22 @@ fn writes_fsv_readback_when_root_is_set() {
     assert_eq!(readback["gate_refused_count"], 1);
     assert_eq!(readback["severity_filtered_count"], 1);
     println!("issue875_fsv_path={} bytes={}", path.display(), bytes.len());
+}
+
+fn calibrated_observations(mut focus: Vec<BlindSpotObservation>) -> Vec<BlindSpotObservation> {
+    let mut observations = Vec::new();
+    for index in 0..60 {
+        let lens_a_similarity = 0.50 + index as f32 * 0.001;
+        observations.push(observation(
+            &format!("calibration-null-{index}"),
+            lens_a_similarity,
+            0.20,
+            true,
+            0.90,
+        ));
+    }
+    observations.append(&mut focus);
+    observations
 }
 
 fn observation(

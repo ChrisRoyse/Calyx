@@ -1,5 +1,10 @@
+use std::collections::BTreeMap;
+
 use calyx_core::{CxId, SlotId};
-use calyx_loom::{BlindSpotAlert, Severity, detect_blind_spot};
+use calyx_loom::{
+    BlindSpotAlert, BlindSpotCalibration, BlindSpotCalibrationParams, Severity,
+    detect_blind_spot_calibrated,
+};
 use serde::{Deserialize, Serialize};
 
 use crate::{LodestarError, Result};
@@ -11,6 +16,8 @@ pub struct BlindSpotSweepParams {
     pub min_severity: Severity,
     pub min_gate_confidence: f32,
     pub max_candidates: usize,
+    pub calibration_min_samples: usize,
+    pub calibration_alpha: f32,
 }
 
 impl Default for BlindSpotSweepParams {
@@ -19,6 +26,8 @@ impl Default for BlindSpotSweepParams {
             min_severity: Severity::High,
             min_gate_confidence: 0.25,
             max_candidates: 128,
+            calibration_min_samples: 50,
+            calibration_alpha: 0.05,
         }
     }
 }
@@ -69,6 +78,7 @@ pub struct BlindSpotSweepLog {
     pub schema_version: u32,
     pub observation_count: usize,
     pub detected_alert_count: usize,
+    pub uncalibrated_observation_count: usize,
     pub gate_refused_count: usize,
     pub severity_filtered_count: usize,
     pub candidates: Vec<BlindSpotCandidate>,
@@ -79,19 +89,30 @@ pub fn sweep_blind_spots(
     params: &BlindSpotSweepParams,
 ) -> Result<BlindSpotSweepLog> {
     validate_params(params)?;
+    for observation in observations {
+        validate_observation(observation)?;
+    }
+    let calibrations = calibrations_by_pair(observations, params);
     let mut detected_alert_count = 0_usize;
+    let mut uncalibrated_observation_count = 0_usize;
     let mut gate_refused_count = 0_usize;
     let mut severity_filtered_count = 0_usize;
     let mut candidates = Vec::new();
     for observation in observations {
-        validate_observation(observation)?;
-        let Some(alert) = detect_blind_spot(
+        let key = pair_key(observation.lens_a, observation.lens_b);
+        let Some(calibration) = calibrations.get(&key).and_then(|entry| entry.as_ref().ok()) else {
+            uncalibrated_observation_count += 1;
+            continue;
+        };
+        let Some(alert) = detect_blind_spot_calibrated(
             observation.cx_id,
             observation.lens_a,
             observation.lens_b,
             observation.lens_a_similarity,
             observation.lens_b_neighbor_mean,
-        ) else {
+            calibration,
+        )?
+        else {
             continue;
         };
         detected_alert_count += 1;
@@ -111,6 +132,7 @@ pub fn sweep_blind_spots(
         schema_version: BLIND_SPOT_SWEEP_SCHEMA_VERSION,
         observation_count: observations.len(),
         detected_alert_count,
+        uncalibrated_observation_count,
         gate_refused_count,
         severity_filtered_count,
         candidates,
@@ -121,7 +143,12 @@ fn candidate_from_observation(
     observation: &BlindSpotObservation,
     alert: BlindSpotAlert,
 ) -> BlindSpotCandidate {
-    let rank_score = alert.delta * 0.70 + observation.gate.confidence * 0.30;
+    let alert_score = alert
+        .calibration
+        .as_ref()
+        .map(|evidence| evidence.score)
+        .unwrap_or(alert.delta);
+    let rank_score = alert_score * 0.70 + observation.gate.confidence * 0.30;
     BlindSpotCandidate {
         alert,
         text: observation.text.clone(),
@@ -159,6 +186,12 @@ fn validate_params(params: &BlindSpotSweepParams) -> Result<()> {
     if params.max_candidates == 0 {
         return invalid_params("max_candidates must be greater than zero");
     }
+    if params.calibration_min_samples == 0 {
+        return invalid_params("calibration_min_samples must be greater than zero");
+    }
+    if !params.calibration_alpha.is_finite() || !(0.0..1.0).contains(&params.calibration_alpha) {
+        return invalid_params("calibration_alpha must be finite and in (0,1)");
+    }
     Ok(())
 }
 
@@ -194,6 +227,38 @@ fn invalid_params<T>(detail: impl Into<String>) -> Result<T> {
     Err(LodestarError::KernelInvalidParams {
         detail: detail.into(),
     })
+}
+
+type PairKey = (u16, u16);
+
+fn calibrations_by_pair(
+    observations: &[BlindSpotObservation],
+    params: &BlindSpotSweepParams,
+) -> BTreeMap<PairKey, std::result::Result<BlindSpotCalibration, calyx_core::CalyxError>> {
+    let mut deltas = BTreeMap::<PairKey, Vec<f32>>::new();
+    for observation in observations {
+        deltas
+            .entry(pair_key(observation.lens_a, observation.lens_b))
+            .or_default()
+            .push(observation.lens_a_similarity - observation.lens_b_neighbor_mean);
+    }
+    let calibration_params = BlindSpotCalibrationParams {
+        min_samples: params.calibration_min_samples,
+        alpha: params.calibration_alpha,
+    };
+    deltas
+        .into_iter()
+        .map(|(key, values)| {
+            (
+                key,
+                BlindSpotCalibration::from_deltas(values, calibration_params),
+            )
+        })
+        .collect()
+}
+
+fn pair_key(a: SlotId, b: SlotId) -> PairKey {
+    (a.get(), b.get())
 }
 
 fn severity_rank(severity: Severity) -> u8 {

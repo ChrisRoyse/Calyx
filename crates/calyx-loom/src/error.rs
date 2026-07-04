@@ -6,6 +6,7 @@ pub const CALYX_LOOM_ZERO_NORM_VECTOR: &str = "CALYX_LOOM_ZERO_NORM_VECTOR";
 pub const CALYX_LOOM_DIM_MISMATCH: &str = "CALYX_LOOM_DIM_MISMATCH";
 pub const CALYX_LOOM_NON_FINITE_VECTOR: &str = "CALYX_LOOM_NON_FINITE_VECTOR";
 pub const CALYX_LOOM_SLOT_MISSING: &str = "CALYX_LOOM_SLOT_MISSING";
+pub const CALYX_LOOM_UNCALIBRATED_BLINDSPOT: &str = "CALYX_LOOM_UNCALIBRATED_BLINDSPOT";
 pub const CALYX_LOOM_FORGE_UNAVAILABLE: &str = "CALYX_LOOM_FORGE_UNAVAILABLE";
 pub const CALYX_LOOM_SERIES_READ_ERROR: &str = "CALYX_LOOM_SERIES_READ_ERROR";
 pub const CALYX_LOOM_TEMPORAL_XTERM_CORRUPT: &str = "CALYX_LOOM_TEMPORAL_XTERM_CORRUPT";
@@ -35,6 +36,9 @@ pub fn loom_error(code: &'static str, message: impl Into<String>) -> CalyxError 
         CALYX_LOOM_DIM_MISMATCH => "use slot vectors with matching dimensions for this xterm",
         CALYX_LOOM_NON_FINITE_VECTOR => "remove NaN or infinite values from slot vectors",
         CALYX_LOOM_SLOT_MISSING => "load the requested cx/slot vectors before computing xterms",
+        CALYX_LOOM_UNCALIBRATED_BLINDSPOT => {
+            "collect enough per-lens-pair blind-spot calibration samples"
+        }
         CALYX_LOOM_FORGE_UNAVAILABLE => "enable Loom's cuda feature and verify Forge CUDA first",
         CALYX_LOOM_SERIES_READ_ERROR => "repair the recurrence series before temporal xterm reads",
         CALYX_LOOM_TEMPORAL_XTERM_CORRUPT => {
