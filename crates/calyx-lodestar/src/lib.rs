@@ -9,6 +9,7 @@ pub mod corpus_weave_report;
 pub mod cross_vault_chain;
 pub mod dfvs;
 pub mod discovery_chain;
+pub mod discovery_run_manifest;
 pub mod domain_bridges;
 mod error;
 pub mod grounding_gaps;
@@ -71,6 +72,12 @@ pub use discovery_chain::{
     DiscoveryCandidateLog, DiscoveryChainLog, DiscoveryChainParams, DiscoveryGateVerdict,
     DiscoveryTermination, reachability_prior_gate, run_discovery_chain_with_gate,
     run_grounded_discovery_chain,
+};
+pub use discovery_run_manifest::{
+    DISCOVERY_RUN_MANIFEST_SCHEMA_VERSION, DiscoveryRunManifest, DiscoveryRunReproductionReport,
+    DiscoveryRunReproductionStatus, DiscoveryRunSeal, DiscoveryRunStage, ObservedStageOutput,
+    build_discovery_run_manifest, manifest_sha256, reproduce_discovery_run_manifest,
+    seal_discovery_run_manifest, validate_discovery_run_manifest,
 };
 pub use domain_bridges::{
     DOMAIN_BRIDGE_SCHEMA_VERSION, DomainBridgeCandidate, DomainBridgeGateVerdict,

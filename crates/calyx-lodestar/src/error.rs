@@ -84,6 +84,22 @@ pub enum LodestarError {
     DfvsGenusTooLarge { genus: usize },
     #[error("CALYX_DISCOVERY_NO_SUFFICIENCY_ASSAY: {detail}")]
     DiscoveryNoSufficiencyAssay { detail: String },
+    #[error("CALYX_DISCOVERY_RUN_MANIFEST_INVALID: {detail}")]
+    DiscoveryRunManifestInvalid { detail: String },
+    #[error(
+        "CALYX_DISCOVERY_RUN_MANIFEST_CHAIN_BROKEN: stage {stage} expected input {expected}, found {found}"
+    )]
+    DiscoveryRunManifestChainBroken {
+        stage: String,
+        expected: String,
+        found: String,
+    },
+    #[error(
+        "CALYX_DISCOVERY_RUN_MANIFEST_MISSING_UPSTREAM: stage {stage} references missing upstream {upstream}"
+    )]
+    DiscoveryRunManifestMissingUpstream { stage: String, upstream: String },
+    #[error("CALYX_DISCOVERY_RUN_MANIFEST_DRIFT: {detail}")]
+    DiscoveryRunManifestDrift { detail: String },
     #[error("CALYX_MOLECULAR_KERNEL_MISSING: {detail}")]
     MolecularKernelMissing { detail: String },
     #[error("CALYX_MOLECULAR_KERNEL_UNGROUNDED: {detail}")]
@@ -139,6 +155,14 @@ impl LodestarError {
             Self::DfvsVerificationFailed { .. } => "CALYX_DFVS_VERIFICATION_FAILED",
             Self::DfvsGenusTooLarge { .. } => "CALYX_DFVS_GENUS_TOO_LARGE",
             Self::DiscoveryNoSufficiencyAssay { .. } => "CALYX_DISCOVERY_NO_SUFFICIENCY_ASSAY",
+            Self::DiscoveryRunManifestInvalid { .. } => "CALYX_DISCOVERY_RUN_MANIFEST_INVALID",
+            Self::DiscoveryRunManifestChainBroken { .. } => {
+                "CALYX_DISCOVERY_RUN_MANIFEST_CHAIN_BROKEN"
+            }
+            Self::DiscoveryRunManifestMissingUpstream { .. } => {
+                "CALYX_DISCOVERY_RUN_MANIFEST_MISSING_UPSTREAM"
+            }
+            Self::DiscoveryRunManifestDrift { .. } => "CALYX_DISCOVERY_RUN_MANIFEST_DRIFT",
             Self::MolecularKernelMissing { .. } => "CALYX_MOLECULAR_KERNEL_MISSING",
             Self::MolecularKernelUngrounded { .. } => "CALYX_MOLECULAR_KERNEL_UNGROUNDED",
             Self::HypothesisEvidenceMissingProvenance { .. } => {
