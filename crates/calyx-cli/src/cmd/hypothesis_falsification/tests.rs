@@ -119,6 +119,30 @@ fn identifier_match_requires_asserted_endpoint_id_not_numeric_tail() {
 }
 
 #[test]
+fn internal_concept_ids_can_match_structured_endpoint_labels() {
+    let root = temp_root("falsification-concept-label");
+    seed_hypothesis(
+        &root,
+        "typed-assoc:cd4::cd8a",
+        "concept:ncbi_gene:920",
+        "CD4",
+        "gene",
+        "concept:ncbi_gene:925",
+        "CD8A",
+        "gene",
+    );
+    seed_empty_sources(&root);
+    write(
+        root.join("pubtator/parsed/supporting_literature.jsonl"),
+        r#"{"pmid":"38179747","left_id":"@GENE_CD4","right_id":"@GENE_CD8A","relation_count":7,"support_basis":"pubtator_export_contains_both_selected_annotations"}"#,
+    );
+    let report = build_report(&args(&root)).expect("build report");
+    assert_eq!(report.support_evidence_count, 1);
+    assert_eq!(report.support_evidence[0].source_row_index, 1);
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
 fn unstructured_classifiable_row_is_skipped_not_counted() {
     let root = temp_root("falsification-unstructured");
     seed_hypothesis(

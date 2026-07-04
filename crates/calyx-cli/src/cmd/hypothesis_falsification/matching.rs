@@ -262,6 +262,9 @@ fn label_from_identifier(value: &str) -> Option<String> {
 
 fn is_strict_external_id(value: &str) -> bool {
     let lower = value.to_ascii_lowercase();
+    if lower.starts_with("concept:") {
+        return false;
+    }
     [
         "chembl", "hgnc", "mondo", "mesh", "ncbi", "ensembl", "rxnorm", "pubchem", "uniprot",
         "doid", "efo", "orphanet",
