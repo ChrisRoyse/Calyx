@@ -6,6 +6,7 @@ use std::path::Path;
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 
+use super::matching::{needs_safety_triage, pair_matches, source_applicable};
 use super::model::{
     EvidenceRow, HypothesisFalsificationArgs, HypothesisFlag, InputHypothesis, LoadedSources,
     RawQueryManifestRow,
@@ -170,6 +171,7 @@ pub(super) fn flag_hypotheses(
                 reason_codes.insert("safety_toxicity_triage_pending_issue_1181".to_string());
             }
             let score = counter_weight / (counter_weight + support_weight + 1.0);
+            let rounded_score = (score * 1000.0).round() / 1000.0;
             HypothesisFlag {
                 hypothesis_id: hypothesis.hypothesis_id.clone(),
                 source_name: hypothesis.source_name.clone(),
@@ -180,7 +182,11 @@ pub(super) fn flag_hypotheses(
                 counter_evidence_count: counter.len(),
                 support_weight,
                 counter_weight,
-                falsification_score: (score * 1000.0).round() / 1000.0,
+                falsification_score: if rounded_score == 0.0 {
+                    0.0
+                } else {
+                    rounded_score
+                },
                 reason_codes: reason_codes.into_iter().collect(),
                 sweep_status: if counter.is_empty() {
                     "complete_no_counterevidence_found_in_current_sources".to_string()
@@ -219,6 +225,9 @@ fn scan_source(
             continue;
         }
         for hypothesis in hypotheses {
+            if !source_applicable(system, hypothesis) {
+                continue;
+            }
             if !pair_matches(hypothesis, &row) {
                 continue;
             }
@@ -403,36 +412,6 @@ fn evidence_for<'a>(rows: &'a [EvidenceRow], hypothesis_id: &str) -> Vec<&'a Evi
         .collect()
 }
 
-fn pair_matches(hypothesis: &InputHypothesis, row: &Value) -> bool {
-    let Ok(text) = serde_json::to_string(row) else {
-        return false;
-    };
-    let normalized = normalize(&text);
-    entity_matches(&normalized, &hypothesis.source_name, &hypothesis.source_id)
-        && entity_matches(&normalized, &hypothesis.target_name, &hypothesis.target_id)
-}
-
-fn entity_matches(text: &str, name: &str, id: &str) -> bool {
-    let name_norm = normalize(name);
-    if name_norm.len() >= 3 && text.contains(&name_norm) {
-        return true;
-    }
-    let id_tail = id.rsplit(':').next().map(normalize).unwrap_or_default();
-    if id_tail.len() >= 3 && text.contains(&id_tail) {
-        return true;
-    }
-    let tokens = name
-        .split(|ch: char| !ch.is_ascii_alphanumeric())
-        .map(normalize)
-        .filter(|token| token.len() >= 3)
-        .collect::<Vec<_>>();
-    !tokens.is_empty() && tokens.iter().all(|token| text.contains(token))
-}
-
-fn needs_safety_triage(hypothesis: &InputHypothesis) -> bool {
-    hypothesis.source_type == "chemical" || hypothesis.target_type == "chemical"
-}
-
 fn read_jsonl(path: &Path) -> CliResult<Vec<Value>> {
     let file = File::open(path)
         .map_err(|error| CliError::io(format!("read {}: {error}", path.display())))?;
@@ -452,14 +431,6 @@ fn read_jsonl(path: &Path) -> CliResult<Vec<Value>> {
         })?);
     }
     Ok(out)
-}
-
-fn normalize(value: &str) -> String {
-    value
-        .chars()
-        .filter(|ch| ch.is_ascii_alphanumeric())
-        .flat_map(char::to_lowercase)
-        .collect()
 }
 
 fn str_field(value: &Value, key: &str) -> String {

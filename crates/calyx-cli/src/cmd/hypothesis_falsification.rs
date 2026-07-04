@@ -3,6 +3,7 @@
 use std::path::PathBuf;
 
 mod load;
+mod matching;
 mod model;
 mod persist;
 #[cfg(test)]
