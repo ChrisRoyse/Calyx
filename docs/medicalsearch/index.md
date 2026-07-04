@@ -6,6 +6,7 @@ search, exploration, calibration, sweep, chain walk, and hypothesis is written h
 here, traceably.
 
 - **Strategy / plan:** [`../../docs2/BIOMEDICAL_DISCOVERY_STRATEGY.md`](../../docs2/BIOMEDICAL_DISCOVERY_STRATEGY.md)
+- **Association-native doctrine:** [`../CALYX_ASSOCIATION_NATIVE_BUILD_DOCTRINE.md`](../CALYX_ASSOCIATION_NATIVE_BUILD_DOCTRINE.md)
 - **Recording rule:** one file per atomic task (named `NN_<topic>.md`), using `_TEMPLATE.md`.
   Record what was run, the exact commands, the raw outputs/FSV evidence, and the honest conclusion
   (including refusals + per-sensor deficits — a refusal is a finding, not a failure).
@@ -60,4 +61,5 @@ still requires experimental confirmation.
 | `32_lincs_perturbation_metadata_mapping.md` | #1199 LINCS/CMap perturbation metadata mapping | complete FSV for accepted Aster Graph CF collection |
 | `33_graph_collection_lifecycle_cleanup.md` | #1197 graph collection lifecycle cleanup | complete FSV for accepted/tombstoned graph generations |
 | `34_edge_range_readback.md` | #1198 PlainGraph edge range readback | complete FSV for all-edge collection-local readback |
+| `42_graph_csr_traversal_cache.md` | #1191 graph CSR/traversal cache for large readers | complete FSV for large #869 CSR readback and reader preference |
 | (added as work proceeds) | | |

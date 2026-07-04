@@ -418,6 +418,8 @@ impl<'a, C: Clock> PlainGraph<'a, C> {
 }
 
 #[cfg(test)]
+mod csr_fail_closed_tests;
+#[cfg(test)]
 mod lifecycle_tests;
 #[cfg(test)]
 mod tests;
