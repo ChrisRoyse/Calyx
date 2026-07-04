@@ -87,4 +87,5 @@ still requires experimental confirmation.
 | `64_hypothesis_evaluator_https_provider.md` | #1216 native HTTPS/OpenAI-compatible evaluator provider | complete FSV for HTTPS auth/redaction behavior, persisted evaluator output readback, and missing-auth fail-closed no-artifact proof |
 | `65_association_native_doctrine_context_update.md` | #863/#860 association-native doctrine/context update | complete context update folding the builder handbook into repo doctrine and issue-state obligations |
 | `66_binary_csr_persistence.md` | #1210 binary CSR persistence for PlainGraph | complete FSV for binary CSR physical readback, size reduction versus JSON, segmentation, and corruption fail-closed cases |
+| `67_novelty_calibration_split.md` | #1226 novelty/calibration split for disease-hunt rankings | complete FSV for preserving original disease-hunt rows while splitting calibration/known-positive proof rows from novelty-prioritized research leads |
 | (added as work proceeds) | | |
