@@ -90,4 +90,5 @@ still requires experimental confirmation.
 | `67_novelty_calibration_split.md` | #1226 novelty/calibration split for disease-hunt rankings | complete FSV for preserving original disease-hunt rows while splitting calibration/known-positive proof rows from novelty-prioritized research leads |
 | `68_native_novelty_calibration_split.md` | #1227 native novelty/calibration splitter stage | complete FSV for native sealed-input splitter parity with #1226 plus stale-manifest fail-closed proof |
 | `69_infectious_normalization_repair.md` | #1225 infectious/immunology concept normalization repair | complete FSV for deterministic high-value mappings, before/after unresolved accounting, required row examples, and new co-mention coverage |
+| `70_neuro_normalization_repair.md` | #1222 neuro concept normalization repair | complete FSV for deterministic neuro mappings, typed overlay delta, and #1187 rerun count/hash deltas |
 | (added as work proceeds) | | |
