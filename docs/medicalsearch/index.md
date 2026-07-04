@@ -66,4 +66,5 @@ still requires experimental confirmation.
 | `44_association_validation_gates.md` | #1182 known-positive/negative and time-split validation gates | complete FSV for fail-closed strict-threshold calibration and passing real-source gate |
 | `45_all_pair_typed_association_miner.md` | #1183 bounded all-pair typed association miner | complete FSV for broad, chemical/disease, and gene/disease typed-pair scans |
 | `46_hypothesis_falsification_sweep.md` | #1184 counter-evidence and falsification sweep | complete FSV for retained #1183 hypotheses and persisted source readback |
+| `47_precision_oncology_validation.md` | #1180 precision-oncology validation sources | complete FSV for CIViC source bytes, parsed rows, mapped rows, and unresolved accounting |
 | (added as work proceeds) | | |
