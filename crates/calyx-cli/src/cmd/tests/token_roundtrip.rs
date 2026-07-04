@@ -3,7 +3,10 @@ use calyx_core::{AnchorKind, Modality};
 use super::super::*;
 
 mod flows;
-use flows::{chain_walks_tokens, discovery_chain_tokens, probe_matrix_tokens};
+use flows::{
+    chain_walks_tokens, discovery_chain_tokens, graph_collection_generations_tokens,
+    graph_collection_state_tokens, probe_matrix_tokens,
+};
 
 pub(super) fn subcommand_tokens(command: &Subcommand) -> Vec<String> {
     match command {
@@ -108,6 +111,8 @@ pub(super) fn subcommand_tokens(command: &Subcommand) -> Vec<String> {
         Subcommand::MaterializeMolecularVault(args) => molecular_vault_tokens(args),
         Subcommand::MaterializeEvidenceSubstrate(args) => evidence_substrate_tokens(args),
         Subcommand::MaterializeLincsReversal(args) => lincs_reversal_tokens(args),
+        Subcommand::GraphCollectionGenerations(args) => graph_collection_generations_tokens(args),
+        Subcommand::GraphCollectionState(args) => graph_collection_state_tokens(args),
         Subcommand::DiscoveryChain(args) => discovery_chain_tokens(args),
         Subcommand::ChainWalks(args) => chain_walks_tokens(args),
         Subcommand::ProbeMatrix(args) => probe_matrix_tokens(args),

@@ -6,6 +6,7 @@ mod domain_bridges;
 mod erase;
 mod evidence_substrate;
 mod graph_csr;
+mod graph_lifecycle;
 mod healthcheck;
 mod hypothesis_evaluate;
 mod hypothesis_rank;
@@ -16,6 +17,7 @@ mod lens;
 mod lincs_reversal;
 mod molecular_vault;
 mod panel_templates;
+mod parse_helpers;
 mod probe_matrix;
 mod provenance;
 mod readback;
@@ -41,6 +43,7 @@ use std::path::PathBuf;
 use crate::error::{CliError, CliResult};
 
 pub(crate) use panel_templates::PANEL_TEMPLATES;
+pub(crate) use parse_helpers::{validate_panel_template_name, validate_vault_name, value};
 
 const KNOWN_COMMANDS: &str = "\
 create-vault add-lens retire-lens park-lens retire-vault list-panel profile-lens \
@@ -48,7 +51,8 @@ ingest ingest-status anchor measure erase search kernel-answer bits kernel guard
 propose-lens provenance verify-chain reproduce anneal-status rebuild-search-index kernel-build \
 weave-loom domain-bridges materialize-bridge-corpus discovery-chain chain-walks probe-matrix \
 spectral-communities materialize-graph-csr materialize-molecular-vault \
-materialize-evidence-substrate materialize-lincs-reversal";
+materialize-evidence-substrate materialize-lincs-reversal \
+graph-collection-generations graph-collection-state";
 
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) enum Subcommand {
@@ -85,6 +89,8 @@ pub(crate) enum Subcommand {
     ProbeMatrix(probe_matrix::ProbeMatrixArgs),
     SpectralCommunities(spectral_communities::SpectralCommunitiesArgs),
     MaterializeGraphCsr(graph_csr::MaterializeGraphCsrArgs),
+    GraphCollectionGenerations(graph_lifecycle::GraphCollectionGenerationsArgs),
+    GraphCollectionState(graph_lifecycle::GraphCollectionStateArgs),
     MaterializeMolecularVault(molecular_vault::MaterializeMolecularVaultArgs),
     MaterializeEvidenceSubstrate(evidence_substrate::MaterializeEvidenceSubstrateArgs),
     MaterializeLincsReversal(lincs_reversal::MaterializeLincsReversalArgs),
@@ -235,6 +241,9 @@ fn run(command: Subcommand) -> CliResult {
         Subcommand::ProbeMatrix(_) => probe_matrix::run(command),
         Subcommand::SpectralCommunities(_) => spectral_communities::run(command),
         Subcommand::MaterializeGraphCsr(_) => graph_csr::run(command),
+        Subcommand::GraphCollectionGenerations(_) | Subcommand::GraphCollectionState(_) => {
+            graph_lifecycle::run(command)
+        }
         Subcommand::MaterializeMolecularVault(_) => molecular_vault::run(command),
         Subcommand::MaterializeEvidenceSubstrate(_) => evidence_substrate::run(command),
         Subcommand::MaterializeLincsReversal(_) => lincs_reversal::run(command),
@@ -279,6 +288,8 @@ pub(crate) fn parse(args: &[String]) -> CliResult<Subcommand> {
         "probe-matrix" => probe_matrix::parse_probe_matrix(rest),
         "spectral-communities" => spectral_communities::parse_spectral_communities(rest),
         "materialize-graph-csr" => graph_csr::parse_materialize_graph_csr(rest),
+        "graph-collection-generations" => graph_lifecycle::parse_graph_collection_generations(rest),
+        "graph-collection-state" => graph_lifecycle::parse_graph_collection_state(rest),
         "materialize-molecular-vault" => molecular_vault::parse_materialize_molecular_vault(rest),
         "materialize-evidence-substrate" => {
             evidence_substrate::parse_materialize_evidence_substrate(rest)
@@ -292,37 +303,6 @@ fn is_cmd(command: &str) -> bool {
     KNOWN_COMMANDS
         .split_whitespace()
         .any(|known| known == command)
-}
-
-pub(crate) fn validate_vault_name(name: &str) -> CliResult {
-    if name.is_empty() {
-        return Err(CliError::usage("vault name must not be empty"));
-    }
-    if name.contains(['/', '\\']) || name == "." || name == ".." {
-        return Err(CliError::usage(
-            "vault name must be a name, not a filesystem path",
-        ));
-    }
-    if name.chars().any(char::is_whitespace) {
-        return Err(CliError::usage("vault name must not contain spaces"));
-    }
-    Ok(())
-}
-
-pub(crate) fn validate_panel_template_name(value: &str) -> CliResult {
-    if value.is_empty()
-        || value.contains(['/', '\\'])
-        || value == "."
-        || value == ".."
-        || value.chars().any(char::is_whitespace)
-    {
-        Err(CliError::usage(format!(
-            "invalid --panel-template {value}; use a built-in template ({}) or a saved path-safe template name",
-            PANEL_TEMPLATES.join(", ")
-        )))
-    } else {
-        Ok(())
-    }
 }
 
 fn parse_create_vault(rest: &[String]) -> CliResult<Subcommand> {
@@ -488,12 +468,6 @@ impl LensFlags {
         }
         Ok(())
     }
-}
-
-pub(super) fn value<'a>(args: &'a [String], index: usize, flag: &str) -> CliResult<&'a str> {
-    args.get(index)
-        .map(String::as_str)
-        .ok_or_else(|| CliError::usage(format!("{flag} requires a value")))
 }
 
 #[cfg(test)]

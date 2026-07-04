@@ -1,6 +1,6 @@
 use std::collections::BTreeSet;
 
-use calyx_core::{CxId, Result};
+use calyx_core::{CalyxError, CxId, Result};
 use calyx_paths::AssocGraph;
 
 use crate::cf::{CfRouter, ColumnFamily, KeyRange};
@@ -9,6 +9,7 @@ use crate::mvcc::is_tombstone_value;
 use super::assoc_graph::assoc_graph_from_csr;
 use super::csr_store;
 use super::key::{GraphKeyspace, graph_corrupt, path_error};
+use super::lifecycle::{GraphCollectionGenerationStatus, PhysicalGraphCollectionLifecycle};
 use super::types::PlainGraphCsr;
 
 pub struct PhysicalPlainGraph {
@@ -18,10 +19,26 @@ pub struct PhysicalPlainGraph {
 
 impl PhysicalPlainGraph {
     pub fn open_latest(vault_dir: impl AsRef<std::path::Path>, collection: &str) -> Result<Self> {
+        let vault_dir = vault_dir.as_ref();
+        ensure_collection_accepted(vault_dir, collection)?;
+        Self::open_latest_unchecked(vault_dir, collection)
+    }
+
+    pub fn open_latest_unchecked(
+        vault_dir: impl AsRef<std::path::Path>,
+        collection: &str,
+    ) -> Result<Self> {
         Ok(Self {
             router: CfRouter::open_selected_cfs(vault_dir, 0, [ColumnFamily::Graph])?,
             keys: GraphKeyspace::new(collection)?,
         })
+    }
+
+    pub fn open_latest_accepted(
+        vault_dir: impl AsRef<std::path::Path>,
+        collection: &str,
+    ) -> Result<Self> {
+        Self::open_latest(vault_dir, collection)
     }
 
     pub fn get_node(&self, node: CxId) -> Result<Option<Vec<u8>>> {
@@ -117,4 +134,27 @@ impl PhysicalPlainGraph {
         self.router
             .range_keys_until(ColumnFamily::Graph, &range.start, range.end.as_deref())
     }
+}
+
+fn ensure_collection_accepted(vault_dir: &std::path::Path, collection: &str) -> Result<()> {
+    let lifecycle = PhysicalGraphCollectionLifecycle::open_latest(vault_dir)?;
+    let collection_rows = lifecycle
+        .list_states()?
+        .into_iter()
+        .filter(|row| row.state.collection == collection)
+        .collect::<Vec<_>>();
+    if collection_rows.is_empty()
+        || collection_rows
+            .iter()
+            .any(|row| row.state.status == GraphCollectionGenerationStatus::Accepted)
+    {
+        return Ok(());
+    }
+    Err(CalyxError {
+        code: "CALYX_GRAPH_COLLECTION_NOT_ACCEPTED",
+        message: format!(
+            "graph collection {collection} has lifecycle rows but no accepted generation"
+        ),
+        remediation: "mark an accepted generation after physical readback or use a different graph collection",
+    })
 }

@@ -79,6 +79,10 @@ impl GraphKeyspace {
         Ok(key)
     }
 
+    pub(super) fn metadata_range(&self) -> KeyRange {
+        prefix_range(&self.kind_prefix(KIND_METADATA))
+    }
+
     pub(super) fn node_range(&self) -> KeyRange {
         prefix_range(&self.kind_prefix(KIND_NODE))
     }

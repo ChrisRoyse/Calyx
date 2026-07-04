@@ -3,6 +3,7 @@
 mod assoc_graph;
 mod csr_store;
 mod key;
+mod lifecycle;
 mod physical;
 mod types;
 
@@ -19,6 +20,10 @@ use key::{
     path_error, validate_edge_type, validate_value,
 };
 
+pub use lifecycle::{
+    GraphCollectionGenerationReadback, GraphCollectionGenerationState,
+    GraphCollectionGenerationStatus, GraphCollectionLifecycle, PhysicalGraphCollectionLifecycle,
+};
 pub use physical::PhysicalPlainGraph;
 pub use types::{
     CsrCommit, GraphEdgeCommit, PlainGraphCsr, PlainGraphCsrEdge, PlainGraphDirection,
@@ -406,5 +411,7 @@ impl<'a, C: Clock> PlainGraph<'a, C> {
     }
 }
 
+#[cfg(test)]
+mod lifecycle_tests;
 #[cfg(test)]
 mod tests;

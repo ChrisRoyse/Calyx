@@ -3,7 +3,11 @@ use std::fs;
 use std::path::Path;
 
 use calyx_aster::cf::ColumnFamily;
-use calyx_aster::plain_graph::{PhysicalPlainGraph, PlainGraph, PlainGraphCsr, PlainGraphCsrEdge};
+use calyx_aster::plain_graph::{
+    GraphCollectionGenerationState, GraphCollectionGenerationStatus, GraphCollectionLifecycle,
+    PhysicalGraphCollectionLifecycle, PhysicalPlainGraph, PlainGraph, PlainGraphCsr,
+    PlainGraphCsrEdge,
+};
 use calyx_aster::vault::{AsterVault, VaultOptions};
 use calyx_core::{AnchorKind, CalyxError, CxId, VaultStore};
 use calyx_lodestar::{AsterAssocNodeProps, encode_assoc_node_props};
@@ -14,7 +18,7 @@ use sha2::{Digest, Sha256};
 use super::model::{LincsGraphDraft, edge_value};
 use super::source::LincsSourceReport;
 use super::{DEFAULT_COLLECTION, MaterializeLincsReversalArgs};
-use crate::cmd::vault::{resolve_vault_info, vault_salt};
+use crate::cmd::vault::{ResolvedVault, resolve_vault_info, vault_salt};
 use crate::error::{CliError, CliResult};
 
 const GRAPH_ID_VERSION: u32 = 0;
@@ -26,6 +30,7 @@ pub(crate) struct MaterializeLincsReversalReport {
     pub vault_id: String,
     pub vault_dir: String,
     pub collection: String,
+    pub graph_generation: String,
     pub panel_version: u32,
     pub source_report: LincsSourceReport,
     pub graph_summary: serde_json::Value,
@@ -82,6 +87,18 @@ pub(crate) fn write_to_calyx(
         },
     )?;
     let graph = PlainGraph::new(&vault, &collection)?;
+    let generation = format!("materialize-lincs-reversal-{}", ulid::Ulid::new());
+    let lifecycle = GraphCollectionLifecycle::new(&vault)?;
+    lifecycle.put_state(
+        &GraphCollectionGenerationState::new(
+            collection.clone(),
+            generation.clone(),
+            GraphCollectionGenerationStatus::Writing,
+            "materialize-lincs-reversal",
+        )
+        .with_reason("graph materialization started")
+        .with_detail("schema", "lincs_reversal_v1"),
+    )?;
     let salt = resolved.vault_id.to_string();
     let mut node_ids = BTreeMap::new();
     let mut node_values = BTreeMap::new();
@@ -147,7 +164,7 @@ pub(crate) fn write_to_calyx(
     drop(graph);
     drop(vault);
     eprintln!("lincs-reversal: reopening physical graph for readback");
-    let physical = PhysicalPlainGraph::open_latest(&resolved.path, &collection)?;
+    let physical = PhysicalPlainGraph::open_latest_unchecked(&resolved.path, &collection)?;
     eprintln!(
         "lincs-reversal: reading back {} nodes by collection range",
         node_values.len()
@@ -214,10 +231,11 @@ pub(crate) fn write_to_calyx(
     let graph_summary = draft.association_summary();
     let report = MaterializeLincsReversalReport {
         status: "ok",
-        vault: resolved.name,
+        vault: resolved.name.clone(),
         vault_id: resolved.vault_id.to_string(),
         vault_dir: resolved.path.display().to_string(),
         collection,
+        graph_generation: generation.clone(),
         panel_version: GRAPH_ID_VERSION,
         source_report,
         graph_summary,
@@ -246,7 +264,62 @@ pub(crate) fn write_to_calyx(
     if let Some(path) = &args.report {
         write_report(path, &report)?;
     }
+    accept_generation(
+        &resolved,
+        &report.collection,
+        &generation,
+        &report,
+        args.report.as_deref(),
+    )?;
     Ok(report)
+}
+
+fn accept_generation(
+    resolved: &ResolvedVault,
+    collection: &str,
+    generation: &str,
+    report: &MaterializeLincsReversalReport,
+    report_path: Option<&Path>,
+) -> CliResult {
+    let vault = AsterVault::open(
+        &resolved.path,
+        resolved.vault_id,
+        vault_salt(resolved.vault_id, &resolved.name),
+        VaultOptions {
+            restore_mvcc_rows: false,
+            ..VaultOptions::default()
+        },
+    )?;
+    let lifecycle = GraphCollectionLifecycle::new(&vault)?;
+    let mut state = GraphCollectionGenerationState::new(
+        collection.to_string(),
+        generation.to_string(),
+        GraphCollectionGenerationStatus::Accepted,
+        "materialize-lincs-reversal",
+    )
+    .with_reason("physical graph, CSR, and report readback passed")
+    .with_detail("schema", "lincs_reversal_v1")
+    .with_detail("node_rows", report.readback.node_rows_written.to_string())
+    .with_detail("edge_rows", report.readback.edge_rows_written.to_string())
+    .with_detail("csr_sha256", report.readback.csr_sha256.clone());
+    if let Some(path) = report_path {
+        state = state.with_detail("report", path.display().to_string());
+    }
+    lifecycle.put_state(&state)?;
+    vault.flush()?;
+    drop(vault);
+    let lifecycle = PhysicalGraphCollectionLifecycle::open_latest(&resolved.path)?;
+    let accepted = lifecycle.list_states()?.into_iter().any(|row| {
+        row.state.collection == collection
+            && row.state.generation == generation
+            && row.state.status == GraphCollectionGenerationStatus::Accepted
+    });
+    if !accepted {
+        return Err(CliError::runtime(format!(
+            "accepted graph collection lifecycle row missing after readback: {collection}/{generation}"
+        )));
+    }
+    Ok(())
 }
 
 fn read_back_nodes(

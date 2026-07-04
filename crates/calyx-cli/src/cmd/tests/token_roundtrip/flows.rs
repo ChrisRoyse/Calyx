@@ -113,6 +113,49 @@ pub(super) fn chain_walks_tokens(args: &chain_walks::ChainWalksArgs) -> Vec<Stri
     out
 }
 
+pub(super) fn graph_collection_generations_tokens(
+    args: &graph_lifecycle::GraphCollectionGenerationsArgs,
+) -> Vec<String> {
+    let mut out = vec![
+        "graph-collection-generations".to_string(),
+        args.vault.clone(),
+    ];
+    push_opt(&mut out, "--collection", args.collection.as_deref());
+    push_opt(
+        &mut out,
+        "--home",
+        args.home.as_ref().and_then(|p| p.to_str()),
+    );
+    out
+}
+
+pub(super) fn graph_collection_state_tokens(
+    args: &graph_lifecycle::GraphCollectionStateArgs,
+) -> Vec<String> {
+    let mut out = vec![
+        "graph-collection-state".to_string(),
+        args.vault.clone(),
+        "--collection".to_string(),
+        args.collection.clone(),
+        "--generation".to_string(),
+        args.generation.clone(),
+        "--state".to_string(),
+        args.state.as_str().to_string(),
+        "--command".to_string(),
+        args.command.clone(),
+    ];
+    push_opt(&mut out, "--reason", args.reason.as_deref());
+    for (key, value) in &args.detail {
+        out.extend(["--detail".to_string(), format!("{key}={value}")]);
+    }
+    push_opt(
+        &mut out,
+        "--home",
+        args.home.as_ref().and_then(|p| p.to_str()),
+    );
+    out
+}
+
 fn rrf_profile_name(value: calyx_sextant::RrfProfile) -> String {
     format!("{value:?}").to_ascii_lowercase()
 }
