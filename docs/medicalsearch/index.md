@@ -103,4 +103,5 @@ still requires experimental confirmation.
 | `79_pubmed_source_text_validation.md` | #1237 PubMed source-text validation for #1234 co-mention hits | complete FSV for PubMed EFetch source records, 568 evidence validation rows, 301 candidate rollups, and native Calyx bridge-corpus materialization |
 | `80_pubmed_structured_extraction.md` | #1238 PubMed structured relation/safety/outcome extraction | complete FSV for 510 structured extraction rows, 301 candidate rollups, blocked counter-evidence preservation, and native Calyx bridge-corpus materialization |
 | `81_openfda_label_source_mining.md` | #1236 openFDA Human Drug Label source mining after FDA/PubMed recheck | complete FSV for 649 openFDA label queries, 40 label evidence rows, 22 candidate-row hits, 1,019 remaining no-hit rows, and native Calyx bridge-corpus materialization |
+| `82_rxnorm_combination_product_mining.md` | #1240 RxNorm combination-product source mining after openFDA label recheck | complete FSV for 640 RxNorm pair-key query rows, zero concept hits, 1,019 remaining no-hit rows, and native Calyx bridge-corpus materialization |
 | (added as work proceeds) | | |
