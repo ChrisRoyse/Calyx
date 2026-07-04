@@ -117,6 +117,7 @@ pub(super) fn subcommand_tokens(command: &Subcommand) -> Vec<String> {
         Subcommand::MaterializeMolecularVault(args) => molecular_vault_tokens(args),
         Subcommand::MaterializeEvidenceSubstrate(args) => evidence_substrate_tokens(args),
         Subcommand::MaterializeLincsReversal(args) => lincs_reversal_tokens(args),
+        Subcommand::AssembleHypothesisEvidence(args) => hypothesis_evidence::tokens(args),
         Subcommand::AssociationValidationGates(args) => association_validation_tokens(args),
         Subcommand::TypedAssociationMiner(args) => typed_association_miner_tokens(args),
         Subcommand::HypothesisFalsificationSweep(args) => hypothesis_falsification_tokens(args),

@@ -13,6 +13,7 @@ mod error;
 pub mod grounding_gaps;
 pub mod hierarchical;
 pub mod hypothesis_evaluation;
+pub mod hypothesis_evidence;
 pub mod incremental;
 pub mod kernel;
 pub mod kernel_answer;
@@ -82,6 +83,10 @@ pub use hypothesis_evaluation::{
     EvaluatorRun, HYPOTHESIS_EVALUATION_SCHEMA_VERSION, HypothesisEvaluation,
     HypothesisEvaluationInput, HypothesisEvaluationParams, HypothesisEvaluationReport,
     HypothesisEvaluationVerdict, RetrievedEvidence, aggregate_hypothesis_evaluations,
+};
+pub use hypothesis_evidence::{
+    EvidenceSource, HYPOTHESIS_EVIDENCE_ASSEMBLER_VERSION, assemble_hypothesis_evaluation_inputs,
+    chain_report_evidence_cx_ids, hypothesis_evidence_cx_ids,
 };
 pub use incremental::{IncrementalKernelEval, IncrementalResult, NodeAddEdge};
 pub use kernel::{

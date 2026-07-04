@@ -12,6 +12,7 @@ mod graph_csr;
 mod graph_lifecycle;
 mod healthcheck;
 mod hypothesis_evaluate;
+mod hypothesis_evidence;
 mod hypothesis_falsification;
 mod hypothesis_rank;
 mod ingest;
@@ -57,6 +58,7 @@ propose-lens provenance verify-chain reproduce anneal-status rebuild-search-inde
 weave-loom domain-bridges materialize-bridge-corpus discovery-chain chain-walks probe-matrix \
 spectral-communities materialize-graph-csr materialize-molecular-vault \
 materialize-evidence-substrate materialize-lincs-reversal \
+assemble-hypothesis-evidence \
 association-validation-gates typed-association-miner hypothesis-falsification-sweep \
 graph-collection-generations graph-collection-state";
 
@@ -100,6 +102,7 @@ pub(crate) enum Subcommand {
     MaterializeMolecularVault(molecular_vault::MaterializeMolecularVaultArgs),
     MaterializeEvidenceSubstrate(evidence_substrate::MaterializeEvidenceSubstrateArgs),
     MaterializeLincsReversal(lincs_reversal::MaterializeLincsReversalArgs),
+    AssembleHypothesisEvidence(hypothesis_evidence::HypothesisEvidenceArgs),
     AssociationValidationGates(association_validation::AssociationValidationArgs),
     TypedAssociationMiner(typed_association_miner::TypedAssociationMinerArgs),
     HypothesisFalsificationSweep(hypothesis_falsification::HypothesisFalsificationArgs),
@@ -256,6 +259,7 @@ fn run(command: Subcommand) -> CliResult {
         Subcommand::MaterializeMolecularVault(_) => molecular_vault::run(command),
         Subcommand::MaterializeEvidenceSubstrate(_) => evidence_substrate::run(command),
         Subcommand::MaterializeLincsReversal(_) => lincs_reversal::run(command),
+        Subcommand::AssembleHypothesisEvidence(_) => hypothesis_evidence::run(command),
         Subcommand::AssociationValidationGates(_) => association_validation::run(command),
         Subcommand::TypedAssociationMiner(_) => typed_association_miner::run(command),
         Subcommand::HypothesisFalsificationSweep(_) => hypothesis_falsification::run(command),
@@ -307,6 +311,9 @@ pub(crate) fn parse(args: &[String]) -> CliResult<Subcommand> {
             evidence_substrate::parse_materialize_evidence_substrate(rest)
         }
         "materialize-lincs-reversal" => lincs_reversal::parse_materialize_lincs_reversal(rest),
+        "assemble-hypothesis-evidence" => {
+            hypothesis_evidence::parse_assemble_hypothesis_evidence(rest)
+        }
         "association-validation-gates" => {
             association_validation::parse_association_validation_gates(rest)
         }

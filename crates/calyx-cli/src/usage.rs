@@ -55,6 +55,7 @@ pub(crate) fn usage() -> &'static str {
        calyx weave-loom <vault> [--content-slot <u16>] [--candidate-selection covered|base-prefix] [--coverage-only] [--knn <n>] [--edge-cos-threshold <0..1>] [--max-groundedness-distance <n>] [--batch <n>] [--limit <n>] [--time-budget-ms <ms>]
        calyx discovery-chain <vault> --start <cx> (--anchor <cx>|--anchor-file <path>) [--assay-domain <domain>] [--assay-anchor <reward|label:name|test_pass|tie_formed|thumbs|speaker_match|style_hold|recurrence>] [--max-hops <n>] [--branch-width <n>] [--probe-width <n>] [--max-groundedness-distance <n>] [--min-gate-confidence <f>] [--novelty-weight <f>] [--out <json>]
        calyx chain-walks <vault> --seed-file <json> (--anchor <cx>|--anchor-file <path>) [--assay-domain <domain>] [--assay-anchor <reward|label:name|test_pass|tie_formed|thumbs|speaker_match|style_hold|recurrence>] [--max-hops <n>] [--branch-width <n>] [--probe-width <n>] [--max-groundedness-distance <n>] [--min-gate-confidence <f>] [--novelty-weight <f>] [--max-hypotheses-per-seed <n>] [--min-terminal-confidence <f>] [--out <json>]
+       calyx assemble-hypothesis-evidence <vault> --chain <chain.json> --out <input.json>
        calyx materialize-bridge-corpus <name> --rows <jsonl> [--home <dir>]
        calyx materialize-molecular-vault <vault> --rows <jsonl> [--home <dir>]
        calyx materialize-evidence-substrate <vault> --pubtator-root <dir> --clinicaltrials-root <dir> --dgidb-root <dir> [--collection <name>] [--report <json>] [--home <dir>]

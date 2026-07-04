@@ -84,6 +84,12 @@ pub enum LodestarError {
     DfvsGenusTooLarge { genus: usize },
     #[error("CALYX_DISCOVERY_NO_SUFFICIENCY_ASSAY: {detail}")]
     DiscoveryNoSufficiencyAssay { detail: String },
+    #[error("CALYX_HYPOTHESIS_EVIDENCE_MISSING_PROVENANCE: no evidence provenance for {cx_id}")]
+    HypothesisEvidenceMissingProvenance { cx_id: calyx_core::CxId },
+    #[error("CALYX_HYPOTHESIS_EVIDENCE_EMPTY_ABSTRACT: empty evidence text for {cx_id}")]
+    HypothesisEvidenceEmptyAbstract { cx_id: calyx_core::CxId },
+    #[error("CALYX_HYPOTHESIS_EVIDENCE_INVALID: {detail}")]
+    HypothesisEvidenceInvalid { detail: String },
     #[error("{code}: {message}")]
     TemporalKernel { code: &'static str, message: String },
     #[error("{code}: {message}")]
@@ -129,6 +135,13 @@ impl LodestarError {
             Self::DfvsVerificationFailed { .. } => "CALYX_DFVS_VERIFICATION_FAILED",
             Self::DfvsGenusTooLarge { .. } => "CALYX_DFVS_GENUS_TOO_LARGE",
             Self::DiscoveryNoSufficiencyAssay { .. } => "CALYX_DISCOVERY_NO_SUFFICIENCY_ASSAY",
+            Self::HypothesisEvidenceMissingProvenance { .. } => {
+                "CALYX_HYPOTHESIS_EVIDENCE_MISSING_PROVENANCE"
+            }
+            Self::HypothesisEvidenceEmptyAbstract { .. } => {
+                "CALYX_HYPOTHESIS_EVIDENCE_EMPTY_ABSTRACT"
+            }
+            Self::HypothesisEvidenceInvalid { .. } => "CALYX_HYPOTHESIS_EVIDENCE_INVALID",
             Self::TemporalKernel { code, .. } => code,
             Self::Ledger { code, .. } => code,
             Self::Graph { code, .. } => code,

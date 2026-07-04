@@ -308,6 +308,13 @@ fn arb_subcommand() -> impl Strategy<Value = Subcommand> {
                 identity_cx: None,
             },
         })),
+        safe_name().prop_map(|vault| {
+            Subcommand::AssembleHypothesisEvidence(hypothesis_evidence::HypothesisEvidenceArgs {
+                vault,
+                chain: "chain.json".into(),
+                out: "eval-input.json".into(),
+            })
+        }),
         Just(Subcommand::ProfileLens(ProfileLensArgs {
             name: Some("probe".to_string()),
             runtime: Some("algorithmic".to_string()),
