@@ -59,6 +59,8 @@ pub(crate) fn usage() -> &'static str {
        calyx hypothesis-evaluator-driver --input <input.json> --out <artifact.json> --endpoint <http://host:port/path> --model <id> [--temperature <f>] [--timeout-ms <ms>] [--run-manifest <manifest.json> --run-stage-id <stage-id>]
        calyx hypothesis-evaluate --input <input.json> --out <artifact.json> [--min-runs-per-hypothesis <n>] [--min-prompt-variants <n>] [--min-temperature-variants <n>] [--min-retrieved-evidence <n>] [--retain-score-floor <0..1>] [--max-ranked <n>] [--run-manifest <manifest.json> --run-stage-id <stage-id>]
        calyx hypothesis-rank --input <input.json> --out <artifact.json> [--max-ranked <n>] [--review-top-n <n>] [--min-review-score <0..1>] [--run-manifest <manifest.json> --run-stage-id <stage-id>]
+       calyx bridge-falsification-evaluate --miner-report <json> --falsification-report <json> --out <json> [--run-manifest <manifest.json> --run-stage-id <stage-id>]
+       calyx bridge-evaluate-rank --evaluation-report <json> --out <json> [--run-manifest <manifest.json> --run-stage-id <stage-id>]
        calyx discovery-run (seal --manifest <manifest.json> --ledger <ledger-dir> --out <seal.json> | reproduce --manifest <manifest.json> --observed <observed.json> --out <report.json> | verify --manifest <manifest.json> --ledger <ledger-dir> --seq <n> --out <verify.json>)
        calyx materialize-bridge-corpus <name> --rows <jsonl> [--home <dir>]
        calyx materialize-molecular-vault <vault> --rows <jsonl> [--home <dir>]

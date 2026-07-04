@@ -3,6 +3,7 @@ mod association_validation;
 mod bridge_corpus;
 mod build_info;
 mod chain_walks;
+mod discovery_bridge;
 mod discovery_chain;
 mod discovery_gate;
 mod discovery_run;
@@ -57,12 +58,10 @@ const KNOWN_COMMANDS: &str = "\
 create-vault add-lens retire-lens park-lens retire-vault list-panel profile-lens \
 ingest ingest-status anchor measure erase search kernel-answer bits kernel guard abundance \
 propose-lens provenance verify-chain reproduce anneal-status rebuild-search-index kernel-build \
-weave-loom domain-bridges materialize-bridge-corpus discovery-chain chain-walks probe-matrix \
-spectral-communities materialize-graph-csr materialize-molecular-vault \
-materialize-evidence-substrate materialize-lincs-reversal \
-assemble-hypothesis-evidence \
-association-validation-gates typed-association-miner hypothesis-falsification-sweep \
-graph-collection-generations graph-collection-state";
+weave-loom domain-bridges materialize-bridge-corpus discovery-chain chain-walks probe-matrix spectral-communities \
+materialize-graph-csr materialize-molecular-vault materialize-evidence-substrate materialize-lincs-reversal \
+assemble-hypothesis-evidence association-validation-gates typed-association-miner hypothesis-falsification-sweep \
+bridge-falsification-evaluate bridge-evaluate-rank graph-collection-generations graph-collection-state";
 
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) enum Subcommand {
@@ -185,6 +184,7 @@ pub(crate) fn try_run(args: &[String]) -> Option<CliResult> {
         healthcheck::try_run,
         build_info::try_run,
         discovery_run::try_run,
+        discovery_bridge::try_run,
         hypothesis_evaluate::try_run,
         hypothesis_evaluator::try_run,
         hypothesis_rank::try_run,
