@@ -72,4 +72,5 @@ still requires experimental confirmation.
 | `49_drug_safety_triage.md` | #1181 drug safety/adverse-event triage | complete FSV for FDA label/event source readback, parsed safety rows, mapped candidate safety, and ranker block flags |
 | `50_oracle_honesty_ci_low_gate.md` | #1204 Oracle honesty gate CI-low/calibration hardening | complete FSV for calibrated lower-bound sufficiency and fail-closed missing calibration |
 | `51_discovery_chain_sufficiency_gate.md` | #1205 discovery-chain/chain-walk sufficiency gate hardening | complete FSV for calibrated assay-backed gates, missing/insufficient assay refusal, and accepted-hop evidence readback |
+| `52_falsification_asserted_relation_gate.md` | #1206 falsification asserted-relation matching | complete FSV for structured endpoint matching, skipped unstructured rows, and real-source relation readback |
 | (added as work proceeds) | | |
