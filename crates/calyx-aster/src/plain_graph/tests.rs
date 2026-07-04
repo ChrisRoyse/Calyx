@@ -200,6 +200,41 @@ fn physical_assoc_graph_prefers_persisted_csr_projection() {
 }
 
 #[test]
+fn physical_edge_out_props_are_collection_local() {
+    let unique = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let dir = std::env::temp_dir().join(format!(
+        "calyx-physical-plain-graph-edge-props-{}-{unique}",
+        std::process::id()
+    ));
+    let vault =
+        AsterVault::new_durable(&dir, vault_id(), b"salt", VaultOptions::default()).unwrap();
+    let target = PlainGraph::new(&vault, "target").unwrap();
+    let unrelated = PlainGraph::new(&vault, "unrelated").unwrap();
+    for graph in [&target, &unrelated] {
+        graph.put_node(cx(1), b"{}").unwrap();
+        graph.put_node(cx(2), b"{}").unwrap();
+    }
+    target.put_edge(cx(1), "knows", cx(2), b"target").unwrap();
+    unrelated
+        .put_edge(cx(1), "knows", cx(2), b"unrelated")
+        .unwrap();
+    vault.flush().unwrap();
+
+    let physical = PhysicalPlainGraph::open_latest(&dir, "target").unwrap();
+    let edges = physical.edge_out_props().unwrap();
+    assert_eq!(edges.len(), 1);
+    assert_eq!(edges[0].src, cx(1));
+    assert_eq!(edges[0].dst, cx(2));
+    assert_eq!(edges[0].edge_type, "knows");
+    assert_eq!(edges[0].value, b"target");
+
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
 fn failed_wal_append_leaves_neither_edge_row() {
     let unique = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)

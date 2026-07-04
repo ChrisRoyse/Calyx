@@ -170,24 +170,11 @@ pub(crate) fn write_to_calyx(
         node_values.len()
     );
     read_back_nodes(&physical, &node_values)?;
-    eprintln!("lincs-reversal: counting physical edge keys");
-    let physical_edge_out_keys = physical.edge_out_key_count()?;
-    if physical_edge_out_keys != edge_values.len() {
-        return Err(CliError::from(CalyxError {
-            code: "CALYX_LINCS_REVERSAL_EDGE_KEY_READBACK_MISMATCH",
-            message: format!(
-                "Graph CF edge key count mismatch for collection={collection}: expected {} read {physical_edge_out_keys}",
-                edge_values.len()
-            ),
-            remediation: "do not trust the LINCS reversal collection until the physical edge key range count matches the written edge set",
-        }));
-    }
-    let edge_sample = deterministic_edge_sample(&edge_values, 512);
     eprintln!(
-        "lincs-reversal: reading back {} sampled edge values",
-        edge_sample.len()
+        "lincs-reversal: reading back {} edge values by collection range",
+        edge_values.len()
     );
-    read_back_edges(&physical, &edge_sample)?;
+    let physical_edge_out_keys = read_back_edges(&physical, &edge_values)?;
     eprintln!("lincs-reversal: reading back CSR");
     let raw = physical.read_csr_bytes()?.ok_or_else(|| {
         CliError::from(CalyxError {
@@ -256,9 +243,9 @@ pub(crate) fn write_to_calyx(
             csr_blake3: blake3::hash(&raw).to_hex().to_string(),
             source_snapshot: csr.source_snapshot,
             all_node_values_read_back: true,
-            edge_value_readback_mode: "all physical edge keys counted by collection range; deterministic edge values sampled",
-            sampled_edge_values_read_back: edge_sample.len(),
-            all_edge_values_read_back: false,
+            edge_value_readback_mode: "all physical edge values read back by collection range",
+            sampled_edge_values_read_back: physical_edge_out_keys,
+            all_edge_values_read_back: true,
         },
     };
     if let Some(path) = &args.report {
@@ -359,48 +346,57 @@ fn read_back_nodes(
 
 fn read_back_edges(
     physical: &PhysicalPlainGraph,
-    edge_values: &[&(CxId, String, CxId, Vec<u8>)],
-) -> CliResult {
-    for (src, edge_type, dst, expected) in edge_values.iter().copied() {
-        let actual = physical.get_edge(*src, edge_type, *dst)?.ok_or_else(|| {
+    edge_values: &[(CxId, String, CxId, Vec<u8>)],
+) -> CliResult<usize> {
+    let physical_edges = physical.edge_out_props()?;
+    if physical_edges.len() != edge_values.len() {
+        return Err(CliError::from(CalyxError {
+            code: "CALYX_LINCS_REVERSAL_EDGE_KEY_READBACK_MISMATCH",
+            message: format!(
+                "physical Graph CF edge range count mismatch: expected {} read {}",
+                edge_values.len(),
+                physical_edges.len()
+            ),
+            remediation: "do not trust the LINCS reversal collection until the physical edge range count matches the written edge set",
+        }));
+    }
+    let expected = edge_values
+        .iter()
+        .map(|(src, edge_type, dst, value)| ((*src, edge_type.clone(), *dst), value))
+        .collect::<BTreeMap<_, _>>();
+    let mut seen = BTreeSet::new();
+    for edge in physical_edges {
+        let key = (edge.src, edge.edge_type, edge.dst);
+        let expected_value = expected.get(&key).ok_or_else(|| {
             CliError::from(CalyxError {
-                code: "CALYX_LINCS_REVERSAL_EDGE_READBACK_MISSING",
-                message: format!("missing physical Graph CF edge row {src} -{edge_type}-> {dst}"),
-                remediation: "do not trust the LINCS reversal collection until every edge reads back",
+                code: "CALYX_LINCS_REVERSAL_EDGE_READBACK_EXTRA",
+                message: format!(
+                    "physical Graph CF edge row {} -{}-> {} was not in the written edge set",
+                    key.0, key.1, key.2
+                ),
+                remediation: "do not trust the LINCS reversal collection until every edge reads back exactly",
             })
         })?;
-        if &actual != expected {
+        if edge.value != **expected_value {
             return Err(CliError::from(CalyxError {
                 code: "CALYX_LINCS_REVERSAL_EDGE_READBACK_MISMATCH",
                 message: format!(
-                    "physical Graph CF edge row {src} -{edge_type}-> {dst} differed after flush"
+                    "physical Graph CF edge row {} -{}-> {} differed after flush",
+                    key.0, key.1, key.2
                 ),
                 remediation: "do not trust the LINCS reversal collection until the mismatch is fixed and rerun",
             }));
         }
+        seen.insert(key);
     }
-    Ok(())
-}
-
-fn deterministic_edge_sample<T>(items: &[T], max_items: usize) -> Vec<&T> {
-    if items.len() <= max_items || max_items == 0 {
-        return items.iter().collect();
+    if let Some((src, edge_type, dst)) = expected.keys().find(|key| !seen.contains(*key)) {
+        return Err(CliError::from(CalyxError {
+            code: "CALYX_LINCS_REVERSAL_EDGE_READBACK_MISSING",
+            message: format!("missing physical Graph CF edge row {src} -{edge_type}-> {dst}"),
+            remediation: "do not trust the LINCS reversal collection until every edge reads back",
+        }));
     }
-    if max_items == 1 {
-        return vec![&items[0]];
-    }
-    let last = items.len() - 1;
-    let denom = max_items - 1;
-    let mut out = Vec::with_capacity(max_items);
-    let mut previous = None;
-    for index in 0..max_items {
-        let position = (index * last) / denom;
-        if previous != Some(position) {
-            out.push(&items[position]);
-            previous = Some(position);
-        }
-    }
-    out
+    Ok(seen.len())
 }
 
 fn write_report(path: &Path, report: &MaterializeLincsReversalReport) -> CliResult {

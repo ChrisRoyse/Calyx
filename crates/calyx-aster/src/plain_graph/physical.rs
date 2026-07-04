@@ -10,7 +10,7 @@ use super::assoc_graph::assoc_graph_from_csr;
 use super::csr_store;
 use super::key::{GraphKeyspace, graph_corrupt, path_error};
 use super::lifecycle::{GraphCollectionGenerationStatus, PhysicalGraphCollectionLifecycle};
-use super::types::PlainGraphCsr;
+use super::types::{PlainGraphCsr, PlainGraphEdge};
 
 pub struct PhysicalPlainGraph {
     router: CfRouter,
@@ -67,6 +67,28 @@ impl PhysicalPlainGraph {
             .into_iter()
             .filter(|entry| !is_tombstone_value(&entry.value))
             .map(|entry| Ok((self.keys.decode_node_key(&entry.key)?, entry.value)))
+            .collect()
+    }
+
+    pub fn edge_out_props(&self) -> Result<Vec<PlainGraphEdge>> {
+        let range = self.keys.edge_out_range();
+        let end = range
+            .end
+            .as_deref()
+            .ok_or_else(|| graph_corrupt("graph edge-out range is unexpectedly unbounded"))?;
+        self.router
+            .range(ColumnFamily::Graph, &range.start, end)?
+            .into_iter()
+            .filter(|entry| !is_tombstone_value(&entry.value))
+            .map(|entry| {
+                let edge = self.keys.decode_edge_out_key(&entry.key)?;
+                Ok(PlainGraphEdge {
+                    src: edge.src,
+                    dst: edge.dst,
+                    edge_type: edge.edge_type,
+                    value: entry.value,
+                })
+            })
             .collect()
     }
 

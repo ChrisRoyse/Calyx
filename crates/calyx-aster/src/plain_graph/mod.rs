@@ -195,7 +195,13 @@ impl<'a, C: Clock> PlainGraph<'a, C> {
         })
     }
 
-    /// Persist the CSR projection as ordered byte segments plus a manifest.
+    /// Persist the collection-local CSR projection as ordered byte segments plus
+    /// a manifest.
+    ///
+    /// This scans only this `PlainGraph` collection's node and outgoing-edge
+    /// key ranges; unrelated Graph CF collections are outside the key prefixes
+    /// used by `self.keys`.
+    ///
     /// The manifest row is written last so a reader never sees a manifest
     /// whose segments have not been written yet; the manifest's stream hash
     /// fails any torn/stale segment state closed on read.

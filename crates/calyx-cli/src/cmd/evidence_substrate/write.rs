@@ -152,40 +152,8 @@ pub(crate) fn write_to_calyx(
     drop(graph);
     drop(vault);
     let physical = PhysicalPlainGraph::open_latest_unchecked(&resolved.path, &collection)?;
-    for (id, expected) in &node_values {
-        let actual = physical.get_node(*id)?.ok_or_else(|| {
-            CliError::from(CalyxError {
-                code: "CALYX_EVIDENCE_SUBSTRATE_NODE_READBACK_MISSING",
-                message: format!("missing physical Graph CF node row {id}"),
-                remediation: "do not trust the evidence substrate collection until the command rewrites and reads back every node",
-            })
-        })?;
-        if &actual != expected {
-            return Err(CliError::from(CalyxError {
-                code: "CALYX_EVIDENCE_SUBSTRATE_NODE_READBACK_MISMATCH",
-                message: format!("physical Graph CF node row {id} differed after flush"),
-                remediation: "do not trust the evidence substrate collection until the node value mismatch is fixed and rerun",
-            }));
-        }
-    }
-    for (src, edge_type, dst, expected) in &edge_values {
-        let actual = physical.get_edge(*src, edge_type, *dst)?.ok_or_else(|| {
-            CliError::from(CalyxError {
-                code: "CALYX_EVIDENCE_SUBSTRATE_EDGE_READBACK_MISSING",
-                message: format!("missing physical Graph CF edge row {src} -{edge_type}-> {dst}"),
-                remediation: "do not trust the evidence substrate collection until the command rewrites and reads back every edge",
-            })
-        })?;
-        if &actual != expected {
-            return Err(CliError::from(CalyxError {
-                code: "CALYX_EVIDENCE_SUBSTRATE_EDGE_READBACK_MISMATCH",
-                message: format!(
-                    "physical Graph CF edge row {src} -{edge_type}-> {dst} differed after flush"
-                ),
-                remediation: "do not trust the evidence substrate collection until the edge value mismatch is fixed and rerun",
-            }));
-        }
-    }
+    read_back_nodes(&physical, &node_values)?;
+    let physical_edge_out_keys = read_back_edges(&physical, &edge_values)?;
     let raw = physical.read_csr_bytes()?.ok_or_else(|| {
         CliError::from(CalyxError {
             code: "CALYX_EVIDENCE_SUBSTRATE_CSR_READBACK_MISSING",
@@ -204,7 +172,7 @@ pub(crate) fn write_to_calyx(
     })?;
     let assoc = physical.assoc_graph()?;
     let physical_nodes = node_values.len();
-    let physical_edges = edge_values.len();
+    let physical_edges = physical_edge_out_keys;
     if physical_nodes != draft.nodes.len()
         || physical_edges != draft.edges.len()
         || csr.nodes.len() != draft.nodes.len()
@@ -328,6 +296,96 @@ fn accept_generation(
         )));
     }
     Ok(())
+}
+
+fn read_back_nodes(
+    physical: &PhysicalPlainGraph,
+    node_values: &BTreeMap<CxId, Vec<u8>>,
+) -> CliResult {
+    let physical_nodes = physical.node_props()?;
+    if physical_nodes.len() != node_values.len() {
+        return Err(CliError::from(CalyxError {
+            code: "CALYX_EVIDENCE_SUBSTRATE_NODE_KEY_READBACK_MISMATCH",
+            message: format!(
+                "physical Graph CF node range count mismatch: expected {} read {}",
+                node_values.len(),
+                physical_nodes.len()
+            ),
+            remediation: "do not trust the evidence substrate collection until the physical node range count matches the written node set",
+        }));
+    }
+    for (id, actual) in physical_nodes {
+        let expected = node_values.get(&id).ok_or_else(|| {
+            CliError::from(CalyxError {
+                code: "CALYX_EVIDENCE_SUBSTRATE_NODE_READBACK_EXTRA",
+                message: format!("physical Graph CF node row {id} was not in the written node set"),
+                remediation: "do not trust the evidence substrate collection until every node reads back",
+            })
+        })?;
+        if &actual != expected {
+            return Err(CliError::from(CalyxError {
+                code: "CALYX_EVIDENCE_SUBSTRATE_NODE_READBACK_MISMATCH",
+                message: format!("physical Graph CF node row {id} differed after flush"),
+                remediation: "do not trust the evidence substrate collection until the node value mismatch is fixed and rerun",
+            }));
+        }
+    }
+    Ok(())
+}
+
+fn read_back_edges(
+    physical: &PhysicalPlainGraph,
+    edge_values: &[(CxId, String, CxId, Vec<u8>)],
+) -> CliResult<usize> {
+    let physical_edges = physical.edge_out_props()?;
+    if physical_edges.len() != edge_values.len() {
+        return Err(CliError::from(CalyxError {
+            code: "CALYX_EVIDENCE_SUBSTRATE_EDGE_KEY_READBACK_MISMATCH",
+            message: format!(
+                "physical Graph CF edge range count mismatch: expected {} read {}",
+                edge_values.len(),
+                physical_edges.len()
+            ),
+            remediation: "do not trust the evidence substrate collection until the physical edge range count matches the written edge set",
+        }));
+    }
+    let expected = edge_values
+        .iter()
+        .map(|(src, edge_type, dst, value)| ((*src, edge_type.clone(), *dst), value))
+        .collect::<BTreeMap<_, _>>();
+    let mut seen = BTreeSet::new();
+    for edge in physical_edges {
+        let key = (edge.src, edge.edge_type, edge.dst);
+        let expected_value = expected.get(&key).ok_or_else(|| {
+            CliError::from(CalyxError {
+                code: "CALYX_EVIDENCE_SUBSTRATE_EDGE_READBACK_EXTRA",
+                message: format!(
+                    "physical Graph CF edge row {} -{}-> {} was not in the written edge set",
+                    key.0, key.1, key.2
+                ),
+                remediation: "do not trust the evidence substrate collection until every edge reads back exactly",
+            })
+        })?;
+        if edge.value != **expected_value {
+            return Err(CliError::from(CalyxError {
+                code: "CALYX_EVIDENCE_SUBSTRATE_EDGE_READBACK_MISMATCH",
+                message: format!(
+                    "physical Graph CF edge row {} -{}-> {} differed after flush",
+                    key.0, key.1, key.2
+                ),
+                remediation: "do not trust the evidence substrate collection until the edge value mismatch is fixed and rerun",
+            }));
+        }
+        seen.insert(key);
+    }
+    if let Some((src, edge_type, dst)) = expected.keys().find(|key| !seen.contains(*key)) {
+        return Err(CliError::from(CalyxError {
+            code: "CALYX_EVIDENCE_SUBSTRATE_EDGE_READBACK_MISSING",
+            message: format!("missing physical Graph CF edge row {src} -{edge_type}-> {dst}"),
+            remediation: "do not trust the evidence substrate collection until every edge reads back",
+        }));
+    }
+    Ok(seen.len())
 }
 
 fn node_props(node: &super::model::EvidenceNode) -> AsterAssocNodeProps {
