@@ -74,4 +74,5 @@ still requires experimental confirmation.
 | `51_discovery_chain_sufficiency_gate.md` | #1205 discovery-chain/chain-walk sufficiency gate hardening | complete FSV for calibrated assay-backed gates, missing/insufficient assay refusal, and accepted-hop evidence readback |
 | `52_falsification_asserted_relation_gate.md` | #1206 falsification asserted-relation matching | complete FSV for structured endpoint matching, skipped unstructured rows, and real-source relation readback |
 | `53_batch_ingest_provenance_gate.md` | #1211 batch-ingest source provenance gate | complete FSV for parser-preflight fail-closed enforcement and Base CF metadata readback |
+| `54_oracle_event_fsv_snapshot_gate.md` | #1215 oracle-event FSV snapshot readback | complete FSV for current-snapshot Recurrence CF artifact write and broad batch FSV run |
 | (added as work proceeds) | | |

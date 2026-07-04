@@ -86,15 +86,21 @@ fn batch_ingest_structures_oracle_recurrence_for_reverse_query() {
     assert_eq!(causes[0].action_or_event, "What treats type 2 diabetes?");
     assert!(!causes[0].provisional);
     if let Some(fsv_root) = calyx_fsv::fsv_root("CALYX_FSV_ROOT") {
+        let fsv_snapshot = vault.snapshot();
         let recurrence_rows = vault
-            .scan_cf_at(snapshot, ColumnFamily::Recurrence)
+            .scan_cf_at(fsv_snapshot, ColumnFamily::Recurrence)
             .unwrap()
             .len();
         let report = json!({
             "issue": 885,
+            "fixed_by_issue": 1215,
             "scenario": "oracle_event_batch_ingest_reverse_query",
             "vault_path": resolved.path.display().to_string(),
             "cx_id": cx_id.to_string(),
+            "snapshots": {
+                "initial_readback": snapshot,
+                "fsv_readback": fsv_snapshot,
+            },
             "base_metadata": {
                 "oracle.domain": cx.metadata_value(calyx_oracle::ORACLE_DOMAIN_METADATA_KEY),
                 "oracle.action": cx.metadata_value(calyx_oracle::ORACLE_ACTION_METADATA_KEY),
