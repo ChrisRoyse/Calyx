@@ -115,7 +115,7 @@ topic explicitly persists fixtures (oracle topics; see §2.4). Dispatched in
 | `readback --hex <file>` | `<file>` path | `cli_support::readback_hex` | Reads file, prints hex. |
 | `readback --vault-tree <dir>` | `<dir>` | `vault_tree::readback_vault_tree` | Reads vault dir tree. |
 | `readback --vault <dir> --verify-against <sqlite.db>` | paths | `leapable::readback_dual_write_verify` | Reads vault + SQLite; prints verify JSON. |
-| `readback --vault <dir> --show-manifest` | path | `leapable::readback_shadow_manifest` | Reads MANIFEST. |
+| `readback --vault <dir> --show-manifest` | path | `manifest_readback::readback_vault_manifest` | Auto-detects vault format from on-disk bytes (issue #1262): shadow `MANIFEST` magic `CXSHDW1!` -> shadow readback; native `CURRENT` pointer -> native Aster manifest (tagged `vault_format:"native-aster"`); neither -> `CALYX_VAULT_FORMAT_UNRECOGNIZED`. |
 | `readback vault-manifest --field <name> --vault <dir>` | `--field`, `--vault` | `manifest_readback::readback_vault_manifest_field` | Reads one manifest field. |
 | `readback --cf <name> --vault <dir>` | `--cf`, `--vault` | `ops::readback_cf` | Reads a column family. |
 | `readback --cf ledger --vault <dir> --seq <n>` | `--seq` (u64) | `verify::readback_ledger_seq` | Reads ledger entry at seq. |

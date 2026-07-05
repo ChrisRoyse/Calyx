@@ -466,8 +466,9 @@ main() -> entry::main()
     2. healthcheck_daemon::try_run(args)  -> PH65 T04 daemon-readiness (early exit)
     3. dispatch::run(args)                -> generic command dispatch
          dispatch::run() pattern-matches argv and routes to one handler module, e.g.:
-           readback --hex / --vault-tree / --show-manifest -> cli_support, vault_tree, leapable
-           vault-manifest / temporal_search readbacks       -> manifest_readback, temporal_readback
+           readback --hex / --vault-tree                    -> cli_support, vault_tree
+           readback --show-manifest / vault-manifest        -> manifest_readback (auto-detects native vs shadow, #1262)
+           temporal_search readback                          -> temporal_readback
            anneal_*                                          -> anneal_commands + anneal_*_readback
            sextant / lens / panel / lodestar / oracle / media-> *_commands, *_readback, *_validation
            verify / provenance / merkle / ledger_store       -> ledger + provenance handlers
