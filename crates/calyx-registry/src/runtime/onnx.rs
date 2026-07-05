@@ -20,7 +20,9 @@ mod cuda_guard;
 mod custom;
 mod dynamic_ort;
 mod fastembed_runtime;
+mod green_context;
 mod io_binding;
+mod session;
 mod special;
 mod windows_cuda_dlls;
 

@@ -2,7 +2,6 @@ use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
 use calyx_core::{CalyxError, Input, Lens, LensId, Modality, Result, SlotShape, SlotVector};
-use ort::session::Session;
 use ort::value::ValueType;
 use serde_json::Value;
 use tokenizers::Tokenizer;
@@ -11,7 +10,8 @@ use super::colbert_files::fetch_answerai_colbert_files;
 use super::colbert_tokens::multi_rows;
 use super::cuda_guard::CudaDropGuard;
 use super::custom::batch::{TokenBatch, max_tokens_from_config, session_inputs, token_batches};
-use super::io_binding::{OnnxRunPlan, build_session};
+use super::io_binding::OnnxRunPlan;
+use super::session::{ManagedOnnxSession, build_session};
 use super::{OnnxModelFiles, OnnxProviderPolicy, config_invalid};
 use crate::frozen::{FrozenLensContract, LensDType, NormPolicy, sha256_digest};
 use crate::runtime::common::hash_files;
@@ -45,7 +45,7 @@ pub struct OnnxColbertLens {
 }
 
 struct OnnxColbertRuntime {
-    session: Option<Session>,
+    session: Option<ManagedOnnxSession>,
     run_plan: OnnxRunPlan,
     tokenizer: Tokenizer,
     token_dim: u32,
@@ -353,10 +353,10 @@ impl OnnxColbertRuntime {
             .session
             .as_mut()
             .ok_or_else(|| CalyxError::lens_unreachable("ONNX ColBERT session is unavailable"))?;
-        let input_tensors = session_inputs(session, batch)?;
+        let input_tensors = session_inputs(session.as_ref(), batch)?;
         let token_dim = self.token_dim as usize;
         self.run_plan.run_extract(
-            session,
+            session.as_mut(),
             input_tensors,
             (batch.batch, batch.seq),
             |outputs| {
@@ -424,7 +424,7 @@ fn validate_config(path: &Path) -> Result<Value> {
     })
 }
 
-fn output_token_dim(session: &Session) -> Result<u32> {
+fn output_token_dim(session: &ort::session::Session) -> Result<u32> {
     let output = session
         .outputs()
         .iter()

@@ -19,7 +19,7 @@ default = []
 # compiled out. Platform limits belong in the owning crate (calyx-sextant
 # target-gates cuVS to Linux), and what actually got compiled is proven via
 # build-info `capabilities`, not feature names.
-cuda = ["calyx-forge/cuda", "calyx-registry/candle-cuda", "calyx-sextant/cuda"]
+cuda = ["calyx-forge/cuda", "calyx-registry/cuda", "calyx-sextant/cuda"]
 
 [build-dependencies]
 calyx-buildinfo = { path = "../calyx-buildinfo" }

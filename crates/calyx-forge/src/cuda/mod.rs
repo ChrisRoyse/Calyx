@@ -3,6 +3,7 @@ pub mod distance;
 #[cfg(test)]
 mod distance_tests;
 pub mod gemm;
+pub mod green_context;
 pub mod grouped_gemm;
 #[cfg(test)]
 mod grouped_gemm_tests;
@@ -21,6 +22,7 @@ pub use gemm::{
     bench_gemm_cublas, bench_gemm_reference_cublas, gemm_cublas, gemm_mxfp4_fp32_accum,
     gemm_mxfp8_fp32_accum, probe_allocation,
 };
+pub use green_context::CudaGreenContextStream;
 pub use grouped_gemm::{
     AbsentSlotSentinel, GemmProblem, GroupedGemmExecutionMode, GroupedGemmPlan,
     build_grouped_gemm_plan, execute_grouped_gemm, execute_grouped_gemm_strict,

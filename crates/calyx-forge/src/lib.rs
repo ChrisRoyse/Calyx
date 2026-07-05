@@ -37,11 +37,11 @@ pub use compression_report::{
 pub use cpu::CpuBackend;
 #[cfg(feature = "cuda")]
 pub use cuda::{
-    AbsentSlotSentinel, CudaBackend, CudaContext, GemmProblem, GroupedGemmExecutionMode,
-    GroupedGemmPlan, RaggedBatch, build_grouped_gemm_plan, build_ragged_batch,
-    build_ragged_batch_from_slabs, execute_grouped_gemm, execute_grouped_gemm_strict,
-    extract_ragged_results, init_cuda, query_device_info, read_grouped_gemm_output,
-    try_extract_ragged_results,
+    AbsentSlotSentinel, CudaBackend, CudaContext, CudaGreenContextStream, GemmProblem,
+    GroupedGemmExecutionMode, GroupedGemmPlan, RaggedBatch, build_grouped_gemm_plan,
+    build_ragged_batch, build_ragged_batch_from_slabs, execute_grouped_gemm,
+    execute_grouped_gemm_strict, extract_ragged_results, init_cuda, query_device_info,
+    read_grouped_gemm_output, try_extract_ragged_results,
 };
 pub use error::ForgeError;
 pub use mxfp4::{

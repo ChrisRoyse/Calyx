@@ -2,7 +2,6 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use calyx_core::{CalyxError, Input, Lens, Result, SlotShape, SlotVector};
-use ort::session::Session;
 use ort::value::ValueType;
 use serde_json::Value;
 use tokenizers::Tokenizer;
@@ -10,14 +9,15 @@ use tokenizers::Tokenizer;
 pub(in crate::runtime::onnx) mod batch;
 
 use super::cuda_guard::CudaDropGuard;
-use super::io_binding::{OnnxRunPlan, build_session};
+use super::io_binding::OnnxRunPlan;
+use super::session::{ManagedOnnxSession, build_session};
 use super::{OnnxFileSpec, OnnxLens, OnnxModelFiles, PoolingPolicy, config_invalid};
 use crate::frozen::{FrozenLensContract, LensDType, NormPolicy, sha256_digest};
 use crate::runtime::common::{hash_files, normalize_unit};
 use batch::{TokenBatch, session_inputs, token_batches};
 
 pub struct CustomOnnxRuntime {
-    session: Session,
+    session: ManagedOnnxSession,
     run_plan: OnnxRunPlan,
     tokenizer: Tokenizer,
     pooling: PoolingPolicy,
@@ -151,11 +151,11 @@ pub fn from_files(spec: OnnxFileSpec) -> Result<OnnxLens> {
 
 impl CustomOnnxRuntime {
     fn run_token_batch(&mut self, batch: &TokenBatch) -> Result<Vec<Vec<f32>>> {
-        let input_tensors = session_inputs(&self.session, batch)?;
+        let input_tensors = session_inputs(self.session.as_ref(), batch)?;
         let pooling = self.pooling;
         let dim = self.dim;
         self.run_plan.run_extract(
-            &mut self.session,
+            self.session.as_mut(),
             input_tensors,
             (batch.batch, batch.seq),
             |outputs| {
@@ -280,7 +280,7 @@ fn validate_config(path: &Path) -> Result<Value> {
     }
 }
 
-fn output_dim(session: &Session) -> Result<u32> {
+fn output_dim(session: &ort::session::Session) -> Result<u32> {
     let output = session
         .outputs()
         .iter()

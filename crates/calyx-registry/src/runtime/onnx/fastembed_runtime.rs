@@ -168,6 +168,14 @@ pub fn execution_providers_on_device(
     policy: OnnxProviderPolicy,
     device_id: i32,
 ) -> Result<Vec<fastembed::ExecutionProviderDispatch>> {
+    execution_providers_on_device_with_stream(policy, device_id, None)
+}
+
+pub fn execution_providers_on_device_with_stream(
+    policy: OnnxProviderPolicy,
+    device_id: i32,
+    compute_stream: Option<*mut ()>,
+) -> Result<Vec<fastembed::ExecutionProviderDispatch>> {
     match policy {
         OnnxProviderPolicy::CudaFailLoud => {
             // #1143: the default kNextPowerOfTwo strategy over-reserves the
@@ -180,8 +188,11 @@ pub fn execution_providers_on_device(
                 .with_conv_algorithm_search(ConvAlgorithmSearch::Heuristic)
                 .with_conv_max_workspace(false)
                 .with_arena_extend_strategy(ArenaExtendStrategy::SameAsRequested);
-            if super::io_binding::configured_cuda_graphs()? {
+            if super::session::configured_cuda_graphs()? {
                 cuda = cuda.with_cuda_graph(true);
+            }
+            if let Some(stream) = compute_stream {
+                cuda = unsafe { cuda.with_compute_stream(stream) };
             }
             if let Some(limit) = super::arena::configured_gpu_mem_limit()? {
                 cuda = cuda.with_memory_limit(limit);
