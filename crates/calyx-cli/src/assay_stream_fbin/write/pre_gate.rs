@@ -62,6 +62,13 @@ pub(super) fn validate_before_full_encode(args: &Args) -> CliResult<PreEncodeGat
     if args.a37_admission_cf_root.is_some() {
         return validate_db_admission_before_full_encode(args);
     }
+    if args.mode.requires_gate() {
+        return Err(local_error(
+            "CALYX_FSV_ASSAY_STREAM_FBIN_A37_DB_REQUIRED",
+            "--bits-report is diagnostic-only; gate mode must read A37 admission from Calyx/Aster",
+            "write and read the A37 admission row through Calyx/Aster Graph CF before streaming",
+        ));
+    }
     let bits_report = args.bits_report.as_ref().ok_or_else(|| {
         local_error(
             "CALYX_FSV_ASSAY_STREAM_FBIN_PRE_GATE_MISSING",

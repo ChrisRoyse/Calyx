@@ -181,6 +181,11 @@ impl Args {
                 "provide exactly one of --bits-report <json> or --a37-admission-cf-root <dir>",
             ));
         }
+        if has_bits_report && self.mode.requires_gate() {
+            return Err(CliError::usage(
+                "--bits-report is diagnostic-only; gate mode requires --a37-admission-cf-root <dir>",
+            ));
+        }
         if self.a37_admission_key.trim().is_empty() {
             return Err(CliError::usage("--a37-admission-key must be non-empty"));
         }

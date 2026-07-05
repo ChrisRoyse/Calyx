@@ -36,11 +36,18 @@ pub(super) fn load_bits(args: &Args) -> CliResult<BTreeMap<String, BitsLens>> {
     if args.a37_admission_cf_root.is_some() {
         return load_a37_admission_bits(args);
     }
+    if args.mode.requires_gate() {
+        return Err(local_error(
+            "CALYX_FSV_ASSAY_STREAM_FBIN_A37_DB_REQUIRED",
+            "--bits-report is diagnostic-only; gate mode must read A37 admission from Calyx/Aster",
+            "write and read the A37 admission row through Calyx/Aster Graph CF before streaming",
+        ));
+    }
     let bits_report = args.bits_report.as_ref().ok_or_else(|| {
         local_error(
             "CALYX_FSV_ASSAY_STREAM_FBIN_BITS_MISSING",
             "missing --bits-report",
-            "pass a bits report or a DB-native A37 admission CF root",
+            "pass a diagnostic bits report or a DB-native A37 admission CF root",
         )
     })?;
     let report: BitsReport = serde_json::from_slice(&fs::read(bits_report).map_err(io_error)?)

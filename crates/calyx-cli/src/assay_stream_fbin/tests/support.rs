@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -5,6 +6,10 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use calyx_core::{Modality, QuantPolicy};
 use calyx_registry::{LensForgeFile, LensForgeManifest};
 use sha2::{Digest, Sha256};
+
+use crate::assay_multi_anchor_card::model::{
+    LensEvidence, MultiAnchorReport, TargetLensValue, TargetSummary,
+};
 
 use super::super::args::{Args, StreamMode};
 use super::super::format::VectorFormat;
@@ -14,6 +19,7 @@ pub(super) struct Fixture {
     pub(super) rows: PathBuf,
     pub(super) out: PathBuf,
     pub(super) bits: PathBuf,
+    a37: PathBuf,
     manifests: Vec<PathBuf>,
 }
 
@@ -32,11 +38,14 @@ impl Fixture {
         write_rows(&rows_path, rows);
         let bits = root.join("assay_abundance.json");
         write_bits(&bits, manifest_count, admitted_lenses);
+        let a37 = root.join("a37_admission_cf");
+        write_a37_admission(&a37, manifest_count, admitted_lenses, None, 0.2);
         Self {
             out: root.join("out"),
             root,
             rows: rows_path,
             bits,
+            a37,
             manifests,
         }
     }
@@ -60,8 +69,8 @@ impl Fixture {
             dataset: "unit_stream_fbin".to_string(),
             target_class: 1,
             manifests: self.manifests.clone(),
-            bits_report: Some(self.bits.clone()),
-            a37_admission_cf_root: None,
+            bits_report: None,
+            a37_admission_cf_root: Some(self.a37.clone()),
             a37_admission_key: "a37_multi_anchor_admission".to_string(),
             query_count,
             limit_per_class: None,
@@ -77,6 +86,97 @@ impl Fixture {
             worker_gpu_mem_limit_mib: None,
         }
     }
+
+    pub(super) fn json_args(&self, query_count: usize, mode: StreamMode) -> Args {
+        let mut args = self.args(query_count);
+        args.bits_report = Some(self.bits.clone());
+        args.a37_admission_cf_root = None;
+        args.mode = mode;
+        args
+    }
+
+    pub(super) fn rewrite_a37(&self, admitted: usize, names: Option<Vec<String>>, bits: f32) {
+        write_a37_admission(&self.a37, self.manifests.len(), admitted, names, bits);
+    }
+}
+
+fn write_a37_admission(
+    root: &Path,
+    lenses: usize,
+    admitted: usize,
+    names: Option<Vec<String>>,
+    bits: f32,
+) {
+    let names = names.unwrap_or_else(|| (0..lenses).map(|idx| format!("lens-{idx}")).collect());
+    let gate_passed = admitted == lenses && bits >= super::super::DEFAULT_MIN_BITS;
+    let report = MultiAnchorReport {
+        schema_version: 1,
+        role: "a37_multi_anchor_admission_card".to_string(),
+        status: if gate_passed {
+            "gate_passed"
+        } else {
+            "gate_failed"
+        }
+        .to_string(),
+        mode: "gate".to_string(),
+        gate_passed,
+        report_count: 1,
+        lens_count: lenses,
+        passing_lens_count: admitted,
+        min_lenses: super::super::MIN_A35_LENSES,
+        min_marginal_bits: super::super::DEFAULT_MIN_BITS,
+        max_redundancy: 0.6,
+        family_span_pass: gate_passed,
+        redundancy_bound_pass: gate_passed,
+        no_collapse_pass: gate_passed,
+        association_family_count: 2,
+        association_families: BTreeMap::new(),
+        min_best_marginal_bits: bits,
+        max_best_marginal_bits: bits,
+        weakest_lens: names.first().cloned().unwrap_or_default(),
+        target_summaries: vec![TargetSummary {
+            target_class: 1,
+            domain: "unit_stream_fbin".to_string(),
+            report_path: "calyx/a37/admission/v1/unit".to_string(),
+            status: if gate_passed {
+                "gate_passed"
+            } else {
+                "gate_failed"
+            }
+            .to_string(),
+            no_collapse_pass: gate_passed,
+            family_span_pass: gate_passed,
+            redundancy_bound_pass: gate_passed,
+            n_eff: admitted as f32,
+            panel_bits: bits,
+            max_marginal_bits: bits,
+            keep_count: admitted,
+            park_count: lenses.saturating_sub(admitted),
+        }],
+        lenses: names
+            .iter()
+            .enumerate()
+            .map(|(slot, name)| LensEvidence {
+                slot: slot as u16,
+                name: name.clone(),
+                association_family: if slot % 2 == 0 { "dense" } else { "sparse" }.to_string(),
+                passed: slot < admitted,
+                best_target_class: 1,
+                best_domain: "unit_stream_fbin".to_string(),
+                best_marginal_bits: bits,
+                best_solo_bits: bits + 0.01,
+                target_values: vec![TargetLensValue {
+                    target_class: 1,
+                    domain: "unit_stream_fbin".to_string(),
+                    marginal_bits: bits,
+                    solo_bits: bits + 0.01,
+                    decision: if slot < admitted { "Keep" } else { "Park" }.to_string(),
+                }],
+            })
+            .collect(),
+        source_reports: vec!["calyx/a37/admission/v1/unit".to_string()],
+    };
+    crate::a37_admission_store::write(root, "a37_multi_anchor_admission", &report).unwrap();
 }
 
 fn write_rows(path: &Path, rows: usize) {

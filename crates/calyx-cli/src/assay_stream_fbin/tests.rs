@@ -10,9 +10,7 @@ use super::write;
 #[path = "tests/support.rs"]
 mod support;
 
-use support::{
-    Fixture, staging_dir, write_bits_with_gate, write_bits_with_panel_names, write_legacy_bits,
-};
+use support::{Fixture, staging_dir, write_bits_with_gate, write_legacy_bits};
 
 #[test]
 fn stream_fbin_writes_structured_progress_snapshot() {
@@ -65,13 +63,13 @@ fn stream_fbin_writes_structured_progress_snapshot() {
         report["pre_encode_gate"]["estimate_bound"]
             .as_str()
             .unwrap(),
-        "lower_bound"
+        "a37_multi_anchor_best_target"
     );
     assert_eq!(
         report["pre_encode_gate"]["power_calibration_status"]
             .as_str()
             .unwrap(),
-        "passed"
+        "db_readback_passed"
     );
     assert_eq!(
         report["pre_encode_gate"]["streamed_lenses"]
@@ -280,15 +278,15 @@ fn stream_fbin_rejects_temporal_sidecar_as_content_feature() {
 }
 
 #[test]
-fn stream_fbin_rejects_leaked_anchor_bits_before_rows() {
-    let fixture = Fixture::new("stream-fbin-leaked-anchor", 10, 10, 50);
+fn stream_fbin_rejects_json_gate_before_rows() {
+    let fixture = Fixture::new("stream-fbin-json-gate", 10, 10, 50);
     mark_bits_as_leaked(&fixture.bits);
-    let mut args = fixture.args(8);
+    let mut args = fixture.json_args(8, StreamMode::Gate);
     args.rows_jsonl = fixture.root.join("missing-rows.jsonl");
 
     let error = write::run(&args).unwrap_err();
 
-    assert_eq!(error.code(), "CALYX_FSV_ASSAY_TRIVIAL_ANCHOR");
+    assert_eq!(error.code(), "CALYX_FSV_ASSAY_STREAM_FBIN_A37_DB_REQUIRED");
     assert!(!fixture.out.exists());
     assert!(!staging_dir(&fixture).exists());
     let _ = fs::remove_dir_all(fixture.root);
@@ -298,8 +296,7 @@ fn stream_fbin_rejects_leaked_anchor_bits_before_rows() {
 fn stream_fbin_diagnostic_mode_records_insufficient_panel() {
     let fixture = Fixture::new("stream-fbin-diagnostic-insufficient", 10, 10, 50);
     write_bits_with_gate(&fixture.bits, 10, 10, 0.42, "passed", 1.0);
-    let mut args = fixture.args(8);
-    args.mode = StreamMode::Diagnostic;
+    let args = fixture.json_args(8, StreamMode::Diagnostic);
 
     write::run(&args).unwrap();
 
@@ -320,8 +317,7 @@ fn stream_fbin_diagnostic_mode_records_insufficient_panel() {
 fn stream_fbin_diagnostic_mode_records_leaked_anchor() {
     let fixture = Fixture::new("stream-fbin-diagnostic-anchor-leak", 10, 10, 50);
     mark_bits_as_leaked(&fixture.bits);
-    let mut args = fixture.args(8);
-    args.mode = StreamMode::Diagnostic;
+    let args = fixture.json_args(8, StreamMode::Diagnostic);
 
     write::run(&args).unwrap();
 
@@ -357,13 +353,13 @@ fn stream_fbin_rejects_existing_output_before_loading_inputs() {
 #[test]
 fn stream_fbin_pre_gate_refuses_before_row_scan() {
     let fixture = Fixture::new("stream-fbin-pre-gate-refused", 10, 10, 8);
-    write_bits_with_gate(&fixture.bits, 10, 10, 0.42, "passed", 1.0);
+    fixture.rewrite_a37(9, None, 0.2);
     let mut args = fixture.args(2);
     args.rows_jsonl = fixture.root.join("missing-rows.jsonl");
 
     let error = write::run(&args).unwrap_err();
 
-    assert_eq!(error.code(), "CALYX_FSV_ASSAY_STREAM_FBIN_PRE_GATE_REFUSED");
+    assert_eq!(error.code(), "CALYX_FSV_ASSAY_STREAM_FBIN_LENS_REJECTED");
     assert!(!fixture.out.exists());
     assert!(!staging_dir(&fixture).exists());
     let _ = fs::remove_dir_all(fixture.root);
@@ -376,11 +372,11 @@ fn stream_fbin_pre_gate_fails_closed_on_missing_anchor_audit() {
     // eligible.
     let fixture = Fixture::new("stream-fbin-pre-gate-no-audit", 10, 10, 50);
     strip_bits_anchor_audit(&fixture.bits);
-    let args = fixture.args(8);
+    let args = fixture.json_args(8, StreamMode::Gate);
 
     let error = write::run(&args).unwrap_err();
 
-    assert_eq!(error.code(), "CALYX_FSV_ASSAY_TRIVIAL_ANCHOR");
+    assert_eq!(error.code(), "CALYX_FSV_ASSAY_STREAM_FBIN_A37_DB_REQUIRED");
     assert!(!fixture.out.exists());
     assert!(!staging_dir(&fixture).exists());
     let _ = fs::remove_dir_all(fixture.root);
@@ -392,7 +388,6 @@ fn stream_fbin_pre_gate_accepts_power_adjusted_sufficiency() {
     // bounds what any panel can measure; a basis of 0.95 >= 1.0 * 0.9 is
     // sufficient even though it is below the raw anchor entropy.
     let fixture = Fixture::new("stream-fbin-pre-gate-power-adjusted", 10, 10, 50);
-    write_bits_with_gate(&fixture.bits, 10, 10, 0.95, "passed", 0.9);
     let args = fixture.args(8);
 
     write::run(&args).unwrap();
@@ -402,10 +397,10 @@ fn stream_fbin_pre_gate_accepts_power_adjusted_sufficiency() {
             .unwrap();
     assert_eq!(report["pre_encode_gate"]["sufficient"], true);
     assert_eq!(report["pre_encode_gate"]["diagnostic_only"], false);
-    let target = report["pre_encode_gate"]["power_adjusted_target_bits"]
-        .as_f64()
-        .unwrap();
-    assert!((target - 0.9).abs() < 0.000001);
+    assert_eq!(
+        report["pre_encode_gate"]["power_calibration_status"],
+        "db_readback_passed"
+    );
     assert_eq!(report["pre_encode_gate"]["deficit_bits"], 0.0);
     let _ = fs::remove_dir_all(fixture.root);
 }
@@ -414,11 +409,11 @@ fn stream_fbin_pre_gate_accepts_power_adjusted_sufficiency() {
 fn stream_fbin_pre_gate_fails_closed_on_legacy_bits_report() {
     let fixture = Fixture::new("stream-fbin-pre-gate-missing", 10, 10, 50);
     write_legacy_bits(&fixture.bits, 10, 10);
-    let args = fixture.args(8);
+    let args = fixture.json_args(8, StreamMode::Gate);
 
     let error = write::run(&args).unwrap_err();
 
-    assert_eq!(error.code(), "CALYX_FSV_ASSAY_STREAM_FBIN_PRE_GATE_MISSING");
+    assert_eq!(error.code(), "CALYX_FSV_ASSAY_STREAM_FBIN_A37_DB_REQUIRED");
     assert!(!fixture.out.exists());
     assert!(!staging_dir(&fixture).exists());
     let _ = fs::remove_dir_all(fixture.root);
@@ -428,14 +423,11 @@ fn stream_fbin_pre_gate_fails_closed_on_legacy_bits_report() {
 fn stream_fbin_pre_gate_rejects_unpowered_panel() {
     let fixture = Fixture::new("stream-fbin-pre-gate-unpowered", 10, 10, 50);
     write_bits_with_gate(&fixture.bits, 10, 10, 1.25, "underpowered", 0.25);
-    let args = fixture.args(8);
+    let args = fixture.json_args(8, StreamMode::Gate);
 
     let error = write::run(&args).unwrap_err();
 
-    assert_eq!(
-        error.code(),
-        "CALYX_FSV_ASSAY_STREAM_FBIN_PRE_GATE_UNPOWERED"
-    );
+    assert_eq!(error.code(), "CALYX_FSV_ASSAY_STREAM_FBIN_A37_DB_REQUIRED");
     assert!(!fixture.out.exists());
     assert!(!staging_dir(&fixture).exists());
     let _ = fs::remove_dir_all(fixture.root);
@@ -444,26 +436,21 @@ fn stream_fbin_pre_gate_rejects_unpowered_panel() {
 #[test]
 fn stream_fbin_pre_gate_rejects_mismatched_panel() {
     let fixture = Fixture::new("stream-fbin-pre-gate-mismatch", 10, 10, 50);
-    write_bits_with_panel_names(
-        &fixture.bits,
+    fixture.rewrite_a37(
         10,
-        10,
-        (0..9)
-            .map(|idx| format!("lens-{idx}"))
-            .chain(std::iter::once("lens-other".to_string()))
-            .collect(),
-        1.25,
-        "passed",
-        1.0,
+        Some(
+            (0..9)
+                .map(|idx| format!("lens-{idx}"))
+                .chain(std::iter::once("lens-other".to_string()))
+                .collect(),
+        ),
+        0.2,
     );
     let args = fixture.args(8);
 
     let error = write::run(&args).unwrap_err();
 
-    assert_eq!(
-        error.code(),
-        "CALYX_FSV_ASSAY_STREAM_FBIN_PRE_GATE_PANEL_MISMATCH"
-    );
+    assert_eq!(error.code(), "CALYX_FSV_ASSAY_STREAM_FBIN_BITS_MISSING");
     assert!(!fixture.out.exists());
     assert!(!staging_dir(&fixture).exists());
     let _ = fs::remove_dir_all(fixture.root);

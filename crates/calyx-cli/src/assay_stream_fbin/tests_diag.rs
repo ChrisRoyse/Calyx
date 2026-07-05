@@ -24,8 +24,7 @@ fn diagnostic_mode_can_measure_unadmitted_lens() {
         "passed",
         1.0,
     );
-    let mut args = fixture.args(8);
-    args.mode = StreamMode::Diagnostic;
+    let args = fixture.json_args(8, StreamMode::Diagnostic);
 
     write::run(&args).unwrap();
 
@@ -56,6 +55,7 @@ fn diagnostic_mode_can_measure_unadmitted_lens() {
 #[test]
 fn gate_mode_rejects_unadmitted_lens_even_when_panel_names_include_it() {
     let fixture = Fixture::new("stream-fbin-gate-unadmitted", 10, 10, 50);
+    fixture.rewrite_a37(9, None, 0.2);
     write_bits_with_panel_names(
         &fixture.bits,
         10,
