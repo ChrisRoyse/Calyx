@@ -32,7 +32,9 @@ pub(crate) struct Args {
     pub(crate) dataset: String,
     pub(crate) target_class: usize,
     pub(crate) manifests: Vec<PathBuf>,
-    pub(crate) bits_report: PathBuf,
+    pub(crate) bits_report: Option<PathBuf>,
+    pub(crate) a37_admission_cf_root: Option<PathBuf>,
+    pub(crate) a37_admission_key: String,
     pub(crate) query_count: usize,
     pub(crate) limit_per_class: Option<usize>,
     pub(crate) batch_size: usize,
@@ -55,6 +57,8 @@ impl Args {
         let mut target_class = None;
         let mut manifests = Vec::new();
         let mut bits_report = None;
+        let mut a37_admission_cf_root = None;
+        let mut a37_admission_key = "a37_multi_anchor_admission".to_string();
         let mut query_count = None;
         let mut limit_per_class = None;
         let mut batch_size = 16usize;
@@ -81,6 +85,10 @@ impl Args {
                 "--target-class" => target_class = Some(parse_usize(&next()?, flag)?),
                 "--manifest" => manifests.push(PathBuf::from(next()?)),
                 "--bits-report" => bits_report = Some(PathBuf::from(next()?)),
+                "--a37-admission-cf-root" => {
+                    a37_admission_cf_root = Some(PathBuf::from(next()?));
+                }
+                "--a37-admission-key" => a37_admission_key = next()?,
                 "--query-count" => query_count = Some(parse_usize(&next()?, flag)?),
                 "--limit-per-class" => limit_per_class = Some(parse_usize(&next()?, flag)?),
                 "--batch-size" => batch_size = parse_usize(&next()?, flag)?,
@@ -111,8 +119,9 @@ impl Args {
             target_class: target_class
                 .ok_or_else(|| CliError::usage("--target-class <n> is required"))?,
             manifests,
-            bits_report: bits_report
-                .ok_or_else(|| CliError::usage("--bits-report <json> is required"))?,
+            bits_report,
+            a37_admission_cf_root,
+            a37_admission_key,
             query_count: query_count
                 .ok_or_else(|| CliError::usage("--query-count <n> is required"))?,
             limit_per_class,
@@ -164,6 +173,16 @@ impl Args {
         }
         if !worker_mode && self.manifests.len() < 2 {
             return Err(CliError::usage("provide at least two --manifest entries"));
+        }
+        let has_bits_report = self.bits_report.is_some();
+        let has_admission_db = self.a37_admission_cf_root.is_some();
+        if has_bits_report == has_admission_db {
+            return Err(CliError::usage(
+                "provide exactly one of --bits-report <json> or --a37-admission-cf-root <dir>",
+            ));
+        }
+        if self.a37_admission_key.trim().is_empty() {
+            return Err(CliError::usage("--a37-admission-key must be non-empty"));
         }
         if self.query_count == 0 || self.batch_size == 0 {
             return Err(CliError::usage(

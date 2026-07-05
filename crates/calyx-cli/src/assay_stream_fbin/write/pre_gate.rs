@@ -59,13 +59,23 @@ struct GateInputs {
 }
 
 pub(super) fn validate_before_full_encode(args: &Args) -> CliResult<PreEncodeGateEvidence> {
+    if args.a37_admission_cf_root.is_some() {
+        return validate_db_admission_before_full_encode(args);
+    }
+    let bits_report = args.bits_report.as_ref().ok_or_else(|| {
+        local_error(
+            "CALYX_FSV_ASSAY_STREAM_FBIN_PRE_GATE_MISSING",
+            "missing --bits-report",
+            "pass a bits report or a DB-native A37 admission CF root",
+        )
+    })?;
     let report: BitsReport = serde_json::from_slice(
-        &fs::read(&args.bits_report).map_err(io_error)?,
+        &fs::read(bits_report).map_err(io_error)?,
     )
     .map_err(|error| {
         local_error(
             "CALYX_FSV_ASSAY_STREAM_FBIN_PRE_GATE_INVALID",
-            format!("parse {} failed: {error}", args.bits_report.display()),
+            format!("parse {} failed: {error}", bits_report.display()),
             "pass assay_abundance.json or full bits-validate evidence with panel sufficiency metadata",
         )
     })?;
@@ -84,7 +94,7 @@ pub(super) fn validate_before_full_encode(args: &Args) -> CliResult<PreEncodeGat
     Ok(PreEncodeGateEvidence {
         mode: args.mode.as_str(),
         diagnostic_only: !args.mode.requires_gate() || !grounded_gate_eligible || !sufficient,
-        bits_report: display(&args.bits_report),
+        bits_report: display(bits_report),
         anchor_entropy_bits: gate.anchor_entropy_bits,
         sufficiency_basis_bits: gate.sufficiency_basis_bits,
         power_adjusted_target_bits: power_adjusted_target_bits(&gate),
@@ -99,6 +109,99 @@ pub(super) fn validate_before_full_encode(args: &Args) -> CliResult<PreEncodeGat
         admitted_lenses: gate.admitted_lenses,
         streamed_lenses,
     })
+}
+
+fn validate_db_admission_before_full_encode(args: &Args) -> CliResult<PreEncodeGateEvidence> {
+    let report = super::bits::load_a37_admission(args)?;
+    let admitted_lenses = report
+        .lenses
+        .iter()
+        .map(|lens| lens.name.clone())
+        .collect::<Vec<_>>();
+    let streamed_lenses = streamed_manifest_names(args)?;
+    validate_panel_identity(&admitted_lenses, &streamed_lenses, args.mode)?;
+    let sufficient = validate_db_gate(&report, args.mode)?;
+    let deficit_bits = (report.min_marginal_bits - report.min_best_marginal_bits).max(0.0);
+    Ok(PreEncodeGateEvidence {
+        mode: args.mode.as_str(),
+        diagnostic_only: !args.mode.requires_gate() || !sufficient,
+        bits_report: format!(
+            "aster-graph-cf:{}:{}",
+            args.a37_admission_cf_root
+                .as_ref()
+                .expect("checked by caller")
+                .display(),
+            args.a37_admission_key
+        ),
+        anchor_entropy_bits: report.max_best_marginal_bits,
+        sufficiency_basis_bits: report.min_best_marginal_bits,
+        power_adjusted_target_bits: report.min_marginal_bits,
+        deficit_bits,
+        estimate_bound: "a37_multi_anchor_best_target".to_string(),
+        power_calibration_status: "db_readback_passed".to_string(),
+        power_recovery_ratio: 1.0,
+        min_power_recovery_ratio: DEFAULT_MIN_POWER_RECOVERY_RATIO,
+        sufficient,
+        grounded_gate_eligible: report.gate_passed,
+        anchor_audit: AnchorAudit {
+            grounded_gate_eligible: report.gate_passed,
+            audit_kind: Some("a37_admission_db".to_string()),
+            source: Some("calyx/a37/admission/v1".to_string()),
+            reason: Some(format!(
+                "DB-native multi-anchor A37 admission status={} gate_passed={}",
+                report.status, report.gate_passed
+            )),
+            ..AnchorAudit::default()
+        },
+        admitted_lenses,
+        streamed_lenses,
+    })
+}
+
+fn validate_db_gate(
+    report: &crate::assay_multi_anchor_card::model::MultiAnchorReport,
+    mode: StreamMode,
+) -> CliResult<bool> {
+    if report.lens_count < MIN_A35_LENSES || report.lenses.len() < MIN_A35_LENSES {
+        return Err(local_error(
+            "CALYX_FSV_ASSAY_STREAM_FBIN_A37_DB_PANEL_TOO_SMALL",
+            format!(
+                "A37 admission lens_count={} lenses={}; A35 requires at least {MIN_A35_LENSES}",
+                report.lens_count,
+                report.lenses.len()
+            ),
+            "write a DB-native A37 admission for at least ten real content lenses",
+        ));
+    }
+    let all_lenses_pass = report.passing_lens_count == report.lens_count
+        && report.lenses.iter().all(|lens| lens.passed);
+    let min_bits_pass = report.min_best_marginal_bits >= report.min_marginal_bits;
+    let passed = report.gate_passed
+        && report.family_span_pass
+        && report.redundancy_bound_pass
+        && report.no_collapse_pass
+        && all_lenses_pass
+        && min_bits_pass;
+    if !passed && mode.requires_gate() {
+        return Err(local_error(
+            "CALYX_FSV_ASSAY_STREAM_FBIN_A37_DB_REFUSED",
+            format!(
+                "A37 DB admission refused: status={} gate_passed={} family_span={} redundancy={} no_collapse={} passing_lenses={}/{} weakest_lens={} min_best_marginal_bits={:.6} required={:.6}",
+                report.status,
+                report.gate_passed,
+                report.family_span_pass,
+                report.redundancy_bound_pass,
+                report.no_collapse_pass,
+                report.passing_lens_count,
+                report.lens_count,
+                report.weakest_lens,
+                report.min_best_marginal_bits,
+                report.min_marginal_bits
+            ),
+            "pass a gate-passed DB-native multi-anchor A37 admission row for the exact manifest roster",
+        ));
+    }
+    Ok(passed)
 }
 
 fn gate_inputs(report: &BitsReport) -> CliResult<GateInputs> {

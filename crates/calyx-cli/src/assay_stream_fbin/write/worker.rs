@@ -322,8 +322,6 @@ fn add_worker_args(
         .arg(&args.dataset)
         .arg("--target-class")
         .arg(args.target_class.to_string())
-        .arg("--bits-report")
-        .arg(&args.bits_report)
         .arg("--query-count")
         .arg(args.query_count.to_string())
         .arg("--batch-size")
@@ -340,6 +338,7 @@ fn add_worker_args(
         .arg(report)
         .arg("--worker-slot")
         .arg(slot.to_string());
+    add_admission_args(command, args);
     if let Some(limit) = args.limit_per_class {
         command.arg("--limit-per-class").arg(limit.to_string());
     }
@@ -348,6 +347,19 @@ fn add_worker_args(
     }
     if let Some(id) = &args.embedding_model_id {
         command.arg("--embedding-model-id").arg(id);
+    }
+}
+
+#[cfg(not(test))]
+fn add_admission_args(command: &mut Command, args: &Args) {
+    if let Some(path) = &args.bits_report {
+        command.arg("--bits-report").arg(path);
+    }
+    if let Some(path) = &args.a37_admission_cf_root {
+        command.arg("--a37-admission-cf-root").arg(path);
+        command
+            .arg("--a37-admission-key")
+            .arg(&args.a37_admission_key);
     }
 }
 
