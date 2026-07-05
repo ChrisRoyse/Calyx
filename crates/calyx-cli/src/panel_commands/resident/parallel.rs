@@ -10,6 +10,7 @@
 //! (#1154) unless explicitly downgraded.
 
 use calyx_core::Result;
+use calyx_registry::measure_registry_batch_with_runtime_limit;
 
 use super::server::ResidentService;
 use super::*;
@@ -129,6 +130,7 @@ pub(super) fn measure_chunk_lenses(
     service: &ResidentService,
     modality: Modality,
     chunk: &[Input],
+    runtime_batch_limit: Option<usize>,
 ) -> CliResult<BTreeMap<LensId, Vec<SlotVector>>> {
     let policy = require_parallel_policy()?;
     let floor_us = overlap_floor_ms()?.saturating_mul(1000);
@@ -147,7 +149,12 @@ pub(super) fn measure_chunk_lenses(
     }
     let registry = &service.state.build.registry;
     let outcomes = fan_out(runnable.len(), |index| {
-        registry.measure_batch(runnable[index].lens_id, chunk)
+        measure_registry_batch_with_runtime_limit(
+            registry,
+            runnable[index].lens_id,
+            chunk,
+            runtime_batch_limit,
+        )
     });
 
     let mut measured_by_lens = BTreeMap::new();

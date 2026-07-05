@@ -30,6 +30,9 @@ pub(super) struct ClientFlags {
     pub(super) out: Option<PathBuf>,
     pub(super) modality: Option<Modality>,
     pub(super) input: Option<ClientMeasureInput>,
+    pub(super) inputs: Vec<ClientMeasureInput>,
+    pub(super) runtime_batch_limit: Option<usize>,
+    pub(super) summary_only: bool,
 }
 
 pub(super) fn parse_serve_flags(args: &[String]) -> CliResult<ServeFlags> {
@@ -94,6 +97,9 @@ pub(super) fn parse_client_flags(args: &[String], op: &str) -> CliResult<ClientF
     let mut out = None;
     let mut modality = None;
     let mut input = None;
+    let mut inputs = Vec::new();
+    let mut runtime_batch_limit = None;
+    let mut summary_only = false;
     let mut idx = 0;
     while idx < args.len() {
         match args[idx].as_str() {
@@ -102,8 +108,10 @@ pub(super) fn parse_client_flags(args: &[String], op: &str) -> CliResult<ClientF
             "--modality" => modality = Some(parse_modality(value(args, idx + 1, "--modality")?)?),
             "--input" => set_input(
                 &mut input,
+                &mut inputs,
                 ClientMeasureInput::Utf8(value(args, idx + 1, "--input")?.to_string()),
                 "--input",
+                op,
             )?,
             "--input-file" => {
                 let path = PathBuf::from(value(args, idx + 1, "--input-file")?);
@@ -112,18 +120,74 @@ pub(super) fn parse_client_flags(args: &[String], op: &str) -> CliResult<ClientF
                 })?;
                 set_input(
                     &mut input,
+                    &mut inputs,
                     ClientMeasureInput::Hex(hex_encode(&bytes)),
                     "--input-file",
+                    op,
                 )?;
+            }
+            "--inputs-jsonl" => {
+                if op != "measure-batch" {
+                    return Err(CliError::usage(
+                        "--inputs-jsonl is only valid for calyx panel resident measure-batch",
+                    ));
+                }
+                let path = PathBuf::from(value(args, idx + 1, "--inputs-jsonl")?);
+                let bytes = std::fs::read(&path).map_err(|error| {
+                    CliError::io(format!("read --inputs-jsonl {path:?}: {error}"))
+                })?;
+                for (line_index, line) in bytes.split(|byte| *byte == b'\n').enumerate() {
+                    let line = line.strip_suffix(b"\r").unwrap_or(line);
+                    if line.is_empty() {
+                        continue;
+                    }
+                    let value: serde_json::Value =
+                        serde_json::from_slice(line).map_err(|error| {
+                            CliError::usage(format!(
+                                "parse --inputs-jsonl {} line {}: {error}",
+                                path.display(),
+                                line_index + 1
+                            ))
+                        })?;
+                    let text = value
+                        .get("text")
+                        .and_then(serde_json::Value::as_str)
+                        .ok_or_else(|| {
+                            CliError::usage(format!(
+                                "--inputs-jsonl {} line {} must contain a string text field",
+                                path.display(),
+                                line_index + 1
+                            ))
+                        })?;
+                    inputs.push(ClientMeasureInput::Utf8(text.to_string()));
+                }
             }
             "--input-hex" => {
                 let raw = value(args, idx + 1, "--input-hex")?;
                 let bytes = hex_decode(raw).map_err(CliError::usage)?;
                 set_input(
                     &mut input,
+                    &mut inputs,
                     ClientMeasureInput::Hex(hex_encode(&bytes)),
                     "--input-hex",
+                    op,
                 )?;
+            }
+            "--runtime-batch-limit" => {
+                runtime_batch_limit = Some(parse_usize(
+                    value(args, idx + 1, "--runtime-batch-limit")?,
+                    "--runtime-batch-limit",
+                )?)
+            }
+            "--summary-only" => {
+                if op != "measure-batch" {
+                    return Err(CliError::usage(
+                        "--summary-only is only valid for calyx panel resident measure-batch",
+                    ));
+                }
+                summary_only = true;
+                idx += 1;
+                continue;
             }
             other => {
                 return Err(CliError::usage(format!(
@@ -138,19 +202,38 @@ pub(super) fn parse_client_flags(args: &[String], op: &str) -> CliResult<ClientF
             "calyx panel resident measure requires --modality <name> and exactly one input flag",
         ));
     }
+    if op == "measure-batch" && (modality.is_none() || inputs.is_empty()) {
+        return Err(CliError::usage(
+            "calyx panel resident measure-batch requires --modality <name> and one or more input flags",
+        ));
+    }
+    if op != "measure-batch" && runtime_batch_limit.is_some() {
+        return Err(CliError::usage(
+            "--runtime-batch-limit is only valid for calyx panel resident measure-batch",
+        ));
+    }
     Ok(ClientFlags {
         addr,
         out,
         modality,
         input,
+        inputs,
+        runtime_batch_limit,
+        summary_only,
     })
 }
 
 fn set_input(
     slot: &mut Option<ClientMeasureInput>,
+    inputs: &mut Vec<ClientMeasureInput>,
     value: ClientMeasureInput,
     flag: &str,
+    op: &str,
 ) -> CliResult {
+    if op == "measure-batch" {
+        inputs.push(value);
+        return Ok(());
+    }
     if slot.is_some() {
         return Err(CliError::usage(format!(
             "calyx panel resident measure accepts only one input flag; duplicate at {flag}"
@@ -277,5 +360,91 @@ mod tests {
         let flags = parse_serve_flags(&args(&["--template", "blackwell-42"])).unwrap();
         assert_eq!(flags.template.as_deref(), Some("blackwell-42"));
         assert!(flags.vault.is_none());
+    }
+
+    #[test]
+    fn parse_measure_batch_accepts_inputs_and_summary() {
+        let flags = parse_client_flags(
+            &args(&[
+                "--modality",
+                "text",
+                "--input",
+                "alpha",
+                "--input-hex",
+                "62657461",
+                "--runtime-batch-limit",
+                "4",
+                "--summary-only",
+            ]),
+            "measure-batch",
+        )
+        .unwrap();
+
+        assert_eq!(flags.modality, Some(Modality::Text));
+        assert_eq!(flags.inputs.len(), 2);
+        assert_eq!(flags.runtime_batch_limit, Some(4));
+        assert!(flags.summary_only);
+        match &flags.inputs[0] {
+            ClientMeasureInput::Utf8(value) => assert_eq!(value, "alpha"),
+            other => panic!("expected utf8 input, got {other:?}"),
+        }
+        match &flags.inputs[1] {
+            ClientMeasureInput::Hex(value) => assert_eq!(value, "62657461"),
+            other => panic!("expected hex input, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parse_measure_batch_inputs_jsonl_requires_text_field() {
+        let path = std::env::temp_dir().join(format!(
+            "calyx-resident-inputs-{}.jsonl",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::write(&path, "{\"text\":\"alpha\"}\n{\"text\":\"beta\"}\n").unwrap();
+        let flags = parse_client_flags(
+            &args(&[
+                "--modality",
+                "text",
+                "--inputs-jsonl",
+                path.to_str().unwrap(),
+            ]),
+            "measure-batch",
+        )
+        .unwrap();
+        assert_eq!(flags.inputs.len(), 2);
+
+        std::fs::write(&path, "{\"not_text\":1}\n").unwrap();
+        let error = parse_client_flags(
+            &args(&[
+                "--modality",
+                "text",
+                "--inputs-jsonl",
+                path.to_str().unwrap(),
+            ]),
+            "measure-batch",
+        )
+        .unwrap_err();
+        let _ = std::fs::remove_file(path);
+        assert!(error.message().contains("must contain a string text field"));
+    }
+
+    #[test]
+    fn parse_measure_rejects_batch_only_flags() {
+        let error = parse_client_flags(
+            &args(&[
+                "--modality",
+                "text",
+                "--input",
+                "alpha",
+                "--runtime-batch-limit",
+                "4",
+            ]),
+            "measure",
+        )
+        .unwrap_err();
+        assert!(error.message().contains("--runtime-batch-limit"));
     }
 }

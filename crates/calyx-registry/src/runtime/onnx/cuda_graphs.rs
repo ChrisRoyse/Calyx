@@ -23,6 +23,13 @@ struct CudaGraphBinding {
     input_tensors: BTreeMap<String, Tensor<i64>>,
 }
 
+pub(super) struct CudaGraphRunRequest<'a> {
+    pub(super) label: &'a str,
+    pub(super) device_id: i32,
+    pub(super) shape: (usize, usize),
+    pub(super) options: Option<&'a RunOptions>,
+}
+
 impl CudaGraphRunConfig {
     pub(super) fn new(enabled: bool) -> Self {
         Self {
@@ -75,16 +82,15 @@ impl CudaGraphRunConfig {
     pub(super) fn run_extract<R>(
         &mut self,
         session: &mut Session,
-        label: &str,
-        device_id: i32,
-        shape: (usize, usize),
+        request: CudaGraphRunRequest<'_>,
         inputs: Vec<(String, Tensor<i64>)>,
-        options: Option<&RunOptions>,
         extract: impl FnOnce(&SessionOutputs<'_>) -> Result<R>,
     ) -> Result<R> {
+        let label = request.label;
+        let shape = request.shape;
         let is_new = !self.bindings.contains_key(&shape);
         if is_new {
-            let binding = CudaGraphBinding::new(session, label, device_id, shape, &inputs)?;
+            let binding = CudaGraphBinding::new(session, label, request.device_id, shape, &inputs)?;
             self.bindings.insert(shape, binding);
         }
         let binding = self.bindings.get_mut(&shape).ok_or_else(|| CalyxError {
@@ -95,7 +101,7 @@ impl CudaGraphRunConfig {
         if !is_new {
             binding.update_inputs(label, inputs)?;
         }
-        let mut outputs = match options {
+        let mut outputs = match request.options {
             Some(options) => session.run_binding_with_options(&binding.binding, options),
             None => session.run_binding(&binding.binding),
         }

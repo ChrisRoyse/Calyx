@@ -6,6 +6,13 @@ use super::codec::{decode_binary, encode_binary, read_frame, write_frame};
 use super::server::resolve_home_with;
 use super::*;
 
+fn resident_env_lock() -> std::sync::MutexGuard<'static, ()> {
+    static LOCK: std::sync::OnceLock<std::sync::Mutex<()>> = std::sync::OnceLock::new();
+    LOCK.get_or_init(|| std::sync::Mutex::new(()))
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
 #[test]
 fn provided_home_does_not_evaluate_env_fallback() {
     let home = PathBuf::from(r"C:\calyx");
@@ -181,6 +188,50 @@ fn resident_service_binary_truncated_frame_fails_loud() {
             .message
             .contains("read resident service binary frame body")
     );
+}
+
+#[test]
+fn resident_measure_window_decouples_runtime_limit_from_outer_chunk() {
+    let _lock = resident_env_lock();
+    let old = std::env::var_os(stream::MEASURE_WINDOW_ENV);
+    unsafe { std::env::remove_var(stream::MEASURE_WINDOW_ENV) };
+
+    assert_eq!(
+        stream::resident_measure_chunk_size(1_000, Some(4)).unwrap(),
+        128
+    );
+    assert_eq!(
+        stream::resident_measure_chunk_size(16, Some(4)).unwrap(),
+        16
+    );
+    assert_eq!(
+        stream::resident_measure_chunk_size(1_000, None).unwrap(),
+        1_000
+    );
+
+    unsafe {
+        match old {
+            Some(value) => std::env::set_var(stream::MEASURE_WINDOW_ENV, value),
+            None => std::env::remove_var(stream::MEASURE_WINDOW_ENV),
+        }
+    }
+}
+
+#[test]
+fn resident_measure_window_env_fails_closed_on_invalid_values() {
+    let _lock = resident_env_lock();
+    let old = std::env::var_os(stream::MEASURE_WINDOW_ENV);
+    unsafe { std::env::set_var(stream::MEASURE_WINDOW_ENV, "bad") };
+
+    let error = stream::resident_measure_chunk_size(10, Some(2)).unwrap_err();
+    assert_eq!(error.code(), "CALYX_PANEL_RESIDENT_MEASURE_WINDOW_INVALID");
+
+    unsafe {
+        match old {
+            Some(value) => std::env::set_var(stream::MEASURE_WINDOW_ENV, value),
+            None => std::env::remove_var(stream::MEASURE_WINDOW_ENV),
+        }
+    }
 }
 
 /// #1153/#1154 — the parallel fan-out and the never-sequential invariant.

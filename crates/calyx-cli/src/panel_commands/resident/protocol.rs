@@ -94,6 +94,24 @@ pub(crate) struct MeasureBatchAtResponse {
     pub(crate) response_bytes: usize,
 }
 
+#[derive(Debug, Serialize)]
+pub(crate) struct MeasureBatchSummaryResponse {
+    pub(crate) schema: String,
+    pub(crate) ready: bool,
+    pub(crate) process_id: u32,
+    pub(crate) template_source: String,
+    pub(crate) modality: Modality,
+    pub(crate) input_count: usize,
+    pub(crate) elapsed_ms: u128,
+    pub(crate) runtime_batch_limit: Option<usize>,
+    pub(crate) row_count: usize,
+    pub(crate) measured_slot_counts: Vec<usize>,
+    pub(crate) absent_slot_counts: Vec<usize>,
+    pub(crate) response_rows_sha256: String,
+    pub(crate) request_bytes: usize,
+    pub(crate) response_bytes: usize,
+}
+
 #[derive(Debug, Deserialize, Serialize)]
 pub(super) struct ResidentMeasureBatchBinaryRequest {
     pub(super) protocol_version: u16,

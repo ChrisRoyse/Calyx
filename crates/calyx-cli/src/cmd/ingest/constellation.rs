@@ -172,19 +172,12 @@ fn measure_registry_lens_batch_with_limit(
     inputs: &[Input],
     runtime_batch_limit: Option<usize>,
 ) -> calyx_core::Result<Vec<SlotVector>> {
-    let Some(limit) = runtime_batch_limit else {
-        return state.registry.measure_batch(lens_id, inputs);
-    };
-    if limit == 0 {
-        return Err(CalyxError::lens_unreachable(
-            "runtime batch limit must be > 0 when supplied",
-        ));
-    }
-    let mut out = Vec::with_capacity(inputs.len());
-    for chunk in inputs.chunks(limit) {
-        out.extend(state.registry.measure_batch(lens_id, chunk)?);
-    }
-    Ok(out)
+    calyx_registry::measure_registry_batch_with_runtime_limit(
+        &state.registry,
+        lens_id,
+        inputs,
+        runtime_batch_limit,
+    )
 }
 
 fn measure_applicable_lens_batch(

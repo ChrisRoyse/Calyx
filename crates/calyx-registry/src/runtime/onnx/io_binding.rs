@@ -60,7 +60,7 @@ use super::arena::{
 use super::cpu_fallback_audit::{
     AuditMode, audit_from_trace, configured_audit_mode, configured_max_cpu_fraction,
 };
-use super::cuda_graphs::{CUDA_GRAPHS_ENV, CudaGraphRunConfig};
+use super::cuda_graphs::{CUDA_GRAPHS_ENV, CudaGraphRunConfig, CudaGraphRunRequest};
 use super::session::{
     IO_BINDING_ENV, REQUIRE_STATIC_BINDING_ENV, configured_cuda_device, configured_cuda_graphs,
     cpu_ep_fallback_disabled, env_flag,
@@ -259,11 +259,13 @@ impl OnnxRunPlan {
         if self.cuda_graphs.enabled() {
             let result = self.cuda_graphs.run_extract(
                 session,
-                &self.label,
-                self.device_id,
-                shape,
+                CudaGraphRunRequest {
+                    label: &self.label,
+                    device_id: self.device_id,
+                    shape,
+                    options: run_options.as_ref(),
+                },
                 inputs,
-                run_options.as_ref(),
                 extract,
             )?;
             self.audit_placement_once(session)?;

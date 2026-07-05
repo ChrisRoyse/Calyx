@@ -1,5 +1,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::mpsc;
+use std::thread;
 
 use calyx_core::{CalyxError, Input, Lens, Result, SlotShape, SlotVector};
 use ort::value::ValueType;
@@ -7,6 +9,7 @@ use serde_json::Value;
 use tokenizers::Tokenizer;
 
 pub(in crate::runtime::onnx) mod batch;
+mod pipeline;
 
 use super::cuda_guard::CudaDropGuard;
 use super::io_binding::OnnxRunPlan;
@@ -14,7 +17,11 @@ use super::session::{ManagedOnnxSession, build_session};
 use super::{OnnxFileSpec, OnnxLens, OnnxModelFiles, PoolingPolicy, config_invalid};
 use crate::frozen::{FrozenLensContract, LensDType, NormPolicy, sha256_digest};
 use crate::runtime::common::{hash_files, normalize_unit};
-use batch::{TokenBatch, session_inputs, token_batches};
+use batch::{TokenBatch, session_inputs, stream_token_batches, token_batches};
+use pipeline::{
+    finalize_rows, log_pipeline_start, pipeline_batch_window, pipeline_output_window,
+    should_pipeline, write_pooled_rows,
+};
 
 pub struct CustomOnnxRuntime {
     session: ManagedOnnxSession,
@@ -40,6 +47,10 @@ impl CustomOnnxRuntime {
         if inputs.is_empty() {
             return Ok(Vec::new());
         }
+        let max_batch = super::scoped_max_batch(max_batch)?;
+        if should_pipeline(inputs.len(), max_batch) {
+            return self.measure_inputs_pipelined(lens, inputs, max_batch);
+        }
         let batches = token_batches(
             &self.tokenizer,
             lens,
@@ -48,33 +59,94 @@ impl CustomOnnxRuntime {
             max_batch,
             self.run_plan.pads_batches(),
         )?;
-        let mut rows = vec![None; inputs.len()];
-        for batch in &batches {
+        self.measure_token_batches_serial(&batches, inputs.len())
+    }
+
+    fn measure_token_batches_serial(
+        &mut self,
+        batches: &[TokenBatch],
+        input_len: usize,
+    ) -> Result<Vec<SlotVector>> {
+        let mut rows = vec![None; input_len];
+        for batch in batches {
             let pooled = self.run_token_batch(batch)?;
-            if pooled.len() != batch.batch {
-                return Err(CalyxError::lens_dim_mismatch(format!(
-                    "custom ONNX returned {} rows for a padded batch of {}",
-                    pooled.len(),
-                    batch.batch
-                )));
-            }
-            // Rows beyond the real inputs are #1143 padding replicas.
-            for (index, data) in batch.indices.iter().copied().zip(pooled) {
-                rows[index] = Some(data);
-            }
+            write_pooled_rows(&mut rows, batch, pooled)?;
         }
-        rows.into_iter()
-            .map(|data| {
-                let mut data = data.ok_or_else(|| {
-                    CalyxError::lens_dim_mismatch("custom ONNX omitted a bucketed row")
-                })?;
-                apply_norm(self.norm_policy, &mut data)?;
-                Ok(SlotVector::Dense {
-                    dim: self.dim,
-                    data,
-                })
-            })
-            .collect()
+        finalize_rows(rows, self.norm_policy, self.dim)
+    }
+
+    fn measure_inputs_pipelined(
+        &mut self,
+        lens: &dyn Lens,
+        inputs: &[Input],
+        max_batch: Option<usize>,
+    ) -> Result<Vec<SlotVector>> {
+        let batch_window = pipeline_batch_window()?;
+        let output_window = pipeline_output_window()?;
+        log_pipeline_start(inputs.len(), batch_window, output_window, max_batch);
+        let (batch_sender, batch_receiver) = mpsc::sync_channel(batch_window);
+        let (row_sender, row_receiver) =
+            mpsc::sync_channel::<(TokenBatch, Vec<Vec<f32>>)>(output_window);
+        let tokenizer = self.tokenizer.clone();
+        let max_tokens = self.max_tokens;
+        let pad_batches = self.run_plan.pads_batches();
+        let norm_policy = self.norm_policy;
+        let dim = self.dim;
+        let input_len = inputs.len();
+        thread::scope(|scope| {
+            let producer = scope.spawn(move || {
+                stream_token_batches(
+                    &tokenizer,
+                    lens,
+                    inputs,
+                    max_tokens,
+                    max_batch,
+                    pad_batches,
+                    |batch| {
+                        batch_sender.send(batch).map_err(|_| {
+                            CalyxError::lens_unreachable("custom ONNX pipeline session stopped")
+                        })
+                    },
+                )
+            });
+            let finalizer = scope.spawn(move || {
+                let mut rows = vec![None; input_len];
+                while let Ok((batch, pooled)) = row_receiver.recv() {
+                    write_pooled_rows(&mut rows, &batch, pooled)?;
+                }
+                finalize_rows(rows, norm_policy, dim)
+            });
+            let mut session_error = None;
+            while let Ok(batch) = batch_receiver.recv() {
+                match self.run_token_batch(&batch) {
+                    Ok(pooled) => {
+                        if row_sender.send((batch, pooled)).is_err() {
+                            session_error = Some(CalyxError::lens_unreachable(
+                                "custom ONNX pipeline finalizer stopped",
+                            ));
+                            break;
+                        }
+                    }
+                    Err(error) => {
+                        session_error = Some(error);
+                        break;
+                    }
+                }
+            }
+            drop(batch_receiver);
+            drop(row_sender);
+            let producer_result = producer.join().map_err(|_| {
+                CalyxError::lens_unreachable("custom ONNX tokenizer worker panicked")
+            })?;
+            let finalizer_result = finalizer.join().map_err(|_| {
+                CalyxError::lens_unreachable("custom ONNX finalizer worker panicked")
+            })?;
+            if let Some(error) = session_error {
+                return Err(error);
+            }
+            producer_result?;
+            finalizer_result
+        })
     }
 }
 

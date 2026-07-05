@@ -1,8 +1,9 @@
 //! Streamed binary `measure_batch` (#1002).
 //!
-//! Measurement is chunk-major: each chunk of `runtime_batch_limit` inputs is
-//! measured through every active lens, assembled into rows, and emitted
-//! before the next chunk starts. Server-side memory holds one chunk of
+//! Measurement is chunk-major: each resident service chunk is measured through
+//! every active lens, assembled into rows, and emitted before the next chunk
+//! starts. The runtime batch limit is passed down as an internal per-forward
+//! cap for runtimes that support it (#1158). Server-side memory holds one chunk of
 //! multi-vector payloads instead of the whole batch, and each row travels as
 //! its own length-prefixed frame — a 100+ row ColBERT-heavy batch never
 //! materializes as one giant in-memory response frame on either side, and the
@@ -14,6 +15,9 @@ use super::dispatch::slot_measure;
 use super::parallel::measure_chunk_lenses;
 use super::server::ResidentService;
 use super::*;
+
+pub(super) const MEASURE_WINDOW_ENV: &str = "CALYX_PANEL_RESIDENT_MEASURE_WINDOW";
+const DEFAULT_MEASURE_WINDOW_MULTIPLIER: usize = 32;
 
 /// Measure a batch chunk-major, handing each chunk's assembled rows to
 /// `emit_rows` as soon as they exist. Returns elapsed milliseconds.
@@ -42,11 +46,11 @@ pub(super) fn measure_batch_chunked(
         .into_iter()
         .map(|bytes| Input::new(modality, bytes))
         .collect::<Vec<_>>();
-    let chunk_size = runtime_batch_limit.unwrap_or(inputs.len()).max(1);
+    let chunk_size = resident_measure_chunk_size(inputs.len(), runtime_batch_limit)?;
     let mut emitted = 0usize;
     for (chunk_index, chunk) in inputs.chunks(chunk_size).enumerate() {
         let chunk_started = Instant::now();
-        let measured_by_lens = measure_chunk_lenses(service, modality, chunk)?;
+        let measured_by_lens = measure_chunk_lenses(service, modality, chunk, runtime_batch_limit)?;
         let mut rows = Vec::with_capacity(chunk.len());
         for (offset, input) in chunk.iter().enumerate() {
             rows.push(assemble_row(
@@ -74,6 +78,35 @@ pub(super) fn measure_batch_chunked(
         modality
     );
     Ok(elapsed_ms)
+}
+
+pub(super) fn resident_measure_chunk_size(
+    input_count: usize,
+    runtime_batch_limit: Option<usize>,
+) -> CliResult<usize> {
+    let max_input = input_count.max(1);
+    if let Ok(raw) = std::env::var(MEASURE_WINDOW_ENV) {
+        let raw = raw.trim();
+        if raw.is_empty() {
+            return Ok(max_input);
+        }
+        let parsed = raw.parse::<usize>().ok().filter(|value| *value > 0).ok_or_else(|| {
+            CalyxError {
+                code: "CALYX_PANEL_RESIDENT_MEASURE_WINDOW_INVALID",
+                message: format!("{MEASURE_WINDOW_ENV}={raw} is not a positive integer"),
+                remediation: "set CALYX_PANEL_RESIDENT_MEASURE_WINDOW to a positive integer or unset it",
+            }
+        })?;
+        return Ok(parsed.min(max_input));
+    }
+    let Some(limit) = runtime_batch_limit else {
+        return Ok(max_input);
+    };
+    Ok(limit
+        .saturating_mul(DEFAULT_MEASURE_WINDOW_MULTIPLIER)
+        .max(limit)
+        .min(max_input)
+        .max(1))
 }
 
 pub(super) fn assemble_row(

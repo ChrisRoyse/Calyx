@@ -1,4 +1,6 @@
 use super::*;
+use crate::runtime::onnx;
+use crate::runtime_limit::runtime_uses_scoped_batch_limit;
 
 #[derive(Clone)]
 pub struct LoadedRegistrySnapshotLens {
@@ -110,8 +112,12 @@ fn measure_loaded_snapshot_lens_batch_with_stats(
 ) -> Result<(Vec<SlotVector>, RegistrySnapshotMeasureStats)> {
     let total_start = Instant::now();
     verify_registry_snapshot_inputs(snapshot, inputs)?;
-    let effective_chunk_size =
-        effective_runtime_chunk_size(snapshot, inputs.len(), runtime_batch_limit)?;
+    let scoped_runtime_limit = runtime_uses_scoped_batch_limit(snapshot.spec.as_ref());
+    let effective_chunk_size = if scoped_runtime_limit && !inputs.is_empty() {
+        inputs.len()
+    } else {
+        effective_runtime_chunk_size(snapshot, inputs.len(), runtime_batch_limit)?
+    };
     let chunk_count = if inputs.is_empty() {
         0
     } else {
@@ -119,7 +125,10 @@ fn measure_loaded_snapshot_lens_batch_with_stats(
     };
     let measure_start = Instant::now();
     let mut vectors = Vec::with_capacity(inputs.len());
-    if !inputs.is_empty() {
+    if !inputs.is_empty() && scoped_runtime_limit {
+        vectors =
+            onnx::with_runtime_batch_limit(runtime_batch_limit, || runtime.measure_batch(inputs))?;
+    } else if !inputs.is_empty() {
         for chunk in inputs.chunks(effective_chunk_size) {
             let chunk_vectors = runtime.measure_batch(chunk)?;
             if chunk_vectors.len() != chunk.len() {

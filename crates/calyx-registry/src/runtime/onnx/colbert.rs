@@ -277,13 +277,14 @@ impl Lens for OnnxColbertLens {
             .runtime
             .lock()
             .map_err(|_| CalyxError::lens_unreachable("ONNX ColBERT mutex was poisoned"))?;
-        let chunk_size = self.max_batch.unwrap_or(inputs.len()).max(1);
+        let max_batch = super::scoped_max_batch(self.max_batch)?;
+        let chunk_size = max_batch.unwrap_or(inputs.len()).max(1);
         if chunk_size >= inputs.len() {
-            return runtime.measure_batch(self, inputs, self.contract(), self.max_batch);
+            return runtime.measure_batch(self, inputs, self.contract(), max_batch);
         }
         let mut out = Vec::with_capacity(inputs.len());
         for chunk in inputs.chunks(chunk_size) {
-            out.extend(runtime.measure_batch(self, chunk, self.contract(), self.max_batch)?);
+            out.extend(runtime.measure_batch(self, chunk, self.contract(), max_batch)?);
         }
         Ok(out)
     }

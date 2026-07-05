@@ -21,6 +21,7 @@ mod persistence_contracts;
 pub mod placement;
 pub mod profile;
 pub mod runtime;
+mod runtime_limit;
 pub mod spec;
 pub mod swap;
 pub mod temporal;
@@ -119,6 +120,7 @@ pub use runtime::static_lookup::{
     StaticLookupDType, StaticLookupFileSpec, StaticLookupFiles, StaticLookupLens,
 };
 pub use runtime::tei_http::{DEFAULT_TEI_ENDPOINT, TeiHttpLens};
+pub use runtime_limit::measure_registry_batch_with_runtime_limit;
 pub use spec::{FastembedBgem3Output, LensHealth, LensRuntime, LensSpec};
 pub use swap::{BackfillCandidate, BackfillQueue, SlotSpec, SwapController};
 pub use temporal::{

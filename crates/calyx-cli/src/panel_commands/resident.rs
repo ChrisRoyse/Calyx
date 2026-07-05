@@ -28,7 +28,8 @@ use protocol::{
     ResidentMeasureBatchStreamHeader, ResidentRequest, hex_decode,
 };
 pub(crate) use protocol::{
-    MeasureBatchAtResponse, MeasureBatchResponse, ResidentMeasuredInput, ResidentSlotMeasure,
+    MeasureBatchAtResponse, MeasureBatchResponse, MeasureBatchSummaryResponse,
+    ResidentMeasuredInput, ResidentSlotMeasure,
 };
 
 use super::warm::resident_support::{
@@ -61,16 +62,17 @@ pub(crate) use client::{measure_batch_at, ready_value_at};
 pub(crate) fn run(args: &[String]) -> CliResult {
     let Some(command) = args.first().map(String::as_str) else {
         return Err(CliError::usage(
-            "calyx panel resident requires serve, ready, measure, or stop",
+            "calyx panel resident requires serve, ready, measure, measure-batch, or stop",
         ));
     };
     match command {
         "serve" => server::serve(&args[1..]),
         "ready" => client::client_command(&args[1..], "ready"),
         "measure" => client::client_command(&args[1..], "measure"),
+        "measure-batch" => client::client_command(&args[1..], "measure-batch"),
         "stop" => client::client_command(&args[1..], "shutdown"),
         other => Err(CliError::usage(format!(
-            "unknown panel resident subcommand {other}; expected serve, ready, measure, or stop"
+            "unknown panel resident subcommand {other}; expected serve, ready, measure, measure-batch, or stop"
         ))),
     }
 }

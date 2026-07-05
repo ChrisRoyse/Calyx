@@ -11,6 +11,7 @@ use crate::runtime::common::{normalize_unit, text_from_input};
 use crate::spec::{LensRuntime, LensSpec};
 
 mod arena;
+mod batch_scope;
 mod colbert;
 mod colbert_files;
 mod colbert_tokens;
@@ -26,6 +27,8 @@ mod session;
 mod special;
 mod windows_cuda_dlls;
 
+pub(in crate::runtime::onnx) use batch_scope::scoped_max_batch;
+pub(crate) use batch_scope::with_runtime_batch_limit;
 pub use colbert::{DEFAULT_ANSWERAI_COLBERT_MODEL, OnnxColbertFileSpec, OnnxColbertLens};
 pub use special::{FastembedBgem3Lens, FastembedRerankerLens, FastembedSparseLens};
 
@@ -397,7 +400,8 @@ impl Lens for OnnxLens {
                 let mut runtime = runtime.lock().map_err(|_| {
                     CalyxError::lens_unreachable("custom ONNX session mutex was poisoned")
                 })?;
-                runtime.measure_batch(self, inputs, self.max_batch)
+                let max_batch = scoped_max_batch(self.max_batch)?;
+                runtime.measure_batch(self, inputs, max_batch)
             }
         }
     }

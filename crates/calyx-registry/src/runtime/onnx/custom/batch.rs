@@ -58,20 +58,65 @@ pub(in crate::runtime::onnx) fn token_batches(
     let max_batch = max_batch.unwrap_or(usize::MAX).max(1);
     let mut groups: BTreeMap<usize, Vec<EncodedInput>> = BTreeMap::new();
     for (index, input) in inputs.iter().enumerate() {
-        let text = text_from_input(lens, input)?;
-        let encoded = tokenizer
-            .encode(text, true)
-            .map_err(|err| config_invalid(format!("tokenizer encode failed: {err}")))?;
-        let (ids, mask) = token_inputs(&encoded, max_tokens);
-        let seq = stable_seq_len(ids.len(), max_tokens)?;
-        groups.entry(seq).or_default().push(EncodedInput {
-            index,
-            seq,
-            ids,
-            mask,
-        });
+        let encoded = encode_input(tokenizer, lens, input, index, max_tokens)?;
+        groups.entry(encoded.seq).or_default().push(encoded);
     }
     build_batches_from_groups(groups, max_batch, pad_batches)
+}
+
+pub(in crate::runtime::onnx) fn stream_token_batches(
+    tokenizer: &Tokenizer,
+    lens: &dyn Lens,
+    inputs: &[Input],
+    max_tokens: usize,
+    max_batch: Option<usize>,
+    pad_batches: bool,
+    mut emit: impl FnMut(TokenBatch) -> Result<()>,
+) -> Result<()> {
+    if max_batch == Some(0) {
+        return Err(config_invalid("custom ONNX max_batch must be > 0"));
+    }
+    let max_batch = max_batch.unwrap_or(usize::MAX).max(1);
+    let mut groups: BTreeMap<usize, Vec<EncodedInput>> = BTreeMap::new();
+    for (index, input) in inputs.iter().enumerate() {
+        let encoded = encode_input(tokenizer, lens, input, index, max_tokens)?;
+        let group = groups.entry(encoded.seq).or_default();
+        group.push(encoded);
+        if group.len() == max_batch {
+            let batch = build_batch(group, max_batch)?;
+            group.clear();
+            emit(batch)?;
+        }
+    }
+    let groups = groups
+        .into_iter()
+        .filter(|(_, group)| !group.is_empty())
+        .collect::<BTreeMap<_, _>>();
+    for batch in build_batches_from_groups(groups, max_batch, pad_batches)? {
+        emit(batch)?;
+    }
+    Ok(())
+}
+
+fn encode_input(
+    tokenizer: &Tokenizer,
+    lens: &dyn Lens,
+    input: &Input,
+    index: usize,
+    max_tokens: usize,
+) -> Result<EncodedInput> {
+    let text = text_from_input(lens, input)?;
+    let encoded = tokenizer
+        .encode(text, true)
+        .map_err(|err| config_invalid(format!("tokenizer encode failed: {err}")))?;
+    let (ids, mask) = token_inputs(&encoded, max_tokens);
+    let seq = stable_seq_len(ids.len(), max_tokens)?;
+    Ok(EncodedInput {
+        index,
+        seq,
+        ids,
+        mask,
+    })
 }
 
 fn build_batches_from_groups(
@@ -368,5 +413,65 @@ mod tests {
                 (1, 8, vec![9]),
             ]
         );
+    }
+
+    #[test]
+    fn streaming_batches_emit_full_buckets_then_sorted_leftovers() {
+        struct TextLens;
+
+        impl Lens for TextLens {
+            fn id(&self) -> calyx_core::LensId {
+                calyx_core::LensId::from_bytes([0; 16])
+            }
+
+            fn shape(&self) -> calyx_core::SlotShape {
+                calyx_core::SlotShape::Dense(1)
+            }
+
+            fn modality(&self) -> calyx_core::Modality {
+                calyx_core::Modality::Text
+            }
+
+            fn measure(&self, _input: &Input) -> Result<calyx_core::SlotVector> {
+                unreachable!("batch tokenization test never measures")
+            }
+        }
+
+        let tokenizer = tokenizer_fixture();
+        let lens = TextLens;
+        let inputs = ["a", "bb cc", "bb cc", "d", "a bb cc"]
+            .into_iter()
+            .map(|text| Input::new(calyx_core::Modality::Text, text.as_bytes().to_vec()))
+            .collect::<Vec<_>>();
+        let mut streamed = Vec::new();
+
+        stream_token_batches(&tokenizer, &lens, &inputs, 8, Some(2), false, |batch| {
+            streamed.push((batch.batch, batch.seq, batch.indices.clone()));
+            Ok(())
+        })
+        .unwrap();
+
+        assert_eq!(
+            streamed,
+            vec![(2, 2, vec![1, 2]), (2, 1, vec![0, 3]), (1, 4, vec![4]),]
+        );
+    }
+
+    fn tokenizer_fixture() -> Tokenizer {
+        let path = std::env::temp_dir().join(format!(
+            "calyx-custom-tokenizer-{}.json",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::write(
+            &path,
+            r#"{"version":"1.0","truncation":null,"padding":null,"added_tokens":[],"normalizer":null,"pre_tokenizer":{"type":"Whitespace"},"post_processor":null,"decoder":null,"model":{"type":"WordLevel","vocab":{"[UNK]":0,"a":1,"bb":2,"cc":3,"d":4,"eee":5},"unk_token":"[UNK]"}}"#,
+        )
+        .unwrap();
+        let tokenizer = Tokenizer::from_file(&path).unwrap();
+        let _ = std::fs::remove_file(path);
+        tokenizer
     }
 }

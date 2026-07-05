@@ -147,8 +147,12 @@ fn measure(
     let input = Input::new(modality, bytes);
     // #1153: single-input measure fans out across slots exactly like the
     // batch path — one warm panel walk, all runnable lenses concurrent.
-    let measured_by_lens =
-        super::parallel::measure_chunk_lenses(service, modality, std::slice::from_ref(&input))?;
+    let measured_by_lens = super::parallel::measure_chunk_lenses(
+        service,
+        modality,
+        std::slice::from_ref(&input),
+        None,
+    )?;
     let row = super::stream::assemble_row(service, modality, &measured_by_lens, 0, 0, &input)?;
     Ok(MeasureResponse {
         schema: MEASURE_SCHEMA.to_string(),
