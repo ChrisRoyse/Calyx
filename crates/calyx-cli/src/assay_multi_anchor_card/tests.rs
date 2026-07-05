@@ -1,7 +1,15 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use calyx_assay::{
+    AssayCacheKey, AssayStore, AssaySubject, EnsembleCard, EstimatorKind, MiEstimate, TrustTag,
+};
+use calyx_aster::cf::CfRouter;
+use calyx_core::{AnchorKind, VaultId};
+use ulid::Ulid;
+
 use super::engine::evaluate;
+use super::model::DbReportRef;
 use super::request::{Mode, Request};
 use super::write::write_outputs;
 use super::{CODE_INVALID_REPORT, CODE_OUTPUT_EXISTS};
@@ -37,6 +45,53 @@ fn aggregates_lens_success_across_targets() {
     );
     assert!(evidence.readback_matches);
     assert!(Path::new(&evidence.report_path).is_file());
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn aggregates_from_assay_cf_without_json_artifacts() {
+    let root = temp_root("multi-anchor-db-only");
+    fs::create_dir_all(&root).unwrap();
+    let names = lens_names(false);
+    let cf_a = root.join("target0-cf");
+    let cf_b = root.join("target1-cf");
+    write_db_report(&cf_a, "unit_db", 0, &names, |idx| {
+        if idx < 5 { 0.06 } else { 0.0 }
+    });
+    write_db_report(&cf_b, "unit_db", 1, &names, |idx| {
+        if idx >= 5 { 0.07 } else { 0.0 }
+    });
+    let mut request = request_for(&root, &[], Mode::Gate);
+    request.emit_artifacts = false;
+    request.out_dir = PathBuf::new();
+    request.cf_root = root.join("admission-cf");
+    request.db_reports = vec![
+        DbReportRef {
+            cf_root: cf_a,
+            domain: "unit_db".to_string(),
+            target_class: 0,
+        },
+        DbReportRef {
+            cf_root: cf_b,
+            domain: "unit_db".to_string(),
+            target_class: 1,
+        },
+    ];
+
+    let report = evaluate(&request).unwrap();
+    let evidence = write_outputs(&request, &report).unwrap();
+
+    assert!(report.gate_passed);
+    assert_eq!(evidence.artifact_mode, "db_only");
+    assert!(evidence.db_readback.readback_matches);
+    assert!(evidence.report_path.is_empty());
+    assert!(!root.join("out").exists());
+    assert!(
+        Path::new(&evidence.cf_root)
+            .join("cf")
+            .join("graph")
+            .is_dir()
+    );
     let _ = fs::remove_dir_all(root);
 }
 
@@ -96,6 +151,7 @@ fn existing_output_dir_fails_closed() {
 fn request_for(root: &Path, reports: &[PathBuf], mode: Mode) -> Request {
     Request {
         reports: reports.to_vec(),
+        db_reports: Vec::new(),
         out_dir: root.join("out"),
         cf_root: root.join("admission-cf"),
         association_key: "unit-a37-admission".to_string(),
@@ -103,6 +159,7 @@ fn request_for(root: &Path, reports: &[PathBuf], mode: Mode) -> Request {
         min_marginal_bits: 0.05,
         max_redundancy: 0.6,
         mode,
+        emit_artifacts: true,
     }
 }
 
@@ -200,6 +257,133 @@ fn write_report(
         }
     });
     fs::write(path, serde_json::to_vec_pretty(&report).unwrap()).unwrap();
+}
+
+fn write_db_report(
+    cf_root: &Path,
+    domain: &str,
+    target_class: usize,
+    names: &[String],
+    marginal: impl Fn(usize) -> f32,
+) {
+    let card = ensemble_card(names, marginal);
+    let key = AssayCacheKey::scoped(
+        803,
+        domain.to_string(),
+        deterministic_vault_id(domain),
+        AnchorKind::Label(format!("target_class_{target_class}")),
+    );
+    let mut store = AssayStore::default();
+    store.put_with_payload(
+        key,
+        AssaySubject::EnsembleCard,
+        MiEstimate::point(
+            0.5,
+            80,
+            EstimatorKind::PanelSufficiency,
+            TrustTag::Provisional,
+        ),
+        "unit-db-ensemble-card",
+        1,
+        serde_json::to_value(card).unwrap(),
+    );
+    let mut router = CfRouter::open(cf_root, 1_048_576).unwrap();
+    assert_eq!(store.persist_to_aster(&mut router).unwrap(), 1);
+}
+
+fn ensemble_card(names: &[String], marginal: impl Fn(usize) -> f32) -> EnsembleCard {
+    let value = report_value(0, names, marginal);
+    serde_json::from_value(value["card"].clone()).unwrap()
+}
+
+fn report_value(
+    target_class: usize,
+    names: &[String],
+    marginal: impl Fn(usize) -> f32,
+) -> serde_json::Value {
+    let lenses = names
+        .iter()
+        .enumerate()
+        .map(|(idx, name)| {
+            let bits = marginal(idx);
+            serde_json::json!({
+                "name": name,
+                "slot": idx,
+                "solo_bits": 0.2,
+                "solo_ci": [0.1, 0.3],
+                "panel_without_bits": 0.3,
+                "marginal_bits": bits,
+                "marginal_ci": [bits, bits],
+                "pid": {"unique_bits": bits, "redundant_bits": 0.1, "synergistic_bits": 0.0},
+                "max_pairwise_corr": 0.1,
+                "max_pairwise_nmi": 0.1,
+                "decision": if bits >= 0.05 { "keep" } else { "park" },
+                "decision_reason": "test"
+            })
+        })
+        .collect::<Vec<_>>();
+    serde_json::json!({
+        "target_class": target_class,
+        "domain": "unit",
+        "card": {
+            "schema_version": 1,
+            "source": "unit",
+            "pid_method": "unit",
+            "panel_lens_count": names.len(),
+            "n_samples": 80,
+            "anchor_entropy_bits": 1.0,
+            "panel_bits": 0.5,
+            "panel_ci": [0.4, 0.6],
+            "n_eff": 9.0,
+            "sufficient": false,
+            "deficit_bits": 0.5,
+            "a37_diversity": {
+                "schema_version": 1,
+                "role": "a37_associational_diversity_gate",
+                "status": "diagnostic_only",
+                "content_lens_count": names.len(),
+                "temporal_sidecar_count": 0,
+                "temporal_counts_toward_content_floor": false,
+                "temporal_lane_role": "time_manipulation_walk_forward_backward_as_of_sidecar",
+                "association_family_count": 3,
+                "association_families": {},
+                "temporal_sidecar_slots": [],
+                "family_span_pass": true,
+                "redundancy_bound_pass": true,
+                "no_collapse_pass": false,
+                "n_eff": 9.0,
+                "n_eff_floor": 6.0,
+                "mean_pairwise_corr": 0.1,
+                "mean_pairwise_nmi": 0.1,
+                "max_redundancy": 0.6,
+                "sum_unique_pid_bits": 0.0,
+                "min_marginal_bits": 0.05,
+                "verdict": "unit"
+            },
+            "sufficiency": {
+                "panel_bits": 0.5,
+                "sufficiency_basis_bits": 1.0,
+                "anchor_entropy_bits": 1.0,
+                "sufficient": false,
+                "deficit_bits": 0.5,
+                "deficits": [],
+                "trust": "provisional",
+                "estimate_bound": "lower_bound"
+            },
+            "lenses": lenses,
+            "pairs": [],
+            "keep_count": 0,
+            "park_count": names.len(),
+            "retire_count": 0
+        }
+    })
+}
+
+fn deterministic_vault_id(domain: &str) -> VaultId {
+    let digest = blake3::hash(domain.as_bytes());
+    let mut bytes = [0_u8; 16];
+    bytes.copy_from_slice(&digest.as_bytes()[..16]);
+    VaultId::from_ulid(Ulid::from_bytes(bytes))
 }
 
 fn temp_root(name: &str) -> PathBuf {

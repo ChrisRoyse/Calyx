@@ -53,6 +53,31 @@ fn i8bin_card_reads_vector_bytes_and_persists_payload() {
 }
 
 #[test]
+fn i8bin_card_db_only_persists_without_metrics_artifacts() {
+    let root = temp_root("i8bin-ensemble-card-db-only");
+    fs::create_dir_all(&root).unwrap();
+    let rows = root.join("rows.jsonl");
+    write_rows(&rows, 120);
+    let plan = write_plan(&root, 10, 120);
+    let mut request = request_for(&root, plan, rows, None, 80, Some(60));
+    request.emit_artifacts = false;
+    request.metrics_dir = PathBuf::new();
+    request.cf_root = root.join("shared-assay-cf");
+
+    let report = evaluate(&request).unwrap();
+    let evidence = write_outputs(&request, &report).unwrap();
+
+    assert_eq!(evidence.artifact_mode, "db_only");
+    assert_eq!(evidence.assay_cf_rows_persisted, 58);
+    assert!(evidence.ensemble_card_payload_readback);
+    assert!(evidence.a37_report_path.is_empty());
+    assert!(evidence.matrix_path.is_empty());
+    assert!(!root.join("metrics").exists());
+    assert!(request.cf_root.join("cf").join("assay").is_dir());
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
 fn default_gate_mode_refuses_homogeneous_panel_before_outputs() {
     let root = temp_root("i8bin-ensemble-card-a37-gate-refuses");
     fs::create_dir_all(&root).unwrap();
@@ -176,6 +201,7 @@ fn request_for(
         max_redundancy: 0.6,
         nmi_bins: 8,
         mode: A37CardMode::Diagnostic,
+        emit_artifacts: true,
     }
 }
 

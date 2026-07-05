@@ -3,21 +3,32 @@ use std::fs;
 use std::path::Path;
 
 use calyx_assay::{
-    A37_DIVERSITY_DIAGNOSTIC_ONLY, A37_DIVERSITY_GATE_PASSED, EnsembleCard, a37_association_family,
+    A37_DIVERSITY_DIAGNOSTIC_ONLY, A37_DIVERSITY_GATE_PASSED, AssayCacheKey, AssayStore,
+    AssaySubject, EnsembleCard, a37_association_family,
 };
+use calyx_aster::cf::CfRouter;
+use calyx_core::{AnchorKind, VaultId};
+use ulid::Ulid;
 
 use super::CODE_INVALID_REPORT;
 use super::model::{
-    InputReport, LensEvidence, LoadedReport, MultiAnchorReport, TargetLensValue, TargetSummary,
+    DbReportRef, InputReport, LensEvidence, LoadedReport, MultiAnchorReport, TargetLensValue,
+    TargetSummary,
 };
 use super::request::Request;
 
+const ASSAY_CARD_PANEL_VERSION: u32 = 803;
+const CF_MEMTABLE_CAP: usize = 1_048_576;
+
 pub(crate) fn evaluate(request: &Request) -> Result<MultiAnchorReport, String> {
-    let loaded = request
+    let mut loaded = request
         .reports
         .iter()
         .map(|path| load_report(path))
         .collect::<Result<Vec<_>, _>>()?;
+    for report in &request.db_reports {
+        loaded.push(load_db_report(report)?);
+    }
     validate_rosters(&loaded, request.min_lenses)?;
 
     let lens_count = loaded[0].report.card.lenses.len();
@@ -73,10 +84,7 @@ pub(crate) fn evaluate(request: &Request) -> Result<MultiAnchorReport, String> {
         weakest_lens,
         target_summaries,
         lenses,
-        source_reports: loaded
-            .iter()
-            .map(|input| input.path.display().to_string())
-            .collect(),
+        source_reports: loaded.iter().map(|input| input.source.clone()).collect(),
     })
 }
 
@@ -93,25 +101,65 @@ fn load_report(path: &Path) -> Result<LoadedReport, String> {
             path.display()
         )
     })?;
-    validate_card(path, &report.card)?;
+    validate_card(&path.display().to_string(), &report.card)?;
     Ok(LoadedReport {
-        path: path.to_path_buf(),
+        source: path.display().to_string(),
         report,
     })
 }
 
-fn validate_card(path: &Path, card: &EnsembleCard) -> Result<(), String> {
+fn load_db_report(input: &DbReportRef) -> Result<LoadedReport, String> {
+    let source = format!(
+        "assay_cf:{} domain={} target_class={}",
+        input.cf_root.display(),
+        input.domain,
+        input.target_class
+    );
+    let router = CfRouter::open(&input.cf_root, CF_MEMTABLE_CAP).map_err(|error| {
+        format!(
+            "{CODE_INVALID_REPORT}: open Assay CF {} failed: {error}",
+            input.cf_root.display()
+        )
+    })?;
+    let store = AssayStore::load_from_aster(&router).map_err(|error| {
+        format!(
+            "{CODE_INVALID_REPORT}: load Assay CF {} failed: {}",
+            input.cf_root.display(),
+            error.message
+        )
+    })?;
+    let key = assay_card_key(&input.domain, input.target_class);
+    let row = store
+        .get(&key, &AssaySubject::EnsembleCard)
+        .ok_or_else(|| format!("{CODE_INVALID_REPORT}: {source} missing EnsembleCard row"))?;
+    let payload = row.payload.clone().ok_or_else(|| {
+        format!("{CODE_INVALID_REPORT}: {source} EnsembleCard row has no payload")
+    })?;
+    let card = serde_json::from_value::<EnsembleCard>(payload).map_err(|error| {
+        format!("{CODE_INVALID_REPORT}: {source} payload decode failed: {error}")
+    })?;
+    validate_card(&source, &card)?;
+    Ok(LoadedReport {
+        source,
+        report: InputReport {
+            target_class: input.target_class,
+            domain: input.domain.clone(),
+            card,
+        },
+    })
+}
+
+fn validate_card(source: &str, card: &EnsembleCard) -> Result<(), String> {
     if card.lenses.is_empty() {
         return Err(format!(
-            "{CODE_INVALID_REPORT}: {} card has no lenses",
-            path.display()
+            "{CODE_INVALID_REPORT}: {source} card has no lenses"
         ));
     }
-    finite(path, "panel_bits", card.panel_bits)?;
-    finite(path, "n_eff", card.n_eff)?;
+    finite(source, "panel_bits", card.panel_bits)?;
+    finite(source, "n_eff", card.n_eff)?;
     for lens in &card.lenses {
-        finite(path, "lens.solo_bits", lens.solo_bits)?;
-        finite(path, "lens.marginal_bits", lens.marginal_bits)?;
+        finite(source, "lens.solo_bits", lens.solo_bits)?;
+        finite(source, "lens.marginal_bits", lens.marginal_bits)?;
     }
     Ok(())
 }
@@ -141,7 +189,7 @@ fn validate_rosters(inputs: &[LoadedReport], min_lenses: usize) -> Result<(), St
         if got != expected {
             return Err(format!(
                 "{CODE_INVALID_REPORT}: {} lens roster differs from first report",
-                input.path.display()
+                input.source
             ));
         }
     }
@@ -159,11 +207,11 @@ fn target_summary(input: &LoadedReport, max_redundancy: f32) -> Result<TargetSum
     let redundancy_bound_pass = card.n_eff >= n_eff_floor
         && card.a37_diversity.mean_pairwise_corr <= max_redundancy
         && card.a37_diversity.mean_pairwise_nmi <= max_redundancy;
-    finite(&input.path, "target.max_marginal_bits", max_marginal_bits)?;
+    finite(&input.source, "target.max_marginal_bits", max_marginal_bits)?;
     Ok(TargetSummary {
         target_class: input.report.target_class,
         domain: input.report.domain.clone(),
-        report_path: input.path.display().to_string(),
+        report_path: input.source.clone(),
         status: card.a37_diversity.status.clone(),
         no_collapse_pass: card.a37_diversity.no_collapse_pass,
         family_span_pass: card.a37_diversity.family_span_pass,
@@ -228,13 +276,28 @@ fn lens_evidence(
     Ok(out)
 }
 
-fn finite(path: &Path, field: &str, value: f32) -> Result<(), String> {
+fn finite(source: &str, field: &str, value: f32) -> Result<(), String> {
     if value.is_finite() {
         Ok(())
     } else {
         Err(format!(
-            "{CODE_INVALID_REPORT}: {} has non-finite {field}",
-            path.display()
+            "{CODE_INVALID_REPORT}: {source} has non-finite {field}"
         ))
     }
+}
+
+fn assay_card_key(domain: &str, target_class: usize) -> AssayCacheKey {
+    AssayCacheKey::scoped(
+        ASSAY_CARD_PANEL_VERSION,
+        domain.to_string(),
+        deterministic_vault_id(domain),
+        AnchorKind::Label(format!("target_class_{target_class}")),
+    )
+}
+
+fn deterministic_vault_id(domain: &str) -> VaultId {
+    let digest = blake3::hash(domain.as_bytes());
+    let mut bytes = [0_u8; 16];
+    bytes.copy_from_slice(&digest.as_bytes()[..16]);
+    VaultId::from_ulid(Ulid::from_bytes(bytes))
 }

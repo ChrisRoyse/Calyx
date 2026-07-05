@@ -20,6 +20,7 @@ const CF_MEMTABLE_CAP: usize = 1_048_576;
 
 #[derive(Clone, Debug, Serialize)]
 pub(crate) struct I8binEnsembleEvidence {
+    pub(crate) artifact_mode: String,
     pub(crate) metrics_dir: String,
     pub(crate) a37_report_path: String,
     pub(crate) ensemble_card_path: String,
@@ -43,50 +44,68 @@ pub(crate) fn write_outputs(
     request
         .ensure_fresh_outputs()
         .map_err(super::i8bin_card_error)?;
-    fs::create_dir_all(&request.metrics_dir).map_err(|error| {
-        CliError::io(format!("create {}: {error}", request.metrics_dir.display()))
-    })?;
     let persistence = persist_and_readback(request, &report.card)?;
 
-    let a37_report_path = request.metrics_dir.join("a37_i8bin_ensemble_report.json");
-    fs::write(
-        &a37_report_path,
-        serde_json::to_vec_pretty(report)
-            .map_err(|error| CliError::runtime(format!("serialize a37 report: {error}")))?,
-    )
-    .map_err(|error| CliError::io(format!("write {}: {error}", a37_report_path.display())))?;
+    let mut a37_report_path = String::new();
+    let mut ensemble_card_path = String::new();
+    let mut lens_values_path = String::new();
+    let mut pair_values_path = String::new();
+    let mut matrix_path = String::new();
+    if request.emit_artifacts {
+        fs::create_dir_all(&request.metrics_dir).map_err(|error| {
+            CliError::io(format!("create {}: {error}", request.metrics_dir.display()))
+        })?;
 
-    let ensemble_card_path = request.metrics_dir.join("ensemble_card.json");
-    fs::write(
-        &ensemble_card_path,
-        serde_json::to_vec_pretty(&report.card)
-            .map_err(|error| CliError::runtime(format!("serialize ensemble card: {error}")))?,
-    )
-    .map_err(|error| CliError::io(format!("write {}: {error}", ensemble_card_path.display())))?;
+        let path = request.metrics_dir.join("a37_i8bin_ensemble_report.json");
+        fs::write(
+            &path,
+            serde_json::to_vec_pretty(report)
+                .map_err(|error| CliError::runtime(format!("serialize a37 report: {error}")))?,
+        )
+        .map_err(|error| CliError::io(format!("write {}: {error}", path.display())))?;
+        a37_report_path = display(&path);
 
-    let lens_values_path = request.metrics_dir.join("ensemble_lens_values.txt");
-    fs::write(&lens_values_path, lens_values(report))
-        .map_err(|error| CliError::io(format!("write {}: {error}", lens_values_path.display())))?;
+        let path = request.metrics_dir.join("ensemble_card.json");
+        fs::write(
+            &path,
+            serde_json::to_vec_pretty(&report.card)
+                .map_err(|error| CliError::runtime(format!("serialize ensemble card: {error}")))?,
+        )
+        .map_err(|error| CliError::io(format!("write {}: {error}", path.display())))?;
+        ensemble_card_path = display(&path);
 
-    let pair_values_path = request.metrics_dir.join("ensemble_pair_values.txt");
-    fs::write(&pair_values_path, pair_values(report))
-        .map_err(|error| CliError::io(format!("write {}: {error}", pair_values_path.display())))?;
+        let path = request.metrics_dir.join("ensemble_lens_values.txt");
+        fs::write(&path, lens_values(report))
+            .map_err(|error| CliError::io(format!("write {}: {error}", path.display())))?;
+        lens_values_path = display(&path);
 
-    let matrix_path = request.metrics_dir.join("correlation_nmi_matrix.json");
-    fs::write(
-        &matrix_path,
-        serde_json::to_vec_pretty(&report.matrix)
-            .map_err(|error| CliError::runtime(format!("serialize nmi matrix: {error}")))?,
-    )
-    .map_err(|error| CliError::io(format!("write {}: {error}", matrix_path.display())))?;
+        let path = request.metrics_dir.join("ensemble_pair_values.txt");
+        fs::write(&path, pair_values(report))
+            .map_err(|error| CliError::io(format!("write {}: {error}", path.display())))?;
+        pair_values_path = display(&path);
+
+        let path = request.metrics_dir.join("correlation_nmi_matrix.json");
+        fs::write(
+            &path,
+            serde_json::to_vec_pretty(&report.matrix)
+                .map_err(|error| CliError::runtime(format!("serialize nmi matrix: {error}")))?,
+        )
+        .map_err(|error| CliError::io(format!("write {}: {error}", path.display())))?;
+        matrix_path = display(&path);
+    }
 
     Ok(I8binEnsembleEvidence {
+        artifact_mode: if request.emit_artifacts {
+            "diagnostic_files".to_string()
+        } else {
+            "db_only".to_string()
+        },
         metrics_dir: request.metrics_dir.display().to_string(),
-        a37_report_path: display(&a37_report_path),
-        ensemble_card_path: display(&ensemble_card_path),
-        lens_values_path: display(&lens_values_path),
-        pair_values_path: display(&pair_values_path),
-        matrix_path: display(&matrix_path),
+        a37_report_path,
+        ensemble_card_path,
+        lens_values_path,
+        pair_values_path,
+        matrix_path,
         cf_root: request.cf_root.display().to_string(),
         assay_cf_rows_persisted: persistence.persisted,
         assay_cf_rows_readback: persistence.readback,

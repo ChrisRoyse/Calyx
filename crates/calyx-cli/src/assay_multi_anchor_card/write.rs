@@ -11,6 +11,7 @@ use super::request::Request;
 
 #[derive(Clone, Debug, Serialize)]
 pub(crate) struct Evidence {
+    pub(crate) artifact_mode: String,
     pub(crate) out_dir: String,
     pub(crate) cf_root: String,
     pub(crate) association_key: String,
@@ -36,45 +37,62 @@ pub(crate) fn write_outputs(
     report: &MultiAnchorReport,
 ) -> Result<Evidence, String> {
     request.ensure_fresh_output()?;
-    fs::create_dir_all(&request.out_dir)
-        .map_err(|error| format!("create {}: {error}", request.out_dir.display()))?;
     let db_readback =
         a37_admission_store::write(&request.cf_root, &request.association_key, report)
             .map_err(|error| format!("{}: {}", error.code, error.message))?;
 
-    let report_path = request.out_dir.join("multi_anchor_ensemble_card.json");
-    let report_bytes = serde_json::to_vec_pretty(report)
-        .map_err(|error| format!("serialize multi-anchor report: {error}"))?;
-    fs::write(&report_path, &report_bytes)
-        .map_err(|error| format!("write {}: {error}", report_path.display()))?;
+    let mut report_path = String::new();
+    let mut lens_values_path = String::new();
+    let mut target_summary_path = String::new();
+    let mut report_sha256 = String::new();
+    let mut readback_sha256 = String::new();
+    let mut readback_matches = db_readback.readback_matches;
+    if request.emit_artifacts {
+        fs::create_dir_all(&request.out_dir)
+            .map_err(|error| format!("create {}: {error}", request.out_dir.display()))?;
+        let path = request.out_dir.join("multi_anchor_ensemble_card.json");
+        let report_bytes = serde_json::to_vec_pretty(report)
+            .map_err(|error| format!("serialize multi-anchor report: {error}"))?;
+        fs::write(&path, &report_bytes)
+            .map_err(|error| format!("write {}: {error}", path.display()))?;
 
-    let lens_values_path = request.out_dir.join("multi_anchor_lens_values.txt");
-    fs::write(&lens_values_path, lens_values(report))
-        .map_err(|error| format!("write {}: {error}", lens_values_path.display()))?;
-    let target_summary_path = request.out_dir.join("multi_anchor_target_summary.txt");
-    fs::write(&target_summary_path, target_values(report))
-        .map_err(|error| format!("write {}: {error}", target_summary_path.display()))?;
+        let lens_path = request.out_dir.join("multi_anchor_lens_values.txt");
+        fs::write(&lens_path, lens_values(report))
+            .map_err(|error| format!("write {}: {error}", lens_path.display()))?;
+        let target_path = request.out_dir.join("multi_anchor_target_summary.txt");
+        fs::write(&target_path, target_values(report))
+            .map_err(|error| format!("write {}: {error}", target_path.display()))?;
 
-    let readback = fs::read(&report_path)
-        .map_err(|error| format!("read back {}: {error}", report_path.display()))?;
-    let report_sha256 = sha256_hex(&report_bytes);
-    let readback_sha256 = sha256_hex(&readback);
-    if report_sha256 != readback_sha256 {
-        return Err(format!(
-            "{CODE_READBACK_MISMATCH}: wrote {report_sha256} but read back {readback_sha256}"
-        ));
+        let readback =
+            fs::read(&path).map_err(|error| format!("read back {}: {error}", path.display()))?;
+        report_sha256 = sha256_hex(&report_bytes);
+        readback_sha256 = sha256_hex(&readback);
+        if report_sha256 != readback_sha256 {
+            return Err(format!(
+                "{CODE_READBACK_MISMATCH}: wrote {report_sha256} but read back {readback_sha256}"
+            ));
+        }
+        report_path = path.display().to_string();
+        lens_values_path = lens_path.display().to_string();
+        target_summary_path = target_path.display().to_string();
+        readback_matches = true;
     }
     Ok(Evidence {
+        artifact_mode: if request.emit_artifacts {
+            "diagnostic_files".to_string()
+        } else {
+            "db_only".to_string()
+        },
         out_dir: request.out_dir.display().to_string(),
         cf_root: request.cf_root.display().to_string(),
         association_key: request.association_key.clone(),
         db_readback,
-        report_path: report_path.display().to_string(),
-        lens_values_path: lens_values_path.display().to_string(),
-        target_summary_path: target_summary_path.display().to_string(),
+        report_path,
+        lens_values_path,
+        target_summary_path,
         report_sha256,
         readback_sha256,
-        readback_matches: true,
+        readback_matches,
         status: report.status.clone(),
         gate_passed: report.gate_passed,
         report_count: report.report_count,

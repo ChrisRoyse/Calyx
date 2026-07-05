@@ -31,7 +31,12 @@ fn calyx() -> Command {
 
 fn show_manifest(vault: &Path) -> Output {
     calyx()
-        .args(["readback", "--vault", vault.to_str().unwrap(), "--show-manifest"])
+        .args([
+            "readback",
+            "--vault",
+            vault.to_str().unwrap(),
+            "--show-manifest",
+        ])
         .output()
         .expect("spawn calyx")
 }
@@ -83,7 +88,10 @@ fn show_manifest_cli_dispatch_fsv() {
     let out = show_manifest(&native);
     let stdout = String::from_utf8_lossy(&out.stdout);
     let stderr = String::from_utf8_lossy(&out.stderr);
-    println!("[native] exit={:?} stdout={stdout} stderr={stderr}", out.status.code());
+    println!(
+        "[native] exit={:?} stdout={stdout} stderr={stderr}",
+        out.status.code()
+    );
     assert!(
         out.status.success(),
         "native --show-manifest must succeed (the #1262 bug made it exit non-zero): stderr={stderr}"
@@ -124,7 +132,10 @@ fn show_manifest_cli_dispatch_fsv() {
     let out = show_manifest(&shadow);
     let sh_stdout = String::from_utf8_lossy(&out.stdout);
     let sh_stderr = String::from_utf8_lossy(&out.stderr);
-    println!("[shadow] exit={:?} stdout={sh_stdout} stderr={sh_stderr}", out.status.code());
+    println!(
+        "[shadow] exit={:?} stdout={sh_stdout} stderr={sh_stderr}",
+        out.status.code()
+    );
     assert!(
         !sh_stdout.contains("\"vault_format\":\"native-aster\"")
             && !sh_stdout.contains("native-aster"),
@@ -147,7 +158,10 @@ fn show_manifest_cli_dispatch_fsv() {
     let em_stderr = String::from_utf8_lossy(&out.stderr);
     let combined = format!("{em_stdout}{em_stderr}");
     println!("[empty] exit={:?} out={combined}", out.status.code());
-    assert!(!out.status.success(), "empty dir --show-manifest must fail closed");
+    assert!(
+        !out.status.success(),
+        "empty dir --show-manifest must fail closed"
+    );
     assert!(
         combined.contains("CALYX_VAULT_FORMAT_UNRECOGNIZED"),
         "empty dir must fail with CALYX_VAULT_FORMAT_UNRECOGNIZED, got: {combined}"

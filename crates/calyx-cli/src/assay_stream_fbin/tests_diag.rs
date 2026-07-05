@@ -6,6 +6,7 @@ use super::args::StreamMode;
 use super::write;
 
 #[path = "tests/support.rs"]
+#[allow(clippy::duplicate_mod)]
 #[allow(dead_code)]
 mod support;
 

@@ -16,6 +16,7 @@ pub(crate) struct I8binEnsembleRequest {
     pub(crate) max_redundancy: f32,
     pub(crate) nmi_bins: usize,
     pub(crate) mode: A37CardMode,
+    pub(crate) emit_artifacts: bool,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -53,6 +54,7 @@ impl I8binEnsembleRequest {
         let mut max_redundancy = calyx_assay::DEFAULT_MAX_REDUNDANCY;
         let mut nmi_bins = 10_usize;
         let mut mode = A37CardMode::Gate;
+        let mut emit_artifacts = true;
         let mut idx = 0;
         while idx < args.len() {
             match args[idx].as_str() {
@@ -116,6 +118,10 @@ impl I8binEnsembleRequest {
                     mode = A37CardMode::Diagnostic;
                     idx += 1;
                 }
+                "--db-only" | "--no-artifacts" => {
+                    emit_artifacts = false;
+                    idx += 1;
+                }
                 other => {
                     return Err(format!(
                         "CALYX_FSV_ASSAY_I8BIN_CARD_INVALID_CONFIG: unknown arg {other}"
@@ -123,7 +129,16 @@ impl I8binEnsembleRequest {
                 }
             }
         }
-        let cf_root = cf_root.unwrap_or_else(|| metrics_dir.join("assay_cf"));
+        let cf_root = match cf_root {
+            Some(path) => path,
+            None if !metrics_dir.as_os_str().is_empty() => metrics_dir.join("assay_cf"),
+            None => {
+                return Err(
+                    "CALYX_FSV_ASSAY_I8BIN_CARD_INVALID_CONFIG: --cf-root is required when --db-only omits --metrics-dir"
+                        .to_string(),
+                );
+            }
+        };
         let request = Self {
             plan,
             rows_jsonl,
@@ -139,18 +154,28 @@ impl I8binEnsembleRequest {
             max_redundancy,
             nmi_bins,
             mode,
+            emit_artifacts,
         };
         request.validate()?;
         Ok(request)
     }
 
     fn validate(&self) -> Result<(), String> {
-        if self.plan.as_os_str().is_empty()
-            || self.rows_jsonl.as_os_str().is_empty()
-            || self.metrics_dir.as_os_str().is_empty()
-        {
+        if self.plan.as_os_str().is_empty() || self.rows_jsonl.as_os_str().is_empty() {
             return Err(
-                "CALYX_FSV_ASSAY_I8BIN_CARD_INVALID_CONFIG: --plan, --rows-jsonl, and --metrics-dir are required"
+                "CALYX_FSV_ASSAY_I8BIN_CARD_INVALID_CONFIG: --plan and --rows-jsonl are required"
+                    .to_string(),
+            );
+        }
+        if self.emit_artifacts && self.metrics_dir.as_os_str().is_empty() {
+            return Err(
+                "CALYX_FSV_ASSAY_I8BIN_CARD_INVALID_CONFIG: --metrics-dir is required unless --db-only is set"
+                    .to_string(),
+            );
+        }
+        if self.cf_root.as_os_str().is_empty() {
+            return Err(
+                "CALYX_FSV_ASSAY_I8BIN_CARD_INVALID_CONFIG: --cf-root must be non-empty"
                     .to_string(),
             );
         }
@@ -185,16 +210,17 @@ impl I8binEnsembleRequest {
     }
 
     pub(crate) fn ensure_fresh_outputs(&self) -> Result<(), String> {
-        for (label, path) in [
-            ("metrics_dir", &self.metrics_dir),
-            ("cf_root", &self.cf_root),
-        ] {
-            if path.exists() {
-                return Err(format!(
-                    "CALYX_FSV_ASSAY_I8BIN_CARD_OUTPUT_EXISTS: {label} already exists: {}",
-                    path.display()
-                ));
-            }
+        if self.emit_artifacts && self.metrics_dir.exists() {
+            return Err(format!(
+                "CALYX_FSV_ASSAY_I8BIN_CARD_OUTPUT_EXISTS: metrics_dir already exists: {}",
+                self.metrics_dir.display()
+            ));
+        }
+        if self.emit_artifacts && self.cf_root.exists() {
+            return Err(format!(
+                "CALYX_FSV_ASSAY_I8BIN_CARD_OUTPUT_EXISTS: cf_root already exists: {}",
+                self.cf_root.display()
+            ));
         }
         Ok(())
     }

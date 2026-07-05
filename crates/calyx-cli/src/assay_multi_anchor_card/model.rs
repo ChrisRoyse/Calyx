@@ -1,4 +1,5 @@
 use std::collections::BTreeMap;
+use std::path::PathBuf;
 
 use calyx_assay::EnsembleCard;
 use serde::{Deserialize, Serialize};
@@ -12,8 +13,15 @@ pub(crate) struct InputReport {
 
 #[derive(Clone, Debug)]
 pub(crate) struct LoadedReport {
-    pub(crate) path: std::path::PathBuf,
+    pub(crate) source: String,
     pub(crate) report: InputReport,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct DbReportRef {
+    pub(crate) cf_root: PathBuf,
+    pub(crate) domain: String,
+    pub(crate) target_class: usize,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
