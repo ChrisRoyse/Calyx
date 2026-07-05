@@ -87,8 +87,10 @@ runs must use `--diagnostic` or `--baseline`; they still write streamed bytes an
 the redundancy/PID matrix but remain `diagnostic_only`. `stream-fbin` persists
 the partitioned RRF plan into `partitioned_rrf_plan_cf` and the event-time
 timeline into chunked `partitioned_rrf_timeline_cf` Graph CF rows. Gate-bearing
-`partitioned-rrf` runs must read time-walk authority with `--timeline-cf-root`;
-JSON timeline sidecars are diagnostic/import bytes only.
+`partitioned-rrf` runs must read time-walk authority with `--timeline-cf-root`
+and accepted-reference truth with `--fused-ground-truth-cf-root` or
+`--slot-ground-truth-cf-root`; JSON/I32BIN truth files and JSON timeline
+sidecars are diagnostic/import bytes only.
 
 `calyx assay corpus-build` and `calyx assay stream-fbin` isolate each measured
 lens in a short-lived worker process. This is required for ONNX CUDA runtimes:

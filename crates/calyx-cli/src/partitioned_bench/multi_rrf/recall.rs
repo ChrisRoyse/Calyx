@@ -3,6 +3,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use calyx_core::SlotId;
 use serde_json::{Value, json};
 
+use super::fused_truth_db::DbFusedTruth;
 use super::ground_truth::PrecomputedTruth;
 use super::slot_truth::SlotTruth;
 use super::slot_truth_db::DbSlotTruth;
@@ -19,6 +20,7 @@ pub(super) struct Request<'a> {
     pub(super) single_hits: &'a BTreeMap<SlotId, Vec<Vec<u64>>>,
     pub(super) timeline: Option<&'a timeline::Timeline>,
     pub(super) precomputed_truth: Option<&'a PrecomputedTruth>,
+    pub(super) db_fused_truth: Option<&'a DbFusedTruth>,
     pub(super) slot_truth: Option<&'a SlotTruth>,
     pub(super) db_slot_truth: Option<&'a DbSlotTruth>,
 }
@@ -108,6 +110,12 @@ fn exact_truth_for_query(req: &Request<'_>, query_idx: usize) -> (Vec<u64>, Vec<
         return (
             precomputed.row_ids(query_idx).to_vec(),
             Vec::from([json!({"source": "precomputed_fused_rrf_i32bin"})]),
+        );
+    }
+    if let Some(precomputed) = req.db_fused_truth {
+        return (
+            precomputed.row_ids(query_idx).to_vec(),
+            Vec::from([json!({"source": "precomputed_fused_rrf_aster_cf"})]),
         );
     }
     if let Some(slot_truth) = req.slot_truth {
@@ -290,6 +298,7 @@ fn ids_to_hits(ids: &[u64]) -> Vec<calyx_sextant::IndexSearchHit> {
 fn ground_truth_source(req: &Request<'_>) -> Value {
     req.precomputed_truth
         .map(PrecomputedTruth::source)
+        .or_else(|| req.db_fused_truth.map(DbFusedTruth::source))
         .or_else(|| req.slot_truth.map(SlotTruth::source))
         .or_else(|| req.db_slot_truth.map(DbSlotTruth::source))
         .unwrap_or_else(|| {

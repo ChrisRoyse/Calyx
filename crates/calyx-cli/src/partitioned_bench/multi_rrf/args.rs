@@ -19,6 +19,8 @@ pub(super) struct Args {
     pub(super) truth_depth: Option<usize>,
     pub(super) fused_ground_truth_file: Option<PathBuf>,
     pub(super) fused_ground_truth_manifest: Option<PathBuf>,
+    pub(super) fused_ground_truth_cf_root: Option<PathBuf>,
+    pub(super) fused_ground_truth_key: String,
     pub(super) slot_ground_truth_manifest: Option<PathBuf>,
     pub(super) slot_ground_truth_cf_root: Option<PathBuf>,
     pub(super) slot_ground_truth_key: String,
@@ -28,6 +30,8 @@ pub(super) struct Args {
     pub(super) a37_admission_key: String,
     pub(super) write_fused_ground_truth_file: Option<PathBuf>,
     pub(super) write_fused_ground_truth_manifest: Option<PathBuf>,
+    pub(super) write_fused_ground_truth_cf_root: Option<PathBuf>,
+    pub(super) write_fused_ground_truth_key: String,
     pub(super) report_cf_root: Option<PathBuf>,
     pub(super) report_key: String,
     pub(super) report_db_only: bool,
@@ -51,6 +55,8 @@ impl Args {
         let mut truth_depth = None;
         let mut fused_ground_truth_file = None;
         let mut fused_ground_truth_manifest = None;
+        let mut fused_ground_truth_cf_root = None;
+        let mut fused_ground_truth_key = super::fused_truth_db::DEFAULT_ASSOCIATION_KEY.to_string();
         let mut slot_ground_truth_manifest = None;
         let mut slot_ground_truth_cf_root = None;
         let mut slot_ground_truth_key =
@@ -61,6 +67,9 @@ impl Args {
         let mut a37_admission_key = "a37_multi_anchor_admission".to_string();
         let mut write_fused_ground_truth_file = None;
         let mut write_fused_ground_truth_manifest = None;
+        let mut write_fused_ground_truth_cf_root = None;
+        let mut write_fused_ground_truth_key =
+            super::fused_truth_db::DEFAULT_ASSOCIATION_KEY.to_string();
         let mut report_cf_root = None;
         let mut report_key =
             crate::partitioned_rrf_report_store::DEFAULT_ASSOCIATION_KEY.to_string();
@@ -99,6 +108,10 @@ impl Args {
                 "--fused-ground-truth-manifest" => {
                     fused_ground_truth_manifest = Some(PathBuf::from(next()?))
                 }
+                "--fused-ground-truth-cf-root" => {
+                    fused_ground_truth_cf_root = Some(PathBuf::from(next()?))
+                }
+                "--fused-ground-truth-key" => fused_ground_truth_key = next()?,
                 "--slot-ground-truth-manifest" => {
                     slot_ground_truth_manifest = Some(PathBuf::from(next()?))
                 }
@@ -116,6 +129,10 @@ impl Args {
                 "--write-fused-ground-truth-manifest" => {
                     write_fused_ground_truth_manifest = Some(PathBuf::from(next()?))
                 }
+                "--write-fused-ground-truth-cf-root" => {
+                    write_fused_ground_truth_cf_root = Some(PathBuf::from(next()?))
+                }
+                "--write-fused-ground-truth-key" => write_fused_ground_truth_key = next()?,
                 "--report-cf-root" => report_cf_root = Some(PathBuf::from(next()?)),
                 "--report-key" => report_key = next()?,
                 "--report-db-only" | "--no-report-stdout" => report_db_only = true,
@@ -148,10 +165,12 @@ impl Args {
         validate_truth_args(TruthArgRefs {
             fused_file: fused_ground_truth_file.as_ref(),
             fused_manifest: fused_ground_truth_manifest.as_ref(),
+            fused_cf_root: fused_ground_truth_cf_root.as_ref(),
             slot_manifest: slot_ground_truth_manifest.as_ref(),
             slot_cf_root: slot_ground_truth_cf_root.as_ref(),
             write_file: write_fused_ground_truth_file.as_ref(),
             write_manifest: write_fused_ground_truth_manifest.as_ref(),
+            write_cf_root: write_fused_ground_truth_cf_root.as_ref(),
             a37_card: a37_admission_card.as_ref(),
             a37_cf_root: a37_admission_cf_root.as_ref(),
             report_cf_root: report_cf_root.as_ref(),
@@ -160,6 +179,16 @@ impl Args {
         })?;
         if slot_ground_truth_key.trim().is_empty() {
             return Err(CliError::usage("--slot-ground-truth-key must be non-empty"));
+        }
+        if fused_ground_truth_key.trim().is_empty() {
+            return Err(CliError::usage(
+                "--fused-ground-truth-key must be non-empty",
+            ));
+        }
+        if write_fused_ground_truth_key.trim().is_empty() {
+            return Err(CliError::usage(
+                "--write-fused-ground-truth-key must be non-empty",
+            ));
         }
         if a37_admission_key.trim().is_empty() {
             return Err(CliError::usage("--a37-admission-key must be non-empty"));
@@ -183,6 +212,8 @@ impl Args {
             truth_depth,
             fused_ground_truth_file,
             fused_ground_truth_manifest,
+            fused_ground_truth_cf_root,
+            fused_ground_truth_key,
             slot_ground_truth_manifest,
             slot_ground_truth_cf_root,
             slot_ground_truth_key,
@@ -192,6 +223,8 @@ impl Args {
             a37_admission_key,
             write_fused_ground_truth_file,
             write_fused_ground_truth_manifest,
+            write_fused_ground_truth_cf_root,
+            write_fused_ground_truth_key,
             report_cf_root,
             report_key,
             report_db_only,
@@ -205,10 +238,12 @@ impl Args {
 struct TruthArgRefs<'a> {
     fused_file: Option<&'a PathBuf>,
     fused_manifest: Option<&'a PathBuf>,
+    fused_cf_root: Option<&'a PathBuf>,
     slot_manifest: Option<&'a PathBuf>,
     slot_cf_root: Option<&'a PathBuf>,
     write_file: Option<&'a PathBuf>,
     write_manifest: Option<&'a PathBuf>,
+    write_cf_root: Option<&'a PathBuf>,
     a37_card: Option<&'a PathBuf>,
     a37_cf_root: Option<&'a PathBuf>,
     report_cf_root: Option<&'a PathBuf>,
@@ -227,17 +262,30 @@ fn validate_truth_args(args: TruthArgRefs<'_>) -> CliResult {
             "--write-fused-ground-truth-file requires --write-fused-ground-truth-manifest",
         ));
     }
-    if args.fused_file.is_some() && args.write_file.is_some() {
+    if args.fused_cf_root.is_some() && args.fused_file.is_some() {
+        return Err(CliError::usage(
+            "file and DB fused ground truth sources are mutually exclusive",
+        ));
+    }
+    let write_outputs =
+        usize::from(args.write_file.is_some()) + usize::from(args.write_cf_root.is_some());
+    if write_outputs > 1 {
+        return Err(CliError::usage(
+            "file and DB fused ground-truth writes are mutually exclusive",
+        ));
+    }
+    if (args.fused_file.is_some() || args.fused_cf_root.is_some()) && write_outputs > 0 {
         return Err(CliError::usage(
             "precomputed and generated fused ground truth are mutually exclusive in one run",
         ));
     }
     let truth_sources = usize::from(args.fused_file.is_some())
+        + usize::from(args.fused_cf_root.is_some())
         + usize::from(args.slot_manifest.is_some())
         + usize::from(args.slot_cf_root.is_some());
     if truth_sources > 1 {
         return Err(CliError::usage(
-            "precomputed fused, slot manifest, and slot DB ground truth are mutually exclusive",
+            "precomputed fused file, fused DB, slot manifest, and slot DB ground truth are mutually exclusive",
         ));
     }
     if args.a37_card.is_some() && args.a37_cf_root.is_some() {

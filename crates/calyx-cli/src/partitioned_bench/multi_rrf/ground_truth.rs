@@ -12,9 +12,9 @@ use sha2::{Digest, Sha256};
 use super::{Plan, report};
 use crate::error::{CliError, CliResult};
 
-const FORMAT: &str = "calyx-partitioned-rrf-ground-truth-v1";
-const MODE: &str = "fused_rrf";
-const ROW_ID_SPACE: &str = "partitioned_rrf_plan_corpus_row_idx";
+pub(super) const FORMAT: &str = "calyx-partitioned-rrf-ground-truth-v1";
+pub(super) const MODE: &str = "fused_rrf";
+pub(super) const ROW_ID_SPACE: &str = "partitioned_rrf_plan_corpus_row_idx";
 
 #[derive(Clone, Debug)]
 pub(super) struct PrecomputedTruth {
@@ -55,12 +55,12 @@ struct TruthManifest {
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
-struct TruthSlot {
-    slot: u16,
-    lens_id: String,
-    weights_sha256: String,
+pub(super) struct TruthSlot {
+    pub(super) slot: u16,
+    pub(super) lens_id: String,
+    pub(super) weights_sha256: String,
     #[serde(default)]
-    signal_kind: String,
+    pub(super) signal_kind: String,
 }
 
 impl PrecomputedTruth {
@@ -331,7 +331,7 @@ fn i32bin_bytes(rows: &[Vec<u64>], width: usize) -> CliResult<Vec<u8>> {
     Ok(bytes)
 }
 
-fn plan_slots(plan: &Plan) -> Vec<TruthSlot> {
+pub(super) fn plan_slots(plan: &Plan) -> Vec<TruthSlot> {
     plan.slots
         .iter()
         .map(|slot| TruthSlot {

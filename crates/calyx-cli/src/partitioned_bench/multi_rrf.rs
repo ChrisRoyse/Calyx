@@ -26,6 +26,8 @@ mod a37_admission;
 mod args;
 #[path = "multi_rrf/ensemble.rs"]
 mod ensemble;
+#[path = "multi_rrf/fused_truth_db.rs"]
+mod fused_truth_db;
 #[path = "multi_rrf/ground_truth.rs"]
 mod ground_truth;
 #[path = "multi_rrf/ids.rs"]
@@ -129,6 +131,27 @@ pub(crate) fn run(raw: &[String]) -> CliResult {
         )?),
         _ => None,
     };
+    let db_fused_truth = match args.fused_ground_truth_cf_root.as_ref() {
+        Some(cf_root) if truth_n > 0 => Some(fused_truth_db::DbFusedTruth::load(
+            fused_truth_db::Context {
+                cf_root,
+                association_key: &args.fused_ground_truth_key,
+                plan_path: &plan_ref,
+                plan_sha256: &loaded_plan.plan_sha256,
+                plan,
+                truth_n,
+                k: args.k,
+                truth_depth,
+                corpus_rows,
+            },
+        )?),
+        Some(_) => {
+            return Err(CliError::usage(
+                "--fused-ground-truth-cf-root requires --ground-truth > 0",
+            ));
+        }
+        None => None,
+    };
     let slot_truth = match args.slot_ground_truth_manifest.as_ref() {
         Some(manifest) if truth_n > 0 => Some(slot_truth::SlotTruth::load(slot_truth::Context {
             manifest_file: manifest,
@@ -169,6 +192,9 @@ pub(crate) fn run(raw: &[String]) -> CliResult {
     let scale_truth = precomputed_truth
         .as_ref()
         .is_some_and(ground_truth::PrecomputedTruth::scale_suitable)
+        || db_fused_truth
+            .as_ref()
+            .is_some_and(fused_truth_db::DbFusedTruth::scale_suitable)
         || slot_truth
             .as_ref()
             .is_some_and(slot_truth::SlotTruth::scale_suitable)
@@ -233,6 +259,7 @@ pub(crate) fn run(raw: &[String]) -> CliResult {
             single_hits: &single_hits_for_truth,
             timeline: timeline.as_ref(),
             precomputed_truth: precomputed_truth.as_ref(),
+            db_fused_truth: db_fused_truth.as_ref(),
             slot_truth: slot_truth.as_ref(),
             db_slot_truth: db_slot_truth.as_ref(),
         })
@@ -257,7 +284,29 @@ pub(crate) fn run(raw: &[String]) -> CliResult {
                 corpus_rows,
             },
         )?),
-        _ => None,
+        _ => match args.write_fused_ground_truth_cf_root.as_ref() {
+            Some(cf_root) if truth_n > 0 => Some(fused_truth_db::write(
+                &recall.exact_fused_rows,
+                fused_truth_db::Context {
+                    cf_root,
+                    association_key: &args.write_fused_ground_truth_key,
+                    plan_path: &plan_ref,
+                    plan_sha256: &loaded_plan.plan_sha256,
+                    plan,
+                    truth_n,
+                    k: args.k,
+                    truth_depth,
+                    corpus_rows,
+                },
+                scale_truth,
+            )?),
+            Some(_) => {
+                return Err(CliError::usage(
+                    "--write-fused-ground-truth-cf-root requires --ground-truth > 0",
+                ));
+            }
+            None => None,
+        },
     };
     enforce_recall_floor(args.recall_floor, truth_n, recall.fused_recall)?;
     let latency_us = percentiles(&fused_latencies_us);

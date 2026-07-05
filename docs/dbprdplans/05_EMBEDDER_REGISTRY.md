@@ -219,8 +219,10 @@ evidence is marked diagnostic-only and cannot be used as an A37 gate verdict.
 `partitioned_rrf_timeline_cf` Graph CF rows. Gate-bearing `i8bin-ensemble-card`
 and `partitioned-rrf` runs must read roster/time-walk authority with
 `--plan-cf-root` and `--timeline-cf-root` so association and temporal gate state
-come from Calyx/Aster. The JSON plan/timeline/report files are migration
-diagnostics or import/export bytes, not association authority.
+come from Calyx/Aster. Gate-bearing fused recall must read accepted-reference
+truth from Calyx/Aster as `--fused-ground-truth-cf-root` or
+`--slot-ground-truth-cf-root`; legacy JSON/I32BIN truth files are migration
+diagnostics or one-time import bytes, not association authority.
 Temporal lanes remain the time-control surface for as-of, forward, and backward
 traversal; they are serialized in the A37 readout but never count toward the
 content-family floor.
