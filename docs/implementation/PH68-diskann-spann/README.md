@@ -84,7 +84,10 @@ masquerade as content lenses.
 `--mode gate`, so full encodes and A37 readouts must carry eligible gate
 evidence before they can stand as gate evidence. Homogeneous baseline/control
 runs must use `--diagnostic` or `--baseline`; they still write streamed bytes and
-the redundancy/PID matrix but remain `diagnostic_only`.
+the redundancy/PID matrix but remain `diagnostic_only`. `stream-fbin` persists
+the partitioned RRF plan into `partitioned_rrf_plan_cf`, and gate-bearing
+`i8bin-ensemble-card` runs should consume that Graph CF row with
+`--plan-cf-root` instead of treating the JSON plan file as authority.
 
 `calyx assay corpus-build` and `calyx assay stream-fbin` isolate each measured
 lens in a short-lived worker process. This is required for ONNX CUDA runtimes:

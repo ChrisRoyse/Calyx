@@ -1,6 +1,7 @@
 use serde::Serialize;
 
 use crate::assay_anchor_audit::AnchorAudit;
+use crate::partitioned_bench::rrf_plan::PartitionedRrfPlanDbReadback;
 
 use super::super::format::VectorFormat;
 use super::super::rows::RowStats;
@@ -13,6 +14,10 @@ pub(crate) struct Evidence {
     pub(crate) out_dir: String,
     pub(crate) rows_jsonl: String,
     pub(crate) plan_path: String,
+    pub(crate) plan_cf_root: String,
+    pub(crate) plan_association_key: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) plan_db_readback: Option<PartitionedRrfPlanDbReadback>,
     pub(crate) timeline_path: String,
     pub(crate) progress_path: String,
     pub(crate) export_report_path: String,

@@ -214,6 +214,11 @@ Assay CF writes unless the gate evidence is eligible. Homogeneous or control
 runs must say `--diagnostic` / `--baseline`; those runs still persist streamed
 bytes, the matrix, marginal/PID readout, and temporal sidecar evidence, but the
 evidence is marked diagnostic-only and cannot be used as an A37 gate verdict.
+`stream-fbin` also persists the partitioned RRF plan into Aster Graph CF at
+`partitioned_rrf_plan_cf`; gate-bearing `i8bin-ensemble-card` runs should read
+that row with `--plan-cf-root` so the roster association comes from Calyx/Aster,
+not a plan JSON artifact. The JSON plan/report files are migration diagnostics,
+not association authority.
 Temporal lanes remain the time-control surface for as-of, forward, and backward
 traversal; they are serialized in the A37 readout but never count toward the
 content-family floor.

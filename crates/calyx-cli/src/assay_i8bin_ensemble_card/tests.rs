@@ -78,6 +78,49 @@ fn i8bin_card_db_only_persists_without_metrics_artifacts() {
 }
 
 #[test]
+fn i8bin_card_reads_plan_from_graph_cf() {
+    let root = temp_root("i8bin-ensemble-card-plan-db");
+    fs::create_dir_all(&root).unwrap();
+    let rows = root.join("rows.jsonl");
+    write_rows(&rows, 120);
+    let plan = write_plan(&root, 10, 120);
+    let loaded = crate::partitioned_bench::rrf_plan::load_from_file(&plan).unwrap();
+    let plan_cf_root = root.join("plan-cf");
+    crate::partitioned_bench::rrf_plan::write(
+        &plan_cf_root,
+        crate::partitioned_bench::rrf_plan::DEFAULT_ASSOCIATION_KEY,
+        &crate::partitioned_bench::rrf_plan::PartitionedRrfPlanRecord {
+            format: crate::partitioned_bench::rrf_plan::FORMAT.to_string(),
+            mode: crate::partitioned_bench::rrf_plan::MODE.to_string(),
+            imported_plan_sha256: loaded.plan_sha256,
+            base_dir: loaded.base_dir,
+            plan: loaded.plan,
+        },
+    )
+    .unwrap();
+    let mut request = request_for(&root, PathBuf::new(), rows, None, 80, Some(60));
+    request.plan = None;
+    request.plan_cf_root = Some(plan_cf_root.clone());
+    request.emit_artifacts = false;
+    request.metrics_dir = PathBuf::new();
+    request.cf_root = root.join("shared-assay-cf");
+
+    let report = evaluate(&request).unwrap();
+    let evidence = write_outputs(&request, &report).unwrap();
+
+    assert_eq!(report.plan_source.mode, "aster_graph_cf");
+    let expected_cf_root = plan_cf_root.display().to_string();
+    assert_eq!(
+        report.plan_source.cf_root.as_deref(),
+        Some(expected_cf_root.as_str())
+    );
+    assert!(report.plan_source.db_readback.unwrap().readback_matches);
+    assert_eq!(evidence.artifact_mode, "db_only");
+    assert_eq!(evidence.assay_cf_subject_counts["ensemble_card"], 1);
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
 fn default_gate_mode_refuses_homogeneous_panel_before_outputs() {
     let root = temp_root("i8bin-ensemble-card-a37-gate-refuses");
     fs::create_dir_all(&root).unwrap();
@@ -187,7 +230,9 @@ fn request_for(
 ) -> I8binEnsembleRequest {
     let metrics = root.join("metrics");
     I8binEnsembleRequest {
-        plan,
+        plan: Some(plan),
+        plan_cf_root: None,
+        plan_key: crate::partitioned_bench::rrf_plan::DEFAULT_ASSOCIATION_KEY.to_string(),
         rows_jsonl: rows,
         stream_report,
         metrics_dir: metrics.clone(),

@@ -58,6 +58,32 @@ fn stream_fbin_writes_structured_progress_snapshot() {
         report["progress_path"].as_str().unwrap(),
         progress_path.display().to_string()
     );
+    assert_eq!(
+        report["plan_cf_root"].as_str().unwrap(),
+        fixture
+            .out
+            .join("partitioned_rrf_plan_cf")
+            .display()
+            .to_string()
+    );
+    assert_eq!(
+        report["plan_association_key"].as_str().unwrap(),
+        crate::partitioned_bench::rrf_plan::DEFAULT_ASSOCIATION_KEY
+    );
+    assert!(
+        report["plan_db_readback"]["readback_matches"]
+            .as_bool()
+            .unwrap()
+    );
+    let (db_plan, db_readback) = crate::partitioned_bench::rrf_plan::read(
+        &fixture.out.join("partitioned_rrf_plan_cf"),
+        crate::partitioned_bench::rrf_plan::DEFAULT_ASSOCIATION_KEY,
+    )
+    .unwrap();
+    assert!(db_readback.readback_matches);
+    assert_eq!(db_plan.plan.slots.len(), 10);
+    assert_eq!(db_plan.plan.slots[0].name.as_deref(), Some("lens-0"));
+    assert!(db_plan.plan.slots[0].corpus.is_file());
     assert_eq!(report["pre_encode_gate"]["sufficient"], true);
     assert_eq!(
         report["pre_encode_gate"]["estimate_bound"]

@@ -13,8 +13,7 @@ use engine::{enforce_a37_mode, evaluate};
 use metrics::write_outputs;
 use request::I8binEnsembleRequest;
 
-const FSV_REMEDIATION: &str =
-    "inspect the streamed plan, rows JSONL, vector bytes, metrics files, and Assay CF readback";
+const FSV_REMEDIATION: &str = "inspect the streamed plan Graph CF row, rows JSONL, vector bytes, metrics files, and Assay CF readback";
 
 pub(crate) fn run(args: &[String]) -> CliResult {
     let request = I8binEnsembleRequest::parse(args).map_err(i8bin_card_error)?;
@@ -103,6 +102,13 @@ const I8BIN_CARD_CODES: &[&str] = &[
     "CALYX_FSV_ASSAY_CARD_READBACK_MISSING",
     "CALYX_FSV_ASSAY_CARD_READBACK_MISMATCH",
     "CALYX_FSV_ASSAY_NONFINITE_METRIC",
+    "CALYX_FSV_PARTITIONED_RRF_PLAN_DB_INVALID",
+    "CALYX_FSV_PARTITIONED_RRF_PLAN_DB_EXISTS",
+    "CALYX_FSV_PARTITIONED_RRF_PLAN_DB_MISSING",
+    "CALYX_FSV_PARTITIONED_RRF_PLAN_DB_MISMATCH",
+    "CALYX_FSV_PARTITIONED_RRF_PLAN_DB_INVALID_KEY",
+    "CALYX_FSV_PARTITIONED_RRF_PLAN_DB_ENCODE",
+    "CALYX_FSV_PARTITIONED_RRF_PLAN_DB_DECODE",
 ];
 
 #[cfg(test)]

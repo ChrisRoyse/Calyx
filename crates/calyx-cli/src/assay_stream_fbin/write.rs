@@ -5,9 +5,11 @@ use std::process;
 use std::time::Duration;
 
 use serde_json::json;
+use sha2::{Digest, Sha256};
 
 use crate::assay_corpus_build::lens::{BuildLens, measure_text_batch};
 use crate::error::{CliError, CliResult};
+use crate::partitioned_bench::rrf_plan;
 
 use super::args::Args;
 use super::rows::{self, Row, RowStats};
@@ -48,6 +50,7 @@ struct LensStream<'a> {
 struct StagedExport {
     evidence: Evidence,
     progress: progress::ProgressLog,
+    plan: rrf_plan::Plan,
 }
 
 pub(crate) fn run(args: &Args) -> CliResult<Evidence> {
@@ -66,6 +69,10 @@ pub(crate) fn run(args: &Args) -> CliResult<Evidence> {
             if let Err(error) = fs::rename(&staging, &args.out_dir) {
                 let _ = fs::remove_dir_all(&staging);
                 return Err(io_error(error));
+            }
+            if let Err(error) = persist_plan_db_after_promotion(args, &mut staged) {
+                let _ = fs::remove_dir_all(&args.out_dir);
+                return Err(error);
             }
             if let Err(error) = staged.progress.export_finished_after_promotion() {
                 let _ = fs::remove_dir_all(&args.out_dir);
@@ -109,7 +116,7 @@ fn run_staged(
     for report in reports {
         roster.push(report.into_lens_evidence(args)?);
     }
-    write_plan(
+    let plan = write_plan(
         &staging.join("partitioned_rrf_plan.json"),
         &display_final(args, "timeline.jsonl"),
         &roster,
@@ -118,6 +125,9 @@ fn run_staged(
         out_dir: display(&args.out_dir),
         rows_jsonl: display(&args.rows_jsonl),
         plan_path: display_final(args, "partitioned_rrf_plan.json"),
+        plan_cf_root: display_final(args, "partitioned_rrf_plan_cf"),
+        plan_association_key: rrf_plan::DEFAULT_ASSOCIATION_KEY.to_string(),
+        plan_db_readback: None,
         timeline_path: display_final(args, "timeline.jsonl"),
         progress_path: display_final(args, progress::FILE_NAME),
         export_report_path: display_final(args, "stream_fbin_report.json"),
@@ -145,7 +155,40 @@ fn run_staged(
         })?,
     )
     .map_err(io_error)?;
-    Ok(StagedExport { evidence, progress })
+    Ok(StagedExport {
+        evidence,
+        progress,
+        plan,
+    })
+}
+
+fn persist_plan_db_after_promotion(args: &Args, staged: &mut StagedExport) -> CliResult {
+    let cf_root = args.out_dir.join("partitioned_rrf_plan_cf");
+    let association_key = rrf_plan::DEFAULT_ASSOCIATION_KEY;
+    let plan_path = args.out_dir.join("partitioned_rrf_plan.json");
+    let plan_bytes = fs::read(&plan_path).map_err(io_error)?;
+    let readback = rrf_plan::write(
+        &cf_root,
+        association_key,
+        &rrf_plan::PartitionedRrfPlanRecord {
+            format: rrf_plan::FORMAT.to_string(),
+            mode: rrf_plan::MODE.to_string(),
+            imported_plan_sha256: hex_sha256(&plan_bytes),
+            base_dir: PathBuf::new(),
+            plan: staged.plan.clone(),
+        },
+    )
+    .map_err(CliError::from)?;
+    staged.evidence.plan_cf_root = display(&cf_root);
+    staged.evidence.plan_association_key = association_key.to_string();
+    staged.evidence.plan_db_readback = Some(readback);
+    fs::write(
+        args.out_dir.join("stream_fbin_report.json"),
+        serde_json::to_vec_pretty(&staged.evidence).map_err(|error| {
+            CliError::runtime(format!("serialize stream_fbin_report.json: {error}"))
+        })?,
+    )
+    .map_err(io_error)
 }
 
 fn create_sink(
@@ -286,6 +329,15 @@ fn elapsed_ms(duration: Duration) -> CliResult<u64> {
         .map_err(|_| CliError::usage("stream-fbin lens elapsed_ms exceeds u64"))
 }
 
+fn hex_sha256(bytes: &[u8]) -> String {
+    let digest = Sha256::digest(bytes);
+    let mut out = String::with_capacity(digest.len() * 2);
+    for byte in digest {
+        out.push_str(&format!("{byte:02x}"));
+    }
+    out
+}
+
 fn validate_vector(lens: &BuildLens, vector: &[f32]) -> CliResult {
     if vector.len() != lens.dim() || vector.iter().any(|value| !value.is_finite()) {
         return Err(local_error(
@@ -337,7 +389,28 @@ fn sync_sink(sink: &mut FbinSink) -> CliResult {
     sink.queries.get_ref().sync_all().map_err(io_error)
 }
 
-fn write_plan(path: &Path, timeline_path: &str, lenses: &[LensEvidence]) -> CliResult {
+fn write_plan(
+    path: &Path,
+    timeline_path: &str,
+    lenses: &[LensEvidence],
+) -> CliResult<rrf_plan::Plan> {
+    let plan = rrf_plan::Plan {
+        timeline: Some(PathBuf::from(timeline_path)),
+        slots: lenses
+            .iter()
+            .map(|lens| rrf_plan::PlanSlot {
+                slot: lens.slot,
+                name: Some(lens.name.clone()),
+                lens_id: Some(lens.lens_id.clone()),
+                weights_sha256: Some(lens.weights_sha256.clone()),
+                signal_kind: Some(lens.signal_kind.clone()),
+                bits_about: Some(lens.bits_about),
+                vault: PathBuf::from(&lens.vault_path),
+                queries: PathBuf::from(&lens.queries_path),
+                corpus: PathBuf::from(&lens.corpus_path),
+            })
+            .collect(),
+    };
     let slots = lenses
         .iter()
         .map(|lens| {
@@ -369,7 +442,8 @@ fn write_plan(path: &Path, timeline_path: &str, lenses: &[LensEvidence]) -> CliR
         }))
         .map_err(|error| CliError::runtime(format!("serialize assay plan: {error}")))?,
     )
-    .map_err(io_error)
+    .map_err(io_error)?;
+    Ok(plan)
 }
 
 fn fail_if_exists(path: &Path) -> CliResult {

@@ -9,13 +9,14 @@ use serde::Serialize;
 use crate::assay_bits_validation::calyx_error_detail;
 
 use super::matrix::{MatrixReadout, read_vectors};
-use super::plan::{LoadedPlan, PlanSlot};
+use super::plan::{LoadedPlan, PlanSlot, PlanSourceReadout};
 use super::request::I8binEnsembleRequest;
 use super::rows::LabelRows;
 
 #[derive(Clone, Debug, Serialize)]
 pub(crate) struct I8binEnsembleReport {
     pub(crate) plan_path: String,
+    pub(crate) plan_source: PlanSourceReadout,
     pub(crate) rows_jsonl: String,
     pub(crate) stream_report: Option<String>,
     pub(crate) target_class: usize,
@@ -57,7 +58,7 @@ pub(crate) struct LensReadout {
 }
 
 pub(crate) fn evaluate(request: &I8binEnsembleRequest) -> Result<I8binEnsembleReport, String> {
-    let plan = LoadedPlan::load(&request.plan, request.stream_report.as_deref())?;
+    let plan = LoadedPlan::load(request)?;
     if plan.slots.len() < request.min_lenses {
         return Err(format!(
             "{}: i8bin ensemble card requires at least {} lenses; got {}",
@@ -75,10 +76,24 @@ pub(crate) fn evaluate(request: &I8binEnsembleRequest) -> Result<I8binEnsembleRe
         request.signature_rows,
         request.nmi_bins,
     )?;
+    let plan_ref = request
+        .plan
+        .as_ref()
+        .map(|path| path.display().to_string())
+        .unwrap_or_else(|| {
+            format!(
+                "aster-graph-cf:{}",
+                request
+                    .plan_cf_root
+                    .as_ref()
+                    .map(|path| path.display().to_string())
+                    .unwrap_or_default()
+            )
+        });
     let config = EnsembleConfig {
         source: format!(
             "assay i8bin-ensemble-card plan={} rows={} sample_rows={} signature_rows={}",
-            request.plan.display(),
+            plan_ref.as_str(),
             request.rows_jsonl.display(),
             sample.indices.len(),
             vectors.matrix.signature_rows
@@ -105,7 +120,8 @@ pub(crate) fn evaluate(request: &I8binEnsembleRequest) -> Result<I8binEnsembleRe
         .collect::<Vec<_>>();
     let diversity = card.a37_diversity.clone();
     Ok(I8binEnsembleReport {
-        plan_path: request.plan.display().to_string(),
+        plan_path: plan_ref,
+        plan_source: plan.source,
         rows_jsonl: request.rows_jsonl.display().to_string(),
         stream_report: request
             .stream_report

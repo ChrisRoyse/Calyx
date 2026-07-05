@@ -27,7 +27,7 @@ mod multi_rrf;
 #[path = "partitioned_bench/progress.rs"]
 mod progress;
 #[path = "partitioned_bench/rrf_plan.rs"]
-mod rrf_plan;
+pub(crate) mod rrf_plan;
 #[path = "partitioned_bench/slot_truth_generate.rs"]
 mod slot_truth_generate;
 #[path = "partitioned_bench/slot_truth_store.rs"]
