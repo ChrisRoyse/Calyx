@@ -170,18 +170,19 @@ fn resolve_arena_cap_mib(worker_gpu_mem_limit_mib: Option<usize>) -> Result<Opti
         return Ok(Some(mib as u64));
     }
     match std::env::var(GPU_MEM_LIMIT_ENV) {
-        Ok(raw) if !raw.trim().is_empty() => raw
-            .trim()
-            .parse::<u64>()
-            .map(Some)
-            .map_err(|error| format!("{GPU_MEM_LIMIT_ENV}={raw:?} is not a valid MiB integer: {error}")),
+        Ok(raw) if !raw.trim().is_empty() => raw.trim().parse::<u64>().map(Some).map_err(|error| {
+            format!("{GPU_MEM_LIMIT_ENV}={raw:?} is not a valid MiB integer: {error}")
+        }),
         _ => Ok(None),
     }
 }
 
 fn context_overhead_bytes() -> Result<u64, String> {
-    Ok(env_u64(WORKER_CONTEXT_OVERHEAD_ENV, DEFAULT_WORKER_CONTEXT_OVERHEAD_MIB)?
-        .saturating_mul(BYTES_PER_MIB))
+    Ok(env_u64(
+        WORKER_CONTEXT_OVERHEAD_ENV,
+        DEFAULT_WORKER_CONTEXT_OVERHEAD_MIB,
+    )?
+    .saturating_mul(BYTES_PER_MIB))
 }
 
 fn gpu_headroom_bytes() -> Result<u64, String> {
@@ -310,7 +311,7 @@ mod tests {
     fn coresidency_accepts_a_schedule_that_fits() {
         // 3 workers × (6 GiB arena + 1 GiB overhead) = 21 GiB, 4 GiB headroom.
         // A 32 GiB board with 28 GiB free leaves 24 GiB usable ≥ 21 GiB → fits.
-        let per_worker = 6 * GIB + 1 * GIB;
+        let per_worker = 7 * GIB;
         assert!(evaluate_coresidency(3, per_worker, 28 * GIB, 4 * GIB).is_ok());
     }
 
@@ -318,7 +319,7 @@ mod tests {
     fn coresidency_refuses_over_commit_and_reports_max_safe_k() {
         // Same 7 GiB/worker but only 21 GiB free (the #1263 post-OOM readback):
         // usable = 17 GiB, so at most floor(17/7)=2 workers fit; K=3 must refuse.
-        let per_worker = 6 * GIB + 1 * GIB;
+        let per_worker = 7 * GIB;
         let error = evaluate_coresidency(3, per_worker, 21 * GIB, 4 * GIB)
             .expect_err("3 workers over-commit 21 GiB free");
         assert!(error.contains("co-residency preflight failed"), "{error}");
@@ -330,7 +331,10 @@ mod tests {
         let per_worker = 20 * GIB;
         let error = evaluate_coresidency(2, per_worker, 10 * GIB, 4 * GIB)
             .expect_err("worker larger than the whole board");
-        assert!(error.contains("even one GPU worker will not fit"), "{error}");
+        assert!(
+            error.contains("even one GPU worker will not fit"),
+            "{error}"
+        );
     }
 
     #[test]

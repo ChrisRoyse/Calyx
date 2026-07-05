@@ -28,6 +28,8 @@ mod multi_rrf;
 mod progress;
 #[path = "partitioned_bench/slot_truth_generate.rs"]
 mod slot_truth_generate;
+#[path = "partitioned_bench/slot_truth_store.rs"]
+mod slot_truth_store;
 #[path = "partitioned_bench/summary.rs"]
 mod summary;
 #[path = "partitioned_bench/tuner_status.rs"]

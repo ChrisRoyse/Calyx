@@ -36,6 +36,8 @@ mod recall;
 mod report;
 #[path = "multi_rrf/slot_truth.rs"]
 mod slot_truth;
+#[path = "multi_rrf/slot_truth_db.rs"]
+mod slot_truth_db;
 #[path = "multi_rrf/timeline.rs"]
 mod timeline;
 #[path = "multi_rrf/truth_gate.rs"]
@@ -145,12 +147,34 @@ pub(crate) fn run(raw: &[String]) -> CliResult {
         }
         None => None,
     };
+    let db_slot_truth = match args.slot_ground_truth_cf_root.as_ref() {
+        Some(cf_root) if truth_n > 0 => {
+            Some(slot_truth_db::DbSlotTruth::load(slot_truth_db::Context {
+                cf_root,
+                association_key: &args.slot_ground_truth_key,
+                plan_path: &args.plan,
+                plan: &plan,
+                truth_n,
+                truth_depth,
+                corpus_rows,
+            })?)
+        }
+        Some(_) => {
+            return Err(CliError::usage(
+                "--slot-ground-truth-cf-root requires --ground-truth > 0",
+            ));
+        }
+        None => None,
+    };
     let scale_truth = precomputed_truth
         .as_ref()
         .is_some_and(ground_truth::PrecomputedTruth::scale_suitable)
         || slot_truth
             .as_ref()
-            .is_some_and(slot_truth::SlotTruth::scale_suitable);
+            .is_some_and(slot_truth::SlotTruth::scale_suitable)
+        || db_slot_truth
+            .as_ref()
+            .is_some_and(slot_truth_db::DbSlotTruth::scale_suitable);
     truth_gate::enforce(args.recall_floor.is_some(), truth_n, scale_truth)?;
     if n == 0 {
         return Err(CliError::usage(
@@ -210,6 +234,7 @@ pub(crate) fn run(raw: &[String]) -> CliResult {
             timeline: timeline.as_ref(),
             precomputed_truth: precomputed_truth.as_ref(),
             slot_truth: slot_truth.as_ref(),
+            db_slot_truth: db_slot_truth.as_ref(),
         })
     } else {
         recall::RecallReadback::default()

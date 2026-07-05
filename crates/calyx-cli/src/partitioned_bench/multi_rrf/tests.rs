@@ -82,6 +82,27 @@ fn args_parse_slot_ground_truth_manifest() {
 }
 
 #[test]
+fn args_parse_slot_ground_truth_cf_root() {
+    let args = Args::parse(&strings([
+        "--plan",
+        "plan.json",
+        "--ground-truth",
+        "5",
+        "--slot-ground-truth-cf-root",
+        "slot-truth-db",
+        "--slot-ground-truth-key",
+        "issue791_truth",
+    ]))
+    .unwrap();
+
+    assert_eq!(
+        args.slot_ground_truth_cf_root,
+        Some(PathBuf::from("slot-truth-db"))
+    );
+    assert_eq!(args.slot_ground_truth_key, "issue791_truth");
+}
+
+#[test]
 fn args_parse_a37_admission_cf_root() {
     let args = Args::parse(&strings([
         "--plan",
@@ -178,7 +199,26 @@ fn args_reject_fused_and_slot_truth_sources_together() {
     assert_eq!(err.code(), "CALYX_CLI_USAGE_ERROR");
     assert!(
         err.message()
-            .contains("--fused-ground-truth-file and --slot-ground-truth-manifest")
+            .contains("precomputed fused, slot manifest, and slot DB ground truth")
+    );
+}
+
+#[test]
+fn args_reject_slot_manifest_and_db_truth_sources_together() {
+    let err = Args::parse(&strings([
+        "--plan",
+        "plan.json",
+        "--slot-ground-truth-manifest",
+        "slot-truth.manifest.json",
+        "--slot-ground-truth-cf-root",
+        "slot-truth-db",
+    ]))
+    .unwrap_err();
+
+    assert_eq!(err.code(), "CALYX_CLI_USAGE_ERROR");
+    assert!(
+        err.message()
+            .contains("precomputed fused, slot manifest, and slot DB ground truth")
     );
 }
 

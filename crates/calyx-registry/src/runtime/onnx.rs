@@ -46,8 +46,8 @@ pub struct OnnxLens {
 }
 
 enum OnnxBackend {
-    FastEmbed(Mutex<TextEmbedding>),
-    Custom(Mutex<custom::CustomOnnxRuntime>),
+    FastEmbed(Box<Mutex<TextEmbedding>>),
+    Custom(Box<Mutex<custom::CustomOnnxRuntime>>),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -298,7 +298,7 @@ impl OnnxLens {
             files,
             provider_policy,
             max_batch: None,
-            backend: Some(OnnxBackend::FastEmbed(Mutex::new(model))),
+            backend: Some(OnnxBackend::FastEmbed(Box::new(Mutex::new(model)))),
         }
     }
 
@@ -316,7 +316,7 @@ impl OnnxLens {
             files,
             provider_policy,
             max_batch,
-            backend: Some(OnnxBackend::Custom(Mutex::new(runtime))),
+            backend: Some(OnnxBackend::Custom(Box::new(Mutex::new(runtime)))),
         }
     }
 

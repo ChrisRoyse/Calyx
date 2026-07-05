@@ -11,7 +11,7 @@ pub(super) fn enforce(required: bool, truth_n: usize, has_scale_truth: bool) -> 
         message:
             "gate-bearing partitioned-rrf recall requires byte-readable accepted-reference truth"
                 .to_string(),
-        remediation: "pass --fused-ground-truth-file with its manifest or --slot-ground-truth-manifest; CPU brute force is diagnostic-only",
+        remediation: "pass --slot-ground-truth-cf-root with its DB association key, or legacy fused/slot file truth only as migration diagnostics; CPU brute force is diagnostic-only",
     }))
 }
 
