@@ -68,6 +68,11 @@ pub(crate) fn run(args: Vec<String>) -> CliResult {
         {
             partitioned_bench::run_rrf_slot_truth(rest)
         }
+        [command, topic, rest @ ..]
+            if command == "bench" && topic == "partitioned-rrf-timeline" =>
+        {
+            partitioned_bench::run_rrf_timeline(rest)
+        }
         [command, topic, rest @ ..] if command == "bench" => sextant_bench::run_bench(topic, rest),
         [command, topic, rest @ ..] if command == "sextant" => sextant_commands::run(topic, rest),
         [command, topic, rest @ ..] if command == "media" => media_commands::run(topic, rest),

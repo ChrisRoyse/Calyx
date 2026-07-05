@@ -34,6 +34,8 @@ mod slot_truth_generate;
 mod slot_truth_store;
 #[path = "partitioned_bench/summary.rs"]
 mod summary;
+#[path = "partitioned_bench/timeline_import.rs"]
+mod timeline_import;
 #[path = "partitioned_bench/timeline_store.rs"]
 pub(crate) mod timeline_store;
 #[path = "partitioned_bench/tuner_status.rs"]
@@ -199,6 +201,10 @@ pub(crate) fn run_rrf_plan(args: &[String]) -> CliResult {
 
 pub(crate) fn run_rrf_slot_truth(args: &[String]) -> CliResult {
     slot_truth_generate::run(args)
+}
+
+pub(crate) fn run_rrf_timeline(args: &[String]) -> CliResult {
+    timeline_import::run(args)
 }
 
 /// REAL-data search: real query embeddings + brute-force ground truth over the REAL
