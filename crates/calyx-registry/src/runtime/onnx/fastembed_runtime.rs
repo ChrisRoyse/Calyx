@@ -180,6 +180,9 @@ pub fn execution_providers_on_device(
                 .with_conv_algorithm_search(ConvAlgorithmSearch::Heuristic)
                 .with_conv_max_workspace(false)
                 .with_arena_extend_strategy(ArenaExtendStrategy::SameAsRequested);
+            if super::io_binding::configured_cuda_graphs()? {
+                cuda = cuda.with_cuda_graph(true);
+            }
             if let Some(limit) = super::arena::configured_gpu_mem_limit()? {
                 cuda = cuda.with_memory_limit(limit);
             }

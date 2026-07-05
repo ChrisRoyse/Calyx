@@ -15,6 +15,7 @@ mod colbert;
 mod colbert_files;
 mod colbert_tokens;
 mod cpu_fallback_audit;
+mod cuda_graphs;
 mod cuda_guard;
 mod custom;
 mod dynamic_ort;
