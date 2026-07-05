@@ -8,6 +8,8 @@ use super::{CODE_INVALID_CONFIG, CODE_OUTPUT_EXISTS};
 pub(crate) struct Request {
     pub(crate) reports: Vec<PathBuf>,
     pub(crate) out_dir: PathBuf,
+    pub(crate) cf_root: PathBuf,
+    pub(crate) association_key: String,
     pub(crate) min_lenses: usize,
     pub(crate) min_marginal_bits: f32,
     pub(crate) max_redundancy: f32,
@@ -37,6 +39,8 @@ impl Request {
     pub(crate) fn parse(args: &[String]) -> Result<Self, String> {
         let mut reports = Vec::new();
         let mut out_dir = PathBuf::new();
+        let mut cf_root = None;
+        let mut association_key = "a37_multi_anchor_admission".to_string();
         let mut min_lenses = 10_usize;
         let mut min_marginal_bits = DEFAULT_MIN_MARGINAL_BITS;
         let mut max_redundancy = DEFAULT_MAX_REDUNDANCY;
@@ -50,6 +54,14 @@ impl Request {
                 }
                 "--out-dir" => {
                     out_dir = PathBuf::from(value(args, idx, "--out-dir")?);
+                    idx += 2;
+                }
+                "--cf-root" => {
+                    cf_root = Some(PathBuf::from(value(args, idx, "--cf-root")?));
+                    idx += 2;
+                }
+                "--association-key" => {
+                    association_key = value(args, idx, "--association-key")?.to_string();
                     idx += 2;
                 }
                 "--min-lenses" => {
@@ -75,9 +87,12 @@ impl Request {
                 other => return Err(format!("{CODE_INVALID_CONFIG}: unknown arg {other}")),
             }
         }
+        let cf_root = cf_root.unwrap_or_else(|| out_dir.join("association_cf"));
         let request = Self {
             reports,
             out_dir,
+            cf_root,
+            association_key,
             min_lenses,
             min_marginal_bits,
             max_redundancy,
@@ -105,6 +120,16 @@ impl Request {
         }
         if self.out_dir.as_os_str().is_empty() {
             return Err(format!("{CODE_INVALID_CONFIG}: --out-dir is required"));
+        }
+        if self.cf_root.as_os_str().is_empty() {
+            return Err(format!(
+                "{CODE_INVALID_CONFIG}: --cf-root must be non-empty"
+            ));
+        }
+        if self.association_key.trim().is_empty() {
+            return Err(format!(
+                "{CODE_INVALID_CONFIG}: --association-key must be non-empty"
+            ));
         }
         if self.min_lenses == 0 {
             return Err(format!("{CODE_INVALID_CONFIG}: --min-lenses must be > 0"));

@@ -8,6 +8,8 @@ use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
 use super::Plan;
+use crate::a37_admission_store;
+use crate::assay_multi_anchor_card::model::MultiAnchorReport;
 use crate::error::{CliError, CliResult};
 
 const MIN_LENSES: usize = 10;
@@ -62,6 +64,52 @@ pub(super) fn load(path: Option<&Path>, plan: &Plan) -> CliResult<Option<Value>>
     })?;
     validate(&card, plan)?;
     Ok(Some(report(path, &bytes, &card)))
+}
+
+pub(super) fn load_from_cf(
+    cf_root: Option<&Path>,
+    association_key: &str,
+    plan: &Plan,
+) -> CliResult<Option<Value>> {
+    let Some(cf_root) = cf_root else {
+        return Ok(None);
+    };
+    let (record, readback) =
+        a37_admission_store::read::<MultiAnchorReport>(cf_root, association_key)
+            .map_err(CliError::from)?;
+    let card = from_report(record);
+    validate(&card, plan)?;
+    Ok(Some(report_db(&readback, &card)))
+}
+
+fn from_report(report: MultiAnchorReport) -> MultiAnchorAdmission {
+    MultiAnchorAdmission {
+        schema_version: report.schema_version,
+        role: report.role,
+        status: report.status,
+        gate_passed: report.gate_passed,
+        lens_count: report.lens_count,
+        passing_lens_count: report.passing_lens_count,
+        min_marginal_bits: report.min_marginal_bits,
+        family_span_pass: report.family_span_pass,
+        redundancy_bound_pass: report.redundancy_bound_pass,
+        no_collapse_pass: report.no_collapse_pass,
+        association_family_count: report.association_family_count,
+        min_best_marginal_bits: report.min_best_marginal_bits,
+        max_best_marginal_bits: report.max_best_marginal_bits,
+        weakest_lens: report.weakest_lens,
+        lenses: report
+            .lenses
+            .into_iter()
+            .map(|lens| AdmissionLens {
+                slot: lens.slot,
+                name: lens.name,
+                passed: lens.passed,
+                best_marginal_bits: lens.best_marginal_bits,
+            })
+            .collect(),
+        source_reports: report.source_reports,
+    }
 }
 
 fn validate(card: &MultiAnchorAdmission, plan: &Plan) -> CliResult {
@@ -197,6 +245,31 @@ fn report(path: &Path, bytes: &[u8], card: &MultiAnchorAdmission) -> Value {
     })
 }
 
+fn report_db(
+    readback: &a37_admission_store::A37AdmissionDbReadback,
+    card: &MultiAnchorAdmission,
+) -> Value {
+    json!({
+        "mode": "assay_multi_anchor_a37_admission_db",
+        "db_readback": readback,
+        "schema_version": card.schema_version,
+        "role": card.role.as_str(),
+        "status": card.status.as_str(),
+        "gate_passed": card.gate_passed,
+        "lens_count": card.lens_count,
+        "passing_lens_count": card.passing_lens_count,
+        "min_marginal_bits": card.min_marginal_bits,
+        "association_family_count": card.association_family_count,
+        "family_span_pass": card.family_span_pass,
+        "redundancy_bound_pass": card.redundancy_bound_pass,
+        "no_collapse_pass": card.no_collapse_pass,
+        "min_best_marginal_bits": card.min_best_marginal_bits,
+        "max_best_marginal_bits": card.max_best_marginal_bits,
+        "weakest_lens": card.weakest_lens.as_str(),
+        "source_reports": &card.source_reports,
+    })
+}
+
 fn finite(field: &'static str, value: f32) -> CliResult {
     if value.is_finite() {
         Ok(())
@@ -243,120 +316,5 @@ fn hex_sha256(bytes: &[u8]) -> String {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::super::{Plan, PlanSlot};
-    use super::*;
-    use std::path::PathBuf;
-
-    const NAMES: [&str; 10] = [
-        "lens_00", "lens_01", "lens_02", "lens_03", "lens_04", "lens_05", "lens_06", "lens_07",
-        "lens_08", "lens_09",
-    ];
-
-    #[test]
-    fn accepts_gate_passed_exact_roster() {
-        validate(&passing_card(&NAMES), &plan(&NAMES)).unwrap();
-    }
-
-    #[test]
-    fn rejects_stale_roster() {
-        let mut card = passing_card(&NAMES);
-        card.lenses[2].name = "other_lens".to_string();
-
-        let err = validate(&card, &plan(&NAMES)).unwrap_err();
-
-        assert_eq!(err.code(), "CALYX_FSV_A37_ADMISSION_CARD_STALE");
-        assert!(err.message().contains("A37 admission card roster"));
-    }
-
-    #[test]
-    fn rejects_refused_gate() {
-        let mut card = passing_card(&NAMES);
-        card.status = "diagnostic_only".to_string();
-        card.gate_passed = false;
-        card.no_collapse_pass = false;
-
-        let err = validate(&card, &plan(&NAMES)).unwrap_err();
-
-        assert_eq!(err.code(), "CALYX_FSV_A37_ADMISSION_CARD_REFUSED");
-        assert!(err.message().contains("no_collapse=false"));
-    }
-
-    #[test]
-    fn rejects_lowered_marginal_floor() {
-        let mut card = passing_card(&NAMES);
-        card.min_marginal_bits = 0.01;
-
-        let err = validate(&card, &plan(&NAMES)).unwrap_err();
-
-        assert_eq!(err.code(), "CALYX_FSV_A37_ADMISSION_CARD_REFUSED");
-        assert!(err.message().contains("below required"));
-    }
-
-    #[test]
-    fn rejects_passed_lens_below_declared_floor() {
-        let mut card = passing_card(&NAMES);
-        card.lenses[4].best_marginal_bits = 0.04;
-        card.min_best_marginal_bits = 0.04;
-
-        let err = validate(&card, &plan(&NAMES)).unwrap_err();
-
-        assert_eq!(err.code(), "CALYX_FSV_A37_ADMISSION_CARD_REFUSED");
-        assert!(err.message().contains("below card min_marginal_bits"));
-    }
-
-    fn plan(names: &[&str]) -> Plan {
-        Plan {
-            timeline: None,
-            slots: names
-                .iter()
-                .enumerate()
-                .map(|(idx, name)| PlanSlot {
-                    slot: idx as u16,
-                    name: Some((*name).to_string()),
-                    lens_id: None,
-                    weights_sha256: None,
-                    signal_kind: None,
-                    bits_about: Some(0.1),
-                    vault: path(idx, "vault"),
-                    queries: path(idx, "queries.fbin"),
-                    corpus: path(idx, "corpus.fbin"),
-                })
-                .collect(),
-        }
-    }
-
-    fn passing_card(names: &[&str]) -> MultiAnchorAdmission {
-        MultiAnchorAdmission {
-            schema_version: 1,
-            role: ROLE.to_string(),
-            status: A37_DIVERSITY_GATE_PASSED.to_string(),
-            gate_passed: true,
-            lens_count: names.len(),
-            passing_lens_count: names.len(),
-            min_marginal_bits: 0.05,
-            family_span_pass: true,
-            redundancy_bound_pass: true,
-            no_collapse_pass: true,
-            association_family_count: 4,
-            min_best_marginal_bits: 0.06,
-            max_best_marginal_bits: 0.21,
-            weakest_lens: names[0].to_string(),
-            lenses: names
-                .iter()
-                .enumerate()
-                .map(|(idx, name)| AdmissionLens {
-                    slot: idx as u16,
-                    name: (*name).to_string(),
-                    passed: true,
-                    best_marginal_bits: 0.06 + idx as f32 * 0.01,
-                })
-                .collect(),
-            source_reports: vec!["report.json".to_string()],
-        }
-    }
-
-    fn path(idx: usize, suffix: &str) -> PathBuf {
-        PathBuf::from(format!("slot_{idx}_{suffix}"))
-    }
-}
+#[path = "a37_admission_tests.rs"]
+mod tests;

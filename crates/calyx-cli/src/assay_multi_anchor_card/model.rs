@@ -16,7 +16,7 @@ pub(crate) struct LoadedReport {
     pub(crate) report: InputReport,
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub(crate) struct MultiAnchorReport {
     pub(crate) schema_version: u32,
     pub(crate) role: String,
@@ -42,7 +42,7 @@ pub(crate) struct MultiAnchorReport {
     pub(crate) source_reports: Vec<String>,
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub(crate) struct TargetSummary {
     pub(crate) target_class: usize,
     pub(crate) domain: String,
@@ -58,7 +58,7 @@ pub(crate) struct TargetSummary {
     pub(crate) park_count: usize,
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub(crate) struct LensEvidence {
     pub(crate) slot: u16,
     pub(crate) name: String,
@@ -71,7 +71,7 @@ pub(crate) struct LensEvidence {
     pub(crate) target_values: Vec<TargetLensValue>,
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub(crate) struct TargetLensValue {
     pub(crate) target_class: usize,
     pub(crate) domain: String,

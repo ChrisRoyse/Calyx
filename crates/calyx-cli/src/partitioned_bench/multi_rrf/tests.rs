@@ -82,6 +82,41 @@ fn args_parse_slot_ground_truth_manifest() {
 }
 
 #[test]
+fn args_parse_a37_admission_cf_root() {
+    let args = Args::parse(&strings([
+        "--plan",
+        "plan.json",
+        "--a37-admission-cf-root",
+        "admission-db",
+        "--a37-admission-key",
+        "issue791-gate",
+    ]))
+    .unwrap();
+
+    assert_eq!(
+        args.a37_admission_cf_root,
+        Some(PathBuf::from("admission-db"))
+    );
+    assert_eq!(args.a37_admission_key, "issue791-gate");
+}
+
+#[test]
+fn args_reject_a37_file_and_cf_root_together() {
+    let err = Args::parse(&strings([
+        "--plan",
+        "plan.json",
+        "--a37-admission-card",
+        "card.json",
+        "--a37-admission-cf-root",
+        "admission-db",
+    ]))
+    .unwrap_err();
+
+    assert_eq!(err.code(), "CALYX_CLI_USAGE_ERROR");
+    assert!(err.message().contains("mutually exclusive"));
+}
+
+#[test]
 fn args_reject_zero_tuner_slo() {
     let err = Args::parse(&strings(["--plan", "plan.json", "--tuner-slo-us", "0"])).unwrap_err();
 

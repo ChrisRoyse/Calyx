@@ -28,6 +28,13 @@ fn aggregates_lens_success_across_targets() {
     assert!(report.gate_passed);
     assert_eq!(report.status, calyx_assay::A37_DIVERSITY_GATE_PASSED);
     assert_eq!(report.passing_lens_count, 10);
+    assert!(evidence.db_readback.readback_matches);
+    assert!(
+        Path::new(&evidence.cf_root)
+            .join("cf")
+            .join("graph")
+            .is_dir()
+    );
     assert!(evidence.readback_matches);
     assert!(Path::new(&evidence.report_path).is_file());
     let _ = fs::remove_dir_all(root);
@@ -90,6 +97,8 @@ fn request_for(root: &Path, reports: &[PathBuf], mode: Mode) -> Request {
     Request {
         reports: reports.to_vec(),
         out_dir: root.join("out"),
+        cf_root: root.join("admission-cf"),
+        association_key: "unit-a37-admission".to_string(),
         min_lenses: 10,
         min_marginal_bits: 0.05,
         max_redundancy: 0.6,

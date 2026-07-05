@@ -18,6 +18,8 @@ pub(super) struct Args {
     pub(super) slot_ground_truth_manifest: Option<PathBuf>,
     pub(super) ensemble_card: Option<PathBuf>,
     pub(super) a37_admission_card: Option<PathBuf>,
+    pub(super) a37_admission_cf_root: Option<PathBuf>,
+    pub(super) a37_admission_key: String,
     pub(super) write_fused_ground_truth_file: Option<PathBuf>,
     pub(super) write_fused_ground_truth_manifest: Option<PathBuf>,
     pub(super) out: Option<PathBuf>,
@@ -38,6 +40,8 @@ impl Args {
         let mut slot_ground_truth_manifest = None;
         let mut ensemble_card = None;
         let mut a37_admission_card = None;
+        let mut a37_admission_cf_root = None;
+        let mut a37_admission_key = "a37_multi_anchor_admission".to_string();
         let mut write_fused_ground_truth_file = None;
         let mut write_fused_ground_truth_manifest = None;
         let mut out = None;
@@ -75,6 +79,8 @@ impl Args {
                 }
                 "--ensemble-card" => ensemble_card = Some(PathBuf::from(next()?)),
                 "--a37-admission-card" => a37_admission_card = Some(PathBuf::from(next()?)),
+                "--a37-admission-cf-root" => a37_admission_cf_root = Some(PathBuf::from(next()?)),
+                "--a37-admission-key" => a37_admission_key = next()?,
                 "--write-fused-ground-truth-file" => {
                     write_fused_ground_truth_file = Some(PathBuf::from(next()?))
                 }
@@ -103,7 +109,12 @@ impl Args {
             slot_ground_truth_manifest.as_ref(),
             write_fused_ground_truth_file.as_ref(),
             write_fused_ground_truth_manifest.as_ref(),
+            a37_admission_card.as_ref(),
+            a37_admission_cf_root.as_ref(),
         )?;
+        if a37_admission_key.trim().is_empty() {
+            return Err(CliError::usage("--a37-admission-key must be non-empty"));
+        }
         Ok(Self {
             plan,
             n,
@@ -119,6 +130,8 @@ impl Args {
             slot_ground_truth_manifest,
             ensemble_card,
             a37_admission_card,
+            a37_admission_cf_root,
+            a37_admission_key,
             write_fused_ground_truth_file,
             write_fused_ground_truth_manifest,
             out,
@@ -134,6 +147,8 @@ fn validate_truth_args(
     slot_manifest: Option<&PathBuf>,
     write_file: Option<&PathBuf>,
     write_manifest: Option<&PathBuf>,
+    a37_card: Option<&PathBuf>,
+    a37_cf_root: Option<&PathBuf>,
 ) -> CliResult {
     if fused_file.is_some() != fused_manifest.is_some() {
         return Err(CliError::usage(
@@ -153,6 +168,11 @@ fn validate_truth_args(
     if fused_file.is_some() && slot_manifest.is_some() {
         return Err(CliError::usage(
             "--fused-ground-truth-file and --slot-ground-truth-manifest are mutually exclusive",
+        ));
+    }
+    if a37_card.is_some() && a37_cf_root.is_some() {
+        return Err(CliError::usage(
+            "--a37-admission-card and --a37-admission-cf-root are mutually exclusive",
         ));
     }
     Ok(())

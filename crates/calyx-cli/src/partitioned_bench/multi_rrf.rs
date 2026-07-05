@@ -77,7 +77,15 @@ pub(crate) fn run(raw: &[String]) -> CliResult {
     let args = args::Args::parse(raw)?;
     let plan = load_plan(&args.plan)?;
     a35::validate_plan(&plan)?;
-    let a37_admission_readback = a37_admission::load(args.a37_admission_card.as_deref(), &plan)?;
+    let a37_admission_readback = a37_admission::load_from_cf(
+        args.a37_admission_cf_root.as_deref(),
+        &args.a37_admission_key,
+        &plan,
+    )?
+    .or(a37_admission::load(
+        args.a37_admission_card.as_deref(),
+        &plan,
+    )?);
     let ensemble_readback = ensemble::load(
         args.ensemble_card.as_deref(),
         &plan,

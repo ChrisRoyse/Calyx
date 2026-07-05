@@ -3,6 +3,8 @@ use std::fs;
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 
+use crate::a37_admission_store::{self, A37AdmissionDbReadback};
+
 use super::CODE_READBACK_MISMATCH;
 use super::model::MultiAnchorReport;
 use super::request::Request;
@@ -10,6 +12,9 @@ use super::request::Request;
 #[derive(Clone, Debug, Serialize)]
 pub(crate) struct Evidence {
     pub(crate) out_dir: String,
+    pub(crate) cf_root: String,
+    pub(crate) association_key: String,
+    pub(crate) db_readback: A37AdmissionDbReadback,
     pub(crate) report_path: String,
     pub(crate) lens_values_path: String,
     pub(crate) target_summary_path: String,
@@ -33,6 +38,10 @@ pub(crate) fn write_outputs(
     request.ensure_fresh_output()?;
     fs::create_dir_all(&request.out_dir)
         .map_err(|error| format!("create {}: {error}", request.out_dir.display()))?;
+    let db_readback =
+        a37_admission_store::write(&request.cf_root, &request.association_key, report)
+            .map_err(|error| format!("{}: {}", error.code, error.message))?;
+
     let report_path = request.out_dir.join("multi_anchor_ensemble_card.json");
     let report_bytes = serde_json::to_vec_pretty(report)
         .map_err(|error| format!("serialize multi-anchor report: {error}"))?;
@@ -57,6 +66,9 @@ pub(crate) fn write_outputs(
     }
     Ok(Evidence {
         out_dir: request.out_dir.display().to_string(),
+        cf_root: request.cf_root.display().to_string(),
+        association_key: request.association_key.clone(),
+        db_readback,
         report_path: report_path.display().to_string(),
         lens_values_path: lens_values_path.display().to_string(),
         target_summary_path: target_summary_path.display().to_string(),

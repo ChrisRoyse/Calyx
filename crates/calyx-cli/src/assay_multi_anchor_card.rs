@@ -1,5 +1,5 @@
 mod engine;
-mod model;
+pub(crate) mod model;
 mod request;
 mod write;
 
@@ -28,7 +28,6 @@ pub(crate) fn run(args: &[String]) -> CliResult {
         .ensure_fresh_output()
         .map_err(multi_anchor_runtime_error)?;
     let report = evaluate(&request).map_err(multi_anchor_runtime_error)?;
-    let evidence = write_outputs(&request, &report).map_err(multi_anchor_runtime_error)?;
     if request.mode.requires_gate() && !report.gate_passed {
         return Err(multi_anchor_error(format!(
             "{CODE_GATE_REFUSED}: multi-anchor A37 requires status={} but got {}; passing_lenses={}/{} weakest_lens={} best_marginal_bits={:.6}",
@@ -40,6 +39,7 @@ pub(crate) fn run(args: &[String]) -> CliResult {
             report.min_best_marginal_bits
         )));
     }
+    let evidence = write_outputs(&request, &report).map_err(multi_anchor_runtime_error)?;
     println!(
         "{}",
         serde_json::to_string_pretty(&evidence).map_err(|error| {
@@ -71,6 +71,10 @@ fn multi_anchor_error(error: String) -> CliError {
         CODE_OUTPUT_EXISTS => CODE_OUTPUT_EXISTS,
         CODE_READBACK_MISMATCH => CODE_READBACK_MISMATCH,
         CODE_GATE_REFUSED => CODE_GATE_REFUSED,
+        "CALYX_FSV_A37_ADMISSION_DB_MISSING" => "CALYX_FSV_A37_ADMISSION_DB_MISSING",
+        "CALYX_FSV_A37_ADMISSION_DB_MISMATCH" => "CALYX_FSV_A37_ADMISSION_DB_MISMATCH",
+        "CALYX_FSV_A37_ADMISSION_DB_INVALID_KEY" => "CALYX_FSV_A37_ADMISSION_DB_INVALID_KEY",
+        "CALYX_FSV_A37_ADMISSION_DB_ENCODE" => "CALYX_FSV_A37_ADMISSION_DB_ENCODE",
         _ => return CliError::usage(error),
     };
     CliError::from(CalyxError {
