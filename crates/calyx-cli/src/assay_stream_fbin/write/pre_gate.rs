@@ -10,7 +10,7 @@ use crate::assay_anchor_audit::AnchorAudit;
 use crate::error::CliResult;
 
 use super::super::args::{Args, StreamMode};
-use super::super::{io_error, local_error, MIN_A35_LENSES};
+use super::super::{MIN_A35_LENSES, io_error, local_error};
 use super::evidence::PreEncodeGateEvidence;
 use super::paths::display;
 
