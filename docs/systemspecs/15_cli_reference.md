@@ -132,7 +132,7 @@ topic explicitly persists fixtures (oracle topics; see §2.4). Dispatched in
 | `readback dedup-check --vault <dir> --cx-id <cx> --slot <n> --tau <f> --near-cos <f> --distinct-cos <f> --vault-id <id> --salt <s>` | all 8 | `dedup_readback::readback_dedup_check` |
 | `readback dedup-audit --vault <dir> --cx-id <cx>` | both | `dedup_audit_readback::readback_dedup_audit` |
 | `readback dedup-undo --vault <dir> --token <json>` | both | `dedup_audit_readback::readback_dedup_undo` |
-| `readback cx-list --vault <dir>` | `--vault` | `dedup_audit_readback::readback_cx_list` |
+| `readback cx-list --vault <dir>` | `--vault` plus optional `--cx-id`, `--limit`, `--include-slots` | `dedup_audit_readback::readback_cx_list` - Decodes Base CF rows, including modality/input pointer/metadata/provenance; `--include-slots` also reads physical slot CF payloads. |
 | `readback kernel-health --root <dir> --kernel-id <cx>` | both | `kernel_health_readback::readback_kernel_health` |
 | `readback recurrence-series --vault <dir> --cx-id <cx>` | both | `recurrence_readback::readback_recurrence_series` |
 | `readback periodic-recall --vault <dir> (--hour <0-23> \| --day <0-6>) [...]` | variadic | `recurrence_readback::readback_periodic_recall` |

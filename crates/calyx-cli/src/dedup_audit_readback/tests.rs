@@ -1,6 +1,8 @@
 use std::path::PathBuf;
 
-use calyx_core::SlotVector;
+use calyx_core::{
+    Constellation, CxFlags, InputRef, LedgerRef, Modality, SlotId, SlotVector, VaultId,
+};
 
 use super::physical_slots::PhysicalSlotState;
 use super::*;
@@ -126,4 +128,70 @@ fn cx_list_tombstone_row_reports_tombstoned_not_corrupt() {
     assert_eq!(row["base_visible"], false);
     assert_eq!(row["tombstoned"], true);
     assert_eq!(row["slot_payload_decode_mode"], "mvcc_tombstone");
+}
+
+#[test]
+fn cx_list_rows_emit_decoded_base_metadata_and_provenance() {
+    let cx_id = CxId::from_bytes([0x33; 16]);
+    let mut slots = std::collections::BTreeMap::new();
+    slots.insert(
+        SlotId::new(0),
+        SlotVector::Dense {
+            dim: 2,
+            data: vec![0.25, 0.75],
+        },
+    );
+    let mut metadata = std::collections::BTreeMap::new();
+    metadata.insert("derived.kind".to_string(), "transcript".to_string());
+    metadata.insert("derived.runtime".to_string(), "whisper.cpp".to_string());
+    let cx = Constellation {
+        cx_id,
+        vault_id: "01ARZ3NDEKTSV4RRFFQ69G5FAV".parse::<VaultId>().unwrap(),
+        panel_version: 7,
+        created_at: 1_786_000_000,
+        input_ref: InputRef {
+            hash: [0xab; 32],
+            pointer: Some("calyx-vault://inputs/derived_text/transcript/example.txt".to_string()),
+            redacted: false,
+        },
+        modality: Modality::Text,
+        slots,
+        scalars: std::collections::BTreeMap::new(),
+        metadata,
+        anchors: Vec::new(),
+        provenance: LedgerRef {
+            seq: 42,
+            hash: [0xcd; 32],
+        },
+        flags: CxFlags {
+            ungrounded: true,
+            ..CxFlags::default()
+        },
+    };
+    let mut rows = std::collections::BTreeMap::new();
+    rows.insert(
+        base_key(cx_id),
+        calyx_aster::vault::encode::encode_constellation_base(&cx).unwrap(),
+    );
+    let mut progress = ProgressSink::Disabled;
+    let rendered = cx_list_rows(
+        std::path::Path::new("unused-vault"),
+        rows,
+        false,
+        &Deadline::new(None),
+        &mut progress,
+    )
+    .unwrap();
+    let row = &rendered[0];
+
+    assert_eq!(row["modality"], "text");
+    assert_eq!(row["input_ref"]["hash"], "ab".repeat(32));
+    assert_eq!(
+        row["input_ref"]["pointer"],
+        "calyx-vault://inputs/derived_text/transcript/example.txt"
+    );
+    assert_eq!(row["metadata"]["derived.kind"], "transcript");
+    assert_eq!(row["metadata"]["derived.runtime"], "whisper.cpp");
+    assert_eq!(row["provenance"]["seq"], 42);
+    assert_eq!(row["provenance"]["hash"], "cd".repeat(32));
 }

@@ -70,6 +70,8 @@ mod main_tests;
 mod manifest_readback;
 mod media_commands;
 mod media_derived_text;
+#[cfg(test)]
+mod media_derived_text_tests;
 mod media_emotion_validation;
 mod media_image_validation;
 mod media_video_validation;

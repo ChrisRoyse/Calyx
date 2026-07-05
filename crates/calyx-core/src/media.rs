@@ -40,6 +40,8 @@ pub const LEDGER_FIELD_TARGET_POINTER: &str = "target_pointer";
 pub const LEDGER_FIELD_TARGET_TEXT_SHA256: &str = "target_text_sha256";
 pub const LEDGER_FIELD_RUNTIME: &str = "runtime";
 pub const LEDGER_FIELD_MODEL: &str = "model";
+pub const LEDGER_FIELD_RUNTIME_ID: &str = "runtime_id";
+pub const LEDGER_FIELD_MODEL_ID: &str = "model_id";
 
 pub const fn media_modality_name(modality: Modality) -> &'static str {
     match modality {

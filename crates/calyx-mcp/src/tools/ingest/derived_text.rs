@@ -10,7 +10,7 @@ use calyx_core::{
     CALYX_MEDIA_DERIVED_TEXT_FAILED, CALYX_MEDIA_DERIVED_TEXT_INVALID,
     CALYX_MEDIA_DERIVED_TEXT_RUNTIME_MISSING, CalyxError, CxId, DERIVED_TEXT_MODE, Input,
     LEDGER_FIELD_DERIVED_ARTIFACT_ID, LEDGER_FIELD_DERIVED_KIND, LEDGER_FIELD_MODE,
-    LEDGER_FIELD_MODEL, LEDGER_FIELD_RUNTIME, LEDGER_FIELD_SOURCE_CX_ID,
+    LEDGER_FIELD_MODEL_ID, LEDGER_FIELD_RUNTIME_ID, LEDGER_FIELD_SOURCE_CX_ID,
     LEDGER_FIELD_SOURCE_INPUT_HASH, LEDGER_FIELD_SOURCE_MODALITY, LEDGER_FIELD_SOURCE_SHA256,
     LEDGER_FIELD_TARGET_CX_ID, LEDGER_FIELD_TARGET_TEXT_SHA256, MEDIA_DERIVED_TEXT_ENV,
     METADATA_DERIVED_CONFIDENCE, METADATA_DERIVED_KIND, METADATA_DERIVED_LANGUAGE,
@@ -203,8 +203,14 @@ pub(super) fn derivation_ledger_payload(
         LEDGER_FIELD_TARGET_TEXT_SHA256.to_string(),
         json!(derived.text_sha256),
     );
-    payload.insert(LEDGER_FIELD_RUNTIME.to_string(), json!(derived.runtime));
-    payload.insert(LEDGER_FIELD_MODEL.to_string(), json!(derived.model));
+    payload.insert(
+        LEDGER_FIELD_RUNTIME_ID.to_string(),
+        json!(sha256_hex(derived.runtime.as_bytes())),
+    );
+    payload.insert(
+        LEDGER_FIELD_MODEL_ID.to_string(),
+        json!(sha256_hex(derived.model.as_bytes())),
+    );
     serde_json::to_vec(&serde_json::Value::Object(payload)).map_err(|error| {
         derived_error(
             CALYX_MEDIA_DERIVED_TEXT_INVALID,

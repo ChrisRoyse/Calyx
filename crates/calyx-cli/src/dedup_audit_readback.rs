@@ -309,8 +309,19 @@ fn cx_list_rows(
         let mut row = json!({
             "key_hex": hex_bytes(&key),
             "cx_id": cx.cx_id,
+            "modality": &cx.modality,
             "created_at": cx.created_at,
             "panel_version": cx.panel_version,
+            "input_ref": {
+                "hash": hex_bytes(&cx.input_ref.hash),
+                "pointer": cx.input_ref.pointer.as_deref(),
+                "redacted": cx.input_ref.redacted,
+            },
+            "metadata": &cx.metadata,
+            "provenance": {
+                "seq": cx.provenance.seq,
+                "hash": hex_bytes(&cx.provenance.hash),
+            },
             "flags": cx.flags,
             "base_slot_count": cx.slots.len(),
             "base_hex": hex_bytes(&value),
