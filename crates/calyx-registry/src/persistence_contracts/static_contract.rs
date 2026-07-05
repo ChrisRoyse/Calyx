@@ -16,7 +16,7 @@ use crate::runtime::candle::{CandlePoolingPolicy, CandlePrecision};
 use crate::runtime::common::DEFAULT_MAX_TOKENS;
 use crate::{AlgorithmicEncoder, LensRuntime, LensSpec, Qwen3ModelFiles};
 
-const DEFAULT_COLBERT_ONNX: &str = "onnx/model_int8.onnx";
+const DEFAULT_COLBERT_ONNX: &str = "onnx/model_fp16.onnx";
 const DEFAULT_QWEN3_MODEL: &str = "Qwen/Qwen3-Embedding-0.6B";
 const STATIC_LOOKUP_MAGIC: &[u8; 8] = b"CXLKUP1\0";
 const STATIC_LOOKUP_HEADER_LEN: usize = 24;

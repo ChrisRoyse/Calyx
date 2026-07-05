@@ -64,7 +64,7 @@ impl CommissionRuntime {
         match self {
             Self::OnnxInt8 => "int8",
             Self::OnnxFp32 => "f32",
-            Self::OnnxColbert => "int8",
+            Self::OnnxColbert => "f16",
             Self::FastembedOnnx
             | Self::FastembedSparse
             | Self::FastembedBgem3Dense
@@ -310,6 +310,16 @@ impl CommissionFlags {
             skip_batch_preflight: None,
             preflight_cap: None,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn onnx_colbert_commissions_as_fp16_by_default() {
+        assert_eq!(CommissionRuntime::OnnxColbert.default_dtype(), "f16");
     }
 }
 

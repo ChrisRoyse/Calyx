@@ -11,6 +11,7 @@ const OPTIONAL_COLBERT_FILES: &[&str] = &[
     "special_tokens_map.json",
     "onnx_config.json",
 ];
+const COLBERT_ONNX_CANDIDATES: &[&str] = &[DEFAULT_COLBERT_ONNX, "onnx/model.onnx", "model.onnx"];
 
 pub(in crate::runtime::onnx) fn fetch_answerai_colbert_files(
     cache_dir: &Path,
@@ -22,14 +23,7 @@ pub(in crate::runtime::onnx) fn fetch_answerai_colbert_files(
         .build()
         .map_err(|err| CalyxError::lens_unreachable(format!("HF API init failed: {err}")))?;
     let repo = api.model(model_id.to_string());
-    let model = fetch_first(
-        &repo,
-        &[
-            DEFAULT_COLBERT_ONNX,
-            "model_int8.onnx",
-            "onnx/model_quantized.onnx",
-        ],
-    )?;
+    let model = fetch_first(&repo, COLBERT_ONNX_CANDIDATES)?;
     let tokenizer = fetch(&repo, "tokenizer.json")?;
     let config = fetch(&repo, "config.json")?;
     let mut contract_paths = vec![model.clone(), tokenizer.clone(), config.clone()];
@@ -74,4 +68,21 @@ fn fetch_first(repo: &ApiRepo, names: &[&str]) -> Result<PathBuf> {
 fn fetch(repo: &ApiRepo, filename: &str) -> Result<PathBuf> {
     repo.get(filename)
         .map_err(|err| CalyxError::lens_unreachable(format!("fetch {filename} failed: {err}")))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn colbert_candidates_prefer_non_quantized_gpu_graphs() {
+        assert_eq!(COLBERT_ONNX_CANDIDATES[0], "onnx/model_fp16.onnx");
+        assert!(COLBERT_ONNX_CANDIDATES.contains(&"onnx/model.onnx"));
+        assert!(COLBERT_ONNX_CANDIDATES.contains(&"model.onnx"));
+        assert!(
+            !COLBERT_ONNX_CANDIDATES
+                .iter()
+                .any(|name| name.contains("int8") || name.contains("quant"))
+        );
+    }
 }

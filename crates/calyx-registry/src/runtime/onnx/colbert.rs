@@ -18,7 +18,7 @@ use crate::runtime::common::hash_files;
 use crate::spec::{LensRuntime, LensSpec, default_recall_delta};
 
 pub const DEFAULT_ANSWERAI_COLBERT_MODEL: &str = "answerdotai/answerai-colbert-small-v1";
-pub(in crate::runtime::onnx) const DEFAULT_COLBERT_ONNX: &str = "onnx/model_int8.onnx";
+pub(in crate::runtime::onnx) const DEFAULT_COLBERT_ONNX: &str = "onnx/model_fp16.onnx";
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct OnnxColbertFileSpec {
