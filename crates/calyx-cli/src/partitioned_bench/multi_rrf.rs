@@ -18,6 +18,10 @@ use ids::{fused_hit_ids, hit_ids, slot_id, to_index_hits};
 
 #[path = "multi_rrf/a35.rs"]
 mod a35;
+#[path = "multi_rrf/a37_admission.rs"]
+mod a37_admission;
+#[path = "multi_rrf/args.rs"]
+mod args;
 #[path = "multi_rrf/ensemble.rs"]
 mod ensemble;
 #[path = "multi_rrf/ground_truth.rs"]
@@ -40,28 +44,6 @@ mod truth_gate;
 mod tuner;
 
 const DEFAULT_TRUTH_DEPTH: usize = 64;
-
-#[derive(Clone, Debug)]
-struct Args {
-    plan: PathBuf,
-    n: usize,
-    k: usize,
-    n_probe: usize,
-    region_beam: usize,
-    pruning_epsilon: Option<f32>,
-    ground_truth: usize,
-    recall_floor: Option<f32>,
-    truth_depth: Option<usize>,
-    fused_ground_truth_file: Option<PathBuf>,
-    fused_ground_truth_manifest: Option<PathBuf>,
-    slot_ground_truth_manifest: Option<PathBuf>,
-    ensemble_card: Option<PathBuf>,
-    write_fused_ground_truth_file: Option<PathBuf>,
-    write_fused_ground_truth_manifest: Option<PathBuf>,
-    out: Option<PathBuf>,
-    anneal_vault: Option<PathBuf>,
-    tuner_slo_us: Option<u64>,
-}
 
 #[derive(Clone, Debug, Deserialize)]
 struct Plan {
@@ -91,142 +73,15 @@ struct OpenSlot {
     distance_metric: calyx_sextant::index::PartitionDistanceMetric,
 }
 
-impl Args {
-    fn parse(raw: &[String]) -> CliResult<Self> {
-        let mut plan = None;
-        let (mut n, mut k, mut n_probe, mut region_beam) = (1000, 10, 8, 64);
-        let mut pruning_epsilon = None;
-        let mut ground_truth = 0;
-        let mut recall_floor = None;
-        let mut truth_depth = None;
-        let mut fused_ground_truth_file = None;
-        let mut fused_ground_truth_manifest = None;
-        let mut slot_ground_truth_manifest = None;
-        let mut ensemble_card = None;
-        let mut write_fused_ground_truth_file = None;
-        let mut write_fused_ground_truth_manifest = None;
-        let mut out = None;
-        let mut anneal_vault = None;
-        let mut tuner_slo_us = None;
-        let mut it = raw.iter();
-        while let Some(flag) = it.next() {
-            let mut next = || {
-                it.next()
-                    .cloned()
-                    .ok_or_else(|| CliError::usage(format!("{flag} requires a value")))
-            };
-            match flag.as_str() {
-                "--plan" => plan = Some(PathBuf::from(next()?)),
-                "--n" => n = parse(&next()?, "--n")?,
-                "--k" => k = parse(&next()?, "--k")?,
-                "--n-probe" => n_probe = parse(&next()?, "--n-probe")?,
-                "--region-beam" => region_beam = parse(&next()?, "--region-beam")?,
-                "--pruning-epsilon" => {
-                    pruning_epsilon = Some(super::parse_pruning_epsilon(&next()?)?)
-                }
-                "--ground-truth" => ground_truth = parse(&next()?, "--ground-truth")?,
-                "--recall-floor" => recall_floor = Some(super::parse_recall_floor(&next()?)?),
-                "--truth-depth" => truth_depth = Some(parse(&next()?, "--truth-depth")?),
-                "--fused-ground-truth-file" => {
-                    fused_ground_truth_file = Some(PathBuf::from(next()?))
-                }
-                "--fused-ground-truth-manifest" => {
-                    fused_ground_truth_manifest = Some(PathBuf::from(next()?))
-                }
-                "--slot-ground-truth-manifest" => {
-                    slot_ground_truth_manifest = Some(PathBuf::from(next()?))
-                }
-                "--ensemble-card" => ensemble_card = Some(PathBuf::from(next()?)),
-                "--write-fused-ground-truth-file" => {
-                    write_fused_ground_truth_file = Some(PathBuf::from(next()?))
-                }
-                "--write-fused-ground-truth-manifest" => {
-                    write_fused_ground_truth_manifest = Some(PathBuf::from(next()?))
-                }
-                "--out" => out = Some(PathBuf::from(next()?)),
-                "--anneal-vault" => anneal_vault = Some(PathBuf::from(next()?)),
-                "--tuner-slo-us" => {
-                    let value = parse(&next()?, "--tuner-slo-us")?;
-                    if value == 0 {
-                        return Err(CliError::usage("--tuner-slo-us must be > 0"));
-                    }
-                    tuner_slo_us = Some(value);
-                }
-                other => return Err(CliError::usage(format!("unknown flag: {other}"))),
-            }
-        }
-        let plan = plan.ok_or_else(|| CliError::usage("--plan <json> is required"))?;
-        if k == 0 {
-            return Err(CliError::usage("--k must be > 0"));
-        }
-        validate_truth_args(
-            fused_ground_truth_file.as_ref(),
-            fused_ground_truth_manifest.as_ref(),
-            slot_ground_truth_manifest.as_ref(),
-            write_fused_ground_truth_file.as_ref(),
-            write_fused_ground_truth_manifest.as_ref(),
-        )?;
-        Ok(Self {
-            plan,
-            n,
-            k,
-            n_probe,
-            region_beam,
-            pruning_epsilon,
-            ground_truth,
-            recall_floor,
-            truth_depth,
-            fused_ground_truth_file,
-            fused_ground_truth_manifest,
-            slot_ground_truth_manifest,
-            ensemble_card,
-            write_fused_ground_truth_file,
-            write_fused_ground_truth_manifest,
-            out,
-            anneal_vault,
-            tuner_slo_us,
-        })
-    }
-}
-
-fn validate_truth_args(
-    fused_file: Option<&PathBuf>,
-    fused_manifest: Option<&PathBuf>,
-    slot_manifest: Option<&PathBuf>,
-    write_file: Option<&PathBuf>,
-    write_manifest: Option<&PathBuf>,
-) -> CliResult {
-    if fused_file.is_some() != fused_manifest.is_some() {
-        return Err(CliError::usage(
-            "--fused-ground-truth-file requires --fused-ground-truth-manifest",
-        ));
-    }
-    if write_file.is_some() != write_manifest.is_some() {
-        return Err(CliError::usage(
-            "--write-fused-ground-truth-file requires --write-fused-ground-truth-manifest",
-        ));
-    }
-    if fused_file.is_some() && write_file.is_some() {
-        return Err(CliError::usage(
-            "precomputed and generated fused ground truth are mutually exclusive in one run",
-        ));
-    }
-    if fused_file.is_some() && slot_manifest.is_some() {
-        return Err(CliError::usage(
-            "--fused-ground-truth-file and --slot-ground-truth-manifest are mutually exclusive",
-        ));
-    }
-    Ok(())
-}
-
 pub(crate) fn run(raw: &[String]) -> CliResult {
-    let args = Args::parse(raw)?;
+    let args = args::Args::parse(raw)?;
     let plan = load_plan(&args.plan)?;
     a35::validate_plan(&plan)?;
+    let a37_admission_readback = a37_admission::load(args.a37_admission_card.as_deref(), &plan)?;
     let ensemble_readback = ensemble::load(
         args.ensemble_card.as_deref(),
         &plan,
-        args.recall_floor.is_some(),
+        args.recall_floor.is_some() && a37_admission_readback.is_none(),
     )?;
     let slots = open_slots(&plan)?;
     let n = slots
@@ -402,6 +257,7 @@ pub(crate) fn run(raw: &[String]) -> CliResult {
         "lens_roster": a35::lens_roster(&slots),
         "per_lens_bits": a35::per_lens_bits(&slots),
         "ensemble_decomposition": ensemble_readback,
+        "a37_admission": a37_admission_readback,
         "temporal": timeline.as_ref().map(|timeline| timeline.report()),
         "slots": report::slot_report(&slots),
         "queries": n,
@@ -486,12 +342,6 @@ fn fuse(per_slot: &BTreeMap<SlotId, Vec<IndexSearchHit>>, k: usize) -> Vec<calyx
         stage1_slots: Vec::new(),
     };
     fusion::fuse(per_slot, &context)
-}
-
-fn parse<T: std::str::FromStr>(value: &str, flag: &str) -> CliResult<T> {
-    value
-        .parse::<T>()
-        .map_err(|_| CliError::usage(format!("{flag} expects a valid value, got {value}")))
 }
 
 #[cfg(test)]
