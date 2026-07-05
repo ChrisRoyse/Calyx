@@ -9,7 +9,7 @@ use super::write;
 #[allow(dead_code)]
 mod support;
 
-use support::{Fixture, staging_dir, write_bits_with_panel_names};
+use support::{staging_dir, write_bits_with_panel_names, Fixture};
 
 #[test]
 fn diagnostic_mode_can_measure_unadmitted_lens() {
@@ -18,7 +18,7 @@ fn diagnostic_mode_can_measure_unadmitted_lens() {
         &fixture.bits,
         10,
         9,
-        (0..10).map(|idx| format!("lens-{idx}")).collect(),
+        (0..9).map(|idx| format!("lens-{idx}")).collect(),
         1.25,
         "passed",
         1.0,
@@ -33,6 +33,20 @@ fn diagnostic_mode_can_measure_unadmitted_lens() {
             .unwrap();
     assert_eq!(report["pre_encode_gate"]["mode"], "diagnostic");
     assert_eq!(report["pre_encode_gate"]["diagnostic_only"], true);
+    assert_eq!(
+        report["pre_encode_gate"]["admitted_lenses"]
+            .as_array()
+            .unwrap()
+            .len(),
+        9
+    );
+    assert_eq!(
+        report["pre_encode_gate"]["streamed_lenses"]
+            .as_array()
+            .unwrap()
+            .len(),
+        10
+    );
     assert_eq!(report["lens_roster"].as_array().unwrap().len(), 10);
     assert!(fixture.out.join("partitioned_rrf_plan.json").exists());
     let _ = fs::remove_dir_all(fixture.root);

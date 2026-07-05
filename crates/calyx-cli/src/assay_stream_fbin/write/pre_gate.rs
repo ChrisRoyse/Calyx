@@ -10,7 +10,7 @@ use crate::assay_anchor_audit::AnchorAudit;
 use crate::error::CliResult;
 
 use super::super::args::{Args, StreamMode};
-use super::super::{MIN_A35_LENSES, io_error, local_error};
+use super::super::{io_error, local_error, MIN_A35_LENSES};
 use super::evidence::PreEncodeGateEvidence;
 use super::paths::display;
 
@@ -76,7 +76,7 @@ pub(super) fn validate_before_full_encode(args: &Args) -> CliResult<PreEncodeGat
             .require_gate_eligible("assay stream-fbin pre-encode grounded anchor gate")?;
     }
     let streamed_lenses = streamed_manifest_names(args)?;
-    validate_panel_identity(&gate.admitted_lenses, &streamed_lenses)?;
+    validate_panel_identity(&gate.admitted_lenses, &streamed_lenses, args.mode)?;
     validate_target_entropy(&gate)?;
     validate_lower_bound(&gate)?;
     validate_power(&gate)?;
@@ -175,10 +175,14 @@ fn report_anchor_audit(report: &BitsReport) -> AnchorAudit {
     )
 }
 
-fn validate_panel_identity(admitted_lenses: &[String], streamed_lenses: &[String]) -> CliResult {
+fn validate_panel_identity(
+    admitted_lenses: &[String],
+    streamed_lenses: &[String],
+    mode: StreamMode,
+) -> CliResult {
     let admitted = names_set("panel.admitted_lenses", admitted_lenses)?;
     let streamed = names_set("streamed manifests", streamed_lenses)?;
-    if admitted.len() < MIN_A35_LENSES {
+    if admitted.len() < MIN_A35_LENSES && mode.requires_gate() {
         return Err(local_error(
             "CALYX_FSV_ASSAY_STREAM_FBIN_PRE_GATE_PANEL_TOO_SMALL",
             format!(
@@ -188,7 +192,7 @@ fn validate_panel_identity(admitted_lenses: &[String], streamed_lenses: &[String
             "run bits-validate on at least ten real frozen content lenses",
         ));
     }
-    if admitted != streamed {
+    if admitted != streamed && mode.requires_gate() {
         return Err(local_error(
             "CALYX_FSV_ASSAY_STREAM_FBIN_PRE_GATE_PANEL_MISMATCH",
             format!(
