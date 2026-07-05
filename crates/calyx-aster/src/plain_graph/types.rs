@@ -160,7 +160,7 @@ fn parsed_json_edge_raw_weight(json: Value, policy: EdgeWeightPolicy) -> Result<
         Value::Number(number) => number.as_f64(),
         Value::Object(object) => {
             if let Some(weight) = object.get("weight") {
-                weight.as_f64().or_else(|| Some(f64::NAN))
+                weight.as_f64().or(Some(f64::NAN))
             } else if policy == EdgeWeightPolicy::LegacyUnit {
                 return Ok(ParsedEdgeWeight {
                     raw: 1.0,

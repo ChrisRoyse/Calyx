@@ -115,7 +115,7 @@ fn invalid_start_id_fails_closed() {
 
 #[test]
 fn run_persists_chain_then_reads_back_source_of_truth() {
-    let (home, vault_dir) = seed_home("happy", SeedShape::SufficientAssay);
+    let (home, vault_dir) = seed_home("happy", SeedShape::Sufficient);
     let anchor_file = home.join("anchors.txt");
     fs::write(&anchor_file, format!("{}\n", cx(4))).unwrap();
 
@@ -181,7 +181,7 @@ fn run_persists_chain_then_reads_back_source_of_truth() {
 
 #[test]
 fn strict_gate_refuses_before_artifact_write() {
-    let (home, vault_dir) = seed_home("strict", SeedShape::SufficientAssay);
+    let (home, vault_dir) = seed_home("strict", SeedShape::Sufficient);
 
     let err = run_discovery_chain_with_home(
         &home,
@@ -210,7 +210,7 @@ fn strict_gate_refuses_before_artifact_write() {
 
 #[test]
 fn insufficient_assay_refuses_before_artifact_write() {
-    let (home, vault_dir) = seed_home("insufficient", SeedShape::InsufficientAssay);
+    let (home, vault_dir) = seed_home("insufficient", SeedShape::Insufficient);
 
     let err = run_discovery_chain_with_home(
         &home,
@@ -239,7 +239,7 @@ fn insufficient_assay_refuses_before_artifact_write() {
 
 #[test]
 fn missing_assay_refuses_before_artifact_write() {
-    let (home, vault_dir) = seed_home("missing-assay", SeedShape::NoAssay);
+    let (home, vault_dir) = seed_home("missing-assay", SeedShape::Missing);
 
     let err = run_discovery_chain_with_home(
         &home,
@@ -271,7 +271,7 @@ fn missing_assay_refuses_before_artifact_write() {
 
 #[test]
 fn unknown_start_fails_before_artifact_write() {
-    let (home, vault_dir) = seed_home("missing", SeedShape::SufficientAssay);
+    let (home, vault_dir) = seed_home("missing", SeedShape::Sufficient);
 
     let err = run_discovery_chain_with_home(
         &home,
@@ -299,9 +299,9 @@ fn unknown_start_fails_before_artifact_write() {
 
 #[derive(Clone, Copy)]
 enum SeedShape {
-    SufficientAssay,
-    InsufficientAssay,
-    NoAssay,
+    Sufficient,
+    Insufficient,
+    Missing,
 }
 
 fn seed_home(name: &str, shape: SeedShape) -> (PathBuf, PathBuf) {
@@ -340,9 +340,9 @@ fn seed_home(name: &str, shape: SeedShape) -> (PathBuf, PathBuf) {
     .unwrap();
     persist_vault_panel_state(&vault_dir, &panel, &Registry::new()).unwrap();
     match shape {
-        SeedShape::SufficientAssay => put_assay(&vault, &panel, 1.25, 1.10, 1.40),
-        SeedShape::InsufficientAssay => put_assay(&vault, &panel, 0.80, 0.40, 1.20),
-        SeedShape::NoAssay => {}
+        SeedShape::Sufficient => put_assay(&vault, &panel, 1.25, 1.10, 1.40),
+        SeedShape::Insufficient => put_assay(&vault, &panel, 0.80, 0.40, 1.20),
+        SeedShape::Missing => {}
     }
     let graph = PlainGraph::new(&vault, DEFAULT_ASTER_ASSOC_COLLECTION).unwrap();
     for (seed, term) in [

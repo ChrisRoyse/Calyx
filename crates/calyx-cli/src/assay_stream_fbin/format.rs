@@ -191,7 +191,7 @@ mod tests {
 
     #[test]
     fn f32_canonicalization_erases_runtime_jitter() {
-        assert_eq!(canonical_f32(0.123456741), canonical_f32(0.123456776));
+        assert_eq!(canonical_f32(0.123_456_74), canonical_f32(0.123_456_78));
         assert_eq!(canonical_f32(-0.00000001).to_bits(), 0.0_f32.to_bits());
     }
 }

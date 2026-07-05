@@ -65,13 +65,15 @@ fn stopped_trial_comention_does_not_count_without_asserted_pair() {
     let root = temp_root("falsification-trial-comention");
     seed_hypothesis(
         &root,
-        "typed-assoc:metformin::kidney",
-        "concept:metformin",
-        "metformin",
-        "chemical",
-        "concept:kidney-disease",
-        "kidney disease",
-        "disease",
+        HypothesisFixture {
+            hypothesis_id: "typed-assoc:metformin::kidney",
+            source_id: "concept:metformin",
+            source_name: "metformin",
+            source_type: "chemical",
+            target_id: "concept:kidney-disease",
+            target_name: "kidney disease",
+            target_type: "disease",
+        },
     );
     seed_empty_sources(&root);
     write(
@@ -93,13 +95,15 @@ fn identifier_match_requires_asserted_endpoint_id_not_numeric_tail() {
     let root = temp_root("falsification-id-match");
     seed_hypothesis(
         &root,
-        "typed-assoc:chembl123::alk",
-        "CHEMBL:CHEMBL123",
-        "test drug",
-        "chemical",
-        "HGNC:427",
-        "ALK",
-        "gene",
+        HypothesisFixture {
+            hypothesis_id: "typed-assoc:chembl123::alk",
+            source_id: "CHEMBL:CHEMBL123",
+            source_name: "test drug",
+            source_type: "chemical",
+            target_id: "HGNC:427",
+            target_name: "ALK",
+            target_type: "gene",
+        },
     );
     seed_empty_sources(&root);
     write(
@@ -123,13 +127,15 @@ fn internal_concept_ids_can_match_structured_endpoint_labels() {
     let root = temp_root("falsification-concept-label");
     seed_hypothesis(
         &root,
-        "typed-assoc:cd4::cd8a",
-        "concept:ncbi_gene:920",
-        "CD4",
-        "gene",
-        "concept:ncbi_gene:925",
-        "CD8A",
-        "gene",
+        HypothesisFixture {
+            hypothesis_id: "typed-assoc:cd4::cd8a",
+            source_id: "concept:ncbi_gene:920",
+            source_name: "CD4",
+            source_type: "gene",
+            target_id: "concept:ncbi_gene:925",
+            target_name: "CD8A",
+            target_type: "gene",
+        },
     );
     seed_empty_sources(&root);
     write(
@@ -147,13 +153,15 @@ fn unstructured_classifiable_row_is_skipped_not_counted() {
     let root = temp_root("falsification-unstructured");
     seed_hypothesis(
         &root,
-        "typed-assoc:metformin::diabetes",
-        "concept:metformin",
-        "metformin",
-        "chemical",
-        "concept:type2diabetes",
-        "type 2 diabetes",
-        "disease",
+        HypothesisFixture {
+            hypothesis_id: "typed-assoc:metformin::diabetes",
+            source_id: "concept:metformin",
+            source_name: "metformin",
+            source_type: "chemical",
+            target_id: "concept:type2diabetes",
+            target_name: "type 2 diabetes",
+            target_type: "disease",
+        },
     );
     seed_empty_sources(&root);
     write(
@@ -187,13 +195,15 @@ fn args(root: &Path) -> HypothesisFalsificationArgs {
 fn seed(root: &Path) {
     seed_hypothesis(
         root,
-        "typed-assoc:metformin::diabetes",
-        "concept:metformin",
-        "metformin",
-        "chemical",
-        "concept:type2diabetes",
-        "type 2 diabetes",
-        "disease",
+        HypothesisFixture {
+            hypothesis_id: "typed-assoc:metformin::diabetes",
+            source_id: "concept:metformin",
+            source_name: "metformin",
+            source_type: "chemical",
+            target_id: "concept:type2diabetes",
+            target_name: "type 2 diabetes",
+            target_type: "disease",
+        },
     );
     seed_empty_sources(root);
     write(
@@ -210,16 +220,26 @@ fn seed(root: &Path) {
     );
 }
 
-fn seed_hypothesis(
-    root: &Path,
-    hypothesis_id: &str,
-    source_id: &str,
-    source_name: &str,
-    source_type: &str,
-    target_id: &str,
-    target_name: &str,
-    target_type: &str,
-) {
+struct HypothesisFixture<'a> {
+    hypothesis_id: &'a str,
+    source_id: &'a str,
+    source_name: &'a str,
+    source_type: &'a str,
+    target_id: &'a str,
+    target_name: &'a str,
+    target_type: &'a str,
+}
+
+fn seed_hypothesis(root: &Path, fixture: HypothesisFixture<'_>) {
+    let HypothesisFixture {
+        hypothesis_id,
+        source_id,
+        source_name,
+        source_type,
+        target_id,
+        target_name,
+        target_type,
+    } = fixture;
     write(
         root.join("miner_report.json"),
         &format!(

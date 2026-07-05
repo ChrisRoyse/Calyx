@@ -73,7 +73,7 @@ fn absorb_edge(
     }
     if args
         .source_issue
-        .map_or(false, |issue| u64_field(row, "source_issue") != Some(issue))
+        .is_some_and(|issue| u64_field(row, "source_issue") != Some(issue))
     {
         return Ok(());
     }
@@ -179,11 +179,11 @@ fn for_jsonl(
 }
 
 fn type_match(filter: Option<&str>, node: &ConceptNode) -> bool {
-    filter.map_or(true, |filter| node.concept_type == filter)
+    filter.is_none_or(|filter| node.concept_type == filter)
 }
 
 fn name_match(filter: Option<&str>, source: &ConceptNode, target: &ConceptNode) -> bool {
-    filter.map_or(true, |needle| {
+    filter.is_none_or(|needle| {
         source.normalized_name.to_ascii_lowercase().contains(needle)
             || target.normalized_name.to_ascii_lowercase().contains(needle)
     })

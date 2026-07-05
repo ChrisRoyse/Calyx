@@ -3,7 +3,9 @@ use std::fs::{self, File, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
-use calyx_assay::{AssayCacheKey, AssayStore, AssaySubject, EstimatorKind, MiEstimate, TrustTag};
+use calyx_assay::{
+    AssayCacheKey, AssayStore, AssaySubject, EstimatorKind, MiEstimate, PowerCalibration, TrustTag,
+};
 use calyx_aster::cf::{ColumnFamily, base_key, recurrence_key};
 use calyx_aster::dedup::{EpochSecs, OccurrenceId};
 use calyx_aster::recurrence::{
@@ -342,7 +344,8 @@ fn put_sufficiency(
     store.put(
         key.clone(),
         AssaySubject::Panel,
-        estimate(panel_bits, EstimatorKind::PanelSufficiency),
+        estimate(panel_bits, EstimatorKind::PanelSufficiency)
+            .with_power_calibration(passed_power_calibration(panel.slots.len())),
         "ph49 fsv panel bits",
         calyx_testkit::DEFAULT_TEST_TS,
     );
@@ -366,7 +369,11 @@ fn put_sufficiency(
 }
 
 fn estimate(bits: f32, estimator: EstimatorKind) -> MiEstimate {
-    MiEstimate::point(bits, 120, estimator, TrustTag::Trusted)
+    MiEstimate::new(bits, bits, bits, 120, estimator, TrustTag::Trusted)
+}
+
+fn passed_power_calibration(n_features: usize) -> PowerCalibration {
+    PowerCalibration::new(1.0, 1.0, 0.50, 120, n_features.max(1), 0).unwrap()
 }
 
 fn action(action_id: &str, panel: Panel) -> Action {
@@ -447,7 +454,7 @@ fn durable_vault(path: &Path) -> AsterVault<SystemClock> {
     fs::create_dir_all(path).expect("create vault dir");
     AsterVault::new_durable(
         path,
-        vault_id(),
+        "01ARZ3NDEKTSV4RRFFQ69G5FAV".parse().unwrap(),
         b"issue434-fsv".to_vec(),
         VaultOptions::default(),
     )
@@ -489,8 +496,4 @@ fn print_json(value: serde_json::Value) {
         "{}",
         serde_json::to_string(&value).expect("serialize fsv evidence")
     );
-}
-
-fn vault_id() -> VaultId {
-    "01ARZ3NDEKTSV4RRFFQ69G5FAV".parse().unwrap()
 }

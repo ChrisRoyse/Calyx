@@ -95,7 +95,7 @@ pub(crate) fn run_bridge_falsification_evaluate(
         )?);
     }
     if inputs.is_empty() {
-        return Err(bridge_error("no evidence-backed hypotheses to bridge").into());
+        return Err(bridge_error("no evidence-backed hypotheses to bridge"));
     }
     let mut counts = BTreeMap::new();
     counts.insert("miner_hypotheses".to_string(), miner.value.hypotheses.len());
@@ -139,7 +139,9 @@ pub(crate) fn run_bridge_evaluate_rank(args: EvaluateRankBridgeArgs) -> CliResul
         inputs.push(rank_input(evaluation)?);
     }
     if inputs.is_empty() {
-        return Err(bridge_error("no retained evaluations to bridge into ranking").into());
+        return Err(bridge_error(
+            "no retained evaluations to bridge into ranking",
+        ));
     }
     let mut counts = BTreeMap::new();
     counts.insert(

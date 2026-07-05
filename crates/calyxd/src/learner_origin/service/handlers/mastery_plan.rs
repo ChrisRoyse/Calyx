@@ -1,4 +1,6 @@
-use calyx_assay::{AssayCacheKey, AssayStore, AssaySubject, EstimatorKind, MiEstimate, TrustTag};
+use calyx_assay::{
+    AssayCacheKey, AssayStore, AssaySubject, EstimatorKind, MiEstimate, PowerCalibration, TrustTag,
+};
 use calyx_core::{AnchorKind, Constellation, Panel, SystemClock};
 use calyx_oracle::{
     CalibrationMeasurement, DomainId, GoodhartDefenseMeasurement, HeldOutSplit,
@@ -115,7 +117,8 @@ impl MasteryPlan {
                 self.trust_gate.sample_count,
                 EstimatorKind::PanelSufficiency,
                 TrustTag::Trusted,
-            ),
+            )
+            .with_power_calibration(self.trust_gate.power_calibration(self.concepts.len())),
             "learner-origin mastery panel sufficiency",
             now,
         );
@@ -199,5 +202,12 @@ impl MasteryPlan {
                     })
             })
             .collect()
+    }
+}
+
+impl MasteryTrustGate {
+    fn power_calibration(&self, n_features: usize) -> PowerCalibration {
+        PowerCalibration::new(1.0, 1.0, 0.50, self.sample_count, n_features.max(1), 0)
+            .expect("fixed learner-origin mastery power calibration")
     }
 }

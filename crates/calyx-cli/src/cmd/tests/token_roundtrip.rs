@@ -231,6 +231,7 @@ fn lincs_reversal_tokens(args: &lincs_reversal::MaterializeLincsReversalArgs) ->
     out
 }
 
+#[test]
 fn lincs_reversal_round_trips_through_tokens() {
     let command =
         Subcommand::MaterializeLincsReversal(lincs_reversal::MaterializeLincsReversalArgs {

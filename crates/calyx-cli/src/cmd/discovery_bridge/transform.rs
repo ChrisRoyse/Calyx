@@ -74,8 +74,7 @@ pub(super) fn rank_input(
         return Err(bridge_error(format!(
             "evaluation {} has no cited evidence ids",
             evaluation.hypothesis_id
-        ))
-        .into());
+        )));
     }
     Ok(calyx_lodestar::TraceableHypothesisInput {
         hypothesis_id: evaluation.hypothesis_id.clone(),
@@ -103,8 +102,7 @@ fn retrieved_evidence(
         return Err(bridge_error(format!(
             "evidence row {} for {} has empty summary",
             row.source_row_index, hypothesis.hypothesis_id
-        ))
-        .into());
+        )));
     }
     Ok(RetrievedEvidence {
         evidence_id: format!(
@@ -214,7 +212,7 @@ fn validate_hypothesis(hypothesis: &AssociationHypothesis) -> CliResult {
         ("target_name", &hypothesis.target_name),
     ] {
         if value.trim().is_empty() {
-            return Err(bridge_error(format!("{field} must not be empty")).into());
+            return Err(bridge_error(format!("{field} must not be empty")));
         }
     }
     clamp_score(hypothesis.score, "score")?;
@@ -233,14 +231,16 @@ fn grounded_confidence(
 
 fn clamp_score(value: f64, field: &str) -> CliResult<f32> {
     if !value.is_finite() || !(0.0..=1.0).contains(&value) {
-        return Err(bridge_error(format!("{field} must be finite and in [0,1]")).into());
+        return Err(bridge_error(format!("{field} must be finite and in [0,1]")));
     }
     Ok(value as f32)
 }
 
 fn evidence_confidence(weight: f64) -> CliResult<f32> {
     if !weight.is_finite() || weight < 0.0 {
-        return Err(bridge_error("evidence weight must be finite and non-negative").into());
+        return Err(bridge_error(
+            "evidence weight must be finite and non-negative",
+        ));
     }
     Ok((weight / (1.0 + weight)) as f32)
 }
@@ -253,18 +253,18 @@ fn provenance_string(provenance: &[String], key: &str) -> CliResult<String> {
                 .map(ToString::to_string)
         })
         .filter(|value| !value.trim().is_empty())
-        .ok_or_else(|| bridge_error(format!("missing provenance field {key}")).into())
+        .ok_or_else(|| bridge_error(format!("missing provenance field {key}")))
 }
 
 fn provenance_usize(provenance: &[String], key: &str) -> CliResult<usize> {
     let raw = provenance_string(provenance, key)?;
     raw.parse::<usize>()
-        .map_err(|error| bridge_error(format!("parse provenance field {key}: {error}")).into())
+        .map_err(|error| bridge_error(format!("parse provenance field {key}: {error}")))
 }
 
 fn cx_id_from_domain_id(role: &str, value: &str) -> CliResult<CxId> {
     if value.trim().is_empty() {
-        return Err(bridge_error(format!("{role} id must not be empty")).into());
+        return Err(bridge_error(format!("{role} id must not be empty")));
     }
     CxId::from_str(value).or_else(|_| Ok(synthetic_cx_id(&[role, value])))
 }

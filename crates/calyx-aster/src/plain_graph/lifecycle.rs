@@ -105,7 +105,7 @@ impl<'a, C: Clock> GraphCollectionLifecycle<'a, C> {
 
     pub fn put_state(&self, state: &GraphCollectionGenerationState) -> Result<Seq> {
         validate_state(state)?;
-        let value = serde_json::to_vec(state).map_err(|error| lifecycle_corrupt(error))?;
+        let value = serde_json::to_vec(state).map_err(lifecycle_corrupt)?;
         self.vault
             .write_cf(ColumnFamily::Graph, self.state_key(state)?, value)
     }
@@ -139,7 +139,7 @@ impl PhysicalGraphCollectionLifecycle {
         let key = self
             .keys
             .metadata_key(&state_row_name(&state.collection, &state.generation))?;
-        let value = serde_json::to_vec(state).map_err(|error| lifecycle_corrupt(error))?;
+        let value = serde_json::to_vec(state).map_err(lifecycle_corrupt)?;
         self.router.put(ColumnFamily::Graph, &key, &value)?;
         self.router.flush_cf(ColumnFamily::Graph)?;
         Ok(())
@@ -188,7 +188,7 @@ fn validate_token(name: &str, value: &str, max_bytes: usize) -> Result<()> {
 
 fn decode_readback(key: &[u8], value: &[u8]) -> Result<GraphCollectionGenerationReadback> {
     let state = serde_json::from_slice::<GraphCollectionGenerationState>(value)
-        .map_err(|error| lifecycle_corrupt(error))?;
+        .map_err(lifecycle_corrupt)?;
     validate_state(&state)?;
     Ok(GraphCollectionGenerationReadback {
         state,

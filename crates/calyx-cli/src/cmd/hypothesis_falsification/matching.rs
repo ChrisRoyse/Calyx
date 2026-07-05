@@ -25,7 +25,7 @@ pub(super) struct AssertedRelation {
     right: Endpoint,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 struct Endpoint {
     ids: Vec<String>,
     names: Vec<String>,
@@ -161,15 +161,6 @@ impl Endpoint {
 
     fn is_empty(&self) -> bool {
         self.ids.is_empty() && self.names.is_empty()
-    }
-}
-
-impl Default for Endpoint {
-    fn default() -> Self {
-        Self {
-            ids: Vec::new(),
-            names: Vec::new(),
-        }
     }
 }
 

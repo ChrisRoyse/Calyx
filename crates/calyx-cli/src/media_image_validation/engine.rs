@@ -1,8 +1,9 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use calyx_assay::{
-    EstimatorKind, MiEstimate, NmiReport, TrustTag, ksg_mi_continuous_discrete_with_anchor,
-    ksg_mi_continuous_with_anchor, partitioned_histogram_nmi,
+    EstimatorKind, MiEstimate, NmiReport, PowerCalibration, TrustTag,
+    ksg_mi_continuous_discrete_with_anchor, ksg_mi_continuous_with_anchor,
+    partitioned_histogram_nmi,
 };
 use calyx_core::{Anchor, AnchorKind, AnchorValue, SlotId};
 use serde::Serialize;
@@ -103,6 +104,17 @@ pub(crate) fn panel_estimate(report: &MediaImageReport) -> MiEstimate {
             .min(report.cross_modal_sample_count),
         EstimatorKind::PanelSufficiency,
         TrustTag::Trusted,
+    )
+    .with_power_calibration(
+        PowerCalibration::new(
+            1.0,
+            1.0,
+            0.50,
+            report.sample_rows,
+            report.image_feature_dim,
+            0,
+        )
+        .unwrap(),
     )
 }
 

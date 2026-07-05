@@ -155,11 +155,13 @@ where
             let bridge_confidence = seed.grounded_confidence.min(endpoint.grounded_confidence);
             push_bridge_candidate(seed, endpoint, bridge_confidence, &mut candidates);
             traverse_molecular_graph(
-                seed,
-                endpoint,
-                bridge_confidence,
-                molecular_graph,
-                params,
+                TraversalContext {
+                    seed,
+                    endpoint,
+                    bridge_confidence,
+                    graph: molecular_graph,
+                    params,
+                },
                 &mut molecular_gate,
                 &mut candidates,
                 &mut deficits,
@@ -180,11 +182,7 @@ where
 }
 
 fn traverse_molecular_graph<G>(
-    seed: &ClinicalFrontier,
-    endpoint: &MolecularEndpoint,
-    bridge_confidence: f32,
-    graph: &AssocGraph,
-    params: &CrossVaultChainParams,
+    context: TraversalContext<'_>,
     molecular_gate: &mut G,
     candidates: &mut Vec<CrossVaultChainCandidate>,
     deficits: &mut Vec<CrossVaultDeficit>,
@@ -192,6 +190,13 @@ fn traverse_molecular_graph<G>(
 where
     G: FnMut(&CrossVaultMolecularCandidate) -> CrossVaultMolecularGateVerdict,
 {
+    let TraversalContext {
+        seed,
+        endpoint,
+        bridge_confidence,
+        graph,
+        params,
+    } = context;
     let mut visited = BTreeSet::from([endpoint.molecular_cx_id]);
     let mut frontier = vec![TraversalNode {
         id: endpoint.molecular_cx_id,
@@ -221,17 +226,17 @@ where
                 let verdict = molecular_gate(&candidate);
                 if verdict.passed && verdict.confidence >= params.min_molecular_gate_confidence {
                     visited.insert(to);
-                    candidates.push(chain_candidate(
+                    candidates.push(chain_candidate(ChainCandidateInput {
                         seed,
                         endpoint,
-                        path.clone(),
-                        hop,
-                        raw_path_score,
+                        molecular_path: path.clone(),
+                        molecular_hop_count: hop,
+                        path_score: raw_path_score,
                         bridge_confidence,
-                        verdict.confidence,
-                        &verdict.code,
-                        &verdict.evidence,
-                    ));
+                        terminal_confidence: verdict.confidence,
+                        gate_code: &verdict.code,
+                        gate_evidence: &verdict.evidence,
+                    }));
                     next_frontier.push(TraversalNode {
                         id: to,
                         raw_path_score,
@@ -260,30 +265,31 @@ fn push_bridge_candidate(
         format!("endpoint_bits={:.6}", endpoint.grounded_bits),
         format!("endpoint_confidence={:.6}", endpoint.grounded_confidence),
     ];
-    candidates.push(chain_candidate(
+    candidates.push(chain_candidate(ChainCandidateInput {
         seed,
         endpoint,
-        vec![endpoint.molecular_cx_id],
-        0,
+        molecular_path: vec![endpoint.molecular_cx_id],
+        molecular_hop_count: 0,
+        path_score: bridge_confidence,
         bridge_confidence,
-        bridge_confidence,
-        bridge_confidence,
-        "CALYX_CROSS_VAULT_BRIDGE_PASS",
-        &evidence,
-    ));
+        terminal_confidence: bridge_confidence,
+        gate_code: "CALYX_CROSS_VAULT_BRIDGE_PASS",
+        gate_evidence: &evidence,
+    }));
 }
 
-fn chain_candidate(
-    seed: &ClinicalFrontier,
-    endpoint: &MolecularEndpoint,
-    molecular_path: Vec<CxId>,
-    molecular_hop_count: usize,
-    path_score: f32,
-    bridge_confidence: f32,
-    terminal_confidence: f32,
-    gate_code: &str,
-    gate_evidence: &[String],
-) -> CrossVaultChainCandidate {
+fn chain_candidate(input: ChainCandidateInput<'_>) -> CrossVaultChainCandidate {
+    let ChainCandidateInput {
+        seed,
+        endpoint,
+        molecular_path,
+        molecular_hop_count,
+        path_score,
+        bridge_confidence,
+        terminal_confidence,
+        gate_code,
+        gate_evidence,
+    } = input;
     let terminal_molecular_cx_id = *molecular_path.last().expect("nonempty molecular path");
     let rank_score = path_score * SCORE_PATH_WEIGHT
         + terminal_confidence * SCORE_TERMINAL_GATE_WEIGHT
@@ -459,4 +465,24 @@ struct TraversalNode {
     id: CxId,
     raw_path_score: f32,
     path: Vec<CxId>,
+}
+
+struct TraversalContext<'a> {
+    seed: &'a ClinicalFrontier,
+    endpoint: &'a MolecularEndpoint,
+    bridge_confidence: f32,
+    graph: &'a AssocGraph,
+    params: &'a CrossVaultChainParams,
+}
+
+struct ChainCandidateInput<'a> {
+    seed: &'a ClinicalFrontier,
+    endpoint: &'a MolecularEndpoint,
+    molecular_path: Vec<CxId>,
+    molecular_hop_count: usize,
+    path_score: f32,
+    bridge_confidence: f32,
+    terminal_confidence: f32,
+    gate_code: &'a str,
+    gate_evidence: &'a [String],
 }

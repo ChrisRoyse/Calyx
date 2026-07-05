@@ -125,4 +125,5 @@ still requires experimental confirmation.
 | `101_metformin_trametinib_faers_case_validation.md` | #1260 metformin-trametinib FAERS case-level validation | complete FSV for exact FAERS case readback, confounded serious safety blocker classification, label/literature context rows, and native Calyx bridge-corpus materialization |
 | `102_faers_case_quality_ranker_overlay.md` | #1261 FAERS case-quality/confounder overlay for combination ranker | complete FSV for 5 metformin/trametinib-family ranker overlays, 4 direct #1260 joins, 1 ingredient-family context row, and native Calyx bridge-corpus materialization |
 | `103_openfda_label_gate_validation.md` | #1241 openFDA label-hit safety/interaction gate validation | complete FSV for 40 label evidence gate rows, 9 pair rollups, 22 blocked candidate statuses, and native Calyx bridge-corpus materialization |
+| `104_pubmed_structured_gate_validation.md` | #1239 PubMed structured gate validation for #1238 rows | complete FSV for 510 PubMed structured gate rows, 301 candidate statuses, 1,505 missing/not-cleared gate rows, and native Calyx bridge-corpus materialization |
 | (added as work proceeds) | | |

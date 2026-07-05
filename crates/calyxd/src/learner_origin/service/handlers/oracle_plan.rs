@@ -1,7 +1,8 @@
 use calyx_assay::{
     AssayCacheKey, AssayStore, AssaySubject, DEFAULT_TE_BOOTSTRAP_RESAMPLES,
     DEFAULT_TE_BOOTSTRAP_SEED, DEFAULT_TE_K, DEFAULT_TE_LAGS, DEFAULT_TE_WINDOW, EstimatorKind,
-    MiEstimate, TEResult, TransferEntropyConfig, TrustTag, transfer_entropy_sweep_with_config,
+    MiEstimate, PowerCalibration, TEResult, TransferEntropyConfig, TrustTag,
+    transfer_entropy_sweep_with_config,
 };
 use calyx_core::AnchorValue;
 use calyx_core::{AnchorKind, Clock, Constellation, SystemClock, content_address};
@@ -95,6 +96,10 @@ impl OracleForecastPlan {
                 self.transfer_entropy.sample_count,
                 EstimatorKind::PanelSufficiency,
                 TrustTag::Trusted,
+            )
+            .with_power_calibration(
+                self.transfer_entropy
+                    .power_calibration(self.action.panel.slots.len()),
             ),
             "learner-origin oracle forecast panel sufficiency",
             now,
@@ -232,6 +237,11 @@ impl TransferEntropyJob {
         self.panel_bits = panel_bits;
         self.anchor_entropy_bits = anchor_entropy_bits;
         self
+    }
+
+    fn power_calibration(&self, n_features: usize) -> PowerCalibration {
+        PowerCalibration::new(1.0, 1.0, 0.50, self.sample_count, n_features.max(1), 0)
+            .expect("fixed learner-origin oracle power calibration")
     }
 
     fn readback(&self, clock: &dyn Clock) -> Result<TransferEntropyReadback, OriginError> {

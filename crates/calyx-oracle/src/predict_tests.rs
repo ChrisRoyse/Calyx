@@ -1,6 +1,8 @@
 use std::collections::BTreeMap;
 
-use calyx_assay::{AssayCacheKey, AssayStore, AssaySubject, EstimatorKind, MiEstimate, TrustTag};
+use calyx_assay::{
+    AssayCacheKey, AssayStore, AssaySubject, EstimatorKind, MiEstimate, PowerCalibration, TrustTag,
+};
 use calyx_aster::cf::{ColumnFamily, base_key, ledger_key, recurrence_key};
 use calyx_aster::dedup::{EpochSecs, OccurrenceId};
 use calyx_aster::recurrence::{
@@ -305,7 +307,8 @@ fn put_sufficiency(
     store.put(
         key.clone(),
         AssaySubject::Panel,
-        estimate(panel_bits, EstimatorKind::PanelSufficiency),
+        estimate(panel_bits, EstimatorKind::PanelSufficiency)
+            .with_power_calibration(passed_power_calibration(panel.slots.len())),
         "oracle predict panel bits",
         1,
     );
@@ -332,7 +335,11 @@ fn put_sufficiency(
 }
 
 fn estimate(bits: f32, estimator: EstimatorKind) -> MiEstimate {
-    MiEstimate::point(bits, 120, estimator, TrustTag::Trusted)
+    MiEstimate::new(bits, bits, bits, 120, estimator, TrustTag::Trusted)
+}
+
+fn passed_power_calibration(n_features: usize) -> PowerCalibration {
+    PowerCalibration::new(1.0, 1.0, 0.50, 120, n_features.max(1), 0).unwrap()
 }
 
 fn action(action_id: &str, panel: Panel) -> Action {
