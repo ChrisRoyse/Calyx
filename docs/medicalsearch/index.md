@@ -67,6 +67,7 @@ still requires experimental confirmation.
 | `40_rare_disease_hunt.md` | #1189 rare-disease phenotype/gene/drug association hunt | complete FSV for HPO/Mondo source hashes, phenotype/gene links, ranked drug-target hypotheses, uncertainty rows, and native Calyx bridge-corpus materialization |
 | `42_graph_csr_traversal_cache.md` | #1191 graph CSR/traversal cache for large readers | complete FSV for large #869 CSR readback and reader preference |
 | `43_probe_matrix_scale_repair.md` | #1192 probe-matrix scale repair and real-vault readback | complete FSV for manifest repair, explicit stale policy, and real large-vault probe run |
+| `44_gpu_sparse_association_acceleration.md` | #1194 GPU/sparse association acceleration decision | complete FSV for real #869 CSR input readback, CPU spectral profile, GPU telemetry, no-GPU decision, and fail-closed invalid-parameter case |
 | `44_association_validation_gates.md` | #1182 known-positive/negative and time-split validation gates | complete FSV for fail-closed strict-threshold calibration and passing real-source gate |
 | `45_all_pair_typed_association_miner.md` | #1183 bounded all-pair typed association miner | complete FSV for broad, chemical/disease, and gene/disease typed-pair scans |
 | `46_hypothesis_falsification_sweep.md` | #1184 counter-evidence and falsification sweep | complete FSV for retained #1183 hypotheses and persisted source readback |
