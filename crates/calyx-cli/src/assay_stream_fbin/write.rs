@@ -5,17 +5,17 @@ use std::process;
 use std::time::Duration;
 
 use serde_json::json;
-use sha2::{Digest, Sha256};
 
 use crate::assay_corpus_build::lens::{BuildLens, measure_text_batch};
 use crate::error::{CliError, CliResult};
-use crate::partitioned_bench::rrf_plan;
+use crate::partitioned_bench::{rrf_plan, timeline_store};
 
 use super::args::Args;
 use super::rows::{self, Row, RowStats};
 use super::{io_error, local_error};
 
 mod bits;
+mod db;
 mod evidence;
 mod panel;
 mod parallel;
@@ -70,7 +70,7 @@ pub(crate) fn run(args: &Args) -> CliResult<Evidence> {
                 let _ = fs::remove_dir_all(&staging);
                 return Err(io_error(error));
             }
-            if let Err(error) = persist_plan_db_after_promotion(args, &mut staged) {
+            if let Err(error) = db::persist_after_promotion(args, &mut staged) {
                 let _ = fs::remove_dir_all(&args.out_dir);
                 return Err(error);
             }
@@ -129,6 +129,9 @@ fn run_staged(
         plan_association_key: rrf_plan::DEFAULT_ASSOCIATION_KEY.to_string(),
         plan_db_readback: None,
         timeline_path: display_final(args, "timeline.jsonl"),
+        timeline_cf_root: display_final(args, "partitioned_rrf_timeline_cf"),
+        timeline_association_key: timeline_store::DEFAULT_ASSOCIATION_KEY.to_string(),
+        timeline_db_readback: None,
         progress_path: display_final(args, progress::FILE_NAME),
         export_report_path: display_final(args, "stream_fbin_report.json"),
         vector_dir: display_final(args, args.vector_format.dir_name()),
@@ -160,35 +163,6 @@ fn run_staged(
         progress,
         plan,
     })
-}
-
-fn persist_plan_db_after_promotion(args: &Args, staged: &mut StagedExport) -> CliResult {
-    let cf_root = args.out_dir.join("partitioned_rrf_plan_cf");
-    let association_key = rrf_plan::DEFAULT_ASSOCIATION_KEY;
-    let plan_path = args.out_dir.join("partitioned_rrf_plan.json");
-    let plan_bytes = fs::read(&plan_path).map_err(io_error)?;
-    let readback = rrf_plan::write(
-        &cf_root,
-        association_key,
-        &rrf_plan::PartitionedRrfPlanRecord {
-            format: rrf_plan::FORMAT.to_string(),
-            mode: rrf_plan::MODE.to_string(),
-            imported_plan_sha256: hex_sha256(&plan_bytes),
-            base_dir: PathBuf::new(),
-            plan: staged.plan.clone(),
-        },
-    )
-    .map_err(CliError::from)?;
-    staged.evidence.plan_cf_root = display(&cf_root);
-    staged.evidence.plan_association_key = association_key.to_string();
-    staged.evidence.plan_db_readback = Some(readback);
-    fs::write(
-        args.out_dir.join("stream_fbin_report.json"),
-        serde_json::to_vec_pretty(&staged.evidence).map_err(|error| {
-            CliError::runtime(format!("serialize stream_fbin_report.json: {error}"))
-        })?,
-    )
-    .map_err(io_error)
 }
 
 fn create_sink(
@@ -327,15 +301,6 @@ fn flush_batch(
 fn elapsed_ms(duration: Duration) -> CliResult<u64> {
     u64::try_from(duration.as_millis())
         .map_err(|_| CliError::usage("stream-fbin lens elapsed_ms exceeds u64"))
-}
-
-fn hex_sha256(bytes: &[u8]) -> String {
-    let digest = Sha256::digest(bytes);
-    let mut out = String::with_capacity(digest.len() * 2);
-    for byte in digest {
-        out.push_str(&format!("{byte:02x}"));
-    }
-    out
 }
 
 fn validate_vector(lens: &BuildLens, vector: &[f32]) -> CliResult {

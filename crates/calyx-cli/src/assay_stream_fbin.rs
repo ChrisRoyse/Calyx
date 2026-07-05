@@ -7,6 +7,8 @@ mod rows;
 mod tests;
 #[cfg(test)]
 mod tests_diag;
+#[cfg(test)]
+mod tests_progress;
 mod write;
 
 use calyx_core::CalyxError;

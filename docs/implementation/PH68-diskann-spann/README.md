@@ -85,9 +85,10 @@ masquerade as content lenses.
 evidence before they can stand as gate evidence. Homogeneous baseline/control
 runs must use `--diagnostic` or `--baseline`; they still write streamed bytes and
 the redundancy/PID matrix but remain `diagnostic_only`. `stream-fbin` persists
-the partitioned RRF plan into `partitioned_rrf_plan_cf`, and gate-bearing
-`i8bin-ensemble-card` runs should consume that Graph CF row with
-`--plan-cf-root` instead of treating the JSON plan file as authority.
+the partitioned RRF plan into `partitioned_rrf_plan_cf` and the event-time
+timeline into chunked `partitioned_rrf_timeline_cf` Graph CF rows. Gate-bearing
+`partitioned-rrf` runs must read time-walk authority with `--timeline-cf-root`;
+JSON timeline sidecars are diagnostic/import bytes only.
 
 `calyx assay corpus-build` and `calyx assay stream-fbin` isolate each measured
 lens in a short-lived worker process. This is required for ONNX CUDA runtimes:

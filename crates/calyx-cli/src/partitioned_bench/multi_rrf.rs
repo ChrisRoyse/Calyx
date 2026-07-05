@@ -87,13 +87,23 @@ pub(crate) fn run(raw: &[String]) -> CliResult {
     let corpus_rows = slots
         .iter()
         .fold(u64::MAX, |acc, slot| acc.min(slot.corpus.count())) as usize;
-    let timeline = plan
-        .timeline
-        .as_ref()
-        .map(|path| {
-            timeline::Timeline::load(&rrf_plan::resolve(&loaded_plan.base_dir, path), corpus_rows)
-        })
-        .transpose()?;
+    let timeline = match args.timeline_cf_root.as_ref() {
+        Some(cf_root) => Some(timeline::Timeline::load_from_db(
+            cf_root,
+            &args.timeline_key,
+            corpus_rows,
+        )?),
+        None => plan
+            .timeline
+            .as_ref()
+            .map(|path| {
+                timeline::Timeline::load(
+                    &rrf_plan::resolve(&loaded_plan.base_dir, path),
+                    corpus_rows,
+                )
+            })
+            .transpose()?,
+    };
     let truth_n = args.ground_truth.min(n);
     timeline::enforce_gate(args.recall_floor.is_some(), timeline.as_ref(), truth_n)?;
     let truth_depth = args

@@ -46,8 +46,12 @@ data-acquisition or capability issues.
   embedding slots separate in the same constellation.
 - Never flatten a panel. Slots stay typed and independent through search,
   guard, bits, kernel, and report surfaces.
-- Every derived artifact must preserve enough source ids, hashes, and row
-  counts to trace it back to the physical Calyx rows or source bytes.
+- Every derived association, admission, roster, gate, plan, truth-reference, and
+  provenance claim must be stored as Calyx/Aster rows or edges and preserve
+  enough source ids, hashes, and row counts to trace it back to the physical
+  Calyx rows or admitted source bytes. JSON, reports, logs, manifests, FBIN,
+  and I8BIN are diagnostic or import/export bytes only; they never decide
+  association, admission, roster membership, or phase exit.
 
 Structured values are first-class intelligence inputs. Numbers, categories,
 booleans, ordinals, timestamps, identifiers, references, relations, graph
@@ -114,10 +118,14 @@ Biomedical claim ladder:
 
 - GitHub issues are live state. Claim, update, split, and close issues with
   artifact-backed evidence.
-- Every task must produce or update a durable source of truth: Calyx rows,
-  ledger entries, graph lifecycle rows, report files, docs, or issues.
-- Full State Verification reads the persisted source of truth after the write.
-  Command success, logs, and tests are supporting evidence, not proof.
+- Every task that changes association state must produce or update durable
+  Calyx/Aster source-of-truth rows: association edges, ledger entries, graph
+  lifecycle rows, admission rows, truth-reference rows, or roster/plan rows.
+  Docs and issues record context and decisions; report files are diagnostics or
+  export surfaces, not authority.
+- Full State Verification reads the persisted Calyx/Aster source of truth after
+  the write. Command success, logs, JSON files, and tests are supporting
+  evidence, not proof.
 - If a prerequisite is missing, create the atomic issue and wire it into the
   dependency order before doing downstream mining.
 - Prefer root-cause Calyx capability work over one-off scripts. Scripts are

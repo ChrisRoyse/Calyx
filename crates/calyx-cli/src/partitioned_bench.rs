@@ -34,6 +34,8 @@ mod slot_truth_generate;
 mod slot_truth_store;
 #[path = "partitioned_bench/summary.rs"]
 mod summary;
+#[path = "partitioned_bench/timeline_store.rs"]
+pub(crate) mod timeline_store;
 #[path = "partitioned_bench/tuner_status.rs"]
 mod tuner_status;
 use args::{SearchArgs, parse, parse_pruning_epsilon, parse_recall_floor};

@@ -215,10 +215,12 @@ runs must say `--diagnostic` / `--baseline`; those runs still persist streamed
 bytes, the matrix, marginal/PID readout, and temporal sidecar evidence, but the
 evidence is marked diagnostic-only and cannot be used as an A37 gate verdict.
 `stream-fbin` also persists the partitioned RRF plan into Aster Graph CF at
-`partitioned_rrf_plan_cf`; gate-bearing `i8bin-ensemble-card` runs should read
-that row with `--plan-cf-root` so the roster association comes from Calyx/Aster,
-not a plan JSON artifact. The JSON plan/report files are migration diagnostics,
-not association authority.
+`partitioned_rrf_plan_cf` and the event-time timeline into chunked
+`partitioned_rrf_timeline_cf` Graph CF rows. Gate-bearing `i8bin-ensemble-card`
+and `partitioned-rrf` runs must read roster/time-walk authority with
+`--plan-cf-root` and `--timeline-cf-root` so association and temporal gate state
+come from Calyx/Aster. The JSON plan/timeline/report files are migration
+diagnostics or import/export bytes, not association authority.
 Temporal lanes remain the time-control surface for as-of, forward, and backward
 traversal; they are serialized in the A37 readout but never count toward the
 content-family floor.

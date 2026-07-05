@@ -2,6 +2,7 @@ use serde::Serialize;
 
 use crate::assay_anchor_audit::AnchorAudit;
 use crate::partitioned_bench::rrf_plan::PartitionedRrfPlanDbReadback;
+use crate::partitioned_bench::timeline_store::TimelineDbReadback;
 
 use super::super::format::VectorFormat;
 use super::super::rows::RowStats;
@@ -19,6 +20,10 @@ pub(crate) struct Evidence {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) plan_db_readback: Option<PartitionedRrfPlanDbReadback>,
     pub(crate) timeline_path: String,
+    pub(crate) timeline_cf_root: String,
+    pub(crate) timeline_association_key: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) timeline_db_readback: Option<TimelineDbReadback>,
     pub(crate) progress_path: String,
     pub(crate) export_report_path: String,
     pub(crate) vector_dir: String,

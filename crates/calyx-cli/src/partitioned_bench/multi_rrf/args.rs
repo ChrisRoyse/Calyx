@@ -7,6 +7,8 @@ pub(super) struct Args {
     pub(super) plan: Option<PathBuf>,
     pub(super) plan_cf_root: Option<PathBuf>,
     pub(super) plan_key: String,
+    pub(super) timeline_cf_root: Option<PathBuf>,
+    pub(super) timeline_key: String,
     pub(super) n: usize,
     pub(super) k: usize,
     pub(super) n_probe: usize,
@@ -39,6 +41,9 @@ impl Args {
         let mut plan = None;
         let mut plan_cf_root = None;
         let mut plan_key = crate::partitioned_bench::rrf_plan::DEFAULT_ASSOCIATION_KEY.to_string();
+        let mut timeline_cf_root = None;
+        let mut timeline_key =
+            crate::partitioned_bench::timeline_store::DEFAULT_ASSOCIATION_KEY.to_string();
         let (mut n, mut k, mut n_probe, mut region_beam) = (1000, 10, 8, 64);
         let mut pruning_epsilon = None;
         let mut ground_truth = 0;
@@ -74,6 +79,8 @@ impl Args {
                 "--plan" => plan = Some(PathBuf::from(next()?)),
                 "--plan-cf-root" => plan_cf_root = Some(PathBuf::from(next()?)),
                 "--plan-key" => plan_key = next()?,
+                "--timeline-cf-root" => timeline_cf_root = Some(PathBuf::from(next()?)),
+                "--timeline-key" => timeline_key = next()?,
                 "--n" => n = parse(&next()?, "--n")?,
                 "--k" => k = parse(&next()?, "--k")?,
                 "--n-probe" => n_probe = parse(&next()?, "--n-probe")?,
@@ -132,6 +139,9 @@ impl Args {
         if plan_key.trim().is_empty() {
             return Err(CliError::usage("--plan-key must be non-empty"));
         }
+        if timeline_key.trim().is_empty() {
+            return Err(CliError::usage("--timeline-key must be non-empty"));
+        }
         if k == 0 {
             return Err(CliError::usage("--k must be > 0"));
         }
@@ -161,6 +171,8 @@ impl Args {
             plan,
             plan_cf_root,
             plan_key,
+            timeline_cf_root,
+            timeline_key,
             n,
             k,
             n_probe,

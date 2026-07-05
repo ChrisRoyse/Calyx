@@ -1,96 +1,50 @@
-use std::collections::BTreeSet;
-use std::fs;
 use std::path::{Path, PathBuf};
 
-use calyx_core::{CalyxError, TEMPORAL_LANE_ACTIVE, TEMPORAL_LANE_INACTIVE};
-use serde::Deserialize;
+use calyx_core::{CalyxError, TEMPORAL_LANE_INACTIVE};
 use serde_json::{Value, json};
 
 use crate::error::{CliError, CliResult};
+use crate::partitioned_bench::timeline_store::{
+    self, TimelineDbReadback, TimelineManifestRecord, TimelineRowRecord,
+};
 
 #[derive(Clone, Debug)]
 pub(super) struct Timeline {
-    path: PathBuf,
-    rows: Vec<TimelineRow>,
+    source: TimelineSource,
+    rows: Vec<TimelineRowRecord>,
     active_order: Vec<usize>,
     duplicate_event_time_rows: usize,
     out_of_order_event_time_rows: usize,
 }
 
-#[derive(Clone, Debug, Deserialize)]
-struct TimelineRow {
-    row_idx: usize,
-    id: String,
-    #[serde(default)]
-    source_event_time_secs: Option<i64>,
-    #[serde(default)]
-    source_event_time_raw: Option<String>,
-    temporal_lane_state: String,
-    #[serde(default)]
-    temporal_inactive_reason: Option<String>,
-    source_sequence: String,
-    #[serde(default)]
-    source_sequence_index: Option<usize>,
-    #[serde(default)]
-    query_row: bool,
+#[derive(Clone, Debug)]
+enum TimelineSource {
+    File(PathBuf),
+    GraphCf {
+        cf_root: PathBuf,
+        association_key: String,
+        manifest: Box<TimelineManifestRecord>,
+        readback: Box<TimelineDbReadback>,
+    },
 }
 
 impl Timeline {
     pub(super) fn load(path: &Path, expected_rows: usize) -> CliResult<Self> {
-        let text = fs::read_to_string(path).map_err(|error| {
-            timeline_error(
-                "CALYX_FSV_PARTITIONED_RRF_TIMELINE_IO",
-                format!("read {} failed: {error}", path.display()),
-                "pass a valid timeline sidecar produced by assay export-fbin",
-            )
-        })?;
-        let mut rows = Vec::new();
-        let mut row_ids = BTreeSet::new();
-        let mut seen_times = BTreeSet::new();
-        let mut duplicates = 0usize;
-        let mut out_of_order = 0usize;
-        let mut previous_time = None;
-        for (line_idx, line) in text.lines().enumerate() {
-            if line.trim().is_empty() {
-                continue;
-            }
-            let row: TimelineRow = serde_json::from_str(line).map_err(|error| {
-                timeline_error(
-                    "CALYX_FSV_PARTITIONED_RRF_TIMELINE_INVALID",
-                    format!("line {line_idx}: {error}"),
-                    "fix timeline.jsonl before running the fused RRF gate",
-                )
-            })?;
-            validate_row(line_idx, &row)?;
-            if row.row_idx != rows.len() {
-                return Err(timeline_error(
-                    "CALYX_FSV_PARTITIONED_RRF_TIMELINE_INVALID",
-                    format!(
-                        "line {line_idx} row_idx={} expected={}",
-                        row.row_idx,
-                        rows.len()
-                    ),
-                    "timeline row_idx must match fbin row order exactly",
-                ));
-            }
-            if !row_ids.insert(row.row_idx) {
-                return Err(timeline_error(
-                    "CALYX_FSV_PARTITIONED_RRF_TIMELINE_INVALID",
-                    format!("duplicate row_idx {}", row.row_idx),
-                    "timeline row_idx values must be unique",
-                ));
-            }
-            if let Some(secs) = row.source_event_time_secs {
-                if !seen_times.insert(secs) {
-                    duplicates += 1;
-                }
-                if previous_time.is_some_and(|prev| secs < prev) {
-                    out_of_order += 1;
-                }
-                previous_time = Some(secs);
-            }
-            rows.push(row);
-        }
+        let import = timeline_store::load_rows_from_jsonl(path, Some(expected_rows))
+            .map_err(CliError::from)?;
+        Self::from_rows(TimelineSource::File(path.to_path_buf()), import.rows)
+    }
+
+    pub(super) fn load_from_db(
+        cf_root: &Path,
+        association_key: &str,
+        expected_rows: usize,
+    ) -> CliResult<Self> {
+        let timeline_store::LoadedTimeline {
+            manifest,
+            rows,
+            db_readback,
+        } = timeline_store::read(cf_root, association_key).map_err(CliError::from)?;
         if rows.len() != expected_rows {
             return Err(timeline_error(
                 "CALYX_FSV_PARTITIONED_RRF_TIMELINE_MISMATCH",
@@ -98,28 +52,40 @@ impl Timeline {
                     "timeline rows={} expected corpus rows={expected_rows}",
                     rows.len()
                 ),
-                "export-fbin must write one timeline row per corpus row",
+                "write a timeline DB rowset that matches the plan corpus rows",
             ));
         }
+        Self::from_rows(
+            TimelineSource::GraphCf {
+                cf_root: cf_root.to_path_buf(),
+                association_key: association_key.to_string(),
+                manifest: Box::new(manifest),
+                readback: Box::new(db_readback),
+            },
+            rows,
+        )
+    }
+
+    fn from_rows(source: TimelineSource, rows: Vec<TimelineRowRecord>) -> CliResult<Self> {
+        let stats = timeline_store::stats(&rows).map_err(CliError::from)?;
         let mut active_order = (0..rows.len())
             .filter(|idx| rows[*idx].source_event_time_secs.is_some())
             .collect::<Vec<_>>();
         active_order.sort_by_key(|idx| (rows[*idx].source_event_time_secs.unwrap(), *idx));
         Ok(Self {
-            path: path.to_path_buf(),
+            source,
             rows,
             active_order,
-            duplicate_event_time_rows: duplicates,
-            out_of_order_event_time_rows: out_of_order,
+            duplicate_event_time_rows: stats.duplicate_event_time_rows,
+            out_of_order_event_time_rows: stats.out_of_order_event_time_rows,
         })
     }
 
     pub(super) fn report(&self) -> Value {
         let active_count = self.active_order.len();
-        json!({
-            "mode": "event_time_timeline_sidecar",
+        let mut report = json!({
+            "mode": self.source.mode(),
             "counts_toward_a35": false,
-            "timeline_path": self.path,
             "row_count": self.rows.len(),
             "active_count": active_count,
             "inactive_count": self.rows.len().saturating_sub(active_count),
@@ -127,7 +93,28 @@ impl Timeline {
             "out_of_order_event_time_rows": self.out_of_order_event_time_rows,
             "first_active": self.active_order.first().map(|idx| self.row_value(*idx)),
             "last_active": self.active_order.last().map(|idx| self.row_value(*idx)),
-        })
+        });
+        if let Some(object) = report.as_object_mut() {
+            match &self.source {
+                TimelineSource::File(path) => {
+                    object.insert("timeline_path".to_string(), json!(path));
+                    object.insert("diagnostic_only".to_string(), json!(true));
+                }
+                TimelineSource::GraphCf {
+                    cf_root,
+                    association_key,
+                    manifest,
+                    readback,
+                } => {
+                    object.insert("cf_root".to_string(), json!(cf_root));
+                    object.insert("association_key".to_string(), json!(association_key));
+                    object.insert("manifest".to_string(), json!(manifest));
+                    object.insert("db_readback".to_string(), json!(readback));
+                    object.insert("diagnostic_only".to_string(), json!(false));
+                }
+            }
+        }
+        report
     }
 
     pub(super) fn row_value(&self, row_idx: usize) -> Value {
@@ -191,6 +178,10 @@ impl Timeline {
             "after_row_ids_asc": after,
         })
     }
+
+    fn is_db_backed(&self) -> bool {
+        matches!(self.source, TimelineSource::GraphCf { .. })
+    }
 }
 
 pub(super) fn enforce_gate(
@@ -203,11 +194,18 @@ pub(super) fn enforce_gate(
     }
     let Some(timeline) = timeline else {
         return Err(timeline_error(
-            "CALYX_FSV_PARTITIONED_RRF_TIMELINE_REQUIRED",
-            "gate-bearing partitioned-rrf recall requires plan.timeline",
-            "provide a timeline.jsonl with real source_event_time_secs for every corpus row",
+            "CALYX_FSV_PARTITIONED_RRF_TIMELINE_DB_REQUIRED",
+            "gate-bearing partitioned-rrf recall requires --timeline-cf-root",
+            "write and read timeline rows through Calyx/Aster Graph CF; JSONL timelines are diagnostic only",
         ));
     };
+    if !timeline.is_db_backed() {
+        return Err(timeline_error(
+            "CALYX_FSV_PARTITIONED_RRF_TIMELINE_DB_REQUIRED",
+            "gate-bearing partitioned-rrf recall cannot use a JSONL timeline as authority",
+            "rerun with --timeline-cf-root and --timeline-key from stream-fbin timeline DB evidence",
+        ));
+    }
     if timeline.active_order.len() != timeline.rows.len() {
         return Err(timeline_error(
             "CALYX_FSV_PARTITIONED_RRF_TIMELINE_INACTIVE",
@@ -222,35 +220,16 @@ pub(super) fn enforce_gate(
     Ok(())
 }
 
-fn validate_row(line_idx: usize, row: &TimelineRow) -> CliResult {
-    if row.id.trim().is_empty() || row.source_sequence.trim().is_empty() {
-        return Err(timeline_error(
-            "CALYX_FSV_PARTITIONED_RRF_TIMELINE_INVALID",
-            format!("line {line_idx} has empty id or source_sequence"),
-            "timeline rows must preserve id and source sequence",
-        ));
-    }
-    match row.temporal_lane_state.as_str() {
-        TEMPORAL_LANE_ACTIVE if row.source_event_time_secs.is_none() => Err(timeline_error(
-            "CALYX_FSV_PARTITIONED_RRF_TIMELINE_INVALID",
-            format!("line {line_idx} is active but missing source_event_time_secs"),
-            "active temporal rows must carry event time",
-        )),
-        TEMPORAL_LANE_INACTIVE if row.source_event_time_secs.is_some() => Err(timeline_error(
-            "CALYX_FSV_PARTITIONED_RRF_TIMELINE_INVALID",
-            format!("line {line_idx} is inactive but carries source_event_time_secs"),
-            "inactive rows must not carry fabricated event time",
-        )),
-        TEMPORAL_LANE_ACTIVE | TEMPORAL_LANE_INACTIVE => Ok(()),
-        other => Err(timeline_error(
-            "CALYX_FSV_PARTITIONED_RRF_TIMELINE_INVALID",
-            format!("line {line_idx} has unknown temporal_lane_state {other:?}"),
-            "temporal_lane_state must be active or inactive",
-        )),
+impl TimelineSource {
+    fn mode(&self) -> &'static str {
+        match self {
+            TimelineSource::File(_) => "event_time_timeline_sidecar_diagnostic",
+            TimelineSource::GraphCf { .. } => "event_time_timeline_aster_graph_cf",
+        }
     }
 }
 
-fn row_value(row: &TimelineRow) -> Value {
+fn row_value(row: &TimelineRowRecord) -> Value {
     json!({
         "row_idx": row.row_idx,
         "id": row.id,
@@ -279,6 +258,7 @@ fn timeline_error(
 #[cfg(test)]
 mod tests {
     use std::fs;
+    use std::path::{Path, PathBuf};
     use std::time::{SystemTime, UNIX_EPOCH};
 
     use super::*;
@@ -303,6 +283,8 @@ mod tests {
         let timeline = Timeline::load(&path, 4).unwrap();
 
         let report = timeline.report();
+        assert_eq!(report["mode"], "event_time_timeline_sidecar_diagnostic");
+        assert_eq!(report["diagnostic_only"], true);
         assert_eq!(report["active_count"], 3);
         assert_eq!(report["inactive_count"], 1);
         assert_eq!(report["duplicate_event_time_rows"], 1);
@@ -317,7 +299,23 @@ mod tests {
     fn gate_requires_timeline_for_recall_floor_truth() {
         let err = enforce_gate(true, None, 2).unwrap_err();
 
-        assert_eq!(err.code(), "CALYX_FSV_PARTITIONED_RRF_TIMELINE_REQUIRED");
+        assert_eq!(err.code(), "CALYX_FSV_PARTITIONED_RRF_TIMELINE_DB_REQUIRED");
+    }
+
+    #[test]
+    fn gate_rejects_file_timeline_for_recall_floor_truth() {
+        let root = temp_root("partitioned-rrf-timeline-gate-file");
+        let path = root.join("timeline.jsonl");
+        fs::write(
+            &path,
+            [row(0, Some(10), "active"), row(1, Some(20), "active")].join("\n") + "\n",
+        )
+        .unwrap();
+        let timeline = Timeline::load(&path, 2).unwrap();
+        let err = enforce_gate(true, Some(&timeline), 2).unwrap_err();
+
+        assert_eq!(err.code(), "CALYX_FSV_PARTITIONED_RRF_TIMELINE_DB_REQUIRED");
+        let _ = fs::remove_dir_all(root);
     }
 
     #[test]
@@ -329,7 +327,7 @@ mod tests {
             [row(0, Some(10), "active"), row(1, None, "inactive")].join("\n") + "\n",
         )
         .unwrap();
-        let timeline = Timeline::load(&path, 2).unwrap();
+        let timeline = db_timeline_from_file(&root, &path, 2);
         let err = enforce_gate(true, Some(&timeline), 2).unwrap_err();
 
         assert_eq!(err.code(), "CALYX_FSV_PARTITIONED_RRF_TIMELINE_INACTIVE");
@@ -345,7 +343,11 @@ mod tests {
             [row(0, Some(10), "active"), row(1, Some(20), "active")].join("\n") + "\n",
         )
         .unwrap();
-        let timeline = Timeline::load(&path, 2).unwrap();
+        let timeline = db_timeline_from_file(&root, &path, 2);
+        let report = timeline.report();
+        assert_eq!(report["mode"], "event_time_timeline_aster_graph_cf");
+        assert_eq!(report["diagnostic_only"], false);
+        assert!(report["db_readback"]["readback_matches"].as_bool().unwrap());
 
         enforce_gate(true, Some(&timeline), 2).unwrap();
         let _ = fs::remove_dir_all(root);
@@ -364,6 +366,20 @@ mod tests {
             "query_row": idx == 0,
         })
         .to_string()
+    }
+
+    fn db_timeline_from_file(root: &Path, path: &Path, rows: usize) -> Timeline {
+        let import = timeline_store::load_rows_from_jsonl(path, Some(rows)).unwrap();
+        let db = root.join("timeline-cf");
+        timeline_store::write(
+            &db,
+            timeline_store::DEFAULT_ASSOCIATION_KEY,
+            &import.source_sha256,
+            &import.rows,
+            2,
+        )
+        .unwrap();
+        Timeline::load_from_db(&db, timeline_store::DEFAULT_ASSOCIATION_KEY, rows).unwrap()
     }
 
     fn temp_root(name: &str) -> PathBuf {

@@ -7,6 +7,10 @@ fn args_parse_plan_truth_depth_and_tuner_vault() {
     let args = Args::parse(&strings([
         "--plan",
         "plan.json",
+        "--timeline-cf-root",
+        "timeline-db",
+        "--timeline-key",
+        "issue791_timeline",
         "--n",
         "12",
         "--k",
@@ -42,6 +46,8 @@ fn args_parse_plan_truth_depth_and_tuner_vault() {
 
     assert_eq!(args.plan, Some(PathBuf::from("plan.json")));
     assert_eq!(args.plan_cf_root, None);
+    assert_eq!(args.timeline_cf_root, Some(PathBuf::from("timeline-db")));
+    assert_eq!(args.timeline_key, "issue791_timeline");
     assert_eq!(args.n, 12);
     assert_eq!(args.k, 4);
     assert_eq!(args.truth_depth, Some(40));
