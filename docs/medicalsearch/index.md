@@ -128,4 +128,5 @@ still requires experimental confirmation.
 | `104_pubmed_structured_gate_validation.md` | #1239 PubMed structured gate validation for #1238 rows | complete FSV for 510 PubMed structured gate rows, 301 candidate statuses, 1,505 missing/not-cleared gate rows, and native Calyx bridge-corpus materialization |
 | `105_clinicaltrials_gate_validation.md` | #1235 ClinicalTrials.gov hit trial-context and gate validation | complete FSV for 204 registry-hit statuses, 1,192 trial-context rows, 816 missing/not-cleared gate rows, and native Calyx bridge-corpus materialization |
 | `106_cdcdb_gate_validation.md` | #1233 CDCDB-supported combination source-context and gate validation | complete FSV for 173 CDCDB hit statuses, 611 source-context rows, 692 missing/not-cleared gate rows, and native Calyx bridge-corpus materialization |
+| `107_safety_interaction_coverage_rollup.md` | #1228 aggregate component-safety and pair-interaction coverage rollup | complete FSV for 57 sealed source inputs, 277 component-drug coverage rows, 1,750 pair coverage rows, 1,750 pair gap rows, and native Calyx bridge-corpus materialization |
 | (added as work proceeds) | | |
