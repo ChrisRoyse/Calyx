@@ -4,12 +4,12 @@ use crate::error::CliResult;
 
 use super::super::args::Args;
 use super::super::{MIN_A35_LENSES, local_error};
-use super::bits::load_bits;
+use super::bits::{load_bits, streamable_for_mode};
 use crate::a35_signal::{lens_spec_signal_kind_name, require_countable_content_signal_kind};
 
 pub(super) fn validate_floor_before_runtime(args: &Args) -> CliResult {
     let bits = load_bits(args)?;
-    let mut admitted = 0usize;
+    let mut selected = 0usize;
     for manifest_path in &args.manifests {
         let spec = lens_spec_from_manifest_path(manifest_path).map_err(|error| {
             local_error(
@@ -30,22 +30,24 @@ pub(super) fn validate_floor_before_runtime(args: &Args) -> CliResult {
                 "run bits-validate and pass a report containing every streamed lens",
             ));
         };
-        if !bits.admitted || !bits.bits_about.is_finite() || bits.bits_about < args.min_bits {
+        if !streamable_for_mode(bits, args) {
             return Err(local_error(
                 "CALYX_FSV_ASSAY_STREAM_FBIN_LENS_REJECTED",
                 format!(
                     "lens {} admitted={} bits_about={} min_bits={}",
                     spec.name, bits.admitted, bits.bits_about, args.min_bits
                 ),
-                "stream only admitted signal-bearing lenses or lower --min-bits deliberately",
+                "stream only admitted signal-bearing lenses in gate mode, or use diagnostic mode for measurement-only roster analysis",
             ));
         }
-        admitted += 1;
+        selected += 1;
     }
-    if admitted < MIN_A35_LENSES {
+    if selected < MIN_A35_LENSES {
         return Err(local_error(
             "CALYX_FSV_ASSAY_STREAM_FBIN_PANEL_TOO_SMALL",
-            format!("selected {admitted} admitted lenses; A35 requires at least {MIN_A35_LENSES}"),
+            format!(
+                "selected {selected} streamable lenses; A35 requires at least {MIN_A35_LENSES}"
+            ),
             "provide at least ten real frozen content lens manifests",
         ));
     }

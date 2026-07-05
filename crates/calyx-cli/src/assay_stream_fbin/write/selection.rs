@@ -9,7 +9,7 @@ use crate::error::CliResult;
 
 use super::super::args::Args;
 use super::super::{MIN_A35_LENSES, local_error};
-use super::bits::{BitsLens, load_bits};
+use super::bits::{BitsLens, load_bits, streamable_for_mode};
 
 pub(super) struct SelectedLens {
     pub(super) manifest: PathBuf,
@@ -77,14 +77,14 @@ fn selected_lenses_with_min(args: &Args, min_lenses: usize) -> CliResult<Vec<Sel
                 "run bits-validate and pass a report containing every streamed lens",
             ));
         };
-        if !bits.admitted || !bits.bits_about.is_finite() || bits.bits_about < args.min_bits {
+        if !streamable_for_mode(&bits, args) {
             return Err(local_error(
                 "CALYX_FSV_ASSAY_STREAM_FBIN_LENS_REJECTED",
                 format!(
                     "lens {} admitted={} bits_about={} min_bits={}",
                     spec.name, bits.admitted, bits.bits_about, args.min_bits
                 ),
-                "stream only admitted signal-bearing lenses or lower --min-bits deliberately",
+                "stream only admitted signal-bearing lenses in gate mode, or use diagnostic mode for measurement-only roster analysis",
             ));
         }
         require_countable_content_signal_kind(
@@ -101,7 +101,7 @@ fn selected_lenses_with_min(args: &Args, min_lenses: usize) -> CliResult<Vec<Sel
         return Err(local_error(
             "CALYX_FSV_ASSAY_STREAM_FBIN_PANEL_TOO_SMALL",
             format!(
-                "selected {} admitted lenses; requires at least {min_lenses}",
+                "selected {} streamable lenses; requires at least {min_lenses}",
                 selected.len(),
             ),
             "provide at least ten real frozen content lens manifests",

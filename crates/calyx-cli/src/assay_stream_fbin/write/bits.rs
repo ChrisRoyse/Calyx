@@ -26,6 +26,12 @@ pub(super) struct BitsLens {
     pub(super) admitted: bool,
 }
 
+pub(super) fn streamable_for_mode(bits: &BitsLens, args: &Args) -> bool {
+    bits.bits_about.is_finite()
+        && bits.bits_about >= args.min_bits
+        && (bits.admitted || !args.mode.requires_gate())
+}
+
 pub(super) fn load_bits(args: &Args) -> CliResult<BTreeMap<String, BitsLens>> {
     let report: BitsReport = serde_json::from_slice(
         &fs::read(&args.bits_report).map_err(io_error)?,

@@ -5,6 +5,8 @@ mod format;
 mod rows;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_diag;
 mod write;
 
 use calyx_core::CalyxError;
