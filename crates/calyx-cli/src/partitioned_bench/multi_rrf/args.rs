@@ -24,6 +24,9 @@ pub(super) struct Args {
     pub(super) a37_admission_key: String,
     pub(super) write_fused_ground_truth_file: Option<PathBuf>,
     pub(super) write_fused_ground_truth_manifest: Option<PathBuf>,
+    pub(super) report_cf_root: Option<PathBuf>,
+    pub(super) report_key: String,
+    pub(super) report_db_only: bool,
     pub(super) out: Option<PathBuf>,
     pub(super) anneal_vault: Option<PathBuf>,
     pub(super) tuner_slo_us: Option<u64>,
@@ -49,6 +52,10 @@ impl Args {
         let mut a37_admission_key = "a37_multi_anchor_admission".to_string();
         let mut write_fused_ground_truth_file = None;
         let mut write_fused_ground_truth_manifest = None;
+        let mut report_cf_root = None;
+        let mut report_key =
+            crate::partitioned_rrf_report_store::DEFAULT_ASSOCIATION_KEY.to_string();
+        let mut report_db_only = false;
         let mut out = None;
         let mut anneal_vault = None;
         let mut tuner_slo_us = None;
@@ -96,6 +103,9 @@ impl Args {
                 "--write-fused-ground-truth-manifest" => {
                     write_fused_ground_truth_manifest = Some(PathBuf::from(next()?))
                 }
+                "--report-cf-root" => report_cf_root = Some(PathBuf::from(next()?)),
+                "--report-key" => report_key = next()?,
+                "--report-db-only" | "--no-report-stdout" => report_db_only = true,
                 "--out" => out = Some(PathBuf::from(next()?)),
                 "--anneal-vault" => anneal_vault = Some(PathBuf::from(next()?)),
                 "--tuner-slo-us" => {
@@ -121,12 +131,18 @@ impl Args {
             write_manifest: write_fused_ground_truth_manifest.as_ref(),
             a37_card: a37_admission_card.as_ref(),
             a37_cf_root: a37_admission_cf_root.as_ref(),
+            report_cf_root: report_cf_root.as_ref(),
+            report_db_only,
+            out: out.as_ref(),
         })?;
         if slot_ground_truth_key.trim().is_empty() {
             return Err(CliError::usage("--slot-ground-truth-key must be non-empty"));
         }
         if a37_admission_key.trim().is_empty() {
             return Err(CliError::usage("--a37-admission-key must be non-empty"));
+        }
+        if report_key.trim().is_empty() {
+            return Err(CliError::usage("--report-key must be non-empty"));
         }
         Ok(Self {
             plan,
@@ -149,6 +165,9 @@ impl Args {
             a37_admission_key,
             write_fused_ground_truth_file,
             write_fused_ground_truth_manifest,
+            report_cf_root,
+            report_key,
+            report_db_only,
             out,
             anneal_vault,
             tuner_slo_us,
@@ -165,6 +184,9 @@ struct TruthArgRefs<'a> {
     write_manifest: Option<&'a PathBuf>,
     a37_card: Option<&'a PathBuf>,
     a37_cf_root: Option<&'a PathBuf>,
+    report_cf_root: Option<&'a PathBuf>,
+    report_db_only: bool,
+    out: Option<&'a PathBuf>,
 }
 
 fn validate_truth_args(args: TruthArgRefs<'_>) -> CliResult {
@@ -194,6 +216,16 @@ fn validate_truth_args(args: TruthArgRefs<'_>) -> CliResult {
     if args.a37_card.is_some() && args.a37_cf_root.is_some() {
         return Err(CliError::usage(
             "--a37-admission-card and --a37-admission-cf-root are mutually exclusive",
+        ));
+    }
+    if args.report_db_only && args.report_cf_root.is_none() {
+        return Err(CliError::usage(
+            "--report-db-only requires --report-cf-root",
+        ));
+    }
+    if args.report_db_only && args.out.is_some() {
+        return Err(CliError::usage(
+            "--report-db-only and --out are mutually exclusive",
         ));
     }
     Ok(())

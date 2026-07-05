@@ -33,6 +33,10 @@ fn args_parse_plan_truth_depth_and_tuner_vault() {
         "anneal-out",
         "--tuner-slo-us",
         "100",
+        "--report-cf-root",
+        "report-db",
+        "--report-key",
+        "issue791_report",
     ]))
     .unwrap();
 
@@ -59,8 +63,51 @@ fn args_parse_plan_truth_depth_and_tuner_vault() {
     );
     assert_eq!(args.recall_floor, Some(0.8));
     assert_eq!(args.out, None);
+    assert_eq!(args.report_cf_root, Some(PathBuf::from("report-db")));
+    assert_eq!(args.report_key, "issue791_report");
+    assert!(!args.report_db_only);
     assert_eq!(args.anneal_vault, Some(PathBuf::from("anneal-out")));
     assert_eq!(args.tuner_slo_us, Some(100));
+}
+
+#[test]
+fn args_parse_report_db_only() {
+    let args = Args::parse(&strings([
+        "--plan",
+        "plan.json",
+        "--report-cf-root",
+        "report-db",
+        "--report-db-only",
+    ]))
+    .unwrap();
+
+    assert_eq!(args.report_cf_root, Some(PathBuf::from("report-db")));
+    assert!(args.report_db_only);
+}
+
+#[test]
+fn args_reject_report_db_only_without_cf_root() {
+    let err = Args::parse(&strings(["--plan", "plan.json", "--report-db-only"])).unwrap_err();
+
+    assert_eq!(err.code(), "CALYX_CLI_USAGE_ERROR");
+    assert!(err.message().contains("--report-cf-root"));
+}
+
+#[test]
+fn args_reject_report_db_only_with_out_file() {
+    let err = Args::parse(&strings([
+        "--plan",
+        "plan.json",
+        "--report-cf-root",
+        "report-db",
+        "--report-db-only",
+        "--out",
+        "report.json",
+    ]))
+    .unwrap_err();
+
+    assert_eq!(err.code(), "CALYX_CLI_USAGE_ERROR");
+    assert!(err.message().contains("mutually exclusive"));
 }
 
 #[test]

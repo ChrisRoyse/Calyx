@@ -12,6 +12,7 @@ use serde_json::json;
 
 use super::{enforce_recall_floor, percentiles, row_for_metric};
 use crate::error::{CliError, CliResult};
+use crate::partitioned_rrf_report_store;
 #[cfg(test)]
 use ids::low_u64;
 use ids::{fused_hit_ids, hit_ids, slot_id, to_index_hits};
@@ -279,7 +280,7 @@ pub(crate) fn run(raw: &[String]) -> CliResult {
     } else {
         None
     };
-    let report = json!({
+    let mut report = json!({
         "trigger": "calyx bench partitioned-rrf",
         "mode": "real_multi_slot_rrf",
         "metric_class": report::METRIC_CLASS,
@@ -314,12 +315,26 @@ pub(crate) fn run(raw: &[String]) -> CliResult {
         "recall_floor": args.recall_floor,
         "tuner_status_path": tuner_status_path,
     });
+    let report_db_readback = match args.report_cf_root.as_ref() {
+        Some(cf_root) => Some(
+            partitioned_rrf_report_store::write(cf_root, &args.report_key, &report)
+                .map_err(CliError::from)?,
+        ),
+        None => None,
+    };
+    if let Some(readback) = &report_db_readback
+        && let Some(object) = report.as_object_mut()
+    {
+        object.insert("report_db_readback".to_string(), json!(readback));
+    }
     let bytes = serde_json::to_vec_pretty(&report)
         .map_err(|error| CliError::runtime(format!("serialize partitioned-rrf report: {error}")))?;
     if let Some(path) = &args.out {
         io::write_bytes_atomic(path, &bytes)?;
     }
-    println!("{}", String::from_utf8(bytes).expect("json is utf8"));
+    if !args.report_db_only {
+        println!("{}", String::from_utf8(bytes).expect("json is utf8"));
+    }
     Ok(())
 }
 
