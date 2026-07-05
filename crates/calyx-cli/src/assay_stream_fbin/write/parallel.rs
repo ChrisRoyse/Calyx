@@ -14,7 +14,7 @@ use std::sync::mpsc;
 
 use serde_json::json;
 
-use crate::assay_corpus_build::parallel::{ensure_worker_vram_budget, interleaved_start_order};
+use crate::assay_corpus_build::parallel::{ensure_worker_vram_safety, interleaved_start_order};
 use crate::error::CliResult;
 
 use super::super::args::Args;
@@ -61,19 +61,23 @@ fn run_lenses_parallel(
     worker_root: &Path,
     progress: &mut ProgressLog,
 ) -> CliResult<Vec<StreamWorkerReport>> {
-    ensure_worker_vram_budget(args.lens_parallelism, args.worker_gpu_mem_limit_mib).map_err(
-        |message| {
-            local_error(
-                "CALYX_FSV_ASSAY_STREAM_FBIN_PARALLEL_VRAM",
-                message,
-                "set CALYX_ONNX_GPU_MEM_LIMIT_MIB or pass --worker-gpu-mem-limit-mib before raising --lens-parallelism",
-            )
-        },
-    )?;
     let manifests: Vec<_> = lenses
         .iter()
         .map(|selected| selected.manifest.clone())
         .collect();
+    let vram_safety = ensure_worker_vram_safety(
+        args.lens_parallelism,
+        args.worker_gpu_mem_limit_mib,
+        &manifests,
+    )
+    .map_err(|message| {
+        local_error(
+            "CALYX_FSV_ASSAY_STREAM_FBIN_PARALLEL_VRAM",
+            message,
+            "set CALYX_ONNX_GPU_MEM_LIMIT_MIB or pass --worker-gpu-mem-limit-mib before raising --lens-parallelism",
+        )
+    });
+    vram_safety?;
     let order = interleaved_start_order(&manifests);
     let limit = args.lens_parallelism.min(lenses.len());
     let metas = lenses

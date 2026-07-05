@@ -70,9 +70,10 @@ fn measure_lenses_parallel(
 ) -> Result<Vec<MeasuredLens>, String> {
     use std::sync::mpsc;
 
-    super::parallel::ensure_worker_vram_budget(
+    super::parallel::ensure_worker_vram_safety(
         request.lens_parallelism,
         request.worker_gpu_mem_limit_mib,
+        &request.manifests,
     )
     .map_err(|message| worker_error("CALYX_FSV_ASSAY_CORPUS_BUILD_PARALLEL_VRAM", message))?;
     let order = super::parallel::interleaved_start_order(&request.manifests);
