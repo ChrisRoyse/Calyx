@@ -7,11 +7,12 @@ use calyx_sextant::fusion;
 use calyx_sextant::index::{DenseVectorFile, PartitionedSearch};
 use calyx_sextant::{FusionContext, FusionStrategy, IndexSearchHit};
 use rayon::prelude::*;
-use serde::Deserialize;
 use serde_json::json;
 
 use super::{enforce_recall_floor, percentiles, row_for_metric};
 use crate::error::{CliError, CliResult};
+use crate::partitioned_bench::rrf_plan::{self, LoadedPlan};
+pub(super) use crate::partitioned_bench::rrf_plan::{Plan, PlanSlot};
 use crate::partitioned_rrf_report_store;
 #[cfg(test)]
 use ids::low_u64;
@@ -48,26 +49,6 @@ mod tuner;
 
 const DEFAULT_TRUTH_DEPTH: usize = 64;
 
-#[derive(Clone, Debug, Deserialize)]
-struct Plan {
-    #[serde(default)]
-    timeline: Option<PathBuf>,
-    slots: Vec<PlanSlot>,
-}
-
-#[derive(Clone, Debug, Deserialize)]
-struct PlanSlot {
-    slot: u16,
-    name: Option<String>,
-    lens_id: Option<String>,
-    weights_sha256: Option<String>,
-    signal_kind: Option<String>,
-    bits_about: Option<f32>,
-    vault: PathBuf,
-    queries: PathBuf,
-    corpus: PathBuf,
-}
-
 struct OpenSlot {
     spec: PlanSlot,
     search: PartitionedSearch,
@@ -78,23 +59,28 @@ struct OpenSlot {
 
 pub(crate) fn run(raw: &[String]) -> CliResult {
     let args = args::Args::parse(raw)?;
-    let plan = load_plan(&args.plan)?;
-    a35::validate_plan(&plan)?;
+    let loaded_plan = load_plan(&args)?;
+    let plan = &loaded_plan.plan;
+    let plan_ref = args
+        .plan
+        .clone()
+        .unwrap_or_else(|| PathBuf::from(format!("aster-graph-cf:{}", args.plan_key)));
+    a35::validate_plan(plan)?;
     let a37_admission_readback = a37_admission::load_from_cf(
         args.a37_admission_cf_root.as_deref(),
         &args.a37_admission_key,
-        &plan,
+        plan,
     )?
     .or(a37_admission::load(
         args.a37_admission_card.as_deref(),
-        &plan,
+        plan,
     )?);
     let ensemble_readback = ensemble::load(
         args.ensemble_card.as_deref(),
-        &plan,
+        plan,
         args.recall_floor.is_some() && a37_admission_readback.is_none(),
     )?;
-    let slots = open_slots(&plan)?;
+    let slots = open_slots(plan, &loaded_plan.base_dir)?;
     let n = slots
         .iter()
         .fold(args.n, |acc, slot| acc.min(slot.queries.count() as usize));
@@ -105,7 +91,7 @@ pub(crate) fn run(raw: &[String]) -> CliResult {
         .timeline
         .as_ref()
         .map(|path| {
-            timeline::Timeline::load(&timeline::resolve_plan_path(&args.plan, path), corpus_rows)
+            timeline::Timeline::load(&rrf_plan::resolve(&loaded_plan.base_dir, path), corpus_rows)
         })
         .transpose()?;
     let truth_n = args.ground_truth.min(n);
@@ -122,8 +108,9 @@ pub(crate) fn run(raw: &[String]) -> CliResult {
             ground_truth::Context {
                 truth_file: file,
                 manifest_file: manifest,
-                plan_path: &args.plan,
-                plan: &plan,
+                plan_path: &plan_ref,
+                plan_sha256: &loaded_plan.plan_sha256,
+                plan,
                 truth_n,
                 k: args.k,
                 truth_depth,
@@ -135,8 +122,9 @@ pub(crate) fn run(raw: &[String]) -> CliResult {
     let slot_truth = match args.slot_ground_truth_manifest.as_ref() {
         Some(manifest) if truth_n > 0 => Some(slot_truth::SlotTruth::load(slot_truth::Context {
             manifest_file: manifest,
-            plan_path: &args.plan,
-            plan: &plan,
+            plan_path: &plan_ref,
+            plan_sha256: &loaded_plan.plan_sha256,
+            plan,
             truth_n,
             truth_depth,
             corpus_rows,
@@ -153,8 +141,9 @@ pub(crate) fn run(raw: &[String]) -> CliResult {
             Some(slot_truth_db::DbSlotTruth::load(slot_truth_db::Context {
                 cf_root,
                 association_key: &args.slot_ground_truth_key,
-                plan_path: &args.plan,
-                plan: &plan,
+                plan_path: &plan_ref,
+                plan_sha256: &loaded_plan.plan_sha256,
+                plan,
                 truth_n,
                 truth_depth,
                 corpus_rows,
@@ -249,8 +238,9 @@ pub(crate) fn run(raw: &[String]) -> CliResult {
             ground_truth::Context {
                 truth_file: file,
                 manifest_file: manifest,
-                plan_path: &args.plan,
-                plan: &plan,
+                plan_path: &plan_ref,
+                plan_sha256: &loaded_plan.plan_sha256,
+                plan,
                 truth_n,
                 k: args.k,
                 truth_depth,
@@ -288,6 +278,8 @@ pub(crate) fn run(raw: &[String]) -> CliResult {
         "ann_correctness_contract": report::ann_correctness_contract(),
         "grounded_phase_exit_contract": report::grounded_phase_exit_contract(),
         "plan": args.plan,
+        "plan_source": plan_source_report(&args, &loaded_plan),
+        "plan_sha256": loaded_plan.plan_sha256,
         "lens_roster": a35::lens_roster(&slots),
         "per_lens_bits": a35::per_lens_bits(&slots),
         "ensemble_decomposition": ensemble_readback,
@@ -338,29 +330,24 @@ pub(crate) fn run(raw: &[String]) -> CliResult {
     Ok(())
 }
 
-fn load_plan(path: &Path) -> CliResult<Plan> {
-    let plan: Plan = serde_json::from_slice(&std::fs::read(path)?).map_err(|error| {
-        CliError::runtime(format!("parse rrf plan {}: {error}", path.display()))
-    })?;
-    let mut seen = std::collections::BTreeSet::new();
-    for slot in &plan.slots {
-        if !seen.insert(slot.slot) {
-            return Err(CliError::usage(format!(
-                "partitioned-rrf plan has duplicate slot {}",
-                slot.slot
-            )));
-        }
+fn load_plan(args: &args::Args) -> CliResult<LoadedPlan> {
+    if let Some(path) = &args.plan {
+        return rrf_plan::load_from_file(path);
     }
-    Ok(plan)
+    let cf_root = args.plan_cf_root.as_ref().expect("validated");
+    rrf_plan::load_from_db(cf_root, &args.plan_key)
 }
 
-fn open_slots(plan: &Plan) -> CliResult<Vec<OpenSlot>> {
+fn open_slots(plan: &Plan, base_dir: &Path) -> CliResult<Vec<OpenSlot>> {
     plan.slots
         .iter()
         .map(|slot| {
-            let search = PartitionedSearch::open(&slot.vault).map_err(CliError::Calyx)?;
-            let queries = DenseVectorFile::open(&slot.queries).map_err(CliError::Calyx)?;
-            let corpus = DenseVectorFile::open(&slot.corpus).map_err(CliError::Calyx)?;
+            let vault_path = rrf_plan::resolve(base_dir, &slot.vault);
+            let queries_path = rrf_plan::resolve(base_dir, &slot.queries);
+            let corpus_path = rrf_plan::resolve(base_dir, &slot.corpus);
+            let search = PartitionedSearch::open(&vault_path).map_err(CliError::Calyx)?;
+            let queries = DenseVectorFile::open(&queries_path).map_err(CliError::Calyx)?;
+            let corpus = DenseVectorFile::open(&corpus_path).map_err(CliError::Calyx)?;
             if queries.dim() != search.dim() || corpus.dim() != search.dim() {
                 return Err(CliError::usage(format!(
                     "slot {} dim mismatch: vault={} queries={} corpus={}",
@@ -379,6 +366,23 @@ fn open_slots(plan: &Plan) -> CliResult<Vec<OpenSlot>> {
             })
         })
         .collect()
+}
+
+fn plan_source_report(args: &args::Args, loaded: &LoadedPlan) -> serde_json::Value {
+    match &loaded.db_readback {
+        Some(readback) => json!({
+            "mode": "aster_graph_cf",
+            "cf_root": args.plan_cf_root,
+            "association_key": args.plan_key,
+            "base_dir": loaded.base_dir,
+            "db_readback": readback,
+        }),
+        None => json!({
+            "mode": "legacy_json_import",
+            "path": args.plan,
+            "base_dir": loaded.base_dir,
+        }),
+    }
 }
 
 fn fuse(per_slot: &BTreeMap<SlotId, Vec<IndexSearchHit>>, k: usize) -> Vec<calyx_sextant::Hit> {

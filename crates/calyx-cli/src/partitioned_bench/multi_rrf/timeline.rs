@@ -222,17 +222,6 @@ pub(super) fn enforce_gate(
     Ok(())
 }
 
-pub(super) fn resolve_plan_path(plan_path: &Path, path: &Path) -> PathBuf {
-    if path.is_absolute() {
-        path.to_path_buf()
-    } else {
-        plan_path
-            .parent()
-            .map(|parent| parent.join(path))
-            .unwrap_or_else(|| path.to_path_buf())
-    }
-}
-
 fn validate_row(line_idx: usize, row: &TimelineRow) -> CliResult {
     if row.id.trim().is_empty() || row.source_sequence.trim().is_empty() {
         return Err(timeline_error(

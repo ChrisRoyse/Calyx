@@ -28,6 +28,7 @@ pub(super) struct Context<'a> {
     pub(super) truth_file: &'a Path,
     pub(super) manifest_file: &'a Path,
     pub(super) plan_path: &'a Path,
+    pub(super) plan_sha256: &'a str,
     pub(super) plan: &'a Plan,
     pub(super) truth_n: usize,
     pub(super) k: usize,
@@ -146,7 +147,7 @@ pub(super) fn write(rows: &[Vec<u64>], ctx: Context<'_>) -> CliResult<Value> {
     let truth_bytes = i32bin_bytes(rows, ctx.k)?;
     write_atomic(ctx.truth_file, &truth_bytes)?;
     let truth_sha256 = sha256_bytes(&truth_bytes);
-    let plan_sha256 = sha256_file(ctx.plan_path)?;
+    let plan_sha256 = ctx.plan_sha256.to_string();
     let manifest = json!({
         "format": FORMAT,
         "mode": MODE,
@@ -205,9 +206,9 @@ fn validate_manifest(manifest: &TruthManifest, truth_sha256: &str, ctx: &Context
             truth_sha256,
         ));
     }
-    let plan_sha256 = sha256_file(ctx.plan_path)?;
+    let plan_sha256 = ctx.plan_sha256;
     if manifest.plan_sha256 != plan_sha256 {
-        return Err(stale("plan_sha256", &manifest.plan_sha256, &plan_sha256));
+        return Err(stale("plan_sha256", &manifest.plan_sha256, plan_sha256));
     }
     if manifest.query_count < ctx.truth_n
         || manifest.k < ctx.k

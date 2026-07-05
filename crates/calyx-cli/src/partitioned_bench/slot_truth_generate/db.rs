@@ -35,6 +35,8 @@ pub(super) fn run(args: &Args) -> CliResult {
         "reference_backend": BACKEND,
         "scale_suitable": true,
         "plan": args.plan,
+        "plan_cf_root": args.plan_cf_root,
+        "plan_key": args.plan_key,
         "plan_sha256": plan_sha256,
         "cf_root": cf_root,
         "association_key": args.association_key,

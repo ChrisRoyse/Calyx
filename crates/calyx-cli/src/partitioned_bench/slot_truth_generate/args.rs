@@ -7,7 +7,9 @@ const DEFAULT_CHUNK_ROWS: usize = 100_000;
 
 #[derive(Clone, Debug)]
 pub(super) struct Args {
-    pub(super) plan: PathBuf,
+    pub(super) plan: Option<PathBuf>,
+    pub(super) plan_cf_root: Option<PathBuf>,
+    pub(super) plan_key: String,
     pub(super) out_dir: Option<PathBuf>,
     pub(super) cf_root: Option<PathBuf>,
     pub(super) association_key: String,
@@ -20,6 +22,8 @@ pub(super) struct Args {
 impl Args {
     pub(super) fn parse(raw: &[String]) -> CliResult<Self> {
         let mut plan = None;
+        let mut plan_cf_root = None;
+        let mut plan_key = crate::partitioned_bench::rrf_plan::DEFAULT_ASSOCIATION_KEY.to_string();
         let mut out_dir = None;
         let mut cf_root = None;
         let mut association_key = DEFAULT_ASSOCIATION_KEY.to_string();
@@ -36,6 +40,8 @@ impl Args {
             };
             match flag.as_str() {
                 "--plan" => plan = Some(PathBuf::from(next()?)),
+                "--plan-cf-root" => plan_cf_root = Some(PathBuf::from(next()?)),
+                "--plan-key" => plan_key = next()?,
                 "--out-dir" => out_dir = Some(PathBuf::from(next()?)),
                 "--cf-root" => cf_root = Some(PathBuf::from(next()?)),
                 "--association-key" => association_key = next()?,
@@ -51,7 +57,9 @@ impl Args {
             }
         }
         let args = Self {
-            plan: plan.ok_or_else(|| CliError::usage("--plan <json> is required"))?,
+            plan,
+            plan_cf_root,
+            plan_key,
             out_dir,
             cf_root,
             association_key,
@@ -71,6 +79,14 @@ impl Args {
             return Err(CliError::usage(
                 "--query-count, --truth-depth, and --chunk-rows must be > 0",
             ));
+        }
+        if self.plan.is_some() == self.plan_cf_root.is_some() {
+            return Err(CliError::usage(
+                "pass exactly one of --plan <json> or --plan-cf-root <aster-dir>",
+            ));
+        }
+        if self.plan_key.trim().is_empty() {
+            return Err(CliError::usage("--plan-key must be non-empty"));
         }
         if self.emit_artifacts && self.out_dir.is_none() {
             return Err(CliError::usage(
@@ -112,7 +128,8 @@ mod tests {
         ]))
         .unwrap();
 
-        assert_eq!(args.plan, PathBuf::from("plan.json"));
+        assert_eq!(args.plan, Some(PathBuf::from("plan.json")));
+        assert_eq!(args.plan_cf_root, None);
         assert_eq!(args.cf_root, Some(PathBuf::from("slot-truth-db")));
         assert_eq!(args.association_key, "issue791_truth");
         assert!(!args.emit_artifacts);
@@ -133,6 +150,28 @@ mod tests {
 
         assert_eq!(err.code(), "CALYX_CLI_USAGE_ERROR");
         assert!(err.message().contains("--cf-root <dir> is required"));
+    }
+
+    #[test]
+    fn parses_plan_cf_root() {
+        let args = Args::parse(&strings([
+            "--plan-cf-root",
+            "plan-db",
+            "--plan-key",
+            "issue791_plan",
+            "--cf-root",
+            "slot-truth-db",
+            "--query-count",
+            "8",
+            "--truth-depth",
+            "16",
+            "--db-only",
+        ]))
+        .unwrap();
+
+        assert_eq!(args.plan, None);
+        assert_eq!(args.plan_cf_root, Some(PathBuf::from("plan-db")));
+        assert_eq!(args.plan_key, "issue791_plan");
     }
 
     fn strings(items: impl IntoIterator<Item = &'static str>) -> Vec<String> {

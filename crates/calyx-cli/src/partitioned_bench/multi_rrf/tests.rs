@@ -40,7 +40,8 @@ fn args_parse_plan_truth_depth_and_tuner_vault() {
     ]))
     .unwrap();
 
-    assert_eq!(args.plan, PathBuf::from("plan.json"));
+    assert_eq!(args.plan, Some(PathBuf::from("plan.json")));
+    assert_eq!(args.plan_cf_root, None);
     assert_eq!(args.n, 12);
     assert_eq!(args.k, 4);
     assert_eq!(args.truth_depth, Some(40));
@@ -81,8 +82,41 @@ fn args_parse_report_db_only() {
     ]))
     .unwrap();
 
+    assert_eq!(args.plan, Some(PathBuf::from("plan.json")));
     assert_eq!(args.report_cf_root, Some(PathBuf::from("report-db")));
     assert!(args.report_db_only);
+}
+
+#[test]
+fn args_parse_plan_cf_root() {
+    let args = Args::parse(&strings([
+        "--plan-cf-root",
+        "plan-db",
+        "--plan-key",
+        "issue791_plan",
+        "--report-cf-root",
+        "report-db",
+        "--report-db-only",
+    ]))
+    .unwrap();
+
+    assert_eq!(args.plan, None);
+    assert_eq!(args.plan_cf_root, Some(PathBuf::from("plan-db")));
+    assert_eq!(args.plan_key, "issue791_plan");
+}
+
+#[test]
+fn args_reject_plan_file_and_db_together() {
+    let err = Args::parse(&strings([
+        "--plan",
+        "plan.json",
+        "--plan-cf-root",
+        "plan-db",
+    ]))
+    .unwrap_err();
+
+    assert_eq!(err.code(), "CALYX_CLI_USAGE_ERROR");
+    assert!(err.message().contains("exactly one"));
 }
 
 #[test]

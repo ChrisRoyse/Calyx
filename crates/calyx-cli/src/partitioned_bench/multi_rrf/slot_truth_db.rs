@@ -1,11 +1,8 @@
 use std::collections::{BTreeMap, HashSet};
-use std::fs::File;
-use std::io::Read;
 use std::path::Path;
 
 use calyx_core::SlotId;
 use serde_json::{Value, json};
-use sha2::{Digest, Sha256};
 
 use super::{Plan, report, slot_id};
 use crate::error::CliResult;
@@ -24,6 +21,7 @@ pub(super) struct Context<'a> {
     pub(super) cf_root: &'a Path,
     pub(super) association_key: &'a str,
     pub(super) plan_path: &'a Path,
+    pub(super) plan_sha256: &'a str,
     pub(super) plan: &'a Plan,
     pub(super) truth_n: usize,
     pub(super) truth_depth: usize,
@@ -73,7 +71,7 @@ fn validate_record(record: &SlotTruthRecord, ctx: &Context<'_>) -> CliResult {
             "write the row with calyx bench partitioned-rrf-slot-truth --db-only",
         ));
     }
-    let plan_sha256 = sha256_file(ctx.plan_path)?;
+    let plan_sha256 = ctx.plan_sha256;
     if record.plan_sha256 != plan_sha256 {
         return Err(partitioned_error(
             "CALYX_FSV_PARTITIONED_RRF_SLOT_TRUTH_DB_STALE",
@@ -199,35 +197,4 @@ fn source(
         "scale_suitable": record.scale_suitable,
         "slots": record_slots(record),
     })
-}
-
-fn sha256_file(path: &Path) -> CliResult<String> {
-    let mut file = File::open(path).map_err(|error| {
-        partitioned_error(
-            "CALYX_FSV_PARTITIONED_RRF_SLOT_TRUTH_DB_IO",
-            format!("open {} failed: {error}", path.display()),
-            "check the DB slot truth plan path",
-        )
-    })?;
-    let mut hasher = Sha256::new();
-    let mut buf = [0_u8; 1024 * 1024];
-    loop {
-        let n = file.read(&mut buf).map_err(|error| {
-            partitioned_error(
-                "CALYX_FSV_PARTITIONED_RRF_SLOT_TRUTH_DB_IO",
-                format!("read {} failed: {error}", path.display()),
-                "check the DB slot truth plan path",
-            )
-        })?;
-        if n == 0 {
-            break;
-        }
-        hasher.update(&buf[..n]);
-    }
-    let digest = hasher.finalize();
-    let mut out = String::with_capacity(digest.len() * 2);
-    for byte in digest {
-        out.push_str(&format!("{byte:02x}"));
-    }
-    Ok(out)
 }

@@ -6,11 +6,11 @@ use std::process;
 use std::time::Instant;
 
 use calyx_sextant::index::{DenseVectorFile, cuvs_bruteforce_topk};
-use serde::Deserialize;
 use serde_json::{Value, json};
 
 use crate::a35_signal::require_recorded_countable_content_signal_kind;
 use crate::error::{CliError, CliResult};
+use crate::partitioned_bench::rrf_plan::{self, LoadedPlan, Plan, PlanSlot};
 use crate::partitioned_bench::slot_truth_store::{FORMAT, MODE, ROW_ID_SPACE};
 
 #[path = "slot_truth_generate/args.rs"]
@@ -25,20 +25,6 @@ use support::{io_error, sha256_file, st_error};
 
 const BACKEND: &str = "cuvs-bruteforce-chunked-v1";
 const MIN_A35_LENSES: usize = 10;
-#[derive(Clone, Debug, Deserialize)]
-struct Plan {
-    slots: Vec<PlanSlot>,
-}
-#[derive(Clone, Debug, Deserialize)]
-struct PlanSlot {
-    slot: u16,
-    name: Option<String>,
-    lens_id: Option<String>,
-    weights_sha256: Option<String>,
-    signal_kind: Option<String>,
-    corpus: PathBuf,
-    queries: PathBuf,
-}
 #[derive(Clone, Debug)]
 struct SlotEvidence {
     slot: u16,
@@ -111,6 +97,8 @@ fn run_staged(args: &Args, staging: &Path) -> CliResult<Value> {
         "reference_backend": BACKEND,
         "scale_suitable": true,
         "plan": args.plan,
+        "plan_cf_root": args.plan_cf_root,
+        "plan_key": args.plan_key,
         "plan_sha256": plan_sha256,
         "out_dir": out_dir,
         "manifest": out_dir.join("manifest.json"),
@@ -135,12 +123,14 @@ fn generate(
     args: &Args,
     artifact_dir: Option<&Path>,
 ) -> CliResult<(String, usize, Vec<SlotEvidence>)> {
-    let plan = load_plan(&args.plan)?;
-    validate_plan(&plan)?;
-    let plan_sha256 = sha256_file(&args.plan)?;
-    let plan_base = args.plan.parent().unwrap_or_else(|| Path::new(""));
-    let first_corpus = DenseVectorFile::open(&resolve(plan_base, &plan.slots[0].corpus))
-        .map_err(CliError::Calyx)?;
+    let loaded_plan = load_plan(args)?;
+    let plan = &loaded_plan.plan;
+    validate_plan(plan)?;
+    let first_corpus = DenseVectorFile::open(&rrf_plan::resolve(
+        &loaded_plan.base_dir,
+        &plan.slots[0].corpus,
+    ))
+    .map_err(CliError::Calyx)?;
     let corpus_rows = usize::try_from(first_corpus.count()).map_err(|_| {
         st_error(
             "CALYX_FSV_PARTITIONED_RRF_SLOT_TRUTH_INVALID",
@@ -161,12 +151,12 @@ fn generate(
         slots.push(generate_slot(
             args,
             artifact_dir,
-            plan_base,
+            &loaded_plan.base_dir,
             slot,
             corpus_rows,
         )?);
     }
-    Ok((plan_sha256, corpus_rows, slots))
+    Ok((loaded_plan.plan_sha256, corpus_rows, slots))
 }
 
 fn generate_slot(
@@ -177,8 +167,8 @@ fn generate_slot(
     corpus_rows: usize,
 ) -> CliResult<SlotEvidence> {
     let started = Instant::now();
-    let corpus_path = resolve(plan_base, &slot.corpus);
-    let query_path = resolve(plan_base, &slot.queries);
+    let corpus_path = rrf_plan::resolve(plan_base, &slot.corpus);
+    let query_path = rrf_plan::resolve(plan_base, &slot.queries);
     let corpus = DenseVectorFile::open(&corpus_path).map_err(CliError::Calyx)?;
     let queries = DenseVectorFile::open(&query_path).map_err(CliError::Calyx)?;
     validate_files(&corpus, &queries, args, corpus_rows, slot.slot)?;
@@ -411,23 +401,12 @@ fn slot_report(slot: &SlotEvidence) -> Value {
     })
 }
 
-fn load_plan(path: &Path) -> CliResult<Plan> {
-    let text = fs::read_to_string(path).map_err(io_error)?;
-    serde_json::from_str(&text).map_err(|error| {
-        st_error(
-            "CALYX_FSV_PARTITIONED_RRF_SLOT_TRUTH_PLAN_INVALID",
-            format!("parse {} failed: {error}", path.display()),
-            "pass a partitioned_rrf_plan.json produced by assay export-fbin",
-        )
-    })
-}
-
-fn resolve(base: &Path, path: &Path) -> PathBuf {
-    if path.is_absolute() {
-        path.to_path_buf()
-    } else {
-        base.join(path)
+fn load_plan(args: &Args) -> CliResult<LoadedPlan> {
+    if let Some(path) = &args.plan {
+        return rrf_plan::load_from_file(path);
     }
+    let cf_root = args.plan_cf_root.as_ref().expect("validated");
+    rrf_plan::load_from_db(cf_root, &args.plan_key)
 }
 
 fn required(value: &Option<String>, field: &'static str, slot: u16) -> CliResult<String> {

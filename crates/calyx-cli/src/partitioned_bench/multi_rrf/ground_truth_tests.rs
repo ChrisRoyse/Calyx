@@ -2,15 +2,16 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use super::super::load_plan;
 use super::*;
+use crate::partitioned_bench::rrf_plan;
 
 #[test]
 fn fused_truth_round_trips_and_rejects_stale_plan_bytes() {
     let root = temp_root("fused-truth");
     let plan_path = root.join("plan.json");
     write_plan(&plan_path, 1);
-    let plan = load_plan(&plan_path).unwrap();
+    let loaded_plan = rrf_plan::load_from_file(&plan_path).unwrap();
+    let plan = &loaded_plan.plan;
     let truth_file = root.join("truth.i32bin");
     let manifest_file = root.join("truth.manifest.json");
     let rows = vec![vec![0, 2], vec![1, 3]];
@@ -21,7 +22,8 @@ fn fused_truth_round_trips_and_rejects_stale_plan_bytes() {
             truth_file: &truth_file,
             manifest_file: &manifest_file,
             plan_path: &plan_path,
-            plan: &plan,
+            plan_sha256: &loaded_plan.plan_sha256,
+            plan,
             truth_n: 2,
             k: 2,
             truth_depth: 4,
@@ -36,7 +38,8 @@ fn fused_truth_round_trips_and_rejects_stale_plan_bytes() {
         truth_file: &truth_file,
         manifest_file: &manifest_file,
         plan_path: &plan_path,
-        plan: &plan,
+        plan_sha256: &loaded_plan.plan_sha256,
+        plan,
         truth_n: 2,
         k: 2,
         truth_depth: 4,
@@ -51,12 +54,13 @@ fn fused_truth_round_trips_and_rejects_stale_plan_bytes() {
     assert_eq!(loaded.source()["grounded_phase_exit_eligible"], false);
 
     write_plan(&plan_path, 2);
-    let changed_plan = load_plan(&plan_path).unwrap();
+    let changed_loaded_plan = rrf_plan::load_from_file(&plan_path).unwrap();
     let err = PrecomputedTruth::load(Context {
         truth_file: &truth_file,
         manifest_file: &manifest_file,
         plan_path: &plan_path,
-        plan: &changed_plan,
+        plan_sha256: &changed_loaded_plan.plan_sha256,
+        plan: &changed_loaded_plan.plan,
         truth_n: 2,
         k: 2,
         truth_depth: 4,

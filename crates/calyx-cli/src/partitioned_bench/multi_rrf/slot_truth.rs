@@ -27,6 +27,7 @@ pub(super) struct SlotTruth {
 pub(super) struct Context<'a> {
     pub(super) manifest_file: &'a Path,
     pub(super) plan_path: &'a Path,
+    pub(super) plan_sha256: &'a str,
     pub(super) plan: &'a Plan,
     pub(super) truth_n: usize,
     pub(super) truth_depth: usize,
@@ -163,9 +164,9 @@ fn validate_manifest(manifest: &SlotTruthManifest, ctx: &Context<'_>) -> CliResu
             "record the exact/reference engine that produced the per-slot ranks",
         ));
     }
-    let plan_sha256 = sha256_file(ctx.plan_path)?;
+    let plan_sha256 = ctx.plan_sha256;
     if manifest.plan_sha256 != plan_sha256 {
-        return Err(stale("plan_sha256", &manifest.plan_sha256, &plan_sha256));
+        return Err(stale("plan_sha256", &manifest.plan_sha256, plan_sha256));
     }
     if manifest.query_count < ctx.truth_n
         || manifest.truth_depth < ctx.truth_depth
@@ -352,15 +353,16 @@ fn st_error(code: &'static str, message: impl Into<String>, remediation: &'stati
 mod tests {
     use std::time::{SystemTime, UNIX_EPOCH};
 
-    use super::super::load_plan;
     use super::*;
+    use crate::partitioned_bench::rrf_plan;
 
     #[test]
     fn slot_truth_loads_rank_rows_and_rejects_stale_plan() {
         let root = temp_root("slot-truth");
         let plan_path = root.join("plan.json");
         write_plan(&plan_path, 0);
-        let plan = load_plan(&plan_path).unwrap();
+        let loaded_plan = rrf_plan::load_from_file(&plan_path).unwrap();
+        let plan = &loaded_plan.plan;
         for slot in 0..4 {
             write_i32bin(
                 &root.join(format!("slot-{slot}.i32bin")),
@@ -373,7 +375,8 @@ mod tests {
         let loaded = SlotTruth::load(Context {
             manifest_file: &manifest_path,
             plan_path: &plan_path,
-            plan: &plan,
+            plan_sha256: &loaded_plan.plan_sha256,
+            plan,
             truth_n: 2,
             truth_depth: 4,
             corpus_rows: 8,
@@ -387,11 +390,12 @@ mod tests {
         assert_eq!(loaded.row_ids(slot_id(2), 0), &[2, 4, 5, 6]);
 
         write_plan(&plan_path, 10);
-        let changed_plan = load_plan(&plan_path).unwrap();
+        let changed_loaded_plan = rrf_plan::load_from_file(&plan_path).unwrap();
         let err = SlotTruth::load(Context {
             manifest_file: &manifest_path,
             plan_path: &plan_path,
-            plan: &changed_plan,
+            plan_sha256: &changed_loaded_plan.plan_sha256,
+            plan: &changed_loaded_plan.plan,
             truth_n: 2,
             truth_depth: 4,
             corpus_rows: 8,
