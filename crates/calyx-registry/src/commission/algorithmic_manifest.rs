@@ -152,7 +152,7 @@ fn multi_shape_dim(kind: &str, shape: SlotShape) -> Result<u32> {
 
 fn learned_output_shape(runtime: &str, dim: u32) -> Result<SlotShape> {
     match runtime {
-        "fastembed-sparse" | "fastembed-bgem3-sparse" => {
+        "fastembed-sparse" | "fastembed-bgem3-sparse" | "onnx-splade" => {
             Ok(SlotShape::Sparse(checked_positive(runtime, dim)?))
         }
         "fastembed-bgem3-colbert" | "onnx-colbert" => Ok(SlotShape::Multi {
@@ -257,6 +257,10 @@ mod tests {
         assert_eq!(
             output_shape("fastembed-bgem3-sparse", 250_002).unwrap(),
             SlotShape::Sparse(250_002)
+        );
+        assert_eq!(
+            output_shape("onnx-splade", 30_522).unwrap(),
+            SlotShape::Sparse(30_522)
         );
         assert_eq!(
             output_shape("fastembed-bgem3-colbert", 1024).unwrap(),

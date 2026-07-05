@@ -1,14 +1,16 @@
+use std::fmt::Write;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
-use calyx_core::{Input, Lens, SlotShape, SlotVector};
+use calyx_core::{Input, Lens, SlotShape, SlotVector, SparseEntry};
 use calyx_registry::{
     CandleLens, FastembedBgem3Lens, FastembedRerankerLens, FastembedSparseLens, LensRuntime,
     LensSpec, MultimodalAdapterLens, OnnxColbertLens, OnnxLens, StaticLookupLens, TeiHttpLens,
     lens_spec_from_manifest_path,
 };
 use serde::Serialize;
+use sha2::{Digest, Sha256};
 
 use super::flags::Flags;
 use super::support::{dim, runtime_name, slot_norm, slot_prefix, validate_vector_contract};
@@ -32,13 +34,26 @@ struct ExplainReport {
     token_count: Option<usize>,
     norm: f32,
     norm_ok: bool,
+    vector_sha256: String,
     first_values: Vec<f32>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    sparse_entries: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    sparse_top: Option<Vec<SparseEntryReport>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     full_vector: Option<Vec<f32>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    full_sparse: Option<Vec<SparseEntryReport>>,
     total_ms: f32,
     ms_per_input: f32,
     vram_bytes: u64,
     vram_mb: f32,
+}
+
+#[derive(Serialize)]
+struct SparseEntryReport {
+    idx: u32,
+    val: f32,
 }
 
 #[derive(Serialize)]
@@ -90,8 +105,12 @@ pub(crate) fn explain(args: &[String]) -> CliResult {
         token_count: token_count(&measurement.vector),
         norm,
         norm_ok: true,
+        vector_sha256: vector_sha256(&measurement.vector),
         first_values: slot_prefix(&measurement.vector, 4),
+        sparse_entries: sparse_entry_count(&measurement.vector),
+        sparse_top: sparse_top(&measurement.vector, 8),
         full_vector: full_vector(&measurement.vector, flags.full_vector)?,
+        full_sparse: full_sparse(&measurement.vector, flags.full_vector)?,
         total_ms,
         ms_per_input: total_ms / repeat as f32,
         vram_bytes: measurement.vram_bytes,
@@ -117,6 +136,107 @@ fn shape_report(shape: SlotShape) -> ShapeReport {
             token_dim: Some(token_dim),
         },
     }
+}
+
+fn sparse_entry_count(vector: &SlotVector) -> Option<usize> {
+    match vector {
+        SlotVector::Sparse { entries, .. } => Some(entries.len()),
+        _ => None,
+    }
+}
+
+fn sparse_top(vector: &SlotVector, limit: usize) -> Option<Vec<SparseEntryReport>> {
+    let SlotVector::Sparse { entries, .. } = vector else {
+        return None;
+    };
+    let mut entries = entries.clone();
+    entries.sort_by(|left, right| {
+        right
+            .val
+            .total_cmp(&left.val)
+            .then_with(|| left.idx.cmp(&right.idx))
+    });
+    Some(
+        entries
+            .into_iter()
+            .take(limit)
+            .map(|entry| SparseEntryReport {
+                idx: entry.idx,
+                val: entry.val,
+            })
+            .collect(),
+    )
+}
+
+fn sparse_entries_report(entries: &[SparseEntry]) -> Vec<SparseEntryReport> {
+    entries
+        .iter()
+        .map(|entry| SparseEntryReport {
+            idx: entry.idx,
+            val: entry.val,
+        })
+        .collect()
+}
+
+fn vector_sha256(vector: &SlotVector) -> String {
+    let mut hasher = Sha256::new();
+    match vector {
+        SlotVector::Dense { dim, data } => {
+            hasher.update(b"calyx-slot-vector-dense-v1");
+            update_u32(&mut hasher, *dim);
+            update_u64(&mut hasher, data.len() as u64);
+            update_f32s(&mut hasher, data);
+        }
+        SlotVector::Sparse { dim, entries } => {
+            hasher.update(b"calyx-slot-vector-sparse-v1");
+            update_u32(&mut hasher, *dim);
+            update_u64(&mut hasher, entries.len() as u64);
+            for SparseEntry { idx, val } in entries {
+                update_u32(&mut hasher, *idx);
+                update_f32(&mut hasher, *val);
+            }
+        }
+        SlotVector::Multi { token_dim, tokens } => {
+            hasher.update(b"calyx-slot-vector-multi-v1");
+            update_u32(&mut hasher, *token_dim);
+            update_u64(&mut hasher, tokens.len() as u64);
+            for token in tokens {
+                update_u64(&mut hasher, token.len() as u64);
+                update_f32s(&mut hasher, token);
+            }
+        }
+        SlotVector::Absent { reason } => {
+            hasher.update(b"calyx-slot-vector-absent-v1");
+            hasher.update(format!("{reason:?}").as_bytes());
+        }
+    }
+    hex_lower(&hasher.finalize())
+}
+
+fn update_u32(hasher: &mut Sha256, value: u32) {
+    hasher.update(value.to_le_bytes());
+}
+
+fn update_u64(hasher: &mut Sha256, value: u64) {
+    hasher.update(value.to_le_bytes());
+}
+
+fn update_f32s(hasher: &mut Sha256, values: &[f32]) {
+    for value in values {
+        update_f32(hasher, *value);
+    }
+}
+
+fn update_f32(hasher: &mut Sha256, value: f32) {
+    hasher.update(value.to_bits().to_le_bytes());
+}
+
+fn hex_lower(bytes: &[u8]) -> String {
+    let mut out = String::with_capacity(bytes.len() * 2);
+    for byte in bytes {
+        write!(&mut out, "{byte:02x}").expect("hex write");
+    }
+    out
 }
 
 fn token_count(vector: &SlotVector) -> Option<usize> {
@@ -151,9 +271,23 @@ fn full_vector(vector: &SlotVector, enabled: bool) -> CliResult<Option<Vec<f32>>
     }
     match vector {
         SlotVector::Dense { data, .. } => Ok(Some(data.clone())),
-        SlotVector::Sparse { .. } | SlotVector::Multi { .. } | SlotVector::Absent { .. } => Err(
-            CliError::usage("--full-vector is supported only for dense lens explain output"),
-        ),
+        SlotVector::Sparse { .. } => Ok(None),
+        SlotVector::Multi { .. } | SlotVector::Absent { .. } => Err(CliError::usage(
+            "--full-vector is supported only for dense or sparse lens explain output",
+        )),
+    }
+}
+
+fn full_sparse(vector: &SlotVector, enabled: bool) -> CliResult<Option<Vec<SparseEntryReport>>> {
+    if !enabled {
+        return Ok(None);
+    }
+    match vector {
+        SlotVector::Sparse { entries, .. } => Ok(Some(sparse_entries_report(entries))),
+        SlotVector::Dense { .. } => Ok(None),
+        SlotVector::Multi { .. } | SlotVector::Absent { .. } => Err(CliError::usage(
+            "--full-vector is supported only for dense or sparse lens explain output",
+        )),
     }
 }
 

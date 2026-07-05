@@ -182,10 +182,12 @@ fn metadata_runtime_from_manifest(
         .map(|file| file.path.clone())
         .collect::<Vec<_>>();
     match manifest.runtime.as_str() {
-        "onnx" | "onnx-int8" | "onnx-custom" | "onnx-fastembed" => Ok(LensRuntime::Onnx {
-            model_id: manifest.source_hf_id.clone(),
-            files: file_paths,
-        }),
+        "onnx" | "onnx-int8" | "onnx-custom" | "onnx-fastembed" | "onnx-splade" => {
+            Ok(LensRuntime::Onnx {
+                model_id: manifest.source_hf_id.clone(),
+                files: file_paths,
+            })
+        }
         "onnx-colbert" => Ok(LensRuntime::OnnxColbert {
             model_id: manifest.source_hf_id.clone(),
             files: file_paths,

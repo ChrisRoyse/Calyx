@@ -376,7 +376,7 @@ impl Lens for OnnxLens {
     }
 
     fn shape(&self) -> SlotShape {
-        SlotShape::Dense(self.dim)
+        self.contract.shape()
     }
 
     fn modality(&self) -> Modality {

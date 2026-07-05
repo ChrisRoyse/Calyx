@@ -1,8 +1,4 @@
-use calyx_core::{CalyxError, Result, SlotVector};
-
-use super::apply_norm;
-use super::batch::TokenBatch;
-use crate::frozen::NormPolicy;
+use calyx_core::{CalyxError, Result};
 
 const PIPELINE_ENV: &str = "CALYX_ONNX_CUSTOM_PIPELINE";
 const BATCH_WINDOW_ENV: &str = "CALYX_ONNX_CUSTOM_PIPELINE_BATCH_WINDOW";
@@ -65,41 +61,6 @@ fn positive_env_usize(name: &str, default: usize) -> Result<usize> {
             message: format!("{name}={raw} is not a positive integer"),
             remediation: "set custom ONNX pipeline window env vars to positive integers",
         })
-}
-
-pub(super) fn write_pooled_rows(
-    rows: &mut [Option<Vec<f32>>],
-    batch: &TokenBatch,
-    pooled: Vec<Vec<f32>>,
-) -> Result<()> {
-    if pooled.len() != batch.batch {
-        return Err(CalyxError::lens_dim_mismatch(format!(
-            "custom ONNX returned {} rows for a padded batch of {}",
-            pooled.len(),
-            batch.batch
-        )));
-    }
-    // Rows beyond the real inputs are #1143 padding replicas.
-    for (index, data) in batch.indices.iter().copied().zip(pooled) {
-        rows[index] = Some(data);
-    }
-    Ok(())
-}
-
-pub(super) fn finalize_rows(
-    rows: Vec<Option<Vec<f32>>>,
-    norm_policy: NormPolicy,
-    dim: u32,
-) -> Result<Vec<SlotVector>> {
-    rows.into_iter()
-        .map(|data| {
-            let mut data = data.ok_or_else(|| {
-                CalyxError::lens_dim_mismatch("custom ONNX omitted a bucketed row")
-            })?;
-            apply_norm(norm_policy, &mut data)?;
-            Ok(SlotVector::Dense { dim, data })
-        })
-        .collect()
 }
 
 #[cfg(test)]
