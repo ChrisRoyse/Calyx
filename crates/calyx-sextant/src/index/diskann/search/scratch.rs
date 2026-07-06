@@ -1,5 +1,7 @@
 use std::cell::RefCell;
 use std::cmp::Ordering;
+use std::cmp::Reverse;
+use std::collections::BinaryHeap;
 
 use calyx_core::Result;
 
@@ -10,6 +12,8 @@ use super::{DiskAnnSearch, DiskAnnSearchParams};
 thread_local! {
     static SEARCH_SCRATCH: RefCell<SearchScratch> = RefCell::new(SearchScratch::default());
 }
+
+const STOP_CHECK_INTERVAL: usize = 16;
 
 pub(super) fn search_ids(
     index: &DiskAnnSearch,
@@ -29,7 +33,8 @@ struct SearchScratch {
     scored_epoch: Vec<u32>,
     scores: Vec<f32>,
     scored_ids: Vec<u32>,
-    candidates: Vec<Candidate>,
+    candidates: BinaryHeap<Reverse<Candidate>>,
+    prefetch_candidates: Vec<Candidate>,
     ranked: Vec<(u32, f32)>,
 }
 
@@ -78,7 +83,8 @@ impl SearchScratch {
         self.record_score(entry, entry_distance)?;
         self.insert_candidate(entry, entry_distance, candidate_limit)?;
         while self.expanded_count < params.ef_search.min(index.ids.len()) {
-            index.prefetch(&self.candidates, params.beamwidth, reader)?;
+            self.prepare_prefetch(params.beamwidth);
+            index.prefetch(&self.prefetch_candidates, params.beamwidth, reader)?;
             let Some(next) = self.pop_next_unexpanded() else {
                 break;
             };
@@ -87,7 +93,7 @@ impl SearchScratch {
             }
             let node = reader.read_node(next.id)?;
             for &neighbor in node.neighbors {
-                if self.is_expanded(neighbor)? {
+                if self.is_expanded(neighbor)? || self.is_scored(neighbor)? {
                     continue;
                 }
                 let d = score_node(
@@ -121,8 +127,10 @@ impl SearchScratch {
         self.scores.resize(node_count, f32::INFINITY);
         self.scored_ids.clear();
         self.candidates.clear();
+        self.prefetch_candidates.clear();
         self.ranked.clear();
         self.candidates.reserve(candidate_limit);
+        self.prefetch_candidates.reserve(candidate_limit.min(64));
         self.scored_ids.reserve(candidate_limit);
         self.ranked.reserve(candidate_limit);
     }
@@ -149,39 +157,17 @@ impl SearchScratch {
         Ok(())
     }
 
-    fn insert_candidate(&mut self, id: u32, distance: f32, limit: usize) -> Result<()> {
+    fn insert_candidate(&mut self, id: u32, distance: f32, _limit: usize) -> Result<()> {
         if self.is_expanded(id)? {
             return Ok(());
         }
-        if let Some(pos) = self
-            .candidates
-            .iter()
-            .position(|candidate| candidate.id == id)
-        {
-            if self.candidates[pos].distance <= distance {
-                return Ok(());
-            }
-            self.candidates.remove(pos);
-        }
-        let candidate = Candidate::new(id, distance);
-        let pos = self
-            .candidates
-            .binary_search_by(|probe| probe.cmp(&candidate))
-            .unwrap_or_else(|pos| pos);
-        if pos >= limit {
-            return Ok(());
-        }
-        self.candidates.insert(pos, candidate);
-        if self.candidates.len() > limit {
-            self.candidates.truncate(limit);
-        }
+        self.candidates.push(Reverse(Candidate::new(id, distance)));
         Ok(())
     }
 
     fn pop_next_unexpanded(&mut self) -> Option<Candidate> {
-        while !self.candidates.is_empty() {
-            let next = self.candidates.remove(0);
-            if !self.is_expanded_fast(next.id) {
+        while let Some(Reverse(next)) = self.candidates.pop() {
+            if !self.is_expanded_fast(next.id) && self.is_current_score(next) {
                 return Some(next);
             }
         }
@@ -202,6 +188,10 @@ impl SearchScratch {
         Ok(self.expanded_epoch[self.idx(id)?] == self.epoch)
     }
 
+    fn is_scored(&self, id: u32) -> Result<bool> {
+        Ok(self.scored_epoch[self.idx(id)?] == self.epoch)
+    }
+
     fn is_expanded_fast(&self, id: u32) -> bool {
         let idx = id as usize;
         idx < self.node_count && self.expanded_epoch[idx] == self.epoch
@@ -211,11 +201,14 @@ impl SearchScratch {
         if self.scored_ids.len() < want {
             return false;
         }
+        let Some(best) = self.best_unexpanded_distance() else {
+            return true;
+        };
+        if !self.expanded_count.is_multiple_of(STOP_CHECK_INTERVAL) {
+            return false;
+        }
         let worst = self.worst_score(want);
-        self.candidates
-            .iter()
-            .find(|candidate| !self.is_expanded_fast(candidate.id))
-            .is_none_or(|best| best.distance >= worst)
+        best >= worst
     }
 
     fn worst_score(&mut self, want: usize) -> f32 {
@@ -250,6 +243,32 @@ impl SearchScratch {
             )));
         }
         Ok(idx)
+    }
+
+    fn best_unexpanded_distance(&mut self) -> Option<f32> {
+        while let Some(Reverse(candidate)) = self.candidates.peek().copied() {
+            if self.is_expanded_fast(candidate.id) || !self.is_current_score(candidate) {
+                let _ = self.candidates.pop();
+                continue;
+            }
+            return Some(candidate.distance);
+        }
+        None
+    }
+
+    fn is_current_score(&self, candidate: Candidate) -> bool {
+        let idx = candidate.id as usize;
+        idx < self.node_count && self.scores[idx].to_bits() == candidate.distance.to_bits()
+    }
+
+    fn prepare_prefetch(&mut self, beamwidth: usize) {
+        self.prefetch_candidates.clear();
+        self.prefetch_candidates.extend(
+            self.candidates
+                .iter()
+                .take(beamwidth)
+                .map(|candidate| candidate.0),
+        );
     }
 }
 
