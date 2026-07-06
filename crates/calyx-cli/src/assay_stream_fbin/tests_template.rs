@@ -79,7 +79,7 @@ fn direct_lens_template_import_writes_db_row_without_json_sidecars() {
 
     let (record, readback) = template::read(&root, "unit_direct_template").unwrap();
     assert!(readback.readback_matches);
-    assert_eq!(record.descriptors.len(), 10);
+    assert_eq!(record.descriptors.len(), 15);
     assert_eq!(record.descriptors[0].name, "semantic-e5-base-tei");
     assert_eq!(record.descriptors[0].dtype, "float16");
     assert_eq!(record.descriptors[0].max_batch, Some(64));
@@ -90,6 +90,21 @@ fn direct_lens_template_import_writes_db_row_without_json_sidecars() {
             .all(|descriptor| descriptor.source_path.starts_with("calyx-db-direct:")),
         "direct roster must not cite filesystem manifests"
     );
+    for expected in [
+        "gdelt-action-geo",
+        "gdelt-actor-country",
+        "gdelt-source-host",
+        "gdelt-sqldate",
+        "gdelt-event-code",
+    ] {
+        assert!(
+            record
+                .descriptors
+                .iter()
+                .any(|descriptor| descriptor.name == expected),
+            "direct roster missing {expected}"
+        );
+    }
     assert_eq!(json_count(&root), 0);
     let _ = fs::remove_dir_all(root);
 }
@@ -146,6 +161,11 @@ fn direct_template_args(root: &Path) -> Vec<String> {
         ("gdelt-event-actor", "gdelt-event-actor", "512"),
         ("gdelt-tone-signal", "gdelt-tone-signal", "512"),
         ("gdelt-source-event", "gdelt-source-event", "512"),
+        ("gdelt-action-geo", "gdelt-action-geo", "512"),
+        ("gdelt-actor-country", "gdelt-actor-country", "512"),
+        ("gdelt-source-host", "gdelt-source-host", "512"),
+        ("gdelt-sqldate", "gdelt-sqldate", "512"),
+        ("gdelt-event-code", "gdelt-event-code", "512"),
     ] {
         raw.push("--algorithmic".to_string());
         raw.push(name.to_string());

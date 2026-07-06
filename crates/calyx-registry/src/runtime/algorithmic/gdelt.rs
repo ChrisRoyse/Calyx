@@ -4,6 +4,9 @@ use calyx_core::{Result, SlotVector, SparseEntry, content_address};
 
 use super::hash_part;
 
+mod fields;
+pub(super) use fields::{action_geo, actor_country, event_code, source_host_lens, sql_date};
+
 pub(super) fn cameo_features(bytes: &[u8]) -> Vec<f32> {
     let text = String::from_utf8_lossy(bytes);
     let event_code = numeric_after(&text, "EventCode");
@@ -377,7 +380,7 @@ fn add_term(counts: &mut BTreeMap<u32, f32>, dim: u32, term: &str, weight: f32) 
 mod tests {
     use super::*;
 
-    const GDELT_ROW: &[u8] = b"EventCode 031 root 03 quad 1 | Goldstein 5.2 tone -1.25 | Actor1 USAGOV Actor2 PAL | ActionGeo Gaza Gaza Strip country IS | SourceURL https://example.test/gdelt";
+    const GDELT_ROW: &[u8] = b"SQLDATE 20240131 | EventCode 031 root 03 quad 1 | Goldstein 5.2 tone -1.25 | Actor1 USAGOV Actor2 PAL | ActionGeo Gaza Gaza Strip country IS | SourceURL https://example.test/gdelt";
     type SparseLensFn = fn(&[u8], u32) -> Result<SlotVector>;
 
     #[test]
@@ -425,13 +428,18 @@ mod tests {
 
     #[test]
     fn gdelt_sparse_signal_lenses_emit_normalized_vectors() {
-        let cases: [(&str, SparseLensFn); 6] = [
+        let cases: [(&str, SparseLensFn); 11] = [
             ("source_domain", source_domain),
             ("event_geo", event_geo),
             ("actor_pair", actor_pair),
             ("event_actor", event_actor),
             ("tone_signal", tone_signal),
             ("source_event", source_event),
+            ("action_geo", action_geo),
+            ("actor_country", actor_country),
+            ("source_host_lens", source_host_lens),
+            ("sql_date", sql_date),
+            ("event_code", event_code),
         ];
 
         for (name, build) in cases {

@@ -71,14 +71,18 @@ host-mounted entrypoint on driver-610 hosts. That wrapper parses both
 `/usr/local/cuda/compat` from `LD_LIBRARY_PATH` on CUDA 13.3, and fails closed
 if `text-embeddings-router` would still map the CUDA 12.9 compat `libcuda`.
 Current Calyx-owned containers run `ghcr.io/leapable/tei-blackwell:phase0-wrapper`,
-a pinned Blackwell SM120 TEI image based on Hugging Face TEI `120-1.9.3`; the
-wrapper only fixes driver-610 library resolution and keeps the model path
-GPU-resident. Live readback on 2026-07-06 showed RTX 5090 compute capability
-12.0, CUDA 13.3, `DTYPE=float16`, `text-embeddings-router 1.9.3`, host
-`libcuda.so.1`, and `FlashBert` starting on `CudaDevice` for both owned TEI
-services. Upstream Hugging Face TEI now publishes a Blackwell 12.0 image line;
-keep the current wrapper unless an A/B restart proves the upstream image is at
-least as fast and preserves driver-610 CUDA resolution.
+a pinned Blackwell SM120 TEI image based on Hugging Face TEI `120-1.9.3`; image
+labels point at upstream `text-embeddings-inference` and describe an RTX
+50-series Blackwell embeddings build. The wrapper only fixes driver-610 library
+resolution and keeps the model path GPU-resident. Live readback on 2026-07-06
+showed RTX 5090 compute capability 12.0, CUDA 13.3, `DTYPE=float16`,
+`text-embeddings-router 1.9.3`, host `libcuda.so.1`, and `FlashBert` starting
+on `CudaDevice` for both owned TEI services. A 2026-07-06T13:41Z E5 probe on
+`:18190` returned 64 normalized 768-d vectors in 13.414 ms end-to-end while
+`nvidia-smi` showed resident `text-embeddings-router` GPU processes. Upstream
+Hugging Face TEI now publishes a Blackwell 12.0 image line; keep the current
+wrapper unless an A/B restart proves the upstream image is at least as fast and
+preserves driver-610 CUDA resolution.
 Install or refresh the systemd drop-ins with
 `sudo infra/aiwonder/bin/install-tei-driver610-runtime.sh --restart`.
 

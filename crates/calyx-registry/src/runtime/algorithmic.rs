@@ -44,6 +44,16 @@ pub enum AlgorithmicEncoder {
     GdeltToneSignal { dim: u32 },
     /// Sparse source-domain/event-code interaction features from GDELT text rows.
     GdeltSourceEvent { dim: u32 },
+    /// Sparse action-geo-only features from GDELT text rows.
+    GdeltActionGeo { dim: u32 },
+    /// Sparse actor-country/presence-only features from GDELT text rows.
+    GdeltActorCountry { dim: u32 },
+    /// Sparse source-host-only features from GDELT text rows.
+    GdeltSourceHost { dim: u32 },
+    /// Sparse SQLDATE/date bucket features from GDELT text rows.
+    GdeltSqlDate { dim: u32 },
+    /// Sparse event-code-only features from GDELT text rows.
+    GdeltEventCode { dim: u32 },
 }
 
 impl AlgorithmicEncoder {
@@ -67,7 +77,12 @@ impl AlgorithmicEncoder {
             | Self::GdeltActorPair { dim }
             | Self::GdeltEventActor { dim }
             | Self::GdeltToneSignal { dim }
-            | Self::GdeltSourceEvent { dim } => {
+            | Self::GdeltSourceEvent { dim }
+            | Self::GdeltActionGeo { dim }
+            | Self::GdeltActorCountry { dim }
+            | Self::GdeltSourceHost { dim }
+            | Self::GdeltSqlDate { dim }
+            | Self::GdeltEventCode { dim } => {
                 if dim == 0 {
                     1
                 } else {
@@ -94,7 +109,12 @@ impl AlgorithmicEncoder {
             | Self::GdeltActorPair { dim }
             | Self::GdeltEventActor { dim }
             | Self::GdeltToneSignal { dim }
-            | Self::GdeltSourceEvent { dim } => SlotShape::Sparse(if dim == 0 { 1 } else { dim }),
+            | Self::GdeltSourceEvent { dim }
+            | Self::GdeltActionGeo { dim }
+            | Self::GdeltActorCountry { dim }
+            | Self::GdeltSourceHost { dim }
+            | Self::GdeltSqlDate { dim }
+            | Self::GdeltEventCode { dim } => SlotShape::Sparse(if dim == 0 { 1 } else { dim }),
             Self::TokenHash { token_dim } => SlotShape::Multi {
                 token_dim: if token_dim == 0 { 1 } else { token_dim },
             },
@@ -174,6 +194,30 @@ impl AlgorithmicLens {
         Self::new(name, modality, AlgorithmicEncoder::GdeltSourceEvent { dim })
     }
 
+    pub fn gdelt_action_geo(name: impl Into<String>, modality: Modality, dim: u32) -> Self {
+        Self::new(name, modality, AlgorithmicEncoder::GdeltActionGeo { dim })
+    }
+
+    pub fn gdelt_actor_country(name: impl Into<String>, modality: Modality, dim: u32) -> Self {
+        Self::new(
+            name,
+            modality,
+            AlgorithmicEncoder::GdeltActorCountry { dim },
+        )
+    }
+
+    pub fn gdelt_source_host(name: impl Into<String>, modality: Modality, dim: u32) -> Self {
+        Self::new(name, modality, AlgorithmicEncoder::GdeltSourceHost { dim })
+    }
+
+    pub fn gdelt_sql_date(name: impl Into<String>, modality: Modality, dim: u32) -> Self {
+        Self::new(name, modality, AlgorithmicEncoder::GdeltSqlDate { dim })
+    }
+
+    pub fn gdelt_event_code(name: impl Into<String>, modality: Modality, dim: u32) -> Self {
+        Self::new(name, modality, AlgorithmicEncoder::GdeltEventCode { dim })
+    }
+
     /// Creates an algorithmic lens from an encoder.
     pub fn new(name: impl Into<String>, modality: Modality, encoder: AlgorithmicEncoder) -> Self {
         let name = name.into();
@@ -240,6 +284,15 @@ impl Lens for AlgorithmicLens {
             AlgorithmicEncoder::GdeltEventActor { dim } => gdelt::event_actor(&input.bytes, dim)?,
             AlgorithmicEncoder::GdeltToneSignal { dim } => gdelt::tone_signal(&input.bytes, dim)?,
             AlgorithmicEncoder::GdeltSourceEvent { dim } => gdelt::source_event(&input.bytes, dim)?,
+            AlgorithmicEncoder::GdeltActionGeo { dim } => gdelt::action_geo(&input.bytes, dim)?,
+            AlgorithmicEncoder::GdeltActorCountry { dim } => {
+                gdelt::actor_country(&input.bytes, dim)?
+            }
+            AlgorithmicEncoder::GdeltSourceHost { dim } => {
+                gdelt::source_host_lens(&input.bytes, dim)?
+            }
+            AlgorithmicEncoder::GdeltSqlDate { dim } => gdelt::sql_date(&input.bytes, dim)?,
+            AlgorithmicEncoder::GdeltEventCode { dim } => gdelt::event_code(&input.bytes, dim)?,
         })
     }
 }
@@ -419,78 +472,4 @@ fn token_vector(seed: &[u8], dim: u32) -> Vec<f32> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn byte_features_are_bit_deterministic() {
-        let lens = AlgorithmicLens::byte_features("byte-fsv", Modality::Text);
-        let input = Input::new(Modality::Text, b"Calyx PH17: 2+2=4\n".to_vec());
-
-        let first = lens.measure(&input).unwrap();
-        let second = lens.measure(&input).unwrap();
-
-        assert_eq!(first, second);
-    }
-
-    #[test]
-    fn empty_input_emits_real_dense_vector() {
-        let lens = AlgorithmicLens::byte_features("byte-empty", Modality::Text);
-        let input = Input::new(Modality::Text, Vec::new());
-        let vector = lens.measure(&input).unwrap();
-        let bytes = serde_json::to_vec(&vector).unwrap();
-
-        println!(
-            "ALGORITHMIC_EMPTY_BYTES={}",
-            String::from_utf8_lossy(&bytes)
-        );
-        assert_eq!(
-            vector,
-            SlotVector::Dense {
-                dim: BYTE_FEATURE_DIM,
-                data: {
-                    let mut data = vec![0.0; BYTE_FEATURE_DIM as usize];
-                    data[0] = 1.0;
-                    data
-                }
-            }
-        );
-    }
-
-    #[test]
-    fn scalar_feature_is_centered_for_cosine_assay() {
-        let lens = AlgorithmicLens::scalar("scalar-fsv", Modality::Structured);
-        let low = Input::new(Modality::Structured, b"!!!!!!!!!!!!!!!!".to_vec());
-        let high = Input::new(Modality::Structured, b"zzzzzzzzzzzzzzzz".to_vec());
-
-        let low = lens.measure(&low).unwrap();
-        let high = lens.measure(&high).unwrap();
-
-        assert!(matches!(low, SlotVector::Dense { data, .. } if data[0] < 0.0));
-        assert!(matches!(high, SlotVector::Dense { data, .. } if data[0] > 0.0));
-    }
-
-    #[test]
-    fn algorithmic_fsv_determinism_probe() {
-        let lens = AlgorithmicLens::byte_features("byte-fsv", Modality::Text);
-        let input = Input::new(Modality::Text, b"Calyx registry manual FSV".to_vec());
-        let first = lens.measure(&input).unwrap();
-        let second = lens.measure(&input).unwrap();
-        let first_bytes = serde_json::to_vec(&first).unwrap();
-        let second_bytes = serde_json::to_vec(&second).unwrap();
-
-        println!("ALGORITHMIC_FSV_DIGEST={}", digest_hex(&first_bytes));
-        println!(
-            "ALGORITHMIC_FSV_BYTES={}",
-            String::from_utf8_lossy(&first_bytes)
-        );
-        assert_eq!(first_bytes, second_bytes);
-    }
-
-    fn digest_hex(bytes: &[u8]) -> String {
-        calyx_core::content_address([bytes])
-            .iter()
-            .map(|byte| format!("{byte:02x}"))
-            .collect()
-    }
-}
+mod tests;
