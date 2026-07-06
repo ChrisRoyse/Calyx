@@ -153,6 +153,11 @@ impl Args {
                 "pass exactly one of --plan <json> or --plan-cf-root <aster-dir>",
             ));
         }
+        if recall_floor.is_some() && plan_cf_root.is_none() {
+            return Err(CliError::usage(
+                "--recall-floor requires --plan-cf-root so gate-bearing RRF recall uses DB plan authority",
+            ));
+        }
         if plan_key.trim().is_empty() {
             return Err(CliError::usage("--plan-key must be non-empty"));
         }

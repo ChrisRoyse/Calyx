@@ -5,8 +5,10 @@ use std::path::PathBuf;
 #[test]
 fn args_parse_plan_truth_depth_and_tuner_vault() {
     let args = Args::parse(&strings([
-        "--plan",
-        "plan.json",
+        "--plan-cf-root",
+        "plan-db",
+        "--plan-key",
+        "issue791_plan",
         "--timeline-cf-root",
         "timeline-db",
         "--timeline-key",
@@ -44,8 +46,9 @@ fn args_parse_plan_truth_depth_and_tuner_vault() {
     ]))
     .unwrap();
 
-    assert_eq!(args.plan, Some(PathBuf::from("plan.json")));
-    assert_eq!(args.plan_cf_root, None);
+    assert_eq!(args.plan, None);
+    assert_eq!(args.plan_cf_root, Some(PathBuf::from("plan-db")));
+    assert_eq!(args.plan_key, "issue791_plan");
     assert_eq!(args.timeline_cf_root, Some(PathBuf::from("timeline-db")));
     assert_eq!(args.timeline_key, "issue791_timeline");
     assert_eq!(args.n, 12);
@@ -75,6 +78,25 @@ fn args_parse_plan_truth_depth_and_tuner_vault() {
     assert!(!args.report_db_only);
     assert_eq!(args.anneal_vault, Some(PathBuf::from("anneal-out")));
     assert_eq!(args.tuner_slo_us, Some(100));
+}
+
+#[test]
+fn args_reject_recall_floor_with_file_plan() {
+    let err = Args::parse(&strings([
+        "--plan",
+        "plan.json",
+        "--ground-truth",
+        "5",
+        "--recall-floor",
+        "0.8",
+    ]))
+    .unwrap_err();
+
+    assert_eq!(err.code(), "CALYX_CLI_USAGE_ERROR");
+    assert!(
+        err.message()
+            .contains("--recall-floor requires --plan-cf-root")
+    );
 }
 
 #[test]
