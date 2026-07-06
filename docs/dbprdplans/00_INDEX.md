@@ -96,20 +96,20 @@
 
 ---
 
-## Hardware ground truth (live readback, `aiwonder`, 2026-06-05)
+## Hardware ground truth (live readback, `aiwonder`, 2026-07-06)
 
 | Resource | Value |
 |---|---|
 | CPU | Ryzen 9 9950X, 16c/32t |
 | RAM | 128 GB DDR5 (121 GiB usable, ~84 GiB free steady-state) |
-| GPU | RTX 5090, Blackwell GB202 **sm_120**, 32 GB VRAM, driver 595.71.05, CUDA 13.3 (`compute_cap 12.0`), 600 W cap |
+| GPU | RTX 5090, Blackwell GB202 **sm_120**, 32607 MiB VRAM, driver 610.43.02, CUDA 13.3 (`compute_cap 12.0`), 600 W cap |
 | Hot storage | ZFS `hotpool`, single NVMe, **no redundancy**, ~1.52 TB free → `/zfs/hot/*` |
 | Cold storage | ZFS `archive`, HDD mirror, ~8.49 TB free → `/zfs/archive/*` (already holds `archive/contextgraph` 391 G) |
 | Root | ext4 on NVMe `nvme0n1p2`, 1.8 TB, ~881 GB free |
 | OS | Ubuntu 26.04 LTS, kernel 7.0, systemd, UTC |
 | Central DB today | PostgreSQL 18.4 + PgBouncer — **STAYS, UNTOUCHED** (customers, billing, creator metadata, queries, outbox). Calyx does not read, write, replace, or migrate it. |
 | Vault DB today | SQLite + `sqlite-vec` 768-d, bundled in Tauri sidecar — **this is the only thing Calyx replaces** |
-| Resident lenses today | Calyx-owned FP16 TEI `multilingual-e5-base` 768-d (:18190), `BGE-M3` 1024-d (:18188); shared legacy TEI `gte-multilingual-base` 768-d (:8088), `legal` ModernBERT 768-d (:8090), GTE reranker (:8089) |
+| Resident lenses today | Calyx-owned FP16 TEI `multilingual-e5-base` 768-d (:18190, client batch 64), `BGE-M3` 1024-d (:18188, client batch 64); shared legacy FP16 TEI `gte-multilingual-base` 768-d (:8088), `legal` ModernBERT 768-d (:8090), GTE reranker (:8089) |
 | Toolchain | **Rust via rustup IS installed on aiwonder** — build natively (CUDA 13.3, sm_120). *Superseded:* the earlier "no `rustc` → cross-built `.deb`" note no longer holds; cross-build is retained only as an optional minimal-deploy path. See `docs/implementation/01_AIWONDER_ENVIRONMENT.md`. |
 | Backup posture | Single-host; whole-host loss accepted; restic → `/zfs/archive/restic` |
 

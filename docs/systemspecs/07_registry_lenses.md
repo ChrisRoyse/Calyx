@@ -76,7 +76,7 @@ Defined in `calyx-core` at `crates/calyx-core/src/traits.rs:38`. Every registry 
 
 **AlgorithmicLens** — `AlgorithmicEncoder` (`algorithmic.rs:12`): `ByteFeatures` (dim 16), `Scalar` (dim 1), `OneHot { buckets }` (dim = buckets), `AstStyle` (dim 8). Constructors: `byte_features`, `scalar`, `one_hot`, `ast_style`, `new`. FNV constants: `FNV_OFFSET = 0xcbf29ce484222325`, `FNV_PRIME = 0x100000001b3`. Contract uses `NormPolicy::None`; weight hash seeds with `b"algorithmic-runtime-v2"` (or `FrozenLensContract::algorithmic_byte_features` for byte features).
 
-**TeiHttpLens** — fields `endpoint`, `dim`, `timeout` (default 30 s), `max_batch` (default 32). `DEFAULT_TEI_ENDPOINT = "http://127.0.0.1:18190/embed"` (`tei_http.rs:13`) for the Calyx-owned FP16 multilingual E5 service; `LEGACY_TEI_8088_ENDPOINT` remains for explicit shared-service FSV. Constructors `new`, `resident_8088`, `resident_calyx_e5_18190`; builders `with_timeout`, `with_max_batch`. `measure_batch` chunks by `max_batch`, POSTs JSON, parses raw `[[...]]`, OpenAI `{"data":[...]}`, requires HTTP `" 200 "`, handles chunked transfer encoding. Contract from `FrozenLensContract::tei_http` (`NormPolicy::unit()`).
+**TeiHttpLens** — fields `endpoint`, `dim`, `timeout` (default 30 s), `max_batch` (default 64). `DEFAULT_TEI_ENDPOINT = "http://127.0.0.1:18190/embed"` (`tei_http.rs:13`) for the Calyx-owned FP16 multilingual E5 service; `LEGACY_TEI_8088_ENDPOINT` remains for explicit shared-service FSV. Constructors `new`, `resident_8088`, `resident_calyx_e5_18190`; builders `with_timeout`, `with_max_batch`. `measure_batch` chunks by `max_batch`, POSTs JSON as transient TEI wire protocol only, parses raw `[[...]]`, OpenAI `{"data":[...]}`, requires HTTP `" 200 "`, handles chunked transfer encoding. Contract from `FrozenLensContract::tei_http` (`NormPolicy::unit()`).
 
 **CandleLens** — `DEFAULT_CANDLE_MODEL = "sentence-transformers/all-MiniLM-L6-v2"` (`candle.rs:15`). Enums in `candle/options.rs`: `CandleDevicePolicy { CpuExplicit, CudaFailLoud { ordinal } }`; `CandlePrecision { F32, F16, BF16 }`; `CandlePoolingPolicy { Mean, Cls }`. Constructors include `all_minilm_l6_v2`, `all_minilm_l6_v2_cuda_fail_loud`, `from_hf_cache`, `from_model[_with_options]`, `from_files`, `from_lens_spec`. `candle/load.rs` raises layer-norm eps to `1.0e-5` for half-precision CUDA. Pooling/normalization in `candle/pooling.rs` (`pool_tokens`, `apply_norm`). Corpus hash seeds with `b"candle-local-bert-v2"` over model id/tokens/precision/pooling/norm.
 
@@ -414,7 +414,7 @@ Returns `VaultPanelWrite { manifest_seq, durable_seq, panel_ref, registry_ref }`
 | `CALYX_CAPABILITY_MIN_SIGNAL_BITS` (env) | `calyx_assay` `MIN_SIGNAL_BITS` | capability gate threshold override |
 | `CALYX_CAPABILITY_MAX_PAIRWISE_CORR` (env) | `calyx_assay` `MAX_PAIRWISE_CORR` | capability gate threshold override |
 | `HF_HOME` / `CALYX_HOME` (env) | `.hf-cache` fallback | `runtime/common.rs::default_hf_cache_root` |
-| TEI timeout / max_batch | 30 s / 32 | `TeiHttpLens` |
+| TEI timeout / max_batch | 30 s / 64 | `TeiHttpLens` |
 | `DEFAULT_TEI_ENDPOINT` | `http://127.0.0.1:18190/embed` | `tei_http.rs` |
 | `DEFAULT_CANDLE_MODEL` | `sentence-transformers/all-MiniLM-L6-v2` | `candle.rs` |
 | `DEFAULT_MAX_TOKENS` | 512 | `runtime/common.rs`, static-lookup |

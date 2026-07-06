@@ -12,6 +12,7 @@ use crate::lens::ensure_input_modality;
 /// Calyx-owned FP16 multilingual E5 TEI endpoint on the local GPU host.
 pub const DEFAULT_TEI_ENDPOINT: &str = "http://127.0.0.1:18190/embed";
 pub const LEGACY_TEI_8088_ENDPOINT: &str = "http://127.0.0.1:8088/embed";
+pub const DEFAULT_TEI_MAX_BATCH: usize = 64;
 
 /// Blocking HTTP TEI lens runtime.
 #[derive(Clone, Debug)]
@@ -41,7 +42,7 @@ impl TeiHttpLens {
             modality,
             dim,
             timeout: Duration::from_secs(30),
-            max_batch: 32,
+            max_batch: DEFAULT_TEI_MAX_BATCH,
         }
     }
 
@@ -320,6 +321,14 @@ impl HttpEndpoint {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn default_tei_batch_matches_aiwonder_service_cap() {
+        let lens = TeiHttpLens::resident_calyx_e5_18190("tei-default-batch", 768);
+
+        assert_eq!(lens.max_batch, DEFAULT_TEI_MAX_BATCH);
+        assert_eq!(lens.max_batch, 64);
+    }
 
     #[test]
     fn parses_tei_batch_array_response() {
