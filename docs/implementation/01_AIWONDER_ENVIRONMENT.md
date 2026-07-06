@@ -57,7 +57,9 @@ verified** picture of the box (readback 2026-06-18) and the binding rule that
 ### Resident services to REUSE (loopback; do not start throwaways — PRD `16 §9`)
 | Port | Service |
 |---|---|
-| `127.0.0.1:8088` | TEI general embedder (gte-multilingual-base, 768-d) |
+| `127.0.0.1:18190` | Calyx-owned TEI multilingual E5 embedder (float16, 768-d) |
+| `127.0.0.1:18188` | Calyx-owned TEI BGE-M3 embedder (float16, 1024-d) |
+| `127.0.0.1:8088` | Shared legacy TEI general embedder (gte-multilingual-base, float16, 768-d) |
 | `127.0.0.1:8089` | TEI GTE reranker |
 | `127.0.0.1:8090` | TEI legal ModernBERT (768-d) |
 | `127.0.0.1:9090/9091/9093/9094` | Prometheus / pushgateway / Alertmanager |
@@ -196,8 +198,8 @@ host loss is accepted posture.
 ## 8. One-paragraph summary
 Calyx is built and lives **only** on aiwonder, under `/home/croyse/calyx`,
 reachable as `croyse@aiwonder.mst.com` over the Cisco VPN, using the box's
-already-installed Rust + CUDA 13.3 + RTX 5090 (sm_120) and its resident TEI
-lenses, with all build output, data, datasets, and caches kept inside that one
+already-installed Rust + CUDA 13.3 + RTX 5090 (sm_120) and its Calyx-owned FP16
+resident TEI lenses, with all build output, data, datasets, and caches kept inside that one
 root, dedicated ZFS datasets provisioned by a one-time authorized sudo step,
 password-backed sudo available for gated host work when needed, and absolutely
 no contact with the existing

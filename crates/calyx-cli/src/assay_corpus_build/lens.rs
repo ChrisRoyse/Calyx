@@ -66,11 +66,11 @@ struct RuntimeCostBasis<'a> {
     ram_mb: f32,
 }
 
-pub(crate) fn load_lenses(request: &CorpusBuildRequest) -> Result<Vec<BuildLens>, String> {
-    load_unique_specs(request)?
-        .into_iter()
-        .map(|(manifest, spec)| build_lens(manifest, spec))
-        .collect()
+pub(crate) fn build_lens_from_spec(
+    manifest_ref: PathBuf,
+    spec: RegistryLensSpec,
+) -> Result<BuildLens, String> {
+    build_lens(manifest_ref, spec)
 }
 
 pub(crate) fn measure_requested_lenses(

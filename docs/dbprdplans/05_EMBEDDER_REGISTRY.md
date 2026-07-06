@@ -31,7 +31,7 @@ Lens {
 
 | Runtime | Mechanism | aiwonder fit |
 |---|---|---|
-| `tei-http` | resident HF TEI endpoint | use Calyx-owned resident endpoints for Calyx vaults (website origin: BGE-M3 `:18188`, multilingual E5 `:18190`); Leapable-owned `:8088`/`:8090`/`:8089` are separate-tenant services, not Calyx dependencies |
+| `tei-http` | resident HF TEI endpoint | use Calyx-owned resident endpoints for Calyx vaults (`multilingual-e5-base` `:18190` as the 768-d default, BGE-M3 `:18188` when the 1024-d/multivector model is explicitly needed); Leapable-owned `:8088`/`:8090`/`:8089` are separate-tenant legacy/manual services, not Calyx defaults |
 | `candle-local` | weights loaded into Forge (candle/cudarc), run on sm_120 | new bespoke lenses, low-latency, no HTTP hop |
 | `onnx` | ORT CUDA EP | portability, embedded vaults |
 | `external-cmd` | spawn a process, typed stdin/stdout protocol | exotic modalities (audio WavLM, image CLIP) |

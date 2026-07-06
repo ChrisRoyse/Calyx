@@ -14,7 +14,9 @@ use std::sync::mpsc;
 
 use serde_json::json;
 
-use crate::assay_corpus_build::parallel::{ensure_worker_vram_safety, interleaved_start_order};
+use crate::assay_corpus_build::parallel::{
+    ensure_worker_vram_budget, ensure_worker_vram_safety, interleaved_start_order,
+};
 use crate::error::CliResult;
 
 use super::super::args::Args;
@@ -63,22 +65,21 @@ fn run_lenses_parallel(
 ) -> CliResult<Vec<StreamWorkerReport>> {
     let manifests: Vec<_> = lenses
         .iter()
-        .map(|selected| selected.manifest.clone())
-        .collect();
-    let vram_safety = ensure_worker_vram_safety(
-        args.lens_parallelism,
-        args.worker_gpu_mem_limit_mib,
-        &manifests,
-    )
-    .map_err(|message| {
-        local_error(
-            "CALYX_FSV_ASSAY_STREAM_FBIN_PARALLEL_VRAM",
-            message,
-            "set CALYX_ONNX_GPU_MEM_LIMIT_MIB or pass --worker-gpu-mem-limit-mib before raising --lens-parallelism",
+        .filter_map(|selected| selected.manifest.clone())
+        .collect::<Vec<_>>();
+    let order = if manifests.len() == lenses.len() {
+        ensure_worker_vram_safety(
+            args.lens_parallelism,
+            args.worker_gpu_mem_limit_mib,
+            &manifests,
         )
-    });
-    vram_safety?;
-    let order = interleaved_start_order(&manifests);
+        .map_err(vram_error)?;
+        interleaved_start_order(&manifests)
+    } else {
+        ensure_worker_vram_budget(args.lens_parallelism, args.worker_gpu_mem_limit_mib)
+            .map_err(vram_error)?;
+        (0..lenses.len()).collect()
+    };
     let limit = args.lens_parallelism.min(lenses.len());
     let metas = lenses
         .iter()
@@ -181,4 +182,12 @@ fn run_lenses_parallel(
             })
         })
         .collect()
+}
+
+fn vram_error(message: String) -> crate::error::CliError {
+    local_error(
+        "CALYX_FSV_ASSAY_STREAM_FBIN_PARALLEL_VRAM",
+        message,
+        "set CALYX_ONNX_GPU_MEM_LIMIT_MIB or pass --worker-gpu-mem-limit-mib before raising --lens-parallelism",
+    )
 }

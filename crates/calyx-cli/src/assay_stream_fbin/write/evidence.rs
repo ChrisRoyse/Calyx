@@ -6,6 +6,7 @@ use crate::partitioned_bench::timeline_store::TimelineDbReadback;
 
 use super::super::format::VectorFormat;
 use super::super::rows::RowStats;
+use super::super::template::LensTemplateDbReadback;
 
 pub(crate) const TEMPORAL_COUNTS_TOWARD_A35: bool = false;
 pub(crate) const TEMPORAL_LANE_ROLE: &str = "time_manipulation_walk_forward_backward_as_of_sidecar";
@@ -15,6 +16,13 @@ pub(crate) struct Evidence {
     pub(crate) artifact_mode: String,
     pub(crate) out_dir: String,
     pub(crate) rows_jsonl: String,
+    pub(crate) lens_descriptor_source: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) lens_template_cf_root: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) lens_template_key: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) lens_template_db_readback: Option<LensTemplateDbReadback>,
     pub(crate) plan_path: String,
     pub(crate) plan_cf_root: String,
     pub(crate) plan_association_key: String,

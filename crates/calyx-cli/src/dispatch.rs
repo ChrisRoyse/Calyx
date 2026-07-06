@@ -106,6 +106,11 @@ pub(crate) fn run(args: Vec<String>) -> CliResult {
         [command, topic, rest @ ..] if command == "assay" && topic == "gdelt-rows" => {
             assay_gdelt_rows::run(rest)
         }
+        [command, topic, rest @ ..]
+            if command == "assay" && topic == "stream-fbin-lens-template" =>
+        {
+            assay_stream_fbin::run_lens_template(rest)
+        }
         [command, topic, rest @ ..] if command == "assay" && topic == "stream-fbin" => {
             assay_stream_fbin::run(rest)
         }

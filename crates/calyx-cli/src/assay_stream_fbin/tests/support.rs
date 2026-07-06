@@ -21,6 +21,7 @@ pub(super) struct Fixture {
     pub(super) bits: PathBuf,
     a37: PathBuf,
     manifests: Vec<PathBuf>,
+    template_cf: PathBuf,
 }
 
 impl Fixture {
@@ -40,6 +41,7 @@ impl Fixture {
         write_bits(&bits, manifest_count, admitted_lenses);
         let a37 = root.join("a37_admission_cf");
         write_a37_admission(&a37, manifest_count, admitted_lenses, None, 0.2);
+        let template_cf = root.join("lens_template_cf");
         Self {
             out: root.join("out"),
             root,
@@ -47,6 +49,7 @@ impl Fixture {
             bits,
             a37,
             manifests,
+            template_cf,
         }
     }
 
@@ -63,12 +66,23 @@ impl Fixture {
     }
 
     pub(super) fn args(&self, query_count: usize) -> Args {
+        let record = super::super::template::record_from_manifests(&self.manifests).unwrap();
+        let _ = fs::remove_dir_all(&self.template_cf);
+        super::super::template::write(
+            &self.template_cf,
+            super::super::template::DEFAULT_ASSOCIATION_KEY,
+            &record,
+        )
+        .unwrap();
         Args {
             rows_jsonl: self.rows.clone(),
             out_dir: self.out.clone(),
             dataset: "unit_stream_fbin".to_string(),
             target_class: 1,
-            manifests: self.manifests.clone(),
+            manifests: Vec::new(),
+            lens_template_cf_root: Some(self.template_cf.clone()),
+            lens_template_key: super::super::template::DEFAULT_ASSOCIATION_KEY.to_string(),
+            lens_template_specs: Vec::new(),
             bits_report: None,
             a37_admission_cf_root: Some(self.a37.clone()),
             a37_admission_key: "a37_multi_anchor_admission".to_string(),
@@ -90,6 +104,8 @@ impl Fixture {
 
     pub(super) fn json_args(&self, query_count: usize, mode: StreamMode) -> Args {
         let mut args = self.args(query_count);
+        args.manifests = self.manifests.clone();
+        args.lens_template_cf_root = None;
         args.bits_report = Some(self.bits.clone());
         args.a37_admission_cf_root = None;
         args.mode = mode;
@@ -98,6 +114,10 @@ impl Fixture {
 
     pub(super) fn rewrite_a37(&self, admitted: usize, names: Option<Vec<String>>, bits: f32) {
         write_a37_admission(&self.a37, self.manifests.len(), admitted, names, bits);
+    }
+
+    pub(super) fn manifest_paths(&self) -> Vec<PathBuf> {
+        self.manifests.clone()
     }
 }
 

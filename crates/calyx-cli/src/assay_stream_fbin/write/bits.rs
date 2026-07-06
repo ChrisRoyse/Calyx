@@ -189,6 +189,10 @@ mod tests {
             dataset: "unit".to_string(),
             target_class: 1,
             manifests: Vec::new(),
+            lens_template_cf_root: None,
+            lens_template_key: crate::assay_stream_fbin::template::DEFAULT_ASSOCIATION_KEY
+                .to_string(),
+            lens_template_specs: Vec::new(),
             bits_report: None,
             a37_admission_cf_root: Some(root.to_path_buf()),
             a37_admission_key: "unit".to_string(),

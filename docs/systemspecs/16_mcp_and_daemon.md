@@ -472,7 +472,7 @@ Recording methods on `CalyxMetrics`: `observe_ingest`, `observe_search`, `set_re
 
 ## B.10 VRAM budget enforcer (`src/vram.rs`)
 
-Reads live usage via **NVML** (`nvml-wrapper`), not `cudaMemGetInfo` — NVML reports the true board total and device-wide used bytes consistent with `nvidia-smi`. `BYTES_PER_MIB = 1024*1024`. TEI endpoints documented in errors: `:8088 (general), :8089 (reranker), :8090 (legal)`.
+Reads live usage via **NVML** (`nvml-wrapper`), not `cudaMemGetInfo` — NVML reports the true board total and device-wide used bytes consistent with `nvidia-smi`. `BYTES_PER_MIB = 1024*1024`. TEI endpoints documented in errors: `:18190 (calyx-e5), :18188 (calyx-bge-m3), :8088 (legacy general), :8089 (reranker), :8090 (legal)`.
 
 - `VramReading { total_mib, used_mib }`; trait `VramUsage::read()` (production = `NvmlVramUsage`, tests inject a mock).
 - `NvmlVramUsage::init()` loads `libnvidia-ml.so.1` explicitly (driver-only hosts lack the unversioned symlink). Failure → `CALYX_FORGE_DEVICE_UNAVAILABLE`. `read()` uses device index 0's `memory_info()`.
@@ -512,7 +512,7 @@ Steps: stat WAL bytes (`wal_total_bytes` over `wal/*.wal`); `scan_vault` replays
 | Learner-origin API | same loopback listener when `[learner_origin]` is configured | HTTP/1.1 JSON POST, bearer-authenticated, loopback-only | `server.rs`, `learner_origin/*` |
 | MCP-over-socket | `cfg.bind_addr` (loopback-only); library API, not wired into `main` | length-prefixed JSON-RPC, loopback-only | `mcp_server.rs` |
 | MCP-over-stdio (`calyx-mcp`) | n/a (stdio) | newline-delimited JSON-RPC | `calyx-mcp/src/main.rs` |
-| TEI endpoints (documented) | `:8088` general, `:8089` reranker, `:8090` legal | external (not served by calyxd) | `vram.rs`, `config.rs` |
+| TEI endpoints (documented) | `:18190` Calyx E5, `:18188` Calyx BGE-M3, `:8088` legacy general, `:8089` reranker, `:8090` legal | external (not served by calyxd) | `vram.rs`, `config.rs` |
 
 > **Loopback-only is enforced** in three independent places: `CalyxConfig::validate` (config parse), `MetricsServer::bind`, and `CalyxMcpServer::bind`. A non-loopback address is `CALYX_DAEMON_BIND_FAILED` and the server never starts. Source comments note Cloudflare Tunnel + Caddy are the sole external ingress.
 

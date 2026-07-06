@@ -169,6 +169,8 @@ fn build_report(args: &Args, endpoints: &[Endpoint]) -> HealthReport {
 
 fn default_endpoints() -> Vec<Endpoint> {
     vec![
+        Endpoint::new("tei:18190", "127.0.0.1", 18190, "/"),
+        Endpoint::new("tei:18188", "127.0.0.1", 18188, "/"),
         Endpoint::new("tei:8088", "127.0.0.1", 8088, "/"),
         Endpoint::new("tei:8089", "127.0.0.1", 8089, "/"),
         Endpoint::new("tei:8090", "127.0.0.1", 8090, "/"),

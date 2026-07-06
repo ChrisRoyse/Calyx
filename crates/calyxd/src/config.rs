@@ -67,7 +67,7 @@ pub struct CalyxConfig {
     /// Default `/zfs/hot/logs/calyx-health/latest.json`.
     #[serde(default = "default_health_log_path")]
     pub health_log_path: PathBuf,
-    /// Text-Embeddings-Inference endpoints (documenting `:8088`/`:8089`/`:8090`).
+    /// Text-Embeddings-Inference endpoints (Calyx-owned plus legacy/manual).
     #[serde(default)]
     pub tei_endpoints: Vec<String>,
     /// Healthcheck timeout in seconds. Default `30`.
@@ -203,7 +203,7 @@ vault_path = \"/zfs/hot/calyx/vault\"
 vram_budget_mib = 8192
 log_dir = \"/zfs/hot/logs/calyx\"
 health_log_path = \"/zfs/hot/logs/calyx-health/latest.json\"
-tei_endpoints = [\"http://127.0.0.1:8088\", \"http://127.0.0.1:8089\"]
+tei_endpoints = [\"http://127.0.0.1:18190\", \"http://127.0.0.1:18188\", \"http://127.0.0.1:8088\", \"http://127.0.0.1:8089\", \"http://127.0.0.1:8090\"]
 healthcheck_timeout_secs = 30
 ";
 
@@ -236,8 +236,9 @@ log_dir = \"/data/logs\"
         assert_eq!(config.bind_addr, "127.0.0.1:7700".parse().unwrap());
         assert_eq!(config.vram_budget_mib, 8192);
         assert!(config.mcp_bind_addr.is_none());
-        assert_eq!(config.tei_endpoints.len(), 2);
-        assert_eq!(config.tei_endpoints[0], "http://127.0.0.1:8088");
+        assert_eq!(config.tei_endpoints.len(), 5);
+        assert_eq!(config.tei_endpoints[0], "http://127.0.0.1:18190");
+        assert_eq!(config.tei_endpoints[2], "http://127.0.0.1:8088");
         assert_eq!(config.healthcheck_timeout_secs, 30);
     }
 

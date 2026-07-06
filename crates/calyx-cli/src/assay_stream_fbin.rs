@@ -3,12 +3,15 @@
 mod args;
 mod format;
 mod rows;
+mod template;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]
 mod tests_diag;
 #[cfg(test)]
 mod tests_progress;
+#[cfg(test)]
+mod tests_template;
 mod write;
 
 use calyx_core::CalyxError;
@@ -27,6 +30,10 @@ pub(crate) fn run(raw: &[String]) -> CliResult {
     }
     let evidence = write::run(&args)?;
     print_json(&evidence)
+}
+
+pub(crate) fn run_lens_template(raw: &[String]) -> CliResult {
+    template::run_import(raw)
 }
 
 pub(crate) fn local_error(

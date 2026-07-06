@@ -1,10 +1,10 @@
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
-use calyx_registry::lens_spec_from_manifest_path;
+use calyx_registry::{LensSpec as RegistryLensSpec, lens_spec_from_manifest_path};
 
 use crate::a35_signal::{lens_spec_signal_kind_name, require_countable_content_signal_kind};
-use crate::assay_corpus_build::lens::{BuildLens, load_lenses};
+use crate::assay_corpus_build::lens::{BuildLens, build_lens_from_spec};
 use crate::error::CliResult;
 
 use super::super::args::Args;
@@ -12,29 +12,25 @@ use super::super::{MIN_A35_LENSES, local_error};
 use super::bits::{BitsLens, diagnostic_bootstrap_bits, load_bits, streamable_for_mode};
 
 pub(super) struct SelectedLens {
-    pub(super) manifest: PathBuf,
+    pub(super) manifest: Option<PathBuf>,
+    pub(super) descriptor_ref: String,
+    pub(super) spec: RegistryLensSpec,
     pub(super) bits: BitsLens,
 }
 
 impl SelectedLens {
-    pub(super) fn load_runtime(&self, args: &Args) -> CliResult<BuildLens> {
-        let mut request = args.corpus_request();
-        request.manifests = vec![self.manifest.clone()];
-        let mut lenses = load_lenses(&request).map_err(|error| {
+    pub(super) fn load_runtime(&self) -> CliResult<BuildLens> {
+        let manifest_ref = self
+            .manifest
+            .clone()
+            .unwrap_or_else(|| PathBuf::from(format!("db-lens-{}", self.spec.name)));
+        build_lens_from_spec(manifest_ref, self.spec.clone()).map_err(|error| {
             local_error(
                 "CALYX_FSV_ASSAY_STREAM_FBIN_LENS_LOAD",
-                error,
-                "fix the frozen lens manifest before streaming this slot",
+                format!("{}: {error}", self.descriptor_ref),
+                "fix the DB-native lens descriptor before streaming this slot",
             )
-        })?;
-        if lenses.len() != 1 {
-            return Err(local_error(
-                "CALYX_FSV_ASSAY_STREAM_FBIN_LENS_LOAD",
-                format!("loaded {} runtimes for one selected manifest", lenses.len()),
-                "fix stream-fbin single-slot runtime loading",
-            ));
-        }
-        Ok(lenses.remove(0))
+        })
     }
 }
 
@@ -49,23 +45,14 @@ pub(super) fn selected_lenses_for_worker(args: &Args) -> CliResult<Vec<SelectedL
 fn selected_lenses_with_min(args: &Args, min_lenses: usize) -> CliResult<Vec<SelectedLens>> {
     let bits = load_bits(args)?;
     let mut names = BTreeMap::new();
-    let mut selected = Vec::with_capacity(args.manifests.len());
-    for manifest in &args.manifests {
-        let spec = lens_spec_from_manifest_path(manifest).map_err(|error| {
-            local_error(
-                "CALYX_FSV_ASSAY_STREAM_FBIN_LENS_LOAD",
-                format!("{}: {}", manifest.display(), error.message),
-                "fix the frozen lens manifest before streaming FBIN",
-            )
-        })?;
-        if let Some(previous) = names.insert(spec.name.clone(), manifest.clone()) {
+    let mut selected = Vec::with_capacity(args.manifests.len().max(args.lens_template_specs.len()));
+    for (manifest, descriptor_ref, spec) in selected_specs(args)? {
+        if let Some(previous) = names.insert(spec.name.clone(), descriptor_ref.clone()) {
             return Err(local_error(
                 "CALYX_FSV_ASSAY_STREAM_FBIN_LENS_LOAD",
                 format!(
-                    "duplicate lens {} manifests={} and {}",
-                    spec.name,
-                    previous.display(),
-                    manifest.display()
+                    "duplicate lens {} descriptors={} and {}",
+                    spec.name, previous, descriptor_ref
                 ),
                 "deduplicate the stream-fbin manifest roster",
             ));
@@ -97,7 +84,9 @@ fn selected_lenses_with_min(args: &Args, min_lenses: usize) -> CliResult<Vec<Sel
             "assay stream-fbin runtime A35 gate",
         )?;
         selected.push(SelectedLens {
-            manifest: manifest.clone(),
+            manifest,
+            descriptor_ref,
+            spec,
             bits,
         });
     }
@@ -110,6 +99,35 @@ fn selected_lenses_with_min(args: &Args, min_lenses: usize) -> CliResult<Vec<Sel
             ),
             "provide at least ten real frozen content lens manifests",
         ));
+    }
+    Ok(selected)
+}
+
+fn selected_specs(args: &Args) -> CliResult<Vec<(Option<PathBuf>, String, RegistryLensSpec)>> {
+    if args.lens_template_cf_root.is_some() {
+        if args.lens_template_specs.is_empty() {
+            return Err(local_error(
+                "CALYX_FSV_ASSAY_STREAM_FBIN_LENS_TEMPLATE_EMPTY",
+                "DB-native lens template specs were not loaded before selection",
+                "run stream-fbin through the Calyx/Aster lens template path",
+            ));
+        }
+        return Ok(args
+            .lens_template_specs
+            .iter()
+            .map(|spec| (None, args.lens_descriptor_ref(&spec.name), spec.clone()))
+            .collect());
+    }
+    let mut selected = Vec::with_capacity(args.manifests.len());
+    for manifest in &args.manifests {
+        let spec = lens_spec_from_manifest_path(manifest).map_err(|error| {
+            local_error(
+                "CALYX_FSV_ASSAY_STREAM_FBIN_LENS_LOAD",
+                format!("{}: {}", manifest.display(), error.message),
+                "fix the frozen lens manifest before streaming FBIN",
+            )
+        })?;
+        selected.push((Some(manifest.clone()), manifest.display().to_string(), spec));
     }
     Ok(selected)
 }

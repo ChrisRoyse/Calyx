@@ -67,7 +67,9 @@ Variables declared in `.env.example` (`C:\code\Calyx\.env.example`):
 | `CALYX_RUST_ENV` | `/home/croyse/.cargo/env` | Path to rustup `env` script |
 | `CALYX_ORT_LIB_DIR` | `/home/croyse/calyx/vendor/onnxruntime-v1.26.0/build/Linux/Release` | aiwonder-built ONNX Runtime CUDA 13 library directory |
 | `ORT_DYLIB_PATH` | `/home/croyse/calyx/vendor/onnxruntime-v1.26.0/build/Linux/Release/libonnxruntime.so` | Dynamic ONNX Runtime library loaded by `ort/load-dynamic` |
-| `AIWONDER_TEI_GENERAL` | `http://127.0.0.1:8088` | Resident TEI general embeddings server |
+| `AIWONDER_TEI_E5` | `http://127.0.0.1:18190` | Calyx-owned FP16 TEI multilingual E5 embeddings server |
+| `AIWONDER_TEI_BGE_M3` | `http://127.0.0.1:18188` | Calyx-owned FP16 TEI BGE-M3 embeddings server |
+| `AIWONDER_TEI_GENERAL` | `http://127.0.0.1:8088` | Shared legacy TEI general embeddings server |
 | `AIWONDER_TEI_RERANKER` | `http://127.0.0.1:8089` | Resident TEI reranker server |
 | `AIWONDER_TEI_LEGAL` | `http://127.0.0.1:8090` | Resident TEI legal embeddings server |
 | `AIWONDER_PROMETHEUS` | `http://127.0.0.1:9090` | Prometheus endpoint |
@@ -94,6 +96,8 @@ vram_budget_mib = 8192
 log_dir = "/zfs/hot/logs/calyx"
 health_log_path = "/zfs/hot/logs/calyx-health/latest.json"
 tei_endpoints = [
+  "http://127.0.0.1:18190",
+  "http://127.0.0.1:18188",
   "http://127.0.0.1:8088",
   "http://127.0.0.1:8089",
   "http://127.0.0.1:8090",
@@ -137,7 +141,7 @@ Defined in `crates\calyxd\src\config.rs`. Construction is **only** via
 | `vram_budget_mib` | `u32` | **required** | none | `1..=30000` (`VRAM_BUDGET_MIB_CEILING = 30_000`); else `CALYX_FORGE_VRAM_BUDGET` | VRAM budget for Forge, MiB | `config.rs:24,57,105-111` |
 | `log_dir` | `PathBuf` | **required** | none | (none beyond presence) | Daemon log directory | `config.rs:59` |
 | `health_log_path` | `PathBuf` | optional | `/zfs/hot/logs/calyx-health/latest.json` (`default_health_log_path`) | (none) | Path the healthcheck JSON is written to | `config.rs:33-35,62-63` |
-| `tei_endpoints` | `Vec<String>` | optional | `[]` (serde `default`) | (none) | Documented TEI endpoints (`:8088`/`:8089`/`:8090`) | `config.rs:65-66` |
+| `tei_endpoints` | `Vec<String>` | optional | `[]` (serde `default`) | (none) | Documented TEI endpoints (`:18190`/`:18188` plus legacy `:8088`/`:8089`/`:8090`) | `config.rs:65-66` |
 | `healthcheck_timeout_secs` | `u32` | optional | `30` (`default_healthcheck_timeout_secs`) | (none) | Healthcheck timeout, seconds | `config.rs:37-39,68-69` |
 
 `vault_path_resolved()` substitutes the value of env var `CALYX_HOME` for

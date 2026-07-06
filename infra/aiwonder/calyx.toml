@@ -39,8 +39,11 @@ log_dir = "/zfs/hot/logs/calyx"
 health_log_path = "/zfs/hot/logs/calyx-health/latest.json"
 
 # Text-Embeddings-Inference (TEI) endpoints the daemon expects to be resident.
-# On aiwonder these are the three loopback model servers on :8088/:8089/:8090.
+# Calyx-owned FP16 embedders live on :18190/:18188. The :8088/:8089/:8090
+# endpoints are shared legacy services kept for explicit FSV/manual workflows.
 tei_endpoints = [
+  "http://127.0.0.1:18190",
+  "http://127.0.0.1:18188",
   "http://127.0.0.1:8088",
   "http://127.0.0.1:8089",
   "http://127.0.0.1:8090",

@@ -2,7 +2,7 @@ use calyx_core::{Asymmetry, Modality, SlotId, SlotShape};
 
 use super::{AlgorithmicPanelLens, PanelLensRuntime, PanelSlotSpec, PanelTemplate};
 
-const TEI_GTE: &str = "http://127.0.0.1:8088";
+const CALYX_TEI_E5_BASE: &str = "http://127.0.0.1:18190";
 
 pub fn text_default() -> PanelTemplate {
     let mut slots = vec![
@@ -269,7 +269,7 @@ fn tei(name: impl Into<String>, output: SlotShape, modality: Modality) -> PanelS
     PanelSlotSpec::content(
         name,
         PanelLensRuntime::TeiHttp {
-            endpoint: TEI_GTE.to_string(),
+            endpoint: CALYX_TEI_E5_BASE.to_string(),
         },
         output,
         modality,

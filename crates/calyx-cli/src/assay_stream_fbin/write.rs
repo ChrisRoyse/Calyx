@@ -54,23 +54,33 @@ struct StagedExport {
 }
 
 pub(crate) fn run(args: &Args) -> CliResult<Evidence> {
+    let mut args = args.clone();
+    let lens_template = super::template::materialize_for_stream(&mut args)?;
+    let lens_template_readback = lens_template.readback.clone();
     let staging = staging_dir(&args.out_dir);
     fail_if_exists(&args.out_dir)?;
     fail_if_exists(&staging)?;
-    panel::validate_floor_before_runtime(args)?;
-    let pre_encode_gate = pre_gate::validate_before_full_encode(args)?;
-    let lenses = selected_lenses(args)?;
-    let stats = rows::scan(args)?;
+    panel::validate_floor_before_runtime(&args)?;
+    let pre_encode_gate = pre_gate::validate_before_full_encode(&args)?;
+    let lenses = selected_lenses(&args)?;
+    let stats = rows::scan(&args)?;
     create_parent(&args.out_dir)?;
     fs::create_dir(&staging).map_err(io_error)?;
-    let result = run_staged(args, &stats, lenses, &staging, pre_encode_gate);
+    let result = run_staged(
+        &args,
+        &stats,
+        lenses,
+        &staging,
+        pre_encode_gate,
+        lens_template_readback,
+    );
     match result {
         Ok(mut staged) => {
             if let Err(error) = fs::rename(&staging, &args.out_dir) {
                 let _ = fs::remove_dir_all(&staging);
                 return Err(io_error(error));
             }
-            if let Err(error) = db::persist_after_promotion(args, &mut staged) {
+            if let Err(error) = db::persist_after_promotion(&args, &mut staged) {
                 let _ = fs::remove_dir_all(&args.out_dir);
                 return Err(error);
             }
@@ -79,7 +89,7 @@ pub(crate) fn run(args: &Args) -> CliResult<Evidence> {
                     let _ = fs::remove_dir_all(&args.out_dir);
                     return Err(error);
                 }
-            } else if let Err(error) = db::remove_json_artifacts(args) {
+            } else if let Err(error) = db::remove_json_artifacts(&args) {
                 let _ = fs::remove_dir_all(&args.out_dir);
                 return Err(error);
             }
@@ -105,6 +115,7 @@ fn run_staged(
     lenses: Vec<SelectedLens>,
     staging: &Path,
     pre_encode_gate: evidence::PreEncodeGateEvidence,
+    lens_template_readback: Option<super::template::LensTemplateDbReadback>,
 ) -> CliResult<StagedExport> {
     let vector_dir = staging.join(args.vector_format.dir_name());
     let vault_root = staging.join("vaults");
@@ -140,6 +151,20 @@ fn run_staged(
         },
         out_dir: display(&args.out_dir),
         rows_jsonl: display(&args.rows_jsonl),
+        lens_descriptor_source: if args.lens_template_cf_root.is_some() {
+            "aster_graph_cf_lens_template".to_string()
+        } else {
+            "diagnostic_manifest_files".to_string()
+        },
+        lens_template_cf_root: args
+            .lens_template_cf_root
+            .as_ref()
+            .map(|path| display(path.as_path())),
+        lens_template_key: args
+            .lens_template_cf_root
+            .as_ref()
+            .map(|_| args.lens_template_key.clone()),
+        lens_template_db_readback: lens_template_readback,
         plan_path: display_final(args, "partitioned_rrf_plan.json"),
         plan_cf_root: display_final(args, "partitioned_rrf_plan_cf"),
         plan_association_key: rrf_plan::DEFAULT_ASSOCIATION_KEY.to_string(),

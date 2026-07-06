@@ -1,9 +1,7 @@
 use std::collections::BTreeSet;
 use std::fs;
-use std::path::Path;
 
 use calyx_assay::{DEFAULT_MIN_POWER_RECOVERY_RATIO, MIN_INFORMATIVE_TARGET_ENTROPY_BITS};
-use calyx_registry::LensForgeManifest;
 use serde::Deserialize;
 
 use crate::assay_anchor_audit::AnchorAudit;
@@ -13,6 +11,8 @@ use super::super::args::{Args, StreamMode};
 use super::super::{MIN_A35_LENSES, io_error, local_error};
 use super::evidence::PreEncodeGateEvidence;
 use super::paths::display;
+
+mod roster;
 
 #[derive(Debug, Deserialize)]
 struct BitsReport {
@@ -95,7 +95,7 @@ pub(super) fn validate_before_full_encode(args: &Args) -> CliResult<PreEncodeGat
         gate.anchor_audit
             .require_gate_eligible("assay stream-fbin pre-encode grounded anchor gate")?;
     }
-    let streamed_lenses = streamed_manifest_names(args)?;
+    let streamed_lenses = roster::streamed_lens_names(args)?;
     validate_panel_identity(&gate.admitted_lenses, &streamed_lenses, args.mode)?;
     validate_target_entropy(&gate)?;
     validate_lower_bound(&gate)?;
@@ -128,7 +128,7 @@ fn validate_db_admission_before_full_encode(args: &Args) -> CliResult<PreEncodeG
         .iter()
         .map(|lens| lens.name.clone())
         .collect::<Vec<_>>();
-    let streamed_lenses = streamed_manifest_names(args)?;
+    let streamed_lenses = roster::streamed_lens_names(args)?;
     validate_panel_identity(&admitted_lenses, &streamed_lenses, args.mode)?;
     let sufficient = validate_db_gate(&report, args.mode)?;
     let deficit_bits = (report.min_marginal_bits - report.min_best_marginal_bits).max(0.0);
@@ -194,7 +194,7 @@ fn diagnostic_bootstrap_evidence(args: &Args) -> CliResult<PreEncodeGateEvidence
             ..AnchorAudit::default()
         },
         admitted_lenses: Vec::new(),
-        streamed_lenses: streamed_manifest_names(args)?,
+        streamed_lenses: roster::streamed_lens_names(args)?,
     })
 }
 
@@ -440,32 +440,6 @@ fn is_grounded_gate_eligible(audit: &AnchorAudit) -> bool {
         && !audit.anchor_leaks_into_input
         && !audit.trivial_anchor
         && !audit.label_recoverable_from_input
-}
-
-fn streamed_manifest_names(args: &Args) -> CliResult<Vec<String>> {
-    args.manifests
-        .iter()
-        .map(|path| read_manifest_name(path))
-        .collect()
-}
-
-fn read_manifest_name(path: &Path) -> CliResult<String> {
-    let manifest: LensForgeManifest = serde_json::from_slice(&fs::read(path).map_err(io_error)?)
-        .map_err(|error| {
-            local_error(
-                "CALYX_FSV_ASSAY_STREAM_FBIN_LENS_LOAD",
-                format!("parse {} failed: {error}", path.display()),
-                "fix the frozen lens manifests before streaming FBIN",
-            )
-        })?;
-    if manifest.name.trim().is_empty() {
-        return Err(local_error(
-            "CALYX_FSV_ASSAY_STREAM_FBIN_LENS_LOAD",
-            format!("{} has an empty lens name", path.display()),
-            "fix the frozen lens manifest before streaming FBIN",
-        ));
-    }
-    Ok(manifest.name)
 }
 
 fn names_set(label: &str, names: &[String]) -> CliResult<BTreeSet<String>> {

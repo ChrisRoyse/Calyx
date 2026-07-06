@@ -103,7 +103,7 @@ lenses + provenance. That alone justifies the project.
 
 Confirmed live (`01_AIWONDER_ENVIRONMENT.md`): RTX 5090 sm_120 + **CUDA 13.2**
 toolkit, **Rust via rustup** (so we build natively — the PRD's "no rustc on
-box" note is *superseded*), resident **TEI lenses** on :8088/:8089/:8090,
+box" note is *superseded*), resident **TEI lenses** on :18190/:18188 plus legacy :8088/:8089/:8090,
 Prometheus on :9090, Docker, Infisical, HF cache, ZFS hot+cold pools. Userspace
 `cmake` and `protoc` are installed under `/home/croyse/calyx/bin`. Stage 6 lifts
 the ContextGraph `mincut`/`paths`/`witness`/`mejepa` logic as seeds (PRD

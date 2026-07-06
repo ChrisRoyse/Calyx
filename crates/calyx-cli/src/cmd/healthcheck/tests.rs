@@ -45,6 +45,20 @@ fn parse_accepts_custom_tei_endpoint_forms() {
 }
 
 #[test]
+fn defaults_include_calyx_owned_tei_before_legacy_services() {
+    let endpoints = default_endpoints();
+
+    assert_eq!(
+        endpoints[..2],
+        [
+            Endpoint::new("tei:18190", "127.0.0.1", 18190, "/"),
+            Endpoint::new("tei:18188", "127.0.0.1", 18188, "/"),
+        ]
+    );
+    assert!(endpoints.iter().any(|endpoint| endpoint.name == "tei:8088"));
+}
+
+#[test]
 fn passing_endpoint_report_is_json_pass() {
     let endpoint = spawn_http_endpoint("tei:test-ok");
     let report = build_report(

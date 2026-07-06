@@ -26,7 +26,7 @@ use crate::error::DaemonError;
 const BYTES_PER_MIB: u64 = 1024 * 1024;
 
 /// TEI endpoints documented for operator-facing budget-exhaustion errors.
-const TEI_ENDPOINTS: &str = ":8088 (general), :8089 (reranker), :8090 (legal)";
+const TEI_ENDPOINTS: &str = ":18190 (calyx-e5), :18188 (calyx-bge-m3), :8088 (legacy general), :8089 (reranker), :8090 (legal)";
 
 /// A point-in-time device VRAM reading in MiB.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -300,6 +300,7 @@ mod tests {
         assert_eq!(err.code(), "CALYX_FORGE_VRAM_BUDGET");
         let shown = err.to_string();
         assert!(shown.contains("already exceeds"));
+        assert!(shown.contains(":18190"));
         assert!(shown.contains(":8088"));
     }
 
