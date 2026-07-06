@@ -125,7 +125,9 @@ Blocking HTTP client to a resident HuggingFace **TEI** endpoint. Fields: `endpoi
 request (supports chunked transfer-encoding), parses bare arrays, `{"embedding":[…]}`,
 or OpenAI-style `{"data":[{"embedding":[…]}]}`. Dim must equal `self.dim`; non-finite →
 `CALYX_LENS_NUMERICAL_INVARIANT`. Constructors: `new`, `resident_8088`,
-`with_timeout`, `with_max_batch`. `DEFAULT_TEI_ENDPOINT = "http://127.0.0.1:8088/embed"`.
+`resident_calyx_e5_18190`, `with_timeout`, `with_max_batch`.
+`DEFAULT_TEI_ENDPOINT = "http://127.0.0.1:18190/embed"` for the Calyx-owned
+FP16 E5 lane; `:8088` is legacy/shared compatibility only.
 Inputs must be UTF-8 text. Connection errors → `CALYX_LENS_UNREACHABLE`.
 
 ### 2.3 `CandleLens` — `runtime/candle.rs` (+ `candle/{load,options,pooling}.rs`)
@@ -485,7 +487,9 @@ Dense(2), `E4_positional` Dense(4)), all `retrieval_only + excluded_from_dedup`.
 | `bio-default` | protein_esm2 (Protein), dna_dnabert2 (Dna), molecule_chemberta (Molecule), general_semantic | adapter Dense(16) |
 | `media-default` | media_semantic, image_siglip2, audio_clap, audio_wave (256), audio_emotion (128), **speaker_wavlm (Audio Dense 512)**, transcript, **style_register (Text Dense 768)** | identity-lock slots |
 
-TEI default endpoint for `text-default` slots: `http://127.0.0.1:8088`.
+TEI default endpoint for Calyx-owned dense text slots:
+`http://127.0.0.1:18190/embed`. Use `:18188` for the BGE-M3 diversity lane and
+`:8088` only for explicit legacy/shared compatibility runs.
 
 ### 6.3 Panel operations (`panel_ops.rs`)
 

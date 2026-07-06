@@ -2,6 +2,7 @@
 
 > **Generated:** 2026-06-22
 > **Historical source readback:** this 2026-06-22 snapshot was generated from the then-live `/home/croyse/calyx/lenses/registry.json` + `panels/templates/` bytes on aiwonder. Current authority for lens catalog, roster, admission, cost, dtype, device placement, bits, and gate verdicts is Calyx/Aster DB rows; `registry.json` is migration/import input only.
+> **Current catalog readback:** on 2026-07-06, `/home/croyse/calyx/lenses/registry.json` was imported into the authoritative Calyx/Aster catalog DB at `/home/croyse/calyx/lenses/catalog-db`. Graph CF readback: 34 rows, 33 lenses, 10,053 value bytes, catalog sha256 `b53f387a0855714d5f3cb477fd6ad8b36f9588c7916ce0c67e9360a5576eb022`, `readback_matches=true`.
 > **Doctrine refs:** `docs/dbprdplans/05_EMBEDDER_REGISTRY.md`, `docs/dbprdplans/05a_EMBEDDER_ROSTER_VRAM_BUDGET.md`, epic #814 (A38), #796/#787/#802 (A35/A36/A37 mandate).
 
 ---
@@ -10,11 +11,14 @@
 
 | Metric | Value |
 |---|---|
-| **Total commissioned lenses (live registry)** | **42** |
-| GPU-placed / CPU-placed | 24 / 18 |
-| Sum of resident GPU VRAM | ~13.5 GB (well under the 20 GB Constellation budget) |
+| **Current authoritative catalog DB** | **33 lenses** (`/home/croyse/calyx/lenses/catalog-db`, Graph CF, read back 2026-07-06) |
+| Current DB GPU-placed / CPU-placed | 15 / 18 |
+| Current DB declared GPU VRAM | 9,164,805,385 bytes (~8,740.2 MiB), under the 20 GB Constellation budget |
+| Historical commissioned lenses snapshot (2026-06-22 registry file) | 42 |
+| Historical GPU-placed / CPU-placed | 24 / 18 |
+| Historical resident GPU VRAM | ~13.5 GB |
 | **Admitted default panel** (`constellation-24`, A37 `gate_passed`) | **10 content lenses + 3 temporal sidecars**, 4 association families |
-| Registered panel templates | 8 |
+| Historical registered panel templates | 8 |
 | Roster epic **#814** / acquisition backlog **#836** | **CLOSED** (the A38 sprint landed) |
 
 ## Verification readback
@@ -27,13 +31,13 @@ Verified against aiwonder source-of-truth bytes on 2026-06-22:
 | `/home/croyse/calyx/panels/templates/index.json` | 10,335 bytes, sha256 `81361c10dfbc49c0539199122beb6660b6c7ffb9cfc4f87ee6ea81e6001db252`; 8 registered templates; `constellation-24` active template `15d0fd0a648da6686c72471d103b5fbc20e26a44e87c0c204c45a8df69af6149` |
 | `/home/croyse/calyx/fsv/issue832-bgem3-colbert-roster-20260621T141356Z/issue822_final_admission_readback.json` | 13,990 bytes, sha256 `6dd4361e91bb01d5d7ca7fe351ea78ffa5a65e7d000a9fc66d5fa21a054a863c`; A37 gate status `gate_passed` |
 
-**Key distinction:** *42 lenses are commissioned and available in the registry*, but only *10* are in the gate-passed diverse **default** panel (`constellation-24`); the remaining 32 are available lenses (image / audio / bio / extra text) that vaults and other templates draw on.
+**Key distinction:** the current authority is the 33-lens Calyx/Aster catalog DB readback. The older 42-lens table below is a historical 2026-06-22 roster snapshot retained for context; file-backed counts are not admission authority. Only *10* lenses were in the historical gate-passed diverse **default** panel (`constellation-24`); the remaining rows were available lenses (image / audio / bio / extra text) that vaults and other templates could draw on after database admission.
 
 A lens earns a slot by **measured `bits / VRAM-MB`** and **associational diversity (A37)**, not raw benchmark rank. Ten dense-semantic clones fail the gate; admission requires ≥10 learned-encoder content lenses spanning ≥2 families, `n_eff ≥ 0.6×count`, mean corr/NMI ≤ 0.6, every lens ≥ 0.05 marginal bits, Σ resident VRAM ≤ 20 GB, and fused-RRF beating the best 1–2-lens control.
 
 ---
 
-## 1. ALL 42 embedders currently commissioned (by modality)
+## 1. Historical 42-embedder snapshot (by modality)
 
 ### Text — general semantic (DS-gen)
 

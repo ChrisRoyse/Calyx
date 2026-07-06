@@ -72,7 +72,7 @@ inside `vault_path` (§2.3).
 | `vram_budget_mib` | `u32` | **Required** | none | `1..=30000` (`VRAM_BUDGET_MIB_CEILING = 30_000`) | VRAM budget for Forge, in MiB. Ceiling leaves headroom below the RTX 5090's 32 607 MiB for resident TEI + CUDA context. |
 | `log_dir` | path string | **Required** | none | — | Directory for daemon logs. |
 | `health_log_path` | path string | Optional | `/zfs/hot/logs/calyx-health/latest.json` (`default_health_log_path`) | — | Path the healthcheck JSON is written to. |
-| `tei_endpoints` | array of strings | Optional | `[]` (empty; `#[serde(default)]`) | — | Text-Embeddings-Inference endpoints (documents `:8088`/`:8089`/`:8090`). Documentation only — not validated. |
+| `tei_endpoints` | array of strings | Optional | `[]` (empty; `#[serde(default)]`) | — | Text-Embeddings-Inference endpoints (documents Calyx-owned `:18190`/`:18188` plus legacy/shared `:8088`/`:8089`/`:8090`). Documentation only — not validated. |
 | `healthcheck_timeout_secs` | `u32` | Optional | `30` (`default_healthcheck_timeout_secs`) | — | Healthcheck timeout in seconds. |
 
 Minimal valid config = the three required keys (`vault_path`, `vram_budget_mib`, `log_dir`);
@@ -87,7 +87,13 @@ vault_path = "/zfs/hot/calyx/vault"
 vram_budget_mib = 8192
 log_dir = "/zfs/hot/logs/calyx"
 health_log_path = "/zfs/hot/logs/calyx-health/latest.json"
-tei_endpoints = ["http://127.0.0.1:8088", "http://127.0.0.1:8089"]
+tei_endpoints = [
+  "http://127.0.0.1:18190",
+  "http://127.0.0.1:18188",
+  "http://127.0.0.1:8088",
+  "http://127.0.0.1:8089",
+  "http://127.0.0.1:8090",
+]
 healthcheck_timeout_secs = 30
 ```
 
@@ -169,7 +175,9 @@ are **not** read by the Rust code (only `CALYX_HOME` from this list is consumed 
 | `CALYX_COLD_PATH` | `/zfs/archive/calyx` | Cold tier mount path |
 | `CALYX_CARGO_TARGET_DIR` | `/home/croyse/calyx/target` | Shared cargo target dir (used by env.sh, not `.cargo/config.toml`) |
 | `CALYX_RUST_ENV` | `/home/croyse/.cargo/env` | Path to cargo env script |
-| `AIWONDER_TEI_GENERAL` | `http://127.0.0.1:8088` | Resident TEI general embedder |
+| `AIWONDER_TEI_E5` | `http://127.0.0.1:18190` | Calyx-owned FP16 TEI multilingual E5 dense default |
+| `AIWONDER_TEI_BGE_M3` | `http://127.0.0.1:18188` | Calyx-owned FP16 TEI BGE-M3 diversity lane |
+| `AIWONDER_TEI_GENERAL` | `http://127.0.0.1:8088` | Shared legacy TEI general embedder |
 | `AIWONDER_TEI_RERANKER` | `http://127.0.0.1:8089` | Resident TEI reranker |
 | `AIWONDER_TEI_LEGAL` | `http://127.0.0.1:8090` | Resident TEI legal embedder |
 | `AIWONDER_PROMETHEUS` | `http://127.0.0.1:9090` | Prometheus endpoint |
