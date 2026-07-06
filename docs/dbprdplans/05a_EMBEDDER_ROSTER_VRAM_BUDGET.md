@@ -102,20 +102,26 @@ execution. Model choice is still measured. The active aiwonder dense default is 
 Calyx-owned FP16 `multilingual-e5-base` service on `:18190`; BGE-M3 on `:18188` is a
 deliberate diversity lens, not the default dense lane. The hardware target is RTX
 5090 `sm_120`; the TEI runtime must be a Blackwell 12.0 build and startup readback
-must show `Float16`, host `libcuda`, and `CudaDevice` execution. The current
-aiwonder services run TEI `120-1.9.3` through the driver-610 wrapper; upstream TEI
-also publishes a Blackwell 12.0 image line, so changing images is a measured rollout
-item, not a reason to disturb a healthy GPU-resident service. `Qwen/Qwen3-Embedding-0.6B`
-is the largest normal candidate before tier-3, and is admitted only when Calyx
-readback beats the smaller lane on `bits / VRAM-MB`. Use resident FP16
-(`float16`/`f16`) first, BF16 only if a specific model requires it or a measured run
-beats FP16, and INT8/FP8 only after GPU provider readback proves no hidden CPU
-execution. The host CUDA toolkit may be 13.3, but framework support is still a
-separate gate: PyTorch stable Blackwell wheels are CUDA 13.0-family and CUDA 13.2+
-is treated as experimental until runtime readback proves sm_120 kernels. The large
-4B/8B Qwen/GTE/E5-class embedders are not default-roster material; they are
-one-at-a-time tier-3 probes unless they beat compact panels on measured
-`bits / VRAM-MB`.
+must show `float16`, host `libcuda`, and CUDA-device execution. The current
+aiwonder services run TEI `1.9.3` through the driver-610 wrapper on a CUDA 13.3
+host; upstream TEI also publishes a Blackwell 12.0 image line, so changing images
+is a measured rollout item, not a reason to disturb a healthy GPU-resident
+service. `Qwen/Qwen3-Embedding-0.6B` is the largest normal candidate before tier-3,
+and is admitted only when Calyx readback beats the smaller lane on
+`bits / VRAM-MB`. Use resident FP16 (`float16`/`f16`) first, BF16 only if a
+specific model requires it or a measured run beats FP16, and INT8/FP8/FP4 only
+after GPU provider readback proves no hidden CPU execution. The host CUDA toolkit
+may be 13.3, but framework support is still a separate gate; PyTorch-class stacks
+must prove Blackwell `sm_120` kernels with CUDA 12.8-or-newer compatible builds
+before use. The large 4B/8B Qwen/GTE/E5-class embedders are not default-roster
+material; they are one-at-a-time tier-3 probes unless they beat compact panels on
+measured `bits / VRAM-MB`.
+
+**No file artifact authority:** Roster, admission, cost, latency, dtype,
+device-placement, family assignment, bits, and gate verdicts are Calyx/Aster rows.
+Manifests, JSON/JSONL reports, shell logs, FBIN, and I8BIN are import/export or
+diagnostic bytes only. A panel is not admitted unless the database can read back
+the association/admission rows that justify it.
 
 > A 110 M-param encoder is ≈ **220 MB FP16 / 110 MB INT8**. A 300–335 M base is ≈
 > **0.6 GB FP16 / 0.3 GB INT8**. A 0.6 B LLM-embedder is ≈ **1.2 GB FP16 / 0.6 GB INT8**.
@@ -334,9 +340,11 @@ Adding **one** Tier-3 to Tier-1+2 stays ≤ ~14 GB; adding two approaches the 20
 - **Static (model2vec)** for the zero-VRAM baseline lens — CPU, first-class preferred case.
 - **TEI / FP8** for the few large GPU-resident encoders that justify a resident container
   on the Blackwell card; FP8 is promoted only by measured recall/bits and GPU readback.
-- Every commissioned lens is a **SHA-256-verified `lensforge.manifest.json`** (frozen,
-  content-addressed) and must carry a **measured `--cost-json`** (resident VRAM MB,
-  ms/input) so the **resource-aware panel packer (#729) gates by `bits / VRAM-MB`.**
+- Every commissioned lens must be frozen and content-addressed, with source bytes
+  and hashes imported into Calyx/Aster. Manifest files may assist import/export,
+  but the admitted lens identity, resident VRAM MB, latency, dtype, device
+  placement, and bits live in Calyx/Aster rows so the resource-aware panel packer
+  (#729) gates by `bits / VRAM-MB`.
 
 ---
 
@@ -398,4 +406,5 @@ resident at any instant (A5 hot-swap, A36 templates).
   INT8, TensorRT FP8.
 
 > Param counts/dims are best-published-estimates; **the binding numbers are the ones
-> Calyx measures** (resident VRAM via `--cost-json`, bits via Assay) on aiwonder.
+> Calyx measures** (resident VRAM, latency, device placement, and bits read back from
+> Calyx/Aster admission rows) on aiwonder.

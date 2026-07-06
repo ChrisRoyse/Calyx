@@ -50,8 +50,12 @@ data-acquisition or capability issues.
   provenance claim must be stored as Calyx/Aster rows or edges and preserve
   enough source ids, hashes, and row counts to trace it back to the physical
   Calyx rows or admitted source bytes. JSON, reports, logs, manifests, FBIN,
-  and I8BIN are diagnostic or import/export bytes only; they never decide
-  association, admission, roster membership, or phase exit.
+  I8BIN, and similar file artifacts are diagnostic or import/export bytes only;
+  they never decide association, admission, roster membership, or phase exit.
+- Calyx/Aster database rows are the only association source of truth. If an
+  association, gate, plan, or roster decision cannot be read back from the
+  database itself, it is not admitted. Anything persisted outside the database
+  must be treated as a cache, source import, export, or diagnostic transcript.
 
 Structured values are first-class intelligence inputs. Numbers, categories,
 booleans, ordinals, timestamps, identifiers, references, relations, graph
@@ -135,10 +139,27 @@ Biomedical claim ladder:
   data, a missing Calyx storage/readback primitive, a missing gate, or a
   missing validator, file or update the specific issue before downstream
   claims depend on it.
-- For substantial discovery runs, persist a machine-readable result pack,
-  human-readable findings doc, and readback summary. The result pack is the
-  substrate for future mining; the doc is for operators; the readback summary
-  is the proof layer.
+- For substantial discovery runs, persist the authoritative result, findings,
+  admission state, and readback proof as Calyx/Aster rows. Operator summaries may
+  point at those rows, but they are not the substrate for future mining and must
+  not replace database readback.
+
+## Runtime and Embedder Policy
+
+- Use the simplest measured path that keeps work on the GPU. On aiwonder-class
+  RTX 5090 / CUDA 13.3 hardware, the dense text default is a resident Blackwell
+  TEI service using `float16`/FP16, fail-closed GPU execution, bounded batching,
+  and database readback of model id, dtype, device, batch limits, VRAM, latency,
+  and per-lens bits.
+- BF16, INT8, FP8, FP4, ONNX, Candle, and alternate TEI images are allowed only
+  when a Calyx/Aster admission row proves GPU execution and improves measured
+  speed, VRAM density, or bits-per-VRAM for the bounded corpus. No CPU fallback
+  is admissible for a GPU runtime.
+- Do not keep a large dense embedder because it is familiar. If a smaller frozen
+  lens provides equivalent semantic utility with better measured density, replace
+  or park the larger lane. Conversely, do not swap the active dense lane when the
+  measured blocker is panel diversity, roster collapse, or missing association
+  families rather than dense semantic latency or VRAM.
 
 ## Biomedical Discovery Implication
 

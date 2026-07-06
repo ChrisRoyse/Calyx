@@ -6,7 +6,7 @@ Development state for Calyx is managed in **the Calyx repo (`chrisroyse/calyx`) 
 
 ## 1. Why issues, and the cardinal rule
 
-Agents are stateless across sessions; the issue tracker is their shared, durable memory. **Open issues = active state; comments = journal; closed issues = institutional knowledge; labels = organization.** The cardinal rule (`DOCTRINE §0`) applies to issues too: **an issue is a claim; the source of truth is the bytes.** A context issue that drifts from reality is a *lie that misleads every future agent* — so currency and pruning (§4) are not housekeeping, they are correctness.
+Agents are stateless across sessions; the issue tracker is their shared, durable memory. **Open issues = active state; comments = journal; closed issues = institutional knowledge; labels = organization.** The cardinal rule (`DOCTRINE §0`) applies to issues too: **an issue is a claim; the source of truth is Calyx/Aster database readback.** A context issue that drifts from reality is a *lie that misleads every future agent* — so currency and pruning (§4) are not housekeeping, they are correctness.
 
 ## 2. Context issues — the must-read state (`type:context`, pinned)
 
@@ -25,7 +25,12 @@ Rules for context issues:
 - **Pointers, not copies.** Link `DOCTRINE`/PRD sections; never paste duplicate content that can drift. The single source of an invariant is the doc; the context issue points to it + states the *current* status.
 - **Snapshot, not history.** They hold what is true *now*. History/rationale lives in closed `type:decision`/`type:discovery` issues, not here.
 - **Short.** If a context issue grows long, it's accreting history — prune it (§4). It must stay small enough to always be in-context.
-- **Last-verified stamp + owner** on each (date of last reality-check against the SoT).
+- **Last-verified stamp + owner** on each (date of last reality-check against the
+  Calyx/Aster source of truth).
+- **Database-first evidence.** Association, roster, admission, gate, phase-exit,
+  plan, and provenance state must be summarized from Calyx/Aster rows. JSON,
+  logs, manifests, reports, FBIN, I8BIN, and shell output can be referenced only
+  as diagnostics or import/export bytes.
 
 ## 3. Read-state protocol (start of every turn)
 
@@ -76,4 +81,4 @@ Decision/discovery bodies use the ADR / discovery templates (`AICodingAgentSuper
 
 GitHub Issues are the *development-time* state surface; **Calyx's runtime state of truth is always the bytes on aiwonder** (`DOCTRINE §0`, `28 §5`) — issues track *what we are doing and have learned*, never substitute for reading the persisted SoT. The two stay consistent because every "done" is proven by FSV against the bytes and recorded in the closing comment.
 
-**One sentence:** Calyx development state lives in GitHub Issues, with a small curated set of pinned `type:context` issues — mission/invariants, "you are here," environment, landmines, datasets — that every agent reads first and keeps in context, kept *current by editing to the new truth (never appending contradictions)* and *pruned every phase* (close done tasks, supersede old decisions, remove fixed gotchas) so a future agent opening them with a fresh context window sees a true, tight snapshot, never a confusing stale log.
+**One sentence:** Calyx development state lives in GitHub Issues, with a small curated set of pinned `type:context` issues — mission/invariants, "you are here," environment, landmines, datasets — that every agent reads first and keeps in context, kept *current by editing to the new truth (never appending contradictions)* and *pruned every phase* (close done tasks, supersede old decisions, remove fixed gotchas) so a future agent opening them with a fresh context window sees a true, tight snapshot derived from Calyx/Aster rows, never a confusing stale log or file-artifact substitute.

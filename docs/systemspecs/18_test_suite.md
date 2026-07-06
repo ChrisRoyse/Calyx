@@ -90,11 +90,13 @@ since nextest does not execute them — see `scripts/check.sh`.
 
 "FSV" is a project-specific verification discipline, not a third-party
 framework. It denotes end-to-end tests that exercise real durable storage paths
-and emit **source-of-truth evidence artifacts** (JSON logs, hex/`xxd` dumps)
-under an FSV "root" directory, which are then "signed off" on the remote build
-host (aiwonder). The README repeatedly states that components are
-"FSV-signed-off on aiwonder" and lists concrete FSV root paths such as
-`/home/croyse/calyx/data/fsv-stage5-...` (`README.md`).
+and then read authoritative Calyx/Aster rows back from the database. Diagnostic
+files such as JSON logs, hex/`xxd` dumps, reports, and shell transcripts may be
+emitted under an FSV "root" directory, but they are not the source of truth and
+cannot admit an association, gate, roster, phase exit, or provenance claim.
+The README repeatedly states that components are "FSV-signed-off on aiwonder"
+and lists concrete FSV root paths such as `/home/croyse/calyx/data/fsv-stage5-...`
+(`README.md`).
 
 How FSV is realized in code:
 
