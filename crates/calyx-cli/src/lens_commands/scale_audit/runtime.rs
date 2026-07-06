@@ -3,6 +3,7 @@ use calyx_registry::{
     AlgorithmicLens, CandleLens, FastembedBgem3Lens, FastembedBgem3Output, FastembedQwen3Lens,
     FastembedRerankerLens, FastembedSparseLens, LensRuntime, LensSpec, MultimodalAdapterLens,
     OnnxColbertLens, OnnxLens, StaticLookupLens, TeiHttpLens,
+    runtime::tei_http::DEFAULT_TEI_MAX_BATCH,
 };
 
 use super::super::support::dim;
@@ -135,7 +136,7 @@ pub(super) fn runtime_lens(spec: &LensSpec) -> Result<RuntimeLens, CalyxError> {
                 provider: "resident_tei_gpu_service".to_string(),
                 placement: Placement::Gpu,
                 native_batching: true,
-                max_batch: spec.max_batch.or(Some(32)),
+                max_batch: spec.max_batch.or(Some(DEFAULT_TEI_MAX_BATCH)),
                 proof: format!("tei_endpoint_vector_contract:{endpoint}"),
                 gpu_process_required: false,
             })

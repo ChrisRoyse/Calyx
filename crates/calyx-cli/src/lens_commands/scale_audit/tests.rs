@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use calyx_core::{Asymmetry, Modality, Placement, QuantPolicy, SlotShape, SlotVector, SparseEntry};
-use calyx_registry::{LensRuntime, LensSpec, NormPolicy};
+use calyx_registry::{LensRuntime, LensSpec, NormPolicy, runtime::tei_http::DEFAULT_TEI_MAX_BATCH};
 
 use super::measure::{compare_vectors, effective_batch};
 use super::model::{
@@ -11,7 +11,7 @@ use super::model::{
 };
 use super::probe::probe_set;
 use super::report::build_report;
-use super::runtime::{association_family, is_temporal_sidecar};
+use super::runtime::{association_family, is_temporal_sidecar, runtime_lens};
 
 #[test]
 fn temporal_sidecar_does_not_count_toward_content_floor() {
@@ -36,6 +36,23 @@ fn effective_batch_clamps_manifest_ceiling() {
     assert_eq!(effective_batch(64, Some(1)), 1);
     assert_eq!(effective_batch(64, Some(8)), 8);
     assert_eq!(effective_batch(64, None), 64);
+}
+
+#[test]
+fn tei_audit_default_batch_matches_resident_service_cap() {
+    let runtime = runtime_lens(&spec(
+        "tei-e5",
+        LensRuntime::TeiHttp {
+            endpoint: "http://127.0.0.1:18190/embed".to_string(),
+        },
+    ))
+    .expect("TEI runtime lens");
+
+    assert_eq!(runtime.max_batch, Some(DEFAULT_TEI_MAX_BATCH));
+    assert_eq!(
+        effective_batch(128, runtime.max_batch),
+        DEFAULT_TEI_MAX_BATCH
+    );
 }
 
 #[test]
