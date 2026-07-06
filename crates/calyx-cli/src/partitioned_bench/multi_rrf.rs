@@ -268,6 +268,7 @@ pub(crate) fn run(raw: &[String]) -> CliResult {
     } else {
         recall::RecallReadback::default()
     };
+    enforce_recall_floor(args.recall_floor, truth_n, recall.fused_recall)?;
     let written_ground_truth = match (
         args.write_fused_ground_truth_file.as_ref(),
         args.write_fused_ground_truth_manifest.as_ref(),
@@ -310,7 +311,6 @@ pub(crate) fn run(raw: &[String]) -> CliResult {
             None => None,
         },
     };
-    enforce_recall_floor(args.recall_floor, truth_n, recall.fused_recall)?;
     let latency_us = percentiles(&fused_latencies_us);
     let tuner_status_path = if let Some(vault) = &args.anneal_vault {
         Some(tuner::write_status(tuner::StatusRequest {

@@ -452,5 +452,8 @@ mod partitioned_bench_progress_tests;
 #[path = "partitioned_bench_tests.rs"]
 mod partitioned_bench_tests;
 #[cfg(test)]
+#[path = "partitioned_bench/rrf_failed_truth_write_tests.rs"]
+mod rrf_failed_truth_write_tests;
+#[cfg(test)]
 #[path = "partitioned_bench/spann_knob_tests.rs"]
 mod spann_knob_tests;
