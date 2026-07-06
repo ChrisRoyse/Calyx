@@ -203,7 +203,7 @@ foundation depended on by all 18 other crates.
 | Serialization | `serde`, `serde_json`, `bincode_reloaded` (3.1.6), `ciborium` | `1` / `1` / `3.1.6` / `0.2` |
 | Storage | `memmap2` `0.9`, `crc32fast` `1`, `zstd` `0.13`, `filetime` `0.2`, `nix` `0.30` (fs) | mmap tables, CRC, posting-list compression |
 | CPU math | `wide` `1` (SIMD), `rayon` `1` (parallelism) | Forge CPU backend |
-| GPU math (opt-in) | `cudarc` `0.19.7`, `nvml-wrapper` `0.10` | CUDA 13.2, `sm_120`; feature `cuda`, default off |
+| GPU math (opt-in) | `cudarc` `0.19.8`, `nvml-wrapper` `0.10` | CUDA 13.3, `sm_120`; feature `cuda`, default off |
 | SQLite (import-only) | `rusqlite` `0.40.1` (bundled) | only the `calyx migrate` CLI reads external SQLite |
 | IDs / time | `ulid` `1`, `uuid` `1` (dep present; core uses ULID), Unix-ms `Ts` | |
 | Randomness | `rand` `0.8`, `rand_chacha` `0.3` | deterministic seeded RNG |
@@ -4063,7 +4063,7 @@ The three `.cu` kernel sources: `distance`, `topk`, `mxfp4_gemm`.
 `init_cuda(device_idx, determinism) -> Result<CudaContext>` initializes the
 device, queries name/compute-capability/`mem_get_info`, and **fails closed** if
 free VRAM `< MIN_FREE_VRAM_MIB = 4096` (4 GiB) — the remediation string names
-CUDA 13.2 at `/usr/local/cuda-13.2` and the RTX 5090. `query_device_info` returns
+CUDA 13.3 at `/usr/local/cuda-13.3` and the RTX 5090. `query_device_info` returns
 a `DeviceInfo { kind: Cuda, name, avx512: false, vram_mib: Some(total_mem_mib) }`.
 `free_device_vram_bytes()` calls `cudaMemGetInfo` live on every call (never
 `nvidia-smi`, never a fixed 32 GiB); a driver error surfaces as
@@ -4567,12 +4567,13 @@ Inputs: any modality (checked). Output: `Dense`. NormPolicy `Finite` (ByteFeatur
 ### 2.2 `TeiHttpLens` — `runtime/tei_http.rs`
 
 Blocking HTTP client to a resident HuggingFace **TEI** endpoint. Fields: `endpoint`,
-`modality`, `dim`, `timeout` (default 30s), `max_batch` (default 32, min 1).
+`modality`, `dim`, `timeout` (default 30s), `max_batch` (default 64, min 1).
 `measure_batch` POSTs `{"inputs":[...]}` over a hand-rolled HTTP/1.1 `Connection: close`
 request (supports chunked transfer-encoding), parses bare arrays, `{"embedding":[…]}`,
 or OpenAI-style `{"data":[{"embedding":[…]}]}`. Dim must equal `self.dim`; non-finite →
 `CALYX_LENS_NUMERICAL_INVARIANT`. Constructors: `new`, `resident_8088`,
-`with_timeout`, `with_max_batch`. `DEFAULT_TEI_ENDPOINT = "http://127.0.0.1:8088/embed"`.
+`resident_calyx_e5_18190`, `with_timeout`, `with_max_batch`.
+`DEFAULT_TEI_ENDPOINT = "http://127.0.0.1:18190/embed"` for the Calyx-owned resident FP16 E5 lane; `:8088` is legacy/shared compatibility only.
 Inputs must be UTF-8 text. Connection errors → `CALYX_LENS_UNREACHABLE`.
 
 ### 2.3 `CandleLens` — `runtime/candle.rs` (+ `candle/{load,options,pooling}.rs`)
@@ -4932,7 +4933,7 @@ Dense(2), `E4_positional` Dense(4)), all `retrieval_only + excluded_from_dedup`.
 | `bio-default` | protein_esm2 (Protein), dna_dnabert2 (Dna), molecule_chemberta (Molecule), general_semantic | adapter Dense(16) |
 | `media-default` | media_semantic, image_siglip2, audio_clap, audio_wave (256), audio_emotion (128), **speaker_wavlm (Audio Dense 512)**, transcript, **style_register (Text Dense 768)** | identity-lock slots |
 
-TEI default endpoint for `text-default` slots: `http://127.0.0.1:8088`.
+TEI default endpoint for `text-default` slots: `http://127.0.0.1:18190`.
 
 ### 6.3 Panel operations (`panel_ops.rs`)
 
@@ -10742,7 +10743,7 @@ Single authoritative kernel answer. `--anchor` string, `--explain` bool. Prints 
 - `anneal-status <vault>` — annealing status report.
 
 #### A.2.13 `lens add` / `lens list` (`cmd/lens.rs` and `lens_commands.rs`)
-- `lens add --manifest <m.json> [--home <dir>]` — registers a manifest into `{home}/lenses/registry.json` (dedup by `lens_id`).
+- `lens add --manifest <m.json> [--home <dir>]` — imports a manifest into the Calyx/Aster lens catalog DB (dedup by `lens_id`); legacy `{home}/lenses/registry.json` is migration input only.
 - `lens list [--home <dir>]` — lists registered lenses.
 - `lens explain --manifest <m> [--input <s>] [--repeat <n>]` — profiles a lens (times `measure()`, reports vector norm/estimates).
 
@@ -10932,7 +10933,7 @@ The daemon **fails loud** at startup — no silent CPU fallback. `run_server` or
 
 1. **Config load** — `CalyxConfig::from_file(path)` (T01; see B.6).
 2. **T02 CUDA probe** — `cuda_probe::probe_cuda_device()`. With `--features cuda` calls `calyx_forge::init_cuda(0,false)` and captures `CudaDeviceInfo {device_name, vram_total_mib, compute_cap}`. Without the feature, or on any init failure, returns `DeviceUnavailable` (`CALYX_FORGE_DEVICE_UNAVAILABLE`). Env `CALYX_FORCE_CUDA_FAIL=1` (exact string `"1"`) forces the failure path for FSV.
-3. **T03 VRAM budget** — `build_vram_budget` → `NvmlVramUsage::init()` (loads `libnvidia-ml.so.1`) + `VramBudget::from_config(cfg.vram_budget_mib, &device, nvml)`, then `startup_vram_audit()`. Reads live device usage via **NVML** (not `cudaMemGetInfo`). Fails closed (`CALYX_FORGE_VRAM_BUDGET`) if budget = 0, budget > device board total, or resident footprint already > budget (error names the TEI endpoints `:8088/:8089/:8090`). `--audit-vram` prints the `VramAuditReport {tei_used_mib, calyx_budget_mib, device_total_mib}` JSON and exits 0 here.
+3. **T03 VRAM budget** — `build_vram_budget` → `NvmlVramUsage::init()` (loads `libnvidia-ml.so.1`) + `VramBudget::from_config(cfg.vram_budget_mib, &device, nvml)`, then `startup_vram_audit()`. Reads live device usage via **NVML** (not `cudaMemGetInfo`). Fails closed (`CALYX_FORGE_VRAM_BUDGET`) if budget = 0, budget > device board total, or resident footprint already > budget (error names the TEI endpoints `:18190/:18188/:8088/:8089/:8090`). `--audit-vram` prints the `VramAuditReport {tei_used_mib, calyx_budget_mib, device_total_mib}` JSON and exits 0 here.
 4. **Vault read-back** — `open_vault_for_startup(vault_path)` calls `verify::verify_restore`; a present-but-unverified vault → `DaemonError::health_failed` (`CALYX_DAEMON_HEALTH_FAIL`). `vault_path` is `cfg.vault_path_resolved()` (`$CALYX_HOME` expanded).
 5. **First chain-verify cycle (synchronous)** — `ChainVerifyMetrics::new`, then `run_cycle(&[target], &chain)` so a scrape never observes an unverified gauge. `CalyxMetrics::new` then composes the full surface; `refresh_zfs_metrics` populates ZFS gauges. `--once` prints the encoded text and exits here.
 6. **T05/metrics + origin bind + signals** — `MetricsServer::bind` or `MetricsServer::bind_with_origin` (loopback-only, `CALYX_DAEMON_BIND_FAILED`); when `[learner_origin]` is configured, `LearnerOriginService::from_config` opens a dedicated learner vault and requires the shared-secret env var before the listener starts. `install_signal_handlers` wires SIGINT/SIGTERM (unix) or Ctrl-C (non-unix) → `CancellationToken`.
@@ -11007,7 +11008,7 @@ Learner-origin routes are Worker-only and backed by a dedicated Aster vault, not
 | `vram_budget_mib` | u32 | **yes** | — | `1..=30000` (`VRAM_BUDGET_MIB_CEILING`), else `CALYX_FORGE_VRAM_BUDGET`. |
 | `log_dir` | PathBuf | **yes** | — | — |
 | `health_log_path` | PathBuf | no | `/zfs/hot/logs/calyx-health/latest.json` | — |
-| `tei_endpoints` | Vec<String> | no | `[]` | Documents `:8088/:8089/:8090`. |
+| `tei_endpoints` | Vec<String> | no | `[]` | Documents `:18190/:18188/:8088/:8089/:8090`. |
 | `healthcheck_timeout_secs` | u32 | no | `30` | — |
 | `[learner_origin].vault_path` | PathBuf | no | — | Dedicated learner vault; must not equal `vault_path`. |
 | `[learner_origin].vault_id` | `VaultId` | iff block present | — | Stable learner vault id. |
@@ -11605,7 +11606,7 @@ Consolidated in [24_roadmap.md](24_roadmap.md) §4. Highlights:
 
 | Dimension | State |
 |---|---|
-| Build | CPU-only by default; CUDA opt-in (`--features cuda`, requires sm_120 / CUDA 13.2) |
+| Build | CPU-only by default; CUDA opt-in (`--features cuda`, requires sm_120 / CUDA 13.3 on aiwonder) |
 | Maturity | pre-1.0 (`0.1.0`); on-disk format & interfaces explicitly unstable |
 | Gating | single CI workflow enforcing fmt + clippy(-D) + check + nextest + doctests + hygiene; FSV/CUDA tests gated off CI |
 | Provenance/safety posture | fail-closed error catalog, per-slot guard, hash-chained ledger — all implemented |

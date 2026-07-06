@@ -1,7 +1,7 @@
 # Calyx Embedder (Lens) Roster — Full Report
 
 > **Generated:** 2026-06-22
-> **Source of truth:** live `/home/croyse/calyx/lenses/registry.json` + `panels/templates/` on aiwonder (read directly, not reconstructed from issues).
+> **Historical source readback:** this 2026-06-22 snapshot was generated from the then-live `/home/croyse/calyx/lenses/registry.json` + `panels/templates/` bytes on aiwonder. Current authority for lens catalog, roster, admission, cost, dtype, device placement, bits, and gate verdicts is Calyx/Aster DB rows; `registry.json` is migration/import input only.
 > **Doctrine refs:** `docs/dbprdplans/05_EMBEDDER_REGISTRY.md`, `docs/dbprdplans/05a_EMBEDDER_ROSTER_VRAM_BUDGET.md`, epic #814 (A38), #796/#787/#802 (A35/A36/A37 mandate).
 
 ---
@@ -23,7 +23,7 @@ Verified against aiwonder source-of-truth bytes on 2026-06-22:
 
 | Source | Evidence |
 |---|---|
-| `/home/croyse/calyx/lenses/registry.json` | 27,810 bytes, sha256 `c7351bbac1bf44bdffc27628507dbf689a9449e7db690e4fc8416e0367e61e3f`; 42 lenses; placement 24 GPU / 18 CPU; GPU `cost.vram_bytes` sum 13,488,986,564 bytes (~12,864.1 MiB / 13,489.0 MB) |
+| Historical `/home/croyse/calyx/lenses/registry.json` import snapshot | 27,810 bytes, sha256 `c7351bbac1bf44bdffc27628507dbf689a9449e7db690e4fc8416e0367e61e3f`; 42 lenses; placement 24 GPU / 18 CPU; GPU `cost.vram_bytes` sum 13,488,986,564 bytes (~12,864.1 MiB / 13,489.0 MB). This file is no longer association authority. |
 | `/home/croyse/calyx/panels/templates/index.json` | 10,335 bytes, sha256 `81361c10dfbc49c0539199122beb6660b6c7ffb9cfc4f87ee6ea81e6001db252`; 8 registered templates; `constellation-24` active template `15d0fd0a648da6686c72471d103b5fbc20e26a44e87c0c204c45a8df69af6149` |
 | `/home/croyse/calyx/fsv/issue832-bgem3-colbert-roster-20260621T141356Z/issue822_final_admission_readback.json` | 13,990 bytes, sha256 `6dd4361e91bb01d5d7ca7fe351ea78ffa5a65e7d000a9fc66d5fa21a054a863c`; A37 gate status `gate_passed` |
 
