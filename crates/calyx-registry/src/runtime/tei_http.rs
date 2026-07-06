@@ -323,7 +323,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn default_tei_batch_matches_aiwonder_service_cap() {
+    fn default_tei_batch_matches_resident_service_cap() {
         let lens = TeiHttpLens::resident_calyx_e5_18190("tei-default-batch", 768);
 
         assert_eq!(lens.max_batch, DEFAULT_TEI_MAX_BATCH);
