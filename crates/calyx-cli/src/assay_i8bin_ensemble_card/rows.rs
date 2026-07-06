@@ -21,7 +21,7 @@ pub(crate) struct SampleRows {
 }
 
 impl LabelRows {
-    pub(crate) fn load(path: &Path, target_class: usize) -> Result<Self, String> {
+    pub(crate) fn load_file(path: &Path, target_class: usize) -> Result<Self, String> {
         if !path.is_file() {
             return Err(format!(
                 "CALYX_FSV_ASSAY_I8BIN_CARD_NOT_FOUND: {}",
@@ -44,18 +44,23 @@ impl LabelRows {
             *counts.entry(row.label.to_string()).or_insert(0) += 1;
             labels.push(row.label == target_class);
         }
+        Self::from_parts(labels, counts, "CALYX_FSV_ASSAY_I8BIN_CARD_INVALID_ROWS")
+    }
+
+    pub(crate) fn from_parts(
+        labels: Vec<bool>,
+        label_counts: BTreeMap<String, usize>,
+        error_code: &'static str,
+    ) -> Result<Self, String> {
         if labels.is_empty() {
-            return Err("CALYX_FSV_ASSAY_I8BIN_CARD_INVALID_ROWS: no rows".to_string());
+            return Err(format!("{error_code}: no rows"));
         }
         if labels.iter().all(|value| *value) || labels.iter().all(|value| !*value) {
-            return Err(
-                "CALYX_FSV_ASSAY_I8BIN_CARD_INVALID_ROWS: target_class produces one class"
-                    .to_string(),
-            );
+            return Err(format!("{error_code}: target_class produces one class"));
         }
         Ok(Self {
             labels,
-            label_counts: counts,
+            label_counts,
         })
     }
 

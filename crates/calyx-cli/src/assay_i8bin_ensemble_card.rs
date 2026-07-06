@@ -1,4 +1,5 @@
 mod engine;
+mod label_store;
 mod matrix;
 mod metrics;
 mod plan;
@@ -13,7 +14,7 @@ use engine::{enforce_a37_mode, evaluate};
 use metrics::write_outputs;
 use request::I8binEnsembleRequest;
 
-const FSV_REMEDIATION: &str = "inspect the streamed plan Graph CF row, rows JSONL, vector bytes, metrics files, and Assay CF readback";
+const FSV_REMEDIATION: &str = "inspect the streamed plan Graph CF row, label-anchor Graph CF row, vector bytes, metrics files, and Assay CF readback";
 
 pub(crate) fn run(args: &[String]) -> CliResult {
     let request = I8binEnsembleRequest::parse(args).map_err(i8bin_card_error)?;
@@ -30,6 +31,10 @@ pub(crate) fn run(args: &[String]) -> CliResult {
         )))?
     );
     Ok(())
+}
+
+pub(crate) fn run_label_import(args: &[String]) -> CliResult {
+    label_store::run_import(args)
 }
 
 /// Same code recovery as [`i8bin_card_error`], but uncoded strings classify as
@@ -96,6 +101,20 @@ const I8BIN_CARD_CODES: &[&str] = &[
     "CALYX_FSV_ASSAY_I8BIN_CARD_NOT_FOUND",
     "CALYX_FSV_ASSAY_I8BIN_CARD_INVALID_PLAN",
     "CALYX_FSV_ASSAY_I8BIN_CARD_INVALID_ROWS",
+    "CALYX_FSV_ASSAY_I8BIN_LABELS_IMPORT_IO",
+    "CALYX_FSV_ASSAY_I8BIN_LABELS_IMPORT_INVALID",
+    "CALYX_FSV_ASSAY_I8BIN_LABELS_INVALID",
+    "CALYX_FSV_ASSAY_I8BIN_LABELS_DB_INVALID",
+    "CALYX_FSV_ASSAY_I8BIN_LABELS_DB_EXISTS",
+    "CALYX_FSV_ASSAY_I8BIN_LABELS_DB_MISSING",
+    "CALYX_FSV_ASSAY_I8BIN_LABELS_DB_MISSING_AFTER_WRITE",
+    "CALYX_FSV_ASSAY_I8BIN_LABELS_CHUNK_DB_MISSING",
+    "CALYX_FSV_ASSAY_I8BIN_LABELS_CHUNK_DB_MISSING_AFTER_WRITE",
+    "CALYX_FSV_ASSAY_I8BIN_LABELS_DB_MISMATCH",
+    "CALYX_FSV_ASSAY_I8BIN_LABELS_DB_INVALID_KEY",
+    "CALYX_FSV_ASSAY_I8BIN_LABELS_DB_ENCODE",
+    "CALYX_FSV_ASSAY_I8BIN_LABELS_DB_DECODE",
+    "CALYX_FSV_ASSAY_I8BIN_LABELS_TARGET_MISMATCH",
     "CALYX_FSV_ASSAY_I8BIN_CARD_VECTOR_MISMATCH",
     "CALYX_FSV_ASSAY_A37_DIVERSITY_GATE_REFUSED",
     "CALYX_FSV_ASSAY_I8BIN_CARD_OUTPUT_EXISTS",

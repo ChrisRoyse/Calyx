@@ -121,13 +121,51 @@ fn i8bin_card_reads_plan_from_graph_cf() {
 }
 
 #[test]
+fn i8bin_card_reads_labels_from_graph_cf() {
+    let root = temp_root("i8bin-ensemble-card-labels-db");
+    fs::create_dir_all(&root).unwrap();
+    let rows = root.join("rows.jsonl");
+    write_rows(&rows, 120);
+    let labels_cf_root = write_labels_db(&root, &rows, 1);
+    let plan = write_plan(&root, 10, 120);
+    let mut request = request_for(&root, plan, PathBuf::new(), None, 80, Some(60));
+    request.labels_cf_root = Some(labels_cf_root.clone());
+    request.labels_key = "unit_labels".to_string();
+    request.emit_artifacts = false;
+    request.metrics_dir = PathBuf::new();
+    request.cf_root = root.join("shared-assay-cf");
+
+    let report = evaluate(&request).unwrap();
+    let evidence = write_outputs(&request, &report).unwrap();
+
+    assert_eq!(report.label_source.mode, "aster_graph_cf");
+    assert_eq!(report.label_source.row_count, 120);
+    assert_eq!(report.label_source.positive_count, 60);
+    assert_eq!(report.rows_jsonl, "");
+    assert!(
+        report
+            .label_source
+            .db_readback
+            .as_ref()
+            .unwrap()
+            .readback_matches
+    );
+    assert_eq!(evidence.artifact_mode, "db_only");
+    assert_eq!(evidence.assay_cf_subject_counts["ensemble_card"], 1);
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
 fn default_gate_mode_refuses_homogeneous_panel_before_outputs() {
     let root = temp_root("i8bin-ensemble-card-a37-gate-refuses");
     fs::create_dir_all(&root).unwrap();
     let rows = root.join("rows.jsonl");
     write_rows(&rows, 120);
+    let labels_cf_root = write_labels_db(&root, &rows, 1);
     let plan = write_plan(&root, 10, 120);
-    let mut request = request_for(&root, plan, rows, None, 80, Some(60));
+    let mut request = request_for(&root, plan, PathBuf::new(), None, 80, Some(60));
+    request.labels_cf_root = Some(labels_cf_root);
+    request.labels_key = "unit_labels".to_string();
     request.mode = A37CardMode::Gate;
 
     let report = evaluate(&request).unwrap();
@@ -138,6 +176,25 @@ fn default_gate_mode_refuses_homogeneous_panel_before_outputs() {
     assert!(!request.metrics_dir.exists());
     assert!(!request.cf_root.exists());
     let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn gate_mode_rejects_file_label_authority_at_parse() {
+    let args = [
+        "--plan",
+        "plan.json",
+        "--rows-jsonl",
+        "rows.jsonl",
+        "--cf-root",
+        "assay-cf",
+    ]
+    .iter()
+    .map(|value| value.to_string())
+    .collect::<Vec<_>>();
+
+    let error = I8binEnsembleRequest::parse(&args).unwrap_err();
+
+    assert!(error.contains("gate mode requires --labels-cf-root"));
 }
 
 #[test]
@@ -234,6 +291,8 @@ fn request_for(
         plan_cf_root: None,
         plan_key: crate::partitioned_bench::rrf_plan::DEFAULT_ASSOCIATION_KEY.to_string(),
         rows_jsonl: rows,
+        labels_cf_root: None,
+        labels_key: super::label_store::DEFAULT_ASSOCIATION_KEY.to_string(),
         stream_report,
         metrics_dir: metrics.clone(),
         cf_root: metrics.join("assay_cf"),
@@ -248,6 +307,23 @@ fn request_for(
         mode: A37CardMode::Diagnostic,
         emit_artifacts: true,
     }
+}
+
+fn write_labels_db(root: &Path, rows: &Path, target_class: usize) -> PathBuf {
+    let imported = super::label_store::load_rows_jsonl(rows, target_class).unwrap();
+    let labels_cf_root = root.join("labels-cf");
+    super::label_store::write(
+        &labels_cf_root,
+        "unit_labels",
+        "unit",
+        target_class,
+        &imported.source_sha256,
+        &imported.label_counts,
+        &imported.labels,
+        32,
+    )
+    .unwrap();
+    labels_cf_root
 }
 
 fn write_rows(path: &Path, rows: usize) {

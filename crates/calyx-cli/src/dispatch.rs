@@ -92,6 +92,9 @@ pub(crate) fn run(args: Vec<String>) -> CliResult {
         [command, topic, rest @ ..] if command == "assay" && topic == "i8bin-ensemble-card" => {
             assay_i8bin_ensemble_card::run(rest)
         }
+        [command, topic, rest @ ..] if command == "assay" && topic == "i8bin-labels" => {
+            assay_i8bin_ensemble_card::run_label_import(rest)
+        }
         [command, topic, rest @ ..]
             if command == "assay" && topic == "multi-anchor-ensemble-card" =>
         {

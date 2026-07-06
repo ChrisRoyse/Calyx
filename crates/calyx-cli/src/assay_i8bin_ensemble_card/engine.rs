@@ -8,6 +8,7 @@ use serde::Serialize;
 
 use crate::assay_bits_validation::calyx_error_detail;
 
+use super::label_store::{self, LabelAnchorDbReadback};
 use super::matrix::{MatrixReadout, read_vectors};
 use super::plan::{LoadedPlan, PlanSlot, PlanSourceReadout};
 use super::request::I8binEnsembleRequest;
@@ -18,6 +19,7 @@ pub(crate) struct I8binEnsembleReport {
     pub(crate) plan_path: String,
     pub(crate) plan_source: PlanSourceReadout,
     pub(crate) rows_jsonl: String,
+    pub(crate) label_source: LabelSourceReadout,
     pub(crate) stream_report: Option<String>,
     pub(crate) target_class: usize,
     pub(crate) domain: String,
@@ -34,6 +36,19 @@ pub(crate) struct I8binEnsembleReport {
     pub(crate) matrix: MatrixReadout,
     pub(crate) diversity: A37DiversityGate,
     pub(crate) card: EnsembleCard,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub(crate) struct LabelSourceReadout {
+    pub(crate) mode: String,
+    pub(crate) rows_jsonl: Option<String>,
+    pub(crate) cf_root: Option<String>,
+    pub(crate) association_key: Option<String>,
+    pub(crate) row_count: usize,
+    pub(crate) positive_count: usize,
+    pub(crate) negative_count: usize,
+    pub(crate) imported_rows_sha256: Option<String>,
+    pub(crate) db_readback: Option<LabelAnchorDbReadback>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -67,7 +82,7 @@ pub(crate) fn evaluate(request: &I8binEnsembleRequest) -> Result<I8binEnsembleRe
             plan.slots.len()
         ));
     }
-    let rows = LabelRows::load(&request.rows_jsonl, request.target_class)?;
+    let (rows, label_source) = load_labels(request)?;
     let sample = rows.balanced_sample(request.sample_rows)?;
     let vectors = read_vectors(
         &plan,
@@ -94,7 +109,7 @@ pub(crate) fn evaluate(request: &I8binEnsembleRequest) -> Result<I8binEnsembleRe
         source: format!(
             "assay i8bin-ensemble-card plan={} rows={} sample_rows={} signature_rows={}",
             plan_ref.as_str(),
-            request.rows_jsonl.display(),
+            label_source_name(&label_source),
             sample.indices.len(),
             vectors.matrix.signature_rows
         ),
@@ -123,6 +138,7 @@ pub(crate) fn evaluate(request: &I8binEnsembleRequest) -> Result<I8binEnsembleRe
         plan_path: plan_ref,
         plan_source: plan.source,
         rows_jsonl: request.rows_jsonl.display().to_string(),
+        label_source,
         stream_report: request
             .stream_report
             .as_ref()
@@ -143,6 +159,68 @@ pub(crate) fn evaluate(request: &I8binEnsembleRequest) -> Result<I8binEnsembleRe
         diversity,
         card,
     })
+}
+
+fn load_labels(request: &I8binEnsembleRequest) -> Result<(LabelRows, LabelSourceReadout), String> {
+    if let Some(cf_root) = request.labels_cf_root.as_ref() {
+        let loaded = label_store::read(cf_root, &request.labels_key)
+            .map_err(|error| format!("{}: {}", error.code, error.message))?;
+        if loaded.manifest.target_class != request.target_class {
+            return Err(format!(
+                "CALYX_FSV_ASSAY_I8BIN_LABELS_TARGET_MISMATCH: DB label target_class={} request target_class={}",
+                loaded.manifest.target_class, request.target_class
+            ));
+        }
+        let readback = loaded.db_readback.clone();
+        let manifest = loaded.manifest;
+        let rows = LabelRows::from_parts(
+            loaded.labels,
+            manifest.label_counts.clone(),
+            "CALYX_FSV_ASSAY_I8BIN_LABELS_INVALID",
+        )?;
+        let source = LabelSourceReadout {
+            mode: "aster_graph_cf".to_string(),
+            rows_jsonl: None,
+            cf_root: Some(cf_root.display().to_string()),
+            association_key: Some(request.labels_key.clone()),
+            row_count: manifest.row_count,
+            positive_count: manifest.positive_count,
+            negative_count: manifest.negative_count,
+            imported_rows_sha256: Some(manifest.imported_rows_sha256),
+            db_readback: Some(readback),
+        };
+        return Ok((rows, source));
+    }
+    if request.mode.requires_gate() {
+        return Err(
+            "CALYX_FSV_ASSAY_I8BIN_CARD_INVALID_CONFIG: gate mode requires labels from Calyx/Aster Graph CF"
+                .to_string(),
+        );
+    }
+    let rows = LabelRows::load_file(&request.rows_jsonl, request.target_class)?;
+    let positive_count = rows.labels.iter().filter(|label| **label).count();
+    let source = LabelSourceReadout {
+        mode: "rows_jsonl_diagnostic_import".to_string(),
+        rows_jsonl: Some(request.rows_jsonl.display().to_string()),
+        cf_root: None,
+        association_key: None,
+        row_count: rows.labels.len(),
+        positive_count,
+        negative_count: rows.labels.len().saturating_sub(positive_count),
+        imported_rows_sha256: None,
+        db_readback: None,
+    };
+    Ok((rows, source))
+}
+
+fn label_source_name(source: &LabelSourceReadout) -> String {
+    source
+        .cf_root
+        .as_ref()
+        .zip(source.association_key.as_ref())
+        .map(|(root, key)| format!("aster-graph-cf:{root}:{key}"))
+        .or_else(|| source.rows_jsonl.clone())
+        .unwrap_or_else(|| "unknown".to_string())
 }
 
 pub(crate) fn enforce_a37_mode(
