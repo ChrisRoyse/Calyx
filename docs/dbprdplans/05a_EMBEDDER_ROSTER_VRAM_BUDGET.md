@@ -102,10 +102,13 @@ execution. Model choice is still measured. The active aiwonder dense default is 
 Calyx-owned FP16 `multilingual-e5-base` service on `:18190`; BGE-M3 on `:18188` is a
 deliberate diversity lens, not the default dense lane. The hardware target is RTX
 5090 `sm_120`; the TEI runtime must be a Blackwell 12.0 build and startup readback
-must show `float16`, host `libcuda`, and CUDA-device execution. The current
-aiwonder services run TEI `1.9.3` through the driver-610 wrapper on a CUDA 13.3
-host; upstream TEI also publishes a Blackwell 12.0 image line, so changing images
-is a measured rollout item, not a reason to disturb a healthy GPU-resident
+must show `float16`, host `libcuda`, and CUDA-device execution. The official TEI
+image family for GeForce RTX 50X0 is the Blackwell 12.0 lane
+(`ghcr.io/huggingface/text-embeddings-inference:120-*`). The current aiwonder
+services run TEI `1.9.3` through the driver-610 wrapper on a CUDA 13.3 host, and
+that wrapper remains acceptable only while Calyx readback proves `Float16`,
+`CudaDevice`, host `libcuda`, and healthy latency. Migrating to the upstream
+`120-*` image is a measured rollout, not a reason to disturb a healthy resident
 service. `Qwen/Qwen3-Embedding-0.6B` is the largest normal candidate before tier-3,
 and is admitted only when Calyx readback beats the smaller lane on
 `bits / VRAM-MB`. Use resident FP16 (`float16`/`f16`) first, BF16 only if a
@@ -115,7 +118,11 @@ may be 13.3, but framework support is still a separate gate; PyTorch-class stack
 must prove Blackwell `sm_120` kernels with CUDA 12.8-or-newer compatible builds
 before use. The large 4B/8B Qwen/GTE/E5-class embedders are not default-roster
 material; they are one-at-a-time tier-3 probes unless they beat compact panels on
-measured `bits / VRAM-MB`.
+measured `bits / VRAM-MB`. A model that lacks safetensors and falls back to
+`pytorch_model.bin` is acceptable only when the penalty is startup-only and the
+database admission row still proves GPU placement, latency, VRAM density, and
+unique panel bits; otherwise replace or park it with the smallest frozen lens that
+wins those measurements.
 
 **No file artifact authority:** Roster, admission, cost, latency, dtype,
 device-placement, family assignment, bits, and gate verdicts are Calyx/Aster rows.

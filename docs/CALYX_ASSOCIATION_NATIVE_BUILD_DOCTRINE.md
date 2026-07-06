@@ -156,6 +156,12 @@ Biomedical claim ladder:
   TEI service using `float16`/FP16, fail-closed GPU execution, bounded batching,
   and database readback of model id, dtype, device, batch limits, VRAM, latency,
   and per-lens bits.
+- For GeForce RTX 50X0, prefer the Blackwell 12.0 TEI/Candle lane (`sm_120`).
+  A wrapper or local image name is not proof; the proof is Calyx/Aster readback
+  plus startup evidence for `Float16`, CUDA device placement, host `libcuda`,
+  and healthy latency. The upstream TEI `120-*` image line is the target when
+  rolled out, but do not churn a healthy resident service without a measured
+  admission win.
 - BF16, INT8, FP8, FP4, ONNX, Candle, and alternate TEI images are allowed only
   when a Calyx/Aster admission row proves GPU execution and improves measured
   speed, VRAM density, or bits-per-VRAM for the bounded corpus. No CPU fallback
