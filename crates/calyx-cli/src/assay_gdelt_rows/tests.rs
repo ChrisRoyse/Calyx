@@ -41,6 +41,13 @@ fn converts_real_shape_rows_with_event_times_and_manifest_hashes() {
     let first_row: serde_json::Value = serde_json::from_str(rows.lines().next().unwrap()).unwrap();
     assert_eq!(first_row["anchor_leaks_into_input"], true);
     assert_eq!(first_row["anchor_audit"]["grounded_gate_eligible"], false);
+    assert_eq!(first_row["gdelt_event_code"], "010");
+    assert_eq!(first_row["gdelt_event_root"], "01");
+    assert_eq!(first_row["gdelt_quad_class"], "1");
+    assert_eq!(first_row["gdelt_goldstein"], "0.0");
+    assert_eq!(first_row["gdelt_avg_tone"], "1.5");
+    assert_eq!(first_row["gdelt_actor1_name"], "ACTOR1");
+    assert_eq!(first_row["gdelt_actor2_name"], "ACTOR2");
     let manifest = fs::read_to_string(root.join("manifest.json")).unwrap();
     assert!(manifest.contains("rows_jsonl_sha256"));
     assert!(manifest.contains("calyx-gdelt-rows-source-v1"));
