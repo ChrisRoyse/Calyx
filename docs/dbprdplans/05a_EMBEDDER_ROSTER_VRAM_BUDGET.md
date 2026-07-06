@@ -96,13 +96,18 @@ audit proves CUDA execution with no material CPU fallback, **0 MB** for static
 as **± a measurement**: the real cost is read back from Calyx/Aster via the admission
 store, and the resource-aware admission packer (#729) gates by `bits / VRAM-MB`.
 
-**Blackwell dense-embedder default:** Hugging Face TEI's Blackwell GPU path launches
-`Qwen/Qwen3-Embedding-0.6B` with `--dtype float16`; Calyx mirrors that. Use resident
-FP16 (`float16`/`f16`) first, BF16 only if a specific model requires it or a measured
-run beats FP16, and INT8/FP8 only after GPU provider readback proves no hidden CPU
-execution. The large 4B/8B Qwen/GTE/E5-class embedders are not default-roster material;
-they are one-at-a-time tier-3 probes unless they beat compact panels on measured
-`bits / VRAM-MB`.
+**Blackwell dense-embedder default:** Calyx mirrors Hugging Face TEI's Blackwell
+GPU policy: resident service, `--dtype float16`, batched requests, and no hidden CPU
+execution. Model choice is still measured. The active aiwonder dense default is the
+Calyx-owned FP16 `multilingual-e5-base` service on `:18190`; BGE-M3 on `:18188` is a
+deliberate diversity lens, not the default dense lane. `Qwen/Qwen3-Embedding-0.6B`
+is the largest normal candidate before tier-3, and is admitted only when Calyx
+readback beats the smaller lane on `bits / VRAM-MB`. Use resident FP16
+(`float16`/`f16`) first, BF16 only if a specific model requires it or a measured run
+beats FP16, and INT8/FP8 only after GPU provider readback proves no hidden CPU
+execution. The large 4B/8B Qwen/GTE/E5-class embedders are not default-roster
+material; they are one-at-a-time tier-3 probes unless they beat compact panels on
+measured `bits / VRAM-MB`.
 
 > A 110 M-param encoder is ≈ **220 MB FP16 / 110 MB INT8**. A 300–335 M base is ≈
 > **0.6 GB FP16 / 0.3 GB INT8**. A 0.6 B LLM-embedder is ≈ **1.2 GB FP16 / 0.6 GB INT8**.
@@ -125,7 +130,7 @@ default, and INT8 figures are eligible only after GPU-provider readback.
 | Model | Params | Dim | Ctx | Fam | Resident ≈ | Notes |
 |---|---|---|---|---|---|---|
 | **EmbeddingGemma-300M** | 300 M | 768 (MRL 128/256/512) | 2048 | DS-gen | ~0.30 GB | SOTA <500 M, 100+ langs, code-aware; Gemma3 backbone |
-| **Qwen3-Embedding-0.6B** | 600 M | 32–1024 (MRL) | 32 K | DS-gen | ~1.2 GB FP16 | RTX 5090/TEI default; LLM-based, high signal, instruction-aware |
+| **Qwen3-Embedding-0.6B** | 600 M | 32–1024 (MRL) | 32 K | DS-gen | ~1.2 GB FP16 | Blackwell FP16 candidate; use only when measured `bits / VRAM-MB` beats smaller resident E5 |
 | **Qwen3-Embedding-4B** | 4 B | up to 2560 | 32 K | DS-gen | ~8 GB FP16 | top-tier; *budget-heavy*, optional tier-3 |
 | **gte-modernbert-base** | 305 M | 768 | 8192 | DS-gen | ~0.30 GB | modern ModernBERT, long ctx, strong |
 | **nomic-embed-text-v1.5** | 137 M | 768 (MRL 64–768) | 8192 | DS-gen | ~0.14 GB | Matryoshka, already commissioned on aiwonder |
@@ -249,7 +254,7 @@ noted FP16; **temporal sidecars excluded from the content count.**
 | # | Lens | Fam | ≈ VRAM | Why it's here (unique perspective) |
 |---|---|---|---|---|
 | 1 | EmbeddingGemma-300M | DS-gen | 0.30 | best small general semantic, multilingual+code |
-| 2 | Qwen3-Embedding-0.6B (FP16) | DS-gen | 1.20 | RTX 5090/TEI default; LLM-grade signal, instruction-aware |
+| 2 | Qwen3-Embedding-0.6B (FP16) | DS-gen | 1.20 | optional heavier semantic candidate; admit only by measured `bits / VRAM-MB` over smaller resident E5 |
 | 3 | nomic-embed-text-v1.5 | DS-gen | 0.14 | long-ctx, Matryoshka, distinct training |
 | 4 | bge-base-en-v1.5 (INT8) | DS-gen | 0.11 | workhorse, different objective |
 | 5 | **BGE-M3 (INT8)** | DS-gen+**LEX+LI** | 0.57 | **3 families in one** — dense+sparse+ColBERT |
@@ -359,8 +364,11 @@ resident at any instant (A5 hot-swap, A36 templates).
 ## §8 — Sources (web research, 2026-06-20)
 
 - MTEB leaderboard / model survey — Modal, BentoML, Baseten, Milvus, Ailog guides.
-- Qwen3-Embedding (0.6B/4B/8B) — QwenLM blog & GitHub; TEI Blackwell GPU docs for
-  `Qwen/Qwen3-Embedding-0.6B --dtype float16`.
+- NVIDIA CUDA 13.3 release notes / CUDA GPU table; Hugging Face TEI Blackwell GPU
+  docs for compute capability 12.0 (`ghcr.io/huggingface/text-embeddings-inference:120-1.9`)
+  and `--dtype float16`.
+- Qwen3-Embedding (0.6B/4B/8B) — QwenLM blog & GitHub; treated as measured FP16
+  candidates, not the active default dense lane.
 - EmbeddingGemma-300M — Google / arXiv 2509.20354; HF model card.
 - Granite-Embedding R2 — arXiv 2508.21085 / 2605.13521.
 - Arctic-Embed — arXiv 2405.05374.

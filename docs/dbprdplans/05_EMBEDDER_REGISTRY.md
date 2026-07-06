@@ -159,7 +159,7 @@ remain serialized as sidecars and never count toward the content-lens floor.
 **Where to get them (all free / open-weight, A34; HuggingFace via `hf_hub_token`).** Run dense lenses on Calyx-owned resident FP16 TEI/Candle GPU services (`§2`, never ad-hoc throwaway TEI and never a cross-tenant Leapable container); image/audio via `external-cmd`/`onnx`; temporal/graph/scalar via `algorithmic`.
 
 **Text (dense + sparse) — try first, pick 5–7 *diverse* ones (diversity = low redundancy, A7):**
-- `BGE-M3` (owned TEI `:18188`, dense+sparse+multi-vector, 100+ langs) · `multilingual-e5-base` / `e5-mistral` (owned TEI `:18190` for the website vault) · `Qwen3-Embedding-0.6B` (FP16 Blackwell default; 4B/8B only as tier-3 probes) · `gte-multilingual-base` · `nomic-embed-text-v1.5` · `jinaai/jina-embeddings-v3` · `NV-Embed-v2` · `Alibaba-NLP/gte-Qwen2` · `dunzhang/stella_en_1.5B_v5`.
+- `multilingual-e5-base` (owned FP16 TEI `:18190`, current Calyx dense default) · `BGE-M3` (owned FP16 TEI `:18188`, dense+sparse+multi-vector, use deliberately for diversity) · `Qwen3-Embedding-0.6B` (Blackwell FP16 candidate only when measured `bits / VRAM-MB` beats smaller E5; 4B/8B only as tier-3 probes) · `gte-multilingual-base` · `nomic-embed-text-v1.5` · `jinaai/jina-embeddings-v3` · `NV-Embed-v2` · `Alibaba-NLP/gte-Qwen2` · `dunzhang/stella_en_1.5B_v5`.
 - **Sparse / lexical (a different signal, not just another dense model):** `naver/splade-v3` (the full-text lens, `DOCTRINE §3`).
 - **Reranker (cross-encoder, asymmetric):** the resident `gte` reranker (TEI `:8089`).
 
