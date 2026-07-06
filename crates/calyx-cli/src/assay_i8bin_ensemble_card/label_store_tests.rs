@@ -88,7 +88,8 @@ fn gdelt_root_anchor_imports_from_text() {
     )
     .unwrap();
 
-    let imported = load_rows_jsonl(&rows, 1, &AnchorSpec::GdeltRoot("04".to_string())).unwrap();
+    let imported =
+        load_rows_jsonl(&rows, 1, &AnchorSpec::GdeltRoot("04".to_string()), None).unwrap();
 
     assert_eq!(imported.labels, vec![true, false, true, false]);
     assert_eq!(imported.label_counts["1"], 2);

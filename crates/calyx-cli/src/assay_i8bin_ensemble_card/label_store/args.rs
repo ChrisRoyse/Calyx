@@ -11,6 +11,7 @@ pub(super) struct ImportArgs {
     pub(super) target_class: usize,
     pub(super) anchor_name: Option<String>,
     pub(super) derive_anchor: String,
+    pub(super) limit_per_class: Option<usize>,
     pub(super) chunk_rows: usize,
 }
 
@@ -22,6 +23,7 @@ impl ImportArgs {
         let mut target_class = 1_usize;
         let mut anchor_name = None;
         let mut derive_anchor = "label".to_string();
+        let mut limit_per_class = None;
         let mut chunk_rows = DEFAULT_CHUNK_ROWS;
         let mut it = raw.iter();
         while let Some(flag) = it.next() {
@@ -41,6 +43,11 @@ impl ImportArgs {
                 }
                 "--anchor-name" => anchor_name = Some(next()?),
                 "--derive-anchor" => derive_anchor = next()?,
+                "--limit-per-class" => {
+                    limit_per_class = Some(next()?.parse::<usize>().map_err(|error| {
+                        CliError::usage(format!("invalid --limit-per-class: {error}"))
+                    })?);
+                }
                 "--chunk-rows" => {
                     chunk_rows = next()?.parse::<usize>().map_err(|error| {
                         CliError::usage(format!("invalid --chunk-rows: {error}"))
@@ -55,6 +62,9 @@ impl ImportArgs {
         if chunk_rows == 0 {
             return Err(CliError::usage("--chunk-rows must be > 0"));
         }
+        if matches!(limit_per_class, Some(0)) {
+            return Err(CliError::usage("--limit-per-class must be > 0"));
+        }
         Ok(Self {
             rows_jsonl: rows_jsonl
                 .ok_or_else(|| CliError::usage("--rows-jsonl <rows.jsonl> is required"))?,
@@ -63,6 +73,7 @@ impl ImportArgs {
             target_class,
             anchor_name,
             derive_anchor,
+            limit_per_class,
             chunk_rows,
         })
     }

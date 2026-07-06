@@ -10,7 +10,12 @@ use super::{ImportedLabels, args::ImportArgs, error, hex_sha256, write};
 pub(crate) fn run_import(raw: &[String]) -> CliResult {
     let args = ImportArgs::parse(raw)?;
     let anchor = AnchorSpec::parse(&args.derive_anchor)?;
-    let imported = load_rows_jsonl(&args.rows_jsonl, args.target_class, &anchor)?;
+    let imported = load_rows_jsonl(
+        &args.rows_jsonl,
+        args.target_class,
+        &anchor,
+        args.limit_per_class,
+    )?;
     let anchor_name = args
         .anchor_name
         .unwrap_or_else(|| anchor.default_name(args.target_class));
@@ -46,6 +51,7 @@ pub(crate) fn load_rows_jsonl(
     path: &Path,
     target_class: usize,
     anchor: &AnchorSpec,
+    limit_per_class: Option<usize>,
 ) -> CliResult<ImportedLabels> {
     let bytes = std::fs::read(path).map_err(|err| {
         CliError::Calyx(error(
@@ -61,6 +67,7 @@ pub(crate) fn load_rows_jsonl(
     })?;
     let mut labels = Vec::new();
     let mut counts = BTreeMap::new();
+    let mut limiter = RowLimiter::new(limit_per_class);
     for (line_idx, line) in text.lines().enumerate() {
         if line.trim().is_empty() {
             continue;
@@ -71,6 +78,14 @@ pub(crate) fn load_rows_jsonl(
                 format!("{} line {line_idx}: {err}", path.display()),
             ))
         })?;
+        if !limiter.accept(&row).map_err(|message| {
+            CliError::Calyx(error(
+                "CALYX_FSV_ASSAY_I8BIN_LABELS_IMPORT_INVALID",
+                format!("{} line {line_idx}: {message}", path.display()),
+            ))
+        })? {
+            continue;
+        }
         let label = anchor.value(&row, target_class).map_err(|message| {
             CliError::Calyx(error(
                 "CALYX_FSV_ASSAY_I8BIN_LABELS_IMPORT_INVALID",
@@ -183,6 +198,35 @@ impl AnchorSpec {
                 .to_ascii_lowercase()
                 .contains(&expected.to_ascii_lowercase())),
         }
+    }
+}
+
+struct RowLimiter {
+    limit: Option<usize>,
+    counts: BTreeMap<usize, usize>,
+}
+
+impl RowLimiter {
+    fn new(limit: Option<usize>) -> Self {
+        Self {
+            limit,
+            counts: BTreeMap::new(),
+        }
+    }
+
+    fn accept(&mut self, row: &RowJson) -> Result<bool, String> {
+        let Some(limit) = self.limit else {
+            return Ok(true);
+        };
+        let label = row
+            .label
+            .ok_or_else(|| "--limit-per-class requires row.label".to_string())?;
+        let count = self.counts.get(&label).copied().unwrap_or(0);
+        if count >= limit {
+            return Ok(false);
+        }
+        self.counts.insert(label, count + 1);
+        Ok(true)
     }
 }
 

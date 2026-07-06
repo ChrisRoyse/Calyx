@@ -156,6 +156,28 @@ fn i8bin_card_reads_labels_from_graph_cf() {
 }
 
 #[test]
+fn label_import_limit_per_class_matches_stream_selection() {
+    let root = temp_root("i8bin-label-limit-per-class");
+    fs::create_dir_all(&root).unwrap();
+    let rows = root.join("rows.jsonl");
+    write_rows(&rows, 10);
+
+    let imported = super::label_store::load_rows_jsonl(
+        &rows,
+        1,
+        &super::label_store::AnchorSpec::Label,
+        Some(3),
+    )
+    .unwrap();
+
+    assert_eq!(imported.labels.len(), 6);
+    assert_eq!(imported.labels.iter().filter(|value| **value).count(), 3);
+    assert_eq!(imported.label_counts["0"], 3);
+    assert_eq!(imported.label_counts["1"], 3);
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
 fn default_gate_mode_refuses_homogeneous_panel_before_outputs() {
     let root = temp_root("i8bin-ensemble-card-a37-gate-refuses");
     fs::create_dir_all(&root).unwrap();
@@ -314,6 +336,7 @@ fn write_labels_db(root: &Path, rows: &Path, target_class: usize) -> PathBuf {
         rows,
         target_class,
         &super::label_store::AnchorSpec::Label,
+        None,
     )
     .unwrap();
     let labels_cf_root = root.join("labels-cf");
