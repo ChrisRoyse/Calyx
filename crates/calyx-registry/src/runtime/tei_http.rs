@@ -9,7 +9,7 @@ use serde_json::{Value, json};
 use crate::frozen::FrozenLensContract;
 use crate::lens::ensure_input_modality;
 
-/// Calyx-owned FP16 multilingual E5 TEI endpoint on aiwonder.
+/// Calyx-owned FP16 multilingual E5 TEI endpoint on the local GPU host.
 pub const DEFAULT_TEI_ENDPOINT: &str = "http://127.0.0.1:18190/embed";
 pub const LEGACY_TEI_8088_ENDPOINT: &str = "http://127.0.0.1:8088/embed";
 
