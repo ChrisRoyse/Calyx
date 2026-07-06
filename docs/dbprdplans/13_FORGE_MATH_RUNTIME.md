@@ -46,6 +46,7 @@ larger `k` fails loud rather than returning a non-exact merge.
 
 - Target `sm_120` (compute_cap 12.0) explicitly; ship PTX + cubin for sm_120 with a JIT fallback. Stable PyTorch wheels lag Blackwell (aiwonder gotcha) — Forge does **not** depend on host PyTorch; lens NNs run in pinned TEI Docker or candle/ORT.
 - For dense semantic embedder inference on RTX 5090/CUDA 13.3, use FP16 first (`float16`/`f16`) and keep the model resident/batched; BF16, INT8, and FP8 are promoted only by measured Calyx readback that proves faster GPU execution and acceptable Assay bits. Forge GEMM may still autotune BF16/FP8/MXFP formats per op, with FP32 accumulate where required.
+- Rust CUDA builds on the CUDA 13.3 host must use `cudarc` with the `cuda-13030` feature; `cuda-13020` is a CUDA 13.2 target and fails the aiwonder build readback.
 - Respect the 600 W power cap and the `leapable-gpu-max-power.service`; Forge yields VRAM/SM budget to resident TEI/marketplace (Anneal-capped, `12 §6`).
 - 32 GB VRAM is a working set, never the source of truth (`04 §3`): batches stream from mmap'd Aster columns.
 

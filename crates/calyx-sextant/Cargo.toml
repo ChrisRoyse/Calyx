@@ -35,7 +35,7 @@ zeroize = "1"
 zstd.workspace = true
 
 [target.'cfg(target_os = "linux")'.dependencies]
-cudarc = { workspace = true, optional = true, features = ["std", "driver", "dynamic-linking", "cuda-13020"] }
+cudarc = { workspace = true, optional = true, features = ["std", "driver", "dynamic-linking", "cuda-13030"] }
 cuvs-sys = { workspace = true, optional = true }
 
 [dev-dependencies]

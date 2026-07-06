@@ -614,7 +614,7 @@ dependencies = [
  "calyx-core",
  "calyx-fsv",
  "criterion",
- "cudarc 0.19.7",
+ "cudarc 0.19.8",
  "nvml-wrapper",
  "proptest",
  "rand 0.8.6",
@@ -838,7 +838,7 @@ dependencies = [
  "calyx-paths",
  "calyx-ward",
  "criterion",
- "cudarc 0.19.7",
+ "cudarc 0.19.8",
  "cuvs-sys",
  "memmap2",
  "proptest",
@@ -948,7 +948,7 @@ dependencies = [
  "byteorder",
  "candle-kernels",
  "candle-ug",
- "cudarc 0.19.7",
+ "cudarc 0.19.8",
  "float8",
  "gemm 0.19.0",
  "half",
@@ -1364,9 +1364,9 @@ dependencies = [
 
 [[package]]
 name = "cudarc"
-version = "0.19.7"
+version = "0.19.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1cea5f10a99e025c1b44ae2354c2d8326b25ddbd0baf76bde8e55cfd4018a2cc"
+checksum = "42310153e06cf4cd532901f7096beb27504d681736a29ee90728ae4e2d93b2a8"
 dependencies = [
  "float8",
  "half",
