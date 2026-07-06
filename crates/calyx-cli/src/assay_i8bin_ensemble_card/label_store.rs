@@ -12,9 +12,9 @@ mod args;
 #[path = "label_store/import.rs"]
 mod import;
 
-#[cfg(test)]
-pub(crate) use import::load_rows_jsonl;
 pub(crate) use import::run_import;
+#[cfg(test)]
+pub(crate) use import::{AnchorSpec, load_rows_jsonl};
 
 const KEY_PREFIX: &[u8] = b"calyx/assay/i8bin-label-anchor/v1/";
 const VALUE_MAGIC: &[u8] = b"CAILBL1\0";

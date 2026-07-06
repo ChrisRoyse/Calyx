@@ -10,6 +10,7 @@ pub(super) struct ImportArgs {
     pub(super) association_key: String,
     pub(super) target_class: usize,
     pub(super) anchor_name: Option<String>,
+    pub(super) derive_anchor: String,
     pub(super) chunk_rows: usize,
 }
 
@@ -20,6 +21,7 @@ impl ImportArgs {
         let mut association_key = DEFAULT_ASSOCIATION_KEY.to_string();
         let mut target_class = 1_usize;
         let mut anchor_name = None;
+        let mut derive_anchor = "label".to_string();
         let mut chunk_rows = DEFAULT_CHUNK_ROWS;
         let mut it = raw.iter();
         while let Some(flag) = it.next() {
@@ -38,6 +40,7 @@ impl ImportArgs {
                     })?;
                 }
                 "--anchor-name" => anchor_name = Some(next()?),
+                "--derive-anchor" => derive_anchor = next()?,
                 "--chunk-rows" => {
                     chunk_rows = next()?.parse::<usize>().map_err(|error| {
                         CliError::usage(format!("invalid --chunk-rows: {error}"))
@@ -59,6 +62,7 @@ impl ImportArgs {
             association_key,
             target_class,
             anchor_name,
+            derive_anchor,
             chunk_rows,
         })
     }

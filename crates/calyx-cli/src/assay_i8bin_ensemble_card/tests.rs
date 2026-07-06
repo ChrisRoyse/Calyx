@@ -310,7 +310,12 @@ fn request_for(
 }
 
 fn write_labels_db(root: &Path, rows: &Path, target_class: usize) -> PathBuf {
-    let imported = super::label_store::load_rows_jsonl(rows, target_class).unwrap();
+    let imported = super::label_store::load_rows_jsonl(
+        rows,
+        target_class,
+        &super::label_store::AnchorSpec::Label,
+    )
+    .unwrap();
     let labels_cf_root = root.join("labels-cf");
     super::label_store::write(
         &labels_cf_root,

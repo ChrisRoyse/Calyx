@@ -72,6 +72,30 @@ fn graph_cf_label_anchor_refuses_duplicate_key() {
     let _ = fs::remove_dir_all(root);
 }
 
+#[test]
+fn gdelt_root_anchor_imports_from_text() {
+    let root = temp_root("i8bin-label-anchor-gdelt-root");
+    let rows = root.join("rows.jsonl");
+    fs::write(
+        &rows,
+        [
+            "{\"label\":0,\"text\":\"EventCode 040 root 04 quad 1\"}\n",
+            "{\"label\":1,\"text\":\"EventCode 190 root 19 quad 4\"}\n",
+            "{\"label\":0,\"text\":\"EventCode 041 root 04 quad 1\"}\n",
+            "{\"label\":1,\"text\":\"EventCode 010 root 01 quad 1\"}\n",
+        ]
+        .concat(),
+    )
+    .unwrap();
+
+    let imported = load_rows_jsonl(&rows, 1, &AnchorSpec::GdeltRoot("04".to_string())).unwrap();
+
+    assert_eq!(imported.labels, vec![true, false, true, false]);
+    assert_eq!(imported.label_counts["1"], 2);
+    assert_eq!(imported.label_counts["0"], 2);
+    let _ = fs::remove_dir_all(root);
+}
+
 fn temp_root(name: &str) -> PathBuf {
     let nanos = SystemTime::now()
         .duration_since(UNIX_EPOCH)
