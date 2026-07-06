@@ -1,7 +1,7 @@
 # 01 — aiwonder Environment & the Self-Contained Calyx Layout
 
 Everything Calyx is built/stored/run/tested here. This doc is the **live,
-verified** picture of the box (readback 2026-06-18) and the binding rule that
+verified** picture of the box (readback 2026-07-06) and the binding rule that
 **Calyx is self-contained under one root and touches nothing else.**
 
 ---
@@ -30,7 +30,7 @@ verified** picture of the box (readback 2026-06-18) and the binding rule that
    `CARGO_TARGET_DIR` for that command and rejects unresolved ELF dynamic
    dependencies without relying on `LD_LIBRARY_PATH`.
 
-## 2. Verified hardware & OS (live readback 2026-06-18)
+## 2. Verified hardware & OS (live readback 2026-07-06)
 
 | Resource | Value (confirmed) |
 |---|---|
@@ -57,8 +57,8 @@ verified** picture of the box (readback 2026-06-18) and the binding rule that
 ### Resident services to REUSE (loopback; do not start throwaways — PRD `16 §9`)
 | Port | Service |
 |---|---|
-| `127.0.0.1:18190` | Calyx-owned TEI multilingual E5 embedder (float16, 768-d, client batch 64) |
-| `127.0.0.1:18188` | Calyx-owned TEI BGE-M3 embedder (float16, 1024-d, client batch 64) |
+| `127.0.0.1:18190` | Calyx-owned TEI multilingual E5 embedder (float16, Flash Attention, 768-d, client batch 64) |
+| `127.0.0.1:18188` | Calyx-owned TEI BGE-M3 embedder (float16, Flash Attention, 1024-d, client batch 64) |
 | `127.0.0.1:8088` | Shared legacy TEI general embedder (gte-multilingual-base, float16, 768-d) |
 | `127.0.0.1:8089` | TEI GTE reranker |
 | `127.0.0.1:8090` | TEI legal ModernBERT (768-d) |
@@ -70,6 +70,10 @@ host-mounted entrypoint on driver-610 hosts. That wrapper parses both
 `CUDA Version` and `CUDA UMD Version` from `nvidia-smi`, strips stale
 `/usr/local/cuda/compat` from `LD_LIBRARY_PATH` on CUDA 13.3, and fails closed
 if `text-embeddings-router` would still map the CUDA 12.9 compat `libcuda`.
+Current Calyx-owned containers run `ghcr.io/leapable/tei-blackwell:phase0-wrapper`,
+a pinned Blackwell SM120 TEI image based on Hugging Face TEI `120-1.9.3`; the
+wrapper only fixes driver-610 library resolution and keeps the model path
+GPU-resident.
 Install or refresh the systemd drop-ins with
 `sudo infra/aiwonder/bin/install-tei-driver610-runtime.sh --restart`.
 

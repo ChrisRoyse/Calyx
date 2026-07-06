@@ -101,7 +101,7 @@ Three principles make the results trustworthy:
 
 - Rust `1.95` (via [`rustup`](https://rustup.rs); the pinned toolchain is in `rust-toolchain.toml`)
 - A C toolchain (for bundled SQLite, used by the migration tool)
-- *Optional, for GPU acceleration:* an NVIDIA `sm_120`-class GPU and CUDA `13.2`
+- *Optional, for GPU acceleration:* an NVIDIA `sm_120`-class GPU and CUDA `13.3`
 
 **Build & test**
 

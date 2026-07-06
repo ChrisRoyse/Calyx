@@ -12,7 +12,7 @@ Every Calyx operation is linear algebra over slot vectors: embedding projection,
 
 | Backend | Target | Built on |
 |---|---|---|
-| **CUDA / sm_120** | aiwonder RTX 5090 (Blackwell GB202, 32 GB), driver 595.71, CUDA 13.3 | `cudarc` + CubeCL-style autotuned kernels; cuBLAS/cuBLASLt for big matmul; shipped custom distance/normalization/top-k kernels; MI/NMI and broader PRD kernels are deferred |
+| **CUDA / sm_120** | aiwonder RTX 5090 (Blackwell GB202, 32 GB), driver 610.43.02, CUDA 13.3 | `cudarc` + CubeCL-style autotuned kernels; cuBLAS/cuBLASLt for big matmul; shipped custom distance/normalization/top-k kernels; MI/NMI and broader PRD kernels are deferred |
 | **CPU SIMD** | embedded vaults (laptops), aiwonder fallback | `wide`/`std::simd` AVX-512/AVX2/NEON; `faer`/`gemm` Rust matmul |
 | **ONNX/candle** | running lens NNs locally | `candle` + ORT CUDA EP |
 
