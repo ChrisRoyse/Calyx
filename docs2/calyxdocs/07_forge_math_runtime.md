@@ -198,7 +198,7 @@ Shared fail-closed helpers, re-exported as `cpu::{check_finite, check_norm_posit
 
 The entire `cuda` module is `#[cfg(feature = "cuda")]` (`lib.rs` line 7–8). It
 is built on `cudarc` with features `std, driver, cublas, nvrtc,
-dynamic-loading, cuda-13020` (`Cargo.toml`). When the feature is off, none of
+dynamic-linking, cuda-13030` (`Cargo.toml`). When the feature is off, none of
 `CudaBackend`, `CudaContext`, grouped/ragged GEMM, or the CUDA VRAM probe types
 are compiled or exported.
 
@@ -207,7 +207,7 @@ are compiled or exported.
 `build.rs` compiles the `.cu` kernels **only if the `cuda` feature is enabled**
 (`cuda_feature_enabled()` checks `cfg!(feature="cuda")` or `CARGO_FEATURE_CUDA`);
 otherwise it emits a warning and skips. Constants: `CUDA_PATH_DEFAULT =
-"/usr/local/cuda-13.2"`, `CUDA_ARCH = "sm_120"`. `nvcc` is located at
+"/usr/local/cuda-13.3"`, `CUDA_ARCH = "sm_120"`. `nvcc` is located at
 `$CUDA_PATH/bin/nvcc` (panics if missing). For each kernel it compiles **both a
 PTX and a cubin** with deterministic math flags:
 
@@ -233,7 +233,7 @@ The three `.cu` kernel sources: `distance`, `topk`, `mxfp4_gemm`.
 `init_cuda(device_idx, determinism) -> Result<CudaContext>` initializes the
 device, queries name/compute-capability/`mem_get_info`, and **fails closed** if
 free VRAM `< MIN_FREE_VRAM_MIB = 4096` (4 GiB) — the remediation string names
-CUDA 13.2 at `/usr/local/cuda-13.2` and the RTX 5090. `query_device_info` returns
+CUDA 13.3 at `/usr/local/cuda-13.3` and the RTX 5090. `query_device_info` returns
 a `DeviceInfo { kind: Cuda, name, avx512: false, vram_mib: Some(total_mem_mib) }`.
 `free_device_vram_bytes()` calls `cudaMemGetInfo` live on every call (never
 `nvidia-smi`, never a fixed 32 GiB); a driver error surfaces as

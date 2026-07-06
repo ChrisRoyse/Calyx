@@ -100,7 +100,7 @@ foundation depended on by all 18 other crates.
 | Serialization | `serde`, `serde_json`, `bincode_reloaded` (3.1.6), `ciborium` | `1` / `1` / `3.1.6` / `0.2` |
 | Storage | `memmap2` `0.9`, `crc32fast` `1`, `zstd` `0.13`, `filetime` `0.2`, `nix` `0.30` (fs) | mmap tables, CRC, posting-list compression |
 | CPU math | `wide` `1` (SIMD), `rayon` `1` (parallelism) | Forge CPU backend |
-| GPU math (opt-in) | `cudarc` `0.19.7`, `nvml-wrapper` `0.10` | CUDA 13.2, `sm_120`; feature `cuda`, default off |
+| GPU math (opt-in) | `cudarc` `0.19.8`, `nvml-wrapper` `0.10` | CUDA 13.3, `sm_120`; feature `cuda`, default off |
 | SQLite (import-only) | `rusqlite` `0.40.1` (bundled) | only the `calyx migrate` CLI reads external SQLite |
 | IDs / time | `ulid` `1`, `uuid` `1` (dep present; core uses ULID), Unix-ms `Ts` | |
 | Randomness | `rand` `0.8`, `rand_chacha` `0.3` | deterministic seeded RNG |

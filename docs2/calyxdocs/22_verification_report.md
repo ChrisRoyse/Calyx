@@ -206,7 +206,7 @@ Consolidated in [24_roadmap.md](24_roadmap.md) §4. Highlights:
 
 | Dimension | State |
 |---|---|
-| Build | CPU-only by default; CUDA opt-in (`--features cuda`, requires sm_120 / CUDA 13.2) |
+| Build | CPU-only by default; CUDA opt-in (`--features cuda`, requires sm_120 / CUDA 13.3 on aiwonder) |
 | Maturity | pre-1.0 (`0.1.0`); on-disk format & interfaces explicitly unstable |
 | Gating | single CI workflow enforcing fmt + clippy(-D) + check + nextest + doctests + hygiene; FSV/CUDA tests gated off CI |
 | Provenance/safety posture | fail-closed error catalog, per-slot guard, hash-chained ledger — all implemented |

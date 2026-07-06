@@ -389,8 +389,8 @@ resident at any instant (A5 hot-swap, A36 templates).
 - MTEB leaderboard / model survey — Modal, BentoML, Baseten, Milvus, Ailog guides.
 - NVIDIA CUDA 13.3 release notes / CUDA GPU table; Hugging Face TEI Blackwell GPU
   docs for compute capability 12.0 (`ghcr.io/huggingface/text-embeddings-inference:120-1.9`)
-  and `--dtype float16`; PyTorch release matrix for CUDA 13.0 stable and 13.2
-  experimental Blackwell support.
+  and `--dtype float16`; any PyTorch-class probe must separately prove its CUDA
+  wheel/toolkit line, `sm_120` kernels, and GPU residency by live readback.
 - Qwen3-Embedding (0.6B/4B/8B) — QwenLM blog & GitHub; treated as measured FP16
   candidates, not the active default dense lane.
 - EmbeddingGemma-300M — Google / arXiv 2509.20354; HF model card.

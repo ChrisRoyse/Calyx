@@ -90,9 +90,9 @@ zfs create archive/calyx-restic    -o mountpoint=/zfs/archive/calyx/restic
 - Driver/userspace skew after unattended-upgrades → `nvidia-smi` mismatch; cure is reboot. Calyx `healthcheck` MUST probe CUDA init and fail loud (A16), not silently CPU-fallback in server mode.
 - CUDA 13.3 from NVIDIA toolkit packages; Forge links `/usr/local/cuda` (currently `/usr/local/cuda-13.3`). Ship sm_120 cubin + PTX JIT fallback (`13`).
 - Framework runtime support is separate from the host toolkit: TEI must use a
-  Blackwell 12.0 build and PyTorch probes must use a wheel line that actually
-  supports sm_120 at runtime. Current policy is CUDA 13.0 stable PyTorch for
-  Blackwell, CUDA 13.2+ experimental only after measured readback.
+  Blackwell 12.0 build and PyTorch-class probes must use a wheel/toolkit line
+  that proves `sm_120` kernels and GPU residency by live readback. The host
+  CUDA 13.3 toolkit alone is not proof that a framework stack is Blackwell-ready.
 
 ## 5. Networking & security
 

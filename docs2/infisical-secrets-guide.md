@@ -879,7 +879,7 @@ restic, not by HA.
 | PostgreSQL 18.4 + PgBouncer | **the control plane** — customers, billing, creators, queries, outbox |
 
 GPU hygiene gotcha: after unattended-upgrades, the NVIDIA driver/userspace
-can skew and `nvidia-smi` mismatches until a **reboot**. CUDA is 13.2 from
+can skew and `nvidia-smi` mismatches until a **reboot**. CUDA is 13.3 from
 the NVIDIA runfile (not the Ubuntu package). Health checks must probe CUDA
 init and **fail loud**, never silently CPU-fallback in server mode.
 
