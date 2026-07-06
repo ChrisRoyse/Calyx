@@ -101,7 +101,7 @@ lenses + provenance. That alone justifies the project.
 
 ## 6. What "ground truth" already exists on aiwonder (reuse, don't rebuild)
 
-Confirmed live (`01_AIWONDER_ENVIRONMENT.md`): RTX 5090 sm_120 + **CUDA 13.2**
+Confirmed live (`01_AIWONDER_ENVIRONMENT.md`): RTX 5090 sm_120 + **CUDA 13.3**
 toolkit, **Rust via rustup** (so we build natively — the PRD's "no rustc on
 box" note is *superseded*), resident **TEI lenses** on :18190/:18188 plus legacy :8088/:8089/:8090,
 Prometheus on :9090, Docker, Infisical, HF cache, ZFS hot+cold pools. Userspace
