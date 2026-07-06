@@ -55,6 +55,7 @@ pub(super) fn write_descriptor(
     let info_endpoint = HttpEndpoint::parse(&endpoint)?.info_url();
     let info = read_info(&info_endpoint)?;
     let source_hf_id = served_model_id(&info)?;
+    validate_fp16_dtype(info.model_dtype.as_deref())?;
     let requested_hf_id = mismatch_request(requested_hf_id, &source_hf_id);
     let descriptor = TeiDescriptor {
         source_hf_id: source_hf_id.clone(),
@@ -85,6 +86,23 @@ fn read_info(info_endpoint: &str) -> CliResult<TeiInfo> {
             "parse TEI /info failed: {err}"
         )))
     })
+}
+
+fn validate_fp16_dtype(dtype: Option<&str>) -> CliResult {
+    let Some(dtype) = dtype.map(str::trim).filter(|value| !value.is_empty()) else {
+        return Err(CliError::from(CalyxError::lens_unreachable(
+            "TEI /info did not expose model_dtype; Calyx requires FP16/float16 GPU TEI readback",
+        )));
+    };
+    if matches!(
+        dtype.to_ascii_lowercase().as_str(),
+        "float16" | "fp16" | "f16"
+    ) {
+        return Ok(());
+    }
+    Err(CliError::from(CalyxError::lens_unreachable(format!(
+        "TEI /info model_dtype {dtype} is not FP16/float16; Calyx rejects non-FP16 dense TEI commissioning on RTX 5090"
+    ))))
 }
 
 fn served_model_id(info: &TeiInfo) -> CliResult<String> {
@@ -306,6 +324,24 @@ mod tests {
         let error = served_model_id(&info).unwrap_err();
 
         assert_eq!(error.code(), "CALYX_LENS_UNREACHABLE");
+    }
+
+    #[test]
+    fn fp16_dtype_aliases_are_accepted() {
+        for dtype in ["float16", "fp16", "f16", " FLOAT16 "] {
+            validate_fp16_dtype(Some(dtype)).unwrap();
+        }
+    }
+
+    #[test]
+    fn missing_or_non_fp16_dtype_fails_closed() {
+        let missing = validate_fp16_dtype(None).unwrap_err();
+        let f32 = validate_fp16_dtype(Some("float32")).unwrap_err();
+
+        assert_eq!(missing.code(), "CALYX_LENS_UNREACHABLE");
+        assert!(missing.message().contains("model_dtype"));
+        assert_eq!(f32.code(), "CALYX_LENS_UNREACHABLE");
+        assert!(f32.message().contains("not FP16"));
     }
 
     #[test]
