@@ -68,10 +68,24 @@ pub(super) fn write_algorithmic_catalog(root: &Path, count: usize) {
     let catalog_path = root.join("lenses").join("registry.json");
     fs::create_dir_all(catalog_path.parent().unwrap()).unwrap();
     fs::write(
-        catalog_path,
+        &catalog_path,
         serde_json::to_vec_pretty(&json!({ "lenses": entries })).unwrap(),
     )
     .unwrap();
+    let migrate = Command::new(calyx_exe())
+        .arg("lens")
+        .arg("migrate-catalog")
+        .arg("--home")
+        .arg(root)
+        .output()
+        .expect("migrate algorithmic catalog to DB");
+    assert!(
+        migrate.status.success(),
+        "migrate catalog failed: stdout={} stderr={}",
+        String::from_utf8_lossy(&migrate.stdout),
+        String::from_utf8_lossy(&migrate.stderr)
+    );
+    fs::remove_file(catalog_path).expect("remove legacy catalog after DB migration");
 }
 
 pub(super) fn spawn_template_resident_service(

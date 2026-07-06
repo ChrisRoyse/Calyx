@@ -297,7 +297,21 @@ fn write_algorithmic_catalog(root: &Path, count: usize) {
     let catalog = json!({ "lenses": entries });
     let catalog_path = root.join("lenses").join("registry.json");
     fs::create_dir_all(catalog_path.parent().unwrap()).expect("create catalog dir");
-    fs::write(catalog_path, serde_json::to_vec_pretty(&catalog).unwrap()).expect("write catalog");
+    fs::write(&catalog_path, serde_json::to_vec_pretty(&catalog).unwrap()).expect("write catalog");
+    let migrate = Command::new(calyx_exe())
+        .arg("lens")
+        .arg("migrate-catalog")
+        .arg("--home")
+        .arg(root)
+        .output()
+        .expect("migrate algorithmic catalog to DB");
+    assert!(
+        migrate.status.success(),
+        "migrate catalog failed: stdout={} stderr={}",
+        String::from_utf8_lossy(&migrate.stdout),
+        String::from_utf8_lossy(&migrate.stderr)
+    );
+    fs::remove_file(catalog_path).expect("remove legacy catalog after DB migration");
 }
 
 fn hex32(bytes: &[u8; 32]) -> String {

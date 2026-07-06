@@ -52,8 +52,8 @@ Run on aiwonder from `/home/croyse/calyx/repo`.
 1. Generate adapter manifests with LensForge into an isolated
    `CALYX_HOME`.
 2. Add the image/audio manifests with `target/release/calyx lens add --manifest`.
-3. Read `$CALYX_HOME/lenses/registry.json` and confirm image/audio catalog rows
-   with real artifact paths.
+3. Read `$CALYX_HOME/lenses/catalog-db` through `calyx lens list` and confirm
+   image/audio catalog rows with real artifact paths.
 4. Register the lenses through `Registry::register_frozen_with_spec`.
 5. Measure known image/audio bytes through `Registry::measure`.
 6. Independently read the persisted JSON evidence and confirm image vectors are

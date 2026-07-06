@@ -9,13 +9,22 @@ use calyx_registry::{
     MultimodalAdapterLens, PlacementBudget, StaticLookupLens, choose_placement,
     lens_spec_from_manifest_path, lens_spec_metadata_from_manifest_path,
 };
-use calyxd::vram::{NvmlVramUsage, VramUsage};
 use serde::{Deserialize, Serialize};
 
-use super::flags::Flags;
+use super::flags::{Flags, value};
 use super::support::{dim, hex_from_bytes, runtime_name};
 use crate::error::{CliError, CliResult};
 use crate::output::print_json;
+
+mod budget;
+mod store;
+
+pub(crate) use store::LensCatalogDbReadback;
+
+use budget::placement_budget_from_catalog;
+
+#[cfg(test)]
+use budget::compute_vram_budget;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub(crate) struct LensCatalog {
@@ -66,6 +75,20 @@ struct ListLensEntry {
     health: LensHealth,
 }
 
+#[derive(Serialize)]
+struct MigrateReport {
+    source: PathBuf,
+    catalog: PathBuf,
+    count: usize,
+    readback: LensCatalogDbReadback,
+}
+
+#[derive(Default)]
+struct MigrateFlags {
+    home: Option<PathBuf>,
+    from: Option<PathBuf>,
+}
+
 pub(crate) fn add(args: &[String]) -> CliResult {
     let flags = Flags::parse(args)?;
     flags.reject_measure_flags("calyx lens add")?;
@@ -90,6 +113,22 @@ pub(crate) fn list(args: &[String]) -> CliResult {
         catalog: catalog_path,
         count: catalog.lenses.len(),
         lenses: catalog.lenses.into_iter().map(list_entry).collect(),
+    })
+}
+
+pub(crate) fn migrate_catalog(args: &[String]) -> CliResult {
+    let flags = MigrateFlags::parse(args)?;
+    let catalog_path = catalog_path(flags.home.as_deref())?;
+    let source = flags
+        .from
+        .unwrap_or_else(|| store::legacy_catalog_path(&catalog_path));
+    let catalog = read_legacy_catalog(&source)?;
+    let readback = write_catalog(&catalog_path, &catalog)?;
+    print_json(&MigrateReport {
+        source,
+        catalog: catalog_path,
+        count: catalog.lenses.len(),
+        readback,
     })
 }
 
@@ -136,23 +175,66 @@ fn same_catalog_identity(
     entry.lens_id == lens_id || entry.name == name || entry.manifest == manifest
 }
 
-pub(super) fn catalog_path(home: Option<&Path>) -> CliResult<PathBuf> {
+impl MigrateFlags {
+    fn parse(args: &[String]) -> CliResult<Self> {
+        let mut flags = Self::default();
+        let mut idx = 0;
+        while idx < args.len() {
+            match args[idx].as_str() {
+                "--home" => {
+                    idx += 1;
+                    flags.home = Some(value(args, idx, "--home")?.into());
+                }
+                "--from" => {
+                    idx += 1;
+                    flags.from = Some(value(args, idx, "--from")?.into());
+                }
+                other => {
+                    return Err(CliError::usage(format!(
+                        "unexpected lens migrate-catalog flag {other}"
+                    )));
+                }
+            }
+            idx += 1;
+        }
+        Ok(flags)
+    }
+}
+
+pub(crate) fn catalog_path(home: Option<&Path>) -> CliResult<PathBuf> {
     let root = match home {
         Some(path) => path.to_path_buf(),
         None => env::var_os("CALYX_HOME")
             .map(PathBuf::from)
             .ok_or_else(|| CliError::usage("CALYX_HOME is required or pass --home <dir>"))?,
     };
-    Ok(root.join("lenses").join("registry.json"))
+    Ok(root.join("lenses").join("catalog-db"))
 }
 
-pub(super) fn read_catalog(path: &Path) -> CliResult<LensCatalog> {
+pub(crate) fn read_catalog(path: &Path) -> CliResult<LensCatalog> {
+    Ok(store::read(path)?)
+}
+
+pub(crate) fn read_catalog_with_readback(
+    path: &Path,
+) -> CliResult<(LensCatalog, LensCatalogDbReadback)> {
+    Ok(store::read_with_readback(path)?)
+}
+
+fn read_legacy_catalog(path: &Path) -> CliResult<LensCatalog> {
     if !path.exists() {
-        return Ok(LensCatalog { lenses: Vec::new() });
+        return Err(CliError::usage(format!(
+            "legacy lens catalog {} does not exist",
+            path.display()
+        )));
     }
     let bytes = fs::read(path)?;
-    serde_json::from_slice(&bytes)
-        .map_err(|err| CliError::usage(format!("parse lens catalog {}: {err}", path.display())))
+    serde_json::from_slice(&bytes).map_err(|err| {
+        CliError::usage(format!(
+            "parse legacy lens catalog {}: {err}",
+            path.display()
+        ))
+    })
 }
 
 fn list_entry(entry: LensCatalogEntry) -> ListLensEntry {
@@ -170,14 +252,11 @@ fn health_from_manifest(path: &Path) -> LensHealth {
     }
 }
 
-pub(super) fn write_catalog(path: &Path, catalog: &LensCatalog) -> CliResult {
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)?;
-    }
-    let bytes = serde_json::to_vec_pretty(catalog)
-        .map_err(|err| CliError::usage(format!("serialize lens catalog: {err}")))?;
-    fs::write(path, bytes)?;
-    Ok(())
+pub(crate) fn write_catalog(
+    path: &Path,
+    catalog: &LensCatalog,
+) -> CliResult<LensCatalogDbReadback> {
+    Ok(store::write(path, catalog)?)
 }
 
 fn entry_from_spec(
@@ -308,51 +387,6 @@ fn measure_static_lookup_cost(
     })
 }
 
-fn placement_budget_from_catalog(catalog: &LensCatalog) -> CliResult<PlacementBudget> {
-    let vram_allocated_bytes = catalog
-        .lenses
-        .iter()
-        .filter(|entry| entry.placement == Placement::Gpu)
-        .map(|entry| entry.cost.vram_bytes)
-        .fold(0_u64, u64::saturating_add);
-    let ram_used_bytes = catalog
-        .lenses
-        .iter()
-        .filter(|entry| entry.placement == Placement::Cpu)
-        .map(|entry| entry.cost.ram_bytes)
-        .fold(0_u64, u64::saturating_add);
-    let cpu_resident_count = catalog
-        .lenses
-        .iter()
-        .filter(|entry| entry.placement == Placement::Cpu)
-        .count();
-    let (vram_soft_cap_bytes, tei_reserved_bytes) = resolve_gpu_vram_budget()?;
-    let available = vram_soft_cap_bytes
-        .saturating_sub(tei_reserved_bytes)
-        .saturating_sub(vram_allocated_bytes);
-    // Operator-facing diagnostic: make the GPU placement budget visible so a
-    // CPU spill is never silent. cap/reservation source is env-override vs live
-    // NVML probe (see resolve_gpu_vram_budget).
-    let mib = 1024 * 1024;
-    eprintln!(
-        "[placement] vram cap={} MiB reserved(other)={} MiB allocated(gpu lenses)={} MiB \
-         available={} MiB",
-        vram_soft_cap_bytes / mib,
-        tei_reserved_bytes / mib,
-        vram_allocated_bytes / mib,
-        available / mib,
-    );
-    Ok(PlacementBudget {
-        vram_soft_cap_bytes,
-        tei_reserved_bytes,
-        vram_allocated_bytes,
-        ram_soft_cap_bytes: env_u64("CALYX_PANEL_RAM_SOFT_CAP_BYTES", 121 * gib())?,
-        ram_used_bytes,
-        cpu_resident_limit: env_usize("CALYX_CPU_LENS_POOL_CAP", 128)?,
-        cpu_resident_count,
-    })
-}
-
 fn files_size(files: &[PathBuf]) -> CliResult<u64> {
     files
         .iter()
@@ -371,120 +405,6 @@ fn batch_ceiling(ms_per_input: f32) -> u32 {
         return u32::MAX;
     }
     (1_000.0 / ms_per_input).floor().clamp(1.0, u32::MAX as f32) as u32
-}
-
-/// VRAM carved out of the board for non-Calyx GPU users + allocation spikes
-/// (a model's declared FP32 cost underestimates its real peak working set). On a
-/// 32 GiB board this leaves ~28 GiB usable, matching the operator's ceiling.
-/// Override with `CALYX_GPU_HEADROOM_BYTES`.
-const DEFAULT_GPU_HEADROOM_BYTES: u64 = 4 * gib();
-
-/// Resolve the GPU VRAM soft cap and co-resident reservation that gate lens
-/// placement, from **live device reality** rather than a fixed board assumption.
-///
-/// Why this exists: a hard-coded 20 GiB TEI reservation (the historic default)
-/// starved the placement budget so small ONNX lenses silently spilled to CPU and
-/// new GPU commissions failed with `CALYX_VRAM_BUDGET_EXCEEDED` — the root cause
-/// of the throughput collapse. The cap now defaults to `board_total - headroom`
-/// and the reservation to the VRAM *already in use by every other process on the
-/// device* (resident TEI servers, the operator's other GPU apps), read via the
-/// same NVML probe the daemon uses. Placement therefore self-adjusts to whatever
-/// GPU it runs on, on a fresh checkout, with no machine-specific tuning.
-///
-/// Explicit env overrides (`CALYX_PANEL_VRAM_SOFT_CAP_BYTES`,
-/// `CALYX_TEI_RESERVED_BYTES`) always win. If a needed value has no override and
-/// the probe fails, this fails loud with remediation — it never falls back to a
-/// guessed budget (doctrine: fail closed, no silent workaround).
-///
-/// Note: the live `used` reading also counts any Calyx lenses already resident in
-/// a running daemon. At commission time the CLI holds no panel, so `used` ≈ the
-/// non-Calyx footprint, which is exactly the reservation we want; if a daemon is
-/// mid-ingest the reservation is conservatively larger, which fails safe (fewer
-/// GPU placements, never an over-commit).
-fn resolve_gpu_vram_budget() -> CliResult<(u64, u64)> {
-    let cap_override = env_opt_u64("CALYX_PANEL_VRAM_SOFT_CAP_BYTES")?;
-    let tei_override = env_opt_u64("CALYX_TEI_RESERVED_BYTES")?;
-    let headroom = env_u64("CALYX_GPU_HEADROOM_BYTES", DEFAULT_GPU_HEADROOM_BYTES)?;
-    let probe = if cap_override.is_some() && tei_override.is_some() {
-        None
-    } else {
-        Some(probe_gpu_vram_bytes().map_err(|err| {
-            CliError::usage(format!(
-                "GPU VRAM probe via NVML failed and CALYX_PANEL_VRAM_SOFT_CAP_BYTES / \
-                 CALYX_TEI_RESERVED_BYTES are not both set ({err}); set both to explicit byte \
-                 budgets, or ensure the NVIDIA driver NVML library is reachable"
-            ))
-        })?)
-    };
-    compute_vram_budget(cap_override, tei_override, probe, headroom)
-}
-
-/// Pure budget arithmetic, separated from env/NVML IO so the resolution logic is
-/// unit-testable on a CPU-only host with hand-set readings.
-fn compute_vram_budget(
-    cap_override: Option<u64>,
-    tei_override: Option<u64>,
-    probe: Option<(u64, u64)>,
-    headroom: u64,
-) -> CliResult<(u64, u64)> {
-    if let (Some(cap), Some(tei)) = (cap_override, tei_override) {
-        return Ok((cap, tei));
-    }
-    let (total_bytes, used_bytes) = probe.ok_or_else(|| {
-        CliError::usage(
-            "VRAM probe reading required to derive placement budget but none was supplied"
-                .to_string(),
-        )
-    })?;
-    let cap = cap_override.unwrap_or_else(|| total_bytes.saturating_sub(headroom));
-    let tei = tei_override.unwrap_or(used_bytes);
-    Ok((cap, tei))
-}
-
-/// Live `(total, used)` device VRAM in bytes via NVML — the same source of truth
-/// the daemon's budget enforcer uses, so the CLI and daemon agree on the device.
-fn probe_gpu_vram_bytes() -> Result<(u64, u64), calyxd::error::DaemonError> {
-    let reading = NvmlVramUsage::init()?.read()?;
-    const BYTES_PER_MIB: u64 = 1024 * 1024;
-    Ok((
-        u64::from(reading.total_mib) * BYTES_PER_MIB,
-        u64::from(reading.used_mib) * BYTES_PER_MIB,
-    ))
-}
-
-fn env_opt_u64(name: &str) -> CliResult<Option<u64>> {
-    match env::var(name) {
-        Ok(raw) => raw
-            .parse()
-            .map(Some)
-            .map_err(|err| CliError::usage(format!("parse {name}={raw}: {err}"))),
-        Err(env::VarError::NotPresent) => Ok(None),
-        Err(err) => Err(CliError::usage(format!("read {name}: {err}"))),
-    }
-}
-
-fn env_u64(name: &str, default: u64) -> CliResult<u64> {
-    match env::var(name) {
-        Ok(raw) => raw
-            .parse()
-            .map_err(|err| CliError::usage(format!("parse {name}={raw}: {err}"))),
-        Err(env::VarError::NotPresent) => Ok(default),
-        Err(err) => Err(CliError::usage(format!("read {name}: {err}"))),
-    }
-}
-
-fn env_usize(name: &str, default: usize) -> CliResult<usize> {
-    match env::var(name) {
-        Ok(raw) => raw
-            .parse()
-            .map_err(|err| CliError::usage(format!("parse {name}={raw}: {err}"))),
-        Err(env::VarError::NotPresent) => Ok(default),
-        Err(err) => Err(CliError::usage(format!("read {name}: {err}"))),
-    }
-}
-
-const fn gib() -> u64 {
-    1024 * 1024 * 1024
 }
 
 #[cfg(test)]

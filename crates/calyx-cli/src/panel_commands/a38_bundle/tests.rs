@@ -146,13 +146,8 @@ fn temp_home(name: &str) -> PathBuf {
 
 fn write_registry(home: &Path, mut entries: Vec<LensCatalogEntry>) {
     entries.sort_by(|left, right| left.name.cmp(&right.name));
-    let path = home.join("lenses").join("registry.json");
-    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-    std::fs::write(
-        path,
-        serde_json::to_vec_pretty(&LensCatalog { lenses: entries }).unwrap(),
-    )
-    .unwrap();
+    let path = crate::lens_commands::catalog::catalog_path(Some(home)).unwrap();
+    crate::lens_commands::catalog::write_catalog(&path, &LensCatalog { lenses: entries }).unwrap();
 }
 
 fn write_evidence(home: &Path) -> PathBuf {
@@ -182,6 +177,8 @@ fn lens_entry(idx: u8, name: &str, modality: &str, vram_bytes: u64) -> LensCatal
         modality: modality.to_string(),
         runtime: "fixture".to_string(),
         dim: 8,
+        retrieval_only: false,
+        excluded_from_dedup: false,
         weights_sha256: "11".repeat(32),
         manifest: PathBuf::from(format!("/tmp/{name}.json")),
         cost: LensCost {

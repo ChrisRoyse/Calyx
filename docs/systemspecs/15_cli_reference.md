@@ -7,7 +7,7 @@ does not determine a value, the entry reads "Not determined from source".
 
 > Sibling documents: storage internals in
 > [05_aster_storage.md](05_aster_storage.md), the ledger/provenance model in
-> [11_ledger_provenance.md](11_ledger_provenance.md), lenses/registry in
+> [11_ledger_provenance.md](11_ledger_provenance.md), lenses/catalog DB in
 > [07_registry_lenses.md](07_registry_lenses.md), search in
 > [08_sextant_search.md](08_sextant_search.md). The MCP server surface (a
 > sibling front-end over the same engine) is documented in
@@ -80,7 +80,7 @@ usage text and exits success (`dispatch.rs` lines 489–496).
 
 | Env var | Used by | Effect |
 |---|---|---|
-| `CALYX_HOME` | `lens`, `panel` | Root for lens catalog `lenses/registry.json`. |
+| `CALYX_HOME` | `lens`, `panel` | Root for lens catalog DB `lenses/catalog-db`; legacy `lenses/registry.json` is migration input only. |
 | `CALYX_LEDGER_DIR` | `merkle-root --range` | Ledger dir when no `--ledger`/`--vault`. |
 | `CALYX_HEALTH_LOG_PATH`, `CALYX_SECRET_ENV`, `CALYX_HEALTH_VAULT`, `CALYX_HEALTH_METRICS_URL` | `healthcheck` | Defaults for health probe paths/URL. |
 | `CALYX_PANEL_VRAM_SOFT_CAP_BYTES`, `CALYX_TEI_RESERVED_BYTES`, `CALYX_PANEL_RAM_SOFT_CAP_BYTES`, `CALYX_CPU_LENS_POOL_CAP` | `lens add` | Placement budget caps. |
@@ -448,17 +448,26 @@ rows for manual FSV.
 ## 8. `lens` / `panel` — registry/panel inspection
 
 See [07_registry_lenses.md](07_registry_lenses.md). Order-independent parsers.
-Catalog path resolves to `<CALYX_HOME|--home>/lenses/registry.json`.
+Catalog authority resolves to `<CALYX_HOME|--home>/lenses/catalog-db` and is
+stored as Calyx/Aster Graph CF rows. Legacy `lenses/registry.json` is read only
+by `calyx lens migrate-catalog` as an explicit import source.
 
 ### `lens add --manifest <manifest.json> [--home <dir>]`
 
 Reads lens spec, estimates cost, chooses placement (uses the
 `CALYX_PANEL_*`/`CALYX_TEI_RESERVED_BYTES`/`CALYX_CPU_LENS_POOL_CAP` env caps),
-**writes/rewrites the catalog JSON**, prints `AddReport`. Rejects `--input`/`--repeat`.
+**writes/rewrites the catalog DB rows**, proves DB readback, and prints
+`AddReport`. Rejects `--input`/`--repeat`.
 
 ### `lens list [--home <dir>]`
 
 Read-only; prints `ListReport`. Rejects `--manifest`, `--input`, `--repeat`.
+
+### `lens migrate-catalog [--home <dir>] [--from <registry.json>]`
+
+Reads a legacy JSON catalog as import input, writes authoritative Calyx/Aster
+catalog rows under `lenses/catalog-db`, and verifies DB readback. Normal catalog
+operations never use the JSON file as authority.
 
 ### `lens commission --hf <id> --runtime <onnx-int8|onnx-fp32|candle-fp16|tei> [flags]`
 

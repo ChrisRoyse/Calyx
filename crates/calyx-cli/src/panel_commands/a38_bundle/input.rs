@@ -9,6 +9,7 @@ use super::model::{
 use super::{A38_BUNDLE_BASE_A37_REFUSED, A38_BUNDLE_INVALID, bundle_error};
 use crate::error::{CliError, CliResult};
 
+use crate::lens_commands::catalog::LensCatalogDbReadback;
 use crate::panel_commands::LensCatalogEntry;
 use crate::panel_commands::template_store::TemplateStore;
 
@@ -106,14 +107,13 @@ pub(super) fn evidence_refs(paths: &[PathBuf]) -> CliResult<Vec<EvidenceRef>> {
         .collect()
 }
 
-pub(super) fn registry_ref(path: &Path, lens_count: usize) -> CliResult<RegistryRef> {
-    let bytes = fs::read(path)?;
-    Ok(RegistryRef {
-        path: path.display().to_string(),
-        sha256_hex: sha256_hex(&bytes),
-        size_bytes: bytes.len() as u64,
-        lens_count,
-    })
+pub(super) fn registry_ref(readback: LensCatalogDbReadback) -> RegistryRef {
+    RegistryRef {
+        path: readback.catalog_db.display().to_string(),
+        sha256_hex: readback.catalog_sha256,
+        size_bytes: readback.total_value_bytes,
+        lens_count: readback.lens_count,
+    }
 }
 
 pub(super) fn base_template_ref(home: &Path, selector: &str) -> CliResult<BaseTemplateRef> {

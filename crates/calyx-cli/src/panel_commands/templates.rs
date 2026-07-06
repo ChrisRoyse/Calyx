@@ -5,13 +5,14 @@ use std::path::{Path, PathBuf};
 use calyx_core::Modality;
 use serde::Serialize;
 
+use super::LensCatalogEntry;
 use super::template_store::{
     MIN_CONTENT_LENSES, TEMPLATE_INVALID, TemplateDraft, TemplateSave, TemplateStore,
     ensemble_card_from_capability_cards, lens_ref_from_catalog, template_error,
 };
-use super::{LensCatalogEntry, catalog_path, read_catalog};
 use crate::cmd::vault;
 use crate::error::{CliError, CliResult};
+use crate::lens_commands::catalog::{catalog_path, read_catalog};
 use crate::output::print_json;
 
 #[derive(Default)]

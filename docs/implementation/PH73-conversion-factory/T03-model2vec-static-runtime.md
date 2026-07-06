@@ -52,5 +52,6 @@ Manual FSV source of truth:
 - `tokenizer.json` beside it
 - manifest `weights_sha256` equals `sha256sum embeddings.cslm`
 - manifest `artifact_set_sha256` equals the static runtime contract bytes
-- `$CALYX_HOME/lenses/registry.json` persists the `static_lookup` lens after `calyx lens add`
+- `$CALYX_HOME/lenses/catalog-db` persists the `static_lookup` lens as
+  Calyx/Aster rows after `calyx lens add`
 - `calyx lens explain` reads the actual matrix/tokenizer, emits norm near `1.0`, dtype `int8`, and `vram_bytes=0`

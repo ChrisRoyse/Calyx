@@ -12,9 +12,9 @@ mod store;
 use input::{base_template_ref, evidence_refs, registry_ref, required_modalities, select_lenses};
 use store::{A38BundleStore, BundleSave};
 
-use super::{catalog_path, read_catalog};
 use crate::cmd::vault;
 use crate::error::{CliError, CliResult};
+use crate::lens_commands::catalog::{catalog_path, read_catalog_with_readback};
 use crate::output::print_json;
 
 const DEFAULT_BUDGET_VRAM_MIB: u64 = 20 * 1024;
@@ -88,8 +88,8 @@ fn save(args: &[String]) -> CliResult {
     let budget_vram_mib = flags.budget_vram_mib.unwrap_or(DEFAULT_BUDGET_VRAM_MIB);
     let required_modalities = required_modalities(&flags.required_modalities)?;
     let registry_path = catalog_path(Some(&home))?;
-    let catalog = read_catalog(&registry_path)?;
-    let registry_ref = registry_ref(&registry_path, catalog.lenses.len())?;
+    let (catalog, catalog_readback) = read_catalog_with_readback(&registry_path)?;
+    let registry_ref = registry_ref(catalog_readback);
     let lenses = select_lenses(&catalog.lenses, &flags.include_lenses)?;
     let evidence_refs = evidence_refs(&flags.evidence)?;
     let base_template = base_template_ref(&home, &base_selector)?;

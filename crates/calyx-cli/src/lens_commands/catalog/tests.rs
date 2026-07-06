@@ -176,6 +176,32 @@ fn list_health_uses_metadata_without_reading_missing_artifact() {
     let _ = fs::remove_dir_all(root);
 }
 
+#[test]
+fn explicit_legacy_import_writes_authoritative_db_rows() {
+    let root = temp_root("legacy-import");
+    let legacy = root.join("lenses").join("registry.json");
+    fs::create_dir_all(legacy.parent().unwrap()).unwrap();
+    fs::write(
+        &legacy,
+        serde_json::to_vec_pretty(&LensCatalog {
+            lenses: vec![entry("import-id", "imported", "imported.json")],
+        })
+        .unwrap(),
+    )
+    .unwrap();
+    let db = catalog_path(Some(&root)).unwrap();
+
+    let imported = read_legacy_catalog(&legacy).unwrap();
+    let readback = write_catalog(&db, &imported).unwrap();
+    let stored = read_catalog(&db).unwrap();
+
+    assert!(readback.readback_matches);
+    assert_eq!(readback.lens_count, 1);
+    assert_eq!(stored.lenses[0].name, "imported");
+    assert_eq!(db, root.join("lenses").join("catalog-db"));
+    let _ = fs::remove_dir_all(root);
+}
+
 const GIB: u64 = 1024 * 1024 * 1024;
 
 #[test]

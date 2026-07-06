@@ -285,11 +285,11 @@ mod tests {
     fn missing_selector_fails_without_writing_catalog() {
         let root = temp_root("remove-missing");
         write_fixture_catalog(&root, vec![entry("keep-id", "keep", Placement::Gpu, 5, 5)]);
-        let before = fs::read(catalog_path(Some(&root)).unwrap()).unwrap();
+        let before = catalog_names(&read_catalog(&catalog_path(Some(&root)).unwrap()).unwrap());
 
         let error = remove_from_catalog(Some(&root), RemoveSelector::Name("absent".to_string()))
             .unwrap_err();
-        let after = fs::read(catalog_path(Some(&root)).unwrap()).unwrap();
+        let after = catalog_names(&read_catalog(&catalog_path(Some(&root)).unwrap()).unwrap());
 
         assert_eq!(error.code(), CALYX_LENS_CATALOG_REMOVE_MISSING);
         assert_eq!(before, after);
@@ -306,11 +306,11 @@ mod tests {
                 entry("right-id", "same", Placement::Gpu, 7, 7),
             ],
         );
-        let before = fs::read(catalog_path(Some(&root)).unwrap()).unwrap();
+        let before = catalog_names(&read_catalog(&catalog_path(Some(&root)).unwrap()).unwrap());
 
         let error =
             remove_from_catalog(Some(&root), RemoveSelector::Name("same".to_string())).unwrap_err();
-        let after = fs::read(catalog_path(Some(&root)).unwrap()).unwrap();
+        let after = catalog_names(&read_catalog(&catalog_path(Some(&root)).unwrap()).unwrap());
 
         assert_eq!(error.code(), CALYX_LENS_CATALOG_REMOVE_AMBIGUOUS);
         assert_eq!(before, after);
@@ -336,6 +336,14 @@ mod tests {
         let catalog = LensCatalog { lenses };
         let path = catalog_path(Some(root)).unwrap();
         write_catalog(&path, &catalog).unwrap();
+    }
+
+    fn catalog_names(catalog: &LensCatalog) -> Vec<String> {
+        catalog
+            .lenses
+            .iter()
+            .map(|entry| entry.name.clone())
+            .collect()
     }
 
     fn entry(

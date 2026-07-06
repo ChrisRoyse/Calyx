@@ -21,7 +21,11 @@ Each manifest includes:
 
 ## CLI Readback
 
-`calyx lens add --manifest <manifest.json>` ingests a manifest into the local lens catalog at `$CALYX_HOME/lenses/registry.json`. `calyx lens list` reads that catalog back as JSON so FSV can inspect the persisted source-of-truth file, not just the add command return value.
+`calyx lens add --manifest <manifest.json>` ingests a manifest into the local
+catalog DB at `$CALYX_HOME/lenses/catalog-db`. `calyx lens list` reads
+authoritative Calyx/Aster Graph CF rows back so FSV inspects database state, not
+a JSON artifact. Legacy `$CALYX_HOME/lenses/registry.json` is accepted only by
+`calyx lens migrate-catalog` as explicit import input.
 
 ## Default Registry
 
@@ -47,6 +51,7 @@ Manual FSV source of truth:
 
 - artifact bytes and `manifest.json` files under `$CALYX_HOME/lenses`
 - `sha256sum` of each model file equals manifest `weights_sha256`
-- `calyx lens add --manifest <m>` writes `$CALYX_HOME/lenses/registry.json`
+- `calyx lens add --manifest <m>` writes `$CALYX_HOME/lenses/catalog-db`
+  Calyx/Aster rows and verifies readback
 - `calyx lens list` reads back the three registered lens IDs
 - edge records in `conversion-log.jsonl` prove unsupported format/modality skips without crashing

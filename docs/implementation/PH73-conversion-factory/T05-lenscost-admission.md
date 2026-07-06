@@ -23,7 +23,8 @@ Converted lenses now carry measured resource cost and deterministic placement. `
 
 ## CLI Surfaces
 
-- `calyx lens add --manifest <path> --home <dir>` persists `cost` and `placement` in `<home>/lenses/registry.json`.
+- `calyx lens add --manifest <path> --home <dir>` persists `cost` and
+  `placement` in Calyx/Aster rows under `<home>/lenses/catalog-db`.
 - `calyx panel status --home <dir>` reads the catalog source-of-truth and prints per-lens cost, placement, RAM/VRAM MB, and totals.
 - `calyx assay corpus-build --cost-override-json <json>` may supply measured resident resources, but GPU runtimes cannot be overridden to CPU; that fails with `CALYX_FSV_ASSAY_CORPUS_BUILD_GPU_OVERRIDE_PLACEMENT`.
 - Existing catalogs without cost/placement deserialize with CPU/zero defaults so old bytes stay readable.
@@ -32,7 +33,7 @@ Converted lenses now carry measured resource cost and deterministic placement. `
 
 Source of truth is aiwonder:
 
-- `<home>/lenses/registry.json` before and after lens admission.
+- `<home>/lenses/catalog-db` Graph CF readback before and after lens admission.
 - `calyx panel status --home <home>` readback for at least ten admitted converted lenses.
 - `nvidia-smi` before/after readback showing resident VRAM remains under the cap.
 - process RSS readback during a 100000-measure soak.

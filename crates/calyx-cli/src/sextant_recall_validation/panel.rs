@@ -15,8 +15,9 @@ use serde::{Deserialize, Serialize};
 
 use super::request::RecallRequest;
 use crate::error::{CliError, CliResult};
+use crate::lens_commands::catalog::read_catalog;
 
-const DEFAULT_LENS_CATALOG: &str = "/var/lib/calyx/lenses/registry.json";
+const DEFAULT_LENS_CATALOG: &str = "/var/lib/calyx/lenses/catalog-db";
 const REAL_PANEL_VERSION: u32 = 727;
 
 #[derive(Clone)]
@@ -56,17 +57,6 @@ struct PackedUsage {
     ms_per_input: f32,
 }
 
-#[derive(Deserialize)]
-struct LensCatalog {
-    lenses: Vec<CatalogLens>,
-}
-
-#[derive(Clone, Deserialize)]
-struct CatalogLens {
-    name: String,
-    manifest: PathBuf,
-}
-
 pub(crate) fn load_real_panel(request: &RecallRequest) -> CliResult<RealPanel> {
     let packed_path = request
         .packed_panel_json
@@ -96,7 +86,7 @@ pub(crate) fn load_real_panel(request: &RecallRequest) -> CliResult<RealPanel> {
         .clone()
         .or_else(|| env::var("CALYX_LENS_CATALOG").ok().map(PathBuf::from))
         .unwrap_or_else(|| PathBuf::from(DEFAULT_LENS_CATALOG));
-    let catalog = read_json::<LensCatalog>(&catalog_path)?;
+    let catalog = read_catalog(&catalog_path)?;
     let manifests = catalog
         .lenses
         .into_iter()
@@ -109,7 +99,7 @@ pub(crate) fn load_real_panel(request: &RecallRequest) -> CliResult<RealPanel> {
     for (idx, selected) in packed.selected.iter().enumerate() {
         let manifest = manifests.get(&selected.lens).ok_or_else(|| {
             CliError::runtime(format!(
-                "CALYX_FSV_SEXTANT_PANEL_LENS_MISSING: {} not found in {}",
+                "CALYX_FSV_SEXTANT_PANEL_LENS_MISSING: {} not found in catalog DB {}",
                 selected.lens,
                 catalog_path.display()
             ))

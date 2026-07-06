@@ -87,6 +87,7 @@ pub(crate) fn usage() -> &'static str {
        calyx lens add --manifest <manifest.json> [--home <dir>]
        calyx lens card --manifest <manifest.json> [--input <text>|--input-file <path>]
        calyx lens list [--home <dir>]
+       calyx lens migrate-catalog [--home <dir>] [--from <registry.json>]
        calyx lens remove (--name <name>|--lens-id <id>) [--home <dir>]
        calyx lens commission --hf <id|fastembed-model> --runtime <onnx-int8|onnx-fp32|onnx-colbert|fastembed-onnx|fastembed-sparse|fastembed-bgem3-*|fastembed-reranker|fastembed-qwen3|candle-fp16|tei> [--home <dir>] [--out <dir>] [--name <n>] [--endpoint <url>] [--dim <n>] [--max-batch <n>]
        calyx lens explain --manifest <manifest.json> [--input <text>|--input-file <path>] [--repeat <n>] [--full-vector]
