@@ -301,8 +301,9 @@ impl AnchorSpec {
                     || eq_ascii(row.gdelt_actor2_country.as_deref(), expected))
             }
             Self::GdeltActorPair(left, right) => {
-                Ok(eq_ascii(row.gdelt_actor1_name.as_deref(), left)
-                    && eq_ascii(row.gdelt_actor2_name.as_deref(), right))
+                let actor1 = field_or_marker(row.gdelt_actor1_name.as_deref(), row, "Actor1");
+                let actor2 = field_or_marker(row.gdelt_actor2_name.as_deref(), row, "Actor2");
+                Ok(eq_ascii(actor1.as_deref(), left) && eq_ascii(actor2.as_deref(), right))
             }
             Self::GdeltActorCountryPair(left, right) => {
                 Ok(eq_ascii(row.gdelt_actor1_country.as_deref(), left)
@@ -314,17 +315,21 @@ impl AnchorSpec {
             Self::GdeltActor2Present => {
                 Ok(!row.gdelt_actor2_country.as_deref().unwrap_or("").is_empty())
             }
-            Self::GdeltEventCode(expected) => {
-                Ok(eq_ascii(row.gdelt_event_code.as_deref(), expected))
+            Self::GdeltEventCode(expected) => Ok(eq_ascii(
+                field_or_marker(row.gdelt_event_code.as_deref(), row, "EventCode").as_deref(),
+                expected,
+            )),
+            Self::GdeltEventRoot(expected) => Ok(eq_ascii(
+                field_or_marker(row.gdelt_event_root.as_deref(), row, "root").as_deref(),
+                expected,
+            )),
+            Self::GdeltSqlDatePrefix(expected) => {
+                Ok(
+                    field_or_marker(row.gdelt_sql_date.as_deref(), row, "SQLDATE")
+                        .as_deref()
+                        .is_some_and(|value| value.starts_with(expected)),
+                )
             }
-            Self::GdeltEventRoot(expected) => {
-                Ok(eq_ascii(row.gdelt_event_root.as_deref(), expected))
-            }
-            Self::GdeltSqlDatePrefix(expected) => Ok(row
-                .gdelt_sql_date
-                .as_deref()
-                .unwrap_or_default()
-                .starts_with(expected)),
             Self::GdeltSourceHost(expected) => Ok(source_host(row)
                 .as_deref()
                 .is_some_and(|host| host.eq_ignore_ascii_case(expected))),
@@ -335,24 +340,24 @@ impl AnchorSpec {
                 .as_deref()
                 .and_then(|host| host.rsplit('.').next().map(str::to_string))
                 .is_some_and(|tld| tld.eq_ignore_ascii_case(expected))),
-            Self::GdeltGoldsteinSign(expected) => {
-                Ok(sign(row.gdelt_goldstein.as_deref()) == Some(expected.as_str()))
-            }
-            Self::GdeltToneSign(expected) => {
-                Ok(sign(row.gdelt_avg_tone.as_deref()) == Some(expected.as_str()))
-            }
-            Self::GdeltGoldsteinBucket(expected) => {
-                Ok(
-                    numeric_bucket(row.gdelt_goldstein.as_deref(), -10.0, 10.0, 2.0)
-                        == Some(*expected),
-                )
-            }
-            Self::GdeltToneBucket(expected) => {
-                Ok(
-                    numeric_bucket(row.gdelt_avg_tone.as_deref(), -100.0, 100.0, 10.0)
-                        == Some(*expected),
-                )
-            }
+            Self::GdeltGoldsteinSign(expected) => Ok(sign(
+                field_or_marker(row.gdelt_goldstein.as_deref(), row, "Goldstein").as_deref(),
+            ) == Some(expected.as_str())),
+            Self::GdeltToneSign(expected) => Ok(sign(
+                field_or_marker(row.gdelt_avg_tone.as_deref(), row, "tone").as_deref(),
+            ) == Some(expected.as_str())),
+            Self::GdeltGoldsteinBucket(expected) => Ok(numeric_bucket(
+                field_or_marker(row.gdelt_goldstein.as_deref(), row, "Goldstein").as_deref(),
+                -10.0,
+                10.0,
+                2.0,
+            ) == Some(*expected)),
+            Self::GdeltToneBucket(expected) => Ok(numeric_bucket(
+                field_or_marker(row.gdelt_avg_tone.as_deref(), row, "tone").as_deref(),
+                -100.0,
+                100.0,
+                10.0,
+            ) == Some(*expected)),
             Self::SourceDomainContains(expected) => Ok(row
                 .source_url
                 .as_deref()
@@ -468,10 +473,14 @@ fn text_token(row: &RowJson, marker: &str) -> Result<String, String> {
 }
 
 fn field_or_text(field: Option<&str>, row: &RowJson, marker: &str) -> Result<String, String> {
+    field_or_marker(field, row, marker).ok_or_else(|| format!("{marker} marker not found in row"))
+}
+
+fn field_or_marker(field: Option<&str>, row: &RowJson, marker: &str) -> Option<String> {
     if let Some(value) = field
         && !value.trim().is_empty()
     {
-        return Ok(value.trim().to_string());
+        return Some(value.trim().to_string());
     }
-    text_token(row, marker)
+    text_token(row, marker).ok()
 }

@@ -79,21 +79,30 @@ fn gdelt_root_anchor_imports_from_text() {
     fs::write(
         &rows,
         [
-            "{\"label\":0,\"text\":\"EventCode 040 root 04 quad 1\"}\n",
-            "{\"label\":1,\"text\":\"EventCode 190 root 19 quad 4\"}\n",
-            "{\"label\":0,\"text\":\"EventCode 041 root 04 quad 1\"}\n",
-            "{\"label\":1,\"text\":\"EventCode 010 root 01 quad 1\"}\n",
+            "{\"label\":0,\"text\":\"EventCode 040 root 04 quad 1 Goldstein 3.5 tone -8 Actor1 USA Actor2 CAN\"}\n",
+            "{\"label\":1,\"text\":\"EventCode 190 root 19 quad 4 Goldstein -2 tone 5 Actor1 FRA Actor2 USA\"}\n",
+            "{\"label\":0,\"text\":\"EventCode 040 root 04 quad 1 Goldstein 2.5 tone -3 Actor1 USA Actor2 CAN\"}\n",
+            "{\"label\":1,\"text\":\"EventCode 010 root 01 quad 1 Goldstein 0 tone 0 Actor1 MEX Actor2 BRA\"}\n",
         ]
         .concat(),
     )
     .unwrap();
 
-    let imported =
-        load_rows_jsonl(&rows, 1, &AnchorSpec::GdeltRoot("04".to_string()), None).unwrap();
-
-    assert_eq!(imported.labels, vec![true, false, true, false]);
-    assert_eq!(imported.label_counts["1"], 2);
-    assert_eq!(imported.label_counts["0"], 2);
+    for anchor in [
+        AnchorSpec::GdeltRoot("04".to_string()),
+        AnchorSpec::GdeltEventCode("040".to_string()),
+        AnchorSpec::GdeltEventRoot("04".to_string()),
+        AnchorSpec::GdeltActorPair("USA".to_string(), "CAN".to_string()),
+        AnchorSpec::GdeltGoldsteinSign("pos".to_string()),
+        AnchorSpec::GdeltToneSign("neg".to_string()),
+        AnchorSpec::GdeltGoldsteinBucket(6),
+        AnchorSpec::GdeltToneBucket(9),
+    ] {
+        let imported = load_rows_jsonl(&rows, 1, &anchor, None).unwrap();
+        assert_eq!(imported.labels, vec![true, false, true, false]);
+        assert_eq!(imported.label_counts["1"], 2);
+        assert_eq!(imported.label_counts["0"], 2);
+    }
     let _ = fs::remove_dir_all(root);
 }
 
