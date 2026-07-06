@@ -89,11 +89,20 @@ Resident VRAM for an embedder ≈ **weights + activation working set + runtime c
 - **Runtime context**: an ONNX Runtime CUDA session and the CUDA context cost a few
   hundred MB **once per process**; TEI containers carry their own. Budget ~1–2 GB total.
 
-**Rule of thumb used below:** "resident" column = INT8 weights for ONNX-quantisable
-encoders (the default), FP16 where INT8 hurts or isn't available, **0 MB** for static
+**Rule of thumb used below:** "resident" column = FP16 for GPU-resident TEI/Candle
+dense embedders on RTX 5090 / CUDA 13.3, INT8 only for ONNX graphs whose provider
+audit proves CUDA execution with no material CPU fallback, **0 MB** for static
 (model2vec) lenses, and the model's native size for VLM-class items. Treat every number
-as **± a measurement**: the real cost is read back via the `--cost-json` sidecar and the
-resource-aware admission packer (#729) gates by `bits / VRAM-MB`.
+as **± a measurement**: the real cost is read back from Calyx/Aster via the admission
+store, and the resource-aware admission packer (#729) gates by `bits / VRAM-MB`.
+
+**Blackwell dense-embedder default:** Hugging Face TEI's Blackwell GPU path launches
+`Qwen/Qwen3-Embedding-0.6B` with `--dtype float16`; Calyx mirrors that. Use resident
+FP16 (`float16`/`f16`) first, BF16 only if a specific model requires it or a measured
+run beats FP16, and INT8/FP8 only after GPU provider readback proves no hidden CPU
+execution. The large 4B/8B Qwen/GTE/E5-class embedders are not default-roster material;
+they are one-at-a-time tier-3 probes unless they beat compact panels on measured
+`bits / VRAM-MB`.
 
 > A 110 M-param encoder is ≈ **220 MB FP16 / 110 MB INT8**. A 300–335 M base is ≈
 > **0.6 GB FP16 / 0.3 GB INT8**. A 0.6 B LLM-embedder is ≈ **1.2 GB FP16 / 0.6 GB INT8**.
@@ -108,15 +117,16 @@ Legend — **Fam** = A37 association family: `DS-gen` dense-semantic general · 
 dense-semantic domain · `LEX` lexical/sparse · `LI` late-interaction/multi-vector ·
 `ENT` entity/graph · `RERANK` reranker/asymmetric · `IMG` image · `AUD` audio · `DOC`
 document-image · `BIO` protein/DNA/molecule · `MM` unified multimodal · `STATIC` static
-token-pool (0 VRAM). Sizes are weights only; **INT8 ≈ ½ the FP16 figure.**
+token-pool (0 VRAM). Sizes are weight estimates; FP16 is the Blackwell dense-embedder
+default, and INT8 figures are eligible only after GPU-provider readback.
 
 ### 3.1 Text — general semantic (the DS-gen pool; pick a *diverse* few, not clones)
 
-| Model | Params | Dim | Ctx | Fam | INT8 ≈ | Notes |
+| Model | Params | Dim | Ctx | Fam | Resident ≈ | Notes |
 |---|---|---|---|---|---|---|
 | **EmbeddingGemma-300M** | 300 M | 768 (MRL 128/256/512) | 2048 | DS-gen | ~0.30 GB | SOTA <500 M, 100+ langs, code-aware; Gemma3 backbone |
-| **Qwen3-Embedding-0.6B** | 600 M | 32–1024 (MRL) | 32 K | DS-gen | ~0.60 GB | LLM-based, very high signal, instruction-aware |
-| **Qwen3-Embedding-4B** | 4 B | up to 2560 | 32 K | DS-gen | ~4.0 GB | top-tier; *budget-heavy*, optional tier-3 |
+| **Qwen3-Embedding-0.6B** | 600 M | 32–1024 (MRL) | 32 K | DS-gen | ~1.2 GB FP16 | RTX 5090/TEI default; LLM-based, high signal, instruction-aware |
+| **Qwen3-Embedding-4B** | 4 B | up to 2560 | 32 K | DS-gen | ~8 GB FP16 | top-tier; *budget-heavy*, optional tier-3 |
 | **gte-modernbert-base** | 305 M | 768 | 8192 | DS-gen | ~0.30 GB | modern ModernBERT, long ctx, strong |
 | **nomic-embed-text-v1.5** | 137 M | 768 (MRL 64–768) | 8192 | DS-gen | ~0.14 GB | Matryoshka, already commissioned on aiwonder |
 | **bge-base-en-v1.5** / **bge-small** | 110 M / 33 M | 768 / 384 | 512 | DS-gen | ~0.11 / 0.03 GB | workhorse; small already commissioned |
@@ -128,7 +138,7 @@ token-pool (0 VRAM). Sizes are weights only; **INT8 ≈ ½ the FP16 figure.**
 | **stella_en_400M_v5** | 400 M | 1024 (MRL) | 8192 | DS-gen | ~0.40 GB | high MTEB, MRL |
 | **jina-embeddings-v2/v3-base** | 137 M / 570 M | 768 / 1024 | 8192 | DS-gen | ~0.14 / 0.57 GB | v2-base already commissioned; v3 task-LoRA |
 | **all-MiniLM-L6-v2** | 22 M | 384 | 256 | DS-gen | ~0.02 GB | cheap baseline; candle build already commissioned |
-| **gte-Qwen2-7B / e5-mistral-7b** | 7 B | 3584 / 4096 | 32 K | DS-gen | ~7–8 GB | SOTA but eats the budget; tier-3 only |
+| **gte-Qwen2-7B / e5-mistral-7b** | 7 B | 3584 / 4096 | 32 K | DS-gen | ~14–16 GB FP16 | SOTA but eats the budget; tier-3 only |
 | **potion-base-8M (model2vec)** | static | 256 | n/a | STATIC | **0 GB** | CPU, zero VRAM; already commissioned |
 
 ### 3.2 Text — domain perspectives (the DS-dom pool; *this* is what makes one input show many faces)
@@ -239,7 +249,7 @@ noted FP16; **temporal sidecars excluded from the content count.**
 | # | Lens | Fam | ≈ VRAM | Why it's here (unique perspective) |
 |---|---|---|---|---|
 | 1 | EmbeddingGemma-300M | DS-gen | 0.30 | best small general semantic, multilingual+code |
-| 2 | Qwen3-Embedding-0.6B (INT8) | DS-gen | 0.60 | LLM-grade signal, instruction-aware |
+| 2 | Qwen3-Embedding-0.6B (FP16) | DS-gen | 1.20 | RTX 5090/TEI default; LLM-grade signal, instruction-aware |
 | 3 | nomic-embed-text-v1.5 | DS-gen | 0.14 | long-ctx, Matryoshka, distinct training |
 | 4 | bge-base-en-v1.5 (INT8) | DS-gen | 0.11 | workhorse, different objective |
 | 5 | **BGE-M3 (INT8)** | DS-gen+**LEX+LI** | 0.57 | **3 families in one** — dense+sparse+ColBERT |
@@ -262,7 +272,7 @@ noted FP16; **temporal sidecars excluded from the content count.**
 | — | E2/E3/E4 temporal sidecars | (sidecar) | 0 | time-walk, not content |
 
 **Tier-1 content lenses = 21, families spanned = DS-gen · DS-dom · LEX · LI · RERANK ·
-IMG · AUD · STATIC · MM ≈ 9 families. Resident ≈ 5.3 GB FP16-equivalent.** Clears A35
+IMG · AUD · STATIC · MM ≈ 9 families. Resident ≈ 5.9 GB FP16-equivalent.** Clears A35
 (≥10), A36 (it is a named template), and A37 (≥2 families, low redundancy by design).
 
 ### Tier 2 — EXTENDED (add when serving science/multilingual/doc corpora; → ~12–14 GB)
@@ -281,11 +291,11 @@ IMG · AUD · STATIC · MM ≈ 9 families. Resident ≈ 5.3 GB FP16-equivalent.*
 | ChemBERTa-77M | BIO | 0.08 | molecule |
 | PANNs CNN14 | AUD | 0.16 | environmental audio events |
 
-**Tier-1+2 ≈ 32 content lenses, ~9 GB resident — still well under 20 GB.**
+**Tier-1+2 ≈ 32 content lenses, ~9.6 GB resident — still well under 20 GB.**
 
 ### Tier 3 — HEAVY (only when the job needs a giant; one at a time, budget-watch)
 
-`Qwen3-Embedding-4B` (~4 GB) · `nomic-embed-code` / `gte-Qwen2-7B` (~7–8 GB) ·
+`Qwen3-Embedding-4B` (~8 GB FP16) · `nomic-embed-code` / `gte-Qwen2-7B` (~14–16 GB FP16) ·
 `jina-embeddings-v4` 3.8 B (~3.8 GB) · `ColPali-v1.3` (~2–3 GB) · `GME-Qwen2-VL-2B` (~2 GB).
 Adding **one** Tier-3 to Tier-1+2 stays ≤ ~14 GB; adding two approaches the 20 GB line.
 
@@ -298,17 +308,19 @@ Adding **one** Tier-3 to Tier-1+2 stays ≤ ~14 GB; adding two approaches the 20
 
 ## §5 — Quantisation & commissioning policy (how each lens gets small)
 
-- **Default = ONNX + dynamic INT8** for every BERT/encoder-class text & domain lens
-  (`onnx-int8` / `onnx-fastembed` runtimes already exist). ≈ 2× smaller than FP16, ≈ 4×
-  smaller than FP32, retrieval quality delta typically < 1% — verify per-lens via the
-  recall-delta contract (`recall_delta`, default 0.02).
+- **FP16 first** for GPU-resident TEI/Candle dense text embedders on RTX 5090 / CUDA
+  13.3. Reject CPU fallback; use batch/resident services before adding orchestration.
+- **ONNX INT8 only after provider readback** for BERT-ish text encoders where retrieval
+  recall holds and the CUDA provider audit proves no material CPU node fallback.
+  ≈ 2× smaller than FP16, ≈ 4× smaller than FP32. Reject if `recall_delta` exceeds the
+  per-lens threshold or execution leaves the GPU.
 - **FP16** for vision/audio encoders where INT8 conv/attention support is weaker (SigLIP,
   DINO, CLAP, wav2vec2, WavLM, MERT) — still 2× smaller than FP32.
 - **Matryoshka truncation** (`truncate_dim`) for MRL models (EmbeddingGemma, Qwen3,
   nomic, stella, jina-clip-v2, arctic) — shrinks the *stored* slot and index, not just VRAM.
 - **Static (model2vec)** for the zero-VRAM baseline lens — CPU, first-class preferred case.
 - **TEI / FP8** for the few large GPU-resident encoders that justify a resident container
-  (gte-base, modernbert-legal, reranker) on the Blackwell card.
+  on the Blackwell card; FP8 is promoted only by measured recall/bits and GPU readback.
 - Every commissioned lens is a **SHA-256-verified `lensforge.manifest.json`** (frozen,
   content-addressed) and must carry a **measured `--cost-json`** (resident VRAM MB,
   ms/input) so the **resource-aware panel packer (#729) gates by `bits / VRAM-MB`.**
@@ -347,7 +359,8 @@ resident at any instant (A5 hot-swap, A36 templates).
 ## §8 — Sources (web research, 2026-06-20)
 
 - MTEB leaderboard / model survey — Modal, BentoML, Baseten, Milvus, Ailog guides.
-- Qwen3-Embedding (0.6B/4B/8B) — QwenLM blog & GitHub.
+- Qwen3-Embedding (0.6B/4B/8B) — QwenLM blog & GitHub; TEI Blackwell GPU docs for
+  `Qwen/Qwen3-Embedding-0.6B --dtype float16`.
 - EmbeddingGemma-300M — Google / arXiv 2509.20354; HF model card.
 - Granite-Embedding R2 — arXiv 2508.21085 / 2605.13521.
 - Arctic-Embed — arXiv 2405.05374.

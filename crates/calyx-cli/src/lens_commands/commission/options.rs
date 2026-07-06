@@ -72,7 +72,7 @@ impl CommissionRuntime {
             | Self::FastembedBgem3Colbert
             | Self::FastembedReranker
             | Self::Tei => "f32",
-            Self::FastembedQwen3 => "bf16",
+            Self::FastembedQwen3 => "f16",
             Self::CandleFp16 => "f16",
         }
     }
@@ -369,5 +369,10 @@ mod tests {
     #[test]
     fn onnx_colbert_commissions_as_fp16_by_default() {
         assert_eq!(CommissionRuntime::OnnxColbert.default_dtype(), "f16");
+    }
+
+    #[test]
+    fn qwen3_commissions_as_fp16_by_default() {
+        assert_eq!(CommissionRuntime::FastembedQwen3.default_dtype(), "f16");
     }
 }

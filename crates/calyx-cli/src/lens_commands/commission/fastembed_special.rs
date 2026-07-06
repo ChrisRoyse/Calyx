@@ -137,7 +137,7 @@ fn commission_qwen3(
         &flags.hf,
         cache_dir(flags)?,
         CandleDevicePolicy::CudaFailLoud { ordinal: 0 },
-        CandlePrecision::BF16,
+        CandlePrecision::F16,
     )?;
     let probe = Input::new(Modality::Text, b"Calyx Qwen3 commission probe".to_vec());
     let vector = lens.measure(&probe)?;

@@ -45,7 +45,7 @@ larger `k` fails loud rather than returning a non-exact merge.
 ## 4. Blackwell-specific notes (sm_120)
 
 - Target `sm_120` (compute_cap 12.0) explicitly; ship PTX + cubin for sm_120 with a JIT fallback. Stable PyTorch wheels lag Blackwell (aiwonder gotcha) — Forge does **not** depend on host PyTorch; lens NNs run in pinned TEI Docker or candle/ORT.
-- Use FP8 (E4M3) tensor-core matmul where Assay shows quant-safe slots; bf16 default; fp32 accumulate.
+- For dense semantic embedder inference on RTX 5090/CUDA 13.3, use FP16 first (`float16`/`f16`) and keep the model resident/batched; BF16, INT8, and FP8 are promoted only by measured Calyx readback that proves faster GPU execution and acceptable Assay bits. Forge GEMM may still autotune BF16/FP8/MXFP formats per op, with FP32 accumulate where required.
 - Respect the 600 W power cap and the `leapable-gpu-max-power.service`; Forge yields VRAM/SM budget to resident TEI/marketplace (Anneal-capped, `12 §6`).
 - 32 GB VRAM is a working set, never the source of truth (`04 §3`): batches stream from mmap'd Aster columns.
 

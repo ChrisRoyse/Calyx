@@ -201,7 +201,7 @@ fn default_candle_pooling() -> String {
 }
 
 fn default_qwen3_dtype() -> String {
-    "bf16".to_string()
+    "f16".to_string()
 }
 
 pub const fn default_quant_default() -> QuantPolicy {
@@ -364,5 +364,10 @@ mod tests {
         let spec = candle_spec(vec![std::env::temp_dir().join("calyx-missing-candle-file")]);
 
         assert_eq!(spec.health(), LensHealth::Cold);
+    }
+
+    #[test]
+    fn qwen3_default_dtype_is_fp16_for_blackwell() {
+        assert_eq!(default_qwen3_dtype(), "f16");
     }
 }
