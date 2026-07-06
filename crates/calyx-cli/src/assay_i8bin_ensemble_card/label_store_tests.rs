@@ -113,10 +113,10 @@ fn gdelt_field_anchors_import_from_structured_rows() {
     fs::write(
         &rows,
         [
-            "{\"label\":0,\"gdelt_event_code\":\"010\",\"gdelt_event_root\":\"01\",\"gdelt_sql_date\":\"20240102\",\"gdelt_goldstein\":\"3.5\",\"gdelt_avg_tone\":\"-8.0\",\"gdelt_actor1_name\":\"USA\",\"gdelt_actor2_name\":\"CAN\",\"gdelt_actor1_country\":\"USA\",\"gdelt_actor2_country\":\"CAN\",\"source_url\":\"https://news.example.org/path\"}\n",
-            "{\"label\":1,\"gdelt_event_code\":\"190\",\"gdelt_event_root\":\"19\",\"gdelt_sql_date\":\"20240203\",\"gdelt_goldstein\":\"-2.0\",\"gdelt_avg_tone\":\"5.0\",\"gdelt_actor1_name\":\"FRA\",\"gdelt_actor2_name\":\"USA\",\"gdelt_actor1_country\":\"FRA\",\"gdelt_actor2_country\":\"USA\",\"source_url\":\"https://agency.example.net/path\"}\n",
-            "{\"label\":0,\"gdelt_event_code\":\"010\",\"gdelt_event_root\":\"01\",\"gdelt_sql_date\":\"20240104\",\"gdelt_goldstein\":\"2.5\",\"gdelt_avg_tone\":\"-3.0\",\"gdelt_actor1_name\":\"USA\",\"gdelt_actor2_name\":\"CAN\",\"gdelt_actor1_country\":\"USA\",\"gdelt_actor2_country\":\"CAN\",\"source_url\":\"https://news.example.org/other\"}\n",
-            "{\"label\":1,\"gdelt_event_code\":\"043\",\"gdelt_event_root\":\"04\",\"gdelt_sql_date\":\"20240305\",\"gdelt_goldstein\":\"0.0\",\"gdelt_avg_tone\":\"0.0\",\"gdelt_actor1_name\":\"MEX\",\"gdelt_actor2_name\":\"BRA\",\"gdelt_actor1_country\":\"MEX\",\"gdelt_actor2_country\":\"BRA\",\"source_url\":\"https://wire.example.com/item\"}\n",
+            "{\"label\":0,\"gdelt_event_code\":\"010\",\"gdelt_event_root\":\"01\",\"gdelt_sql_date\":\"20240102\",\"gdelt_goldstein\":\"3.5\",\"gdelt_avg_tone\":\"-8.0\",\"gdelt_actor1_name\":\"USA\",\"gdelt_actor2_name\":\"CAN\",\"gdelt_actor1_country\":\"USA\",\"gdelt_actor2_country\":\"CAN\",\"gdelt_action_geo_fullname\":\"New York, United States\",\"source_url\":\"https://news.example.org/path\"}\n",
+            "{\"label\":1,\"gdelt_event_code\":\"190\",\"gdelt_event_root\":\"19\",\"gdelt_sql_date\":\"20240203\",\"gdelt_goldstein\":\"-2.0\",\"gdelt_avg_tone\":\"5.0\",\"gdelt_actor1_name\":\"FRA\",\"gdelt_actor2_name\":\"USA\",\"gdelt_actor1_country\":\"FRA\",\"gdelt_actor2_country\":\"USA\",\"gdelt_action_geo_fullname\":\"Gaza, Israel (general), Israel\",\"source_url\":\"https://agency.example.net/path\"}\n",
+            "{\"label\":0,\"gdelt_event_code\":\"010\",\"gdelt_event_root\":\"01\",\"gdelt_sql_date\":\"20240104\",\"gdelt_goldstein\":\"2.5\",\"gdelt_avg_tone\":\"-3.0\",\"gdelt_actor1_name\":\"USA\",\"gdelt_actor2_name\":\"CAN\",\"gdelt_actor1_country\":\"USA\",\"gdelt_actor2_country\":\"CAN\",\"gdelt_action_geo_fullname\":\"New York, United States\",\"source_url\":\"https://news.example.org/other\"}\n",
+            "{\"label\":1,\"gdelt_event_code\":\"043\",\"gdelt_event_root\":\"04\",\"gdelt_sql_date\":\"20240305\",\"gdelt_goldstein\":\"0.0\",\"gdelt_avg_tone\":\"0.0\",\"gdelt_actor1_name\":\"MEX\",\"gdelt_actor2_name\":\"BRA\",\"gdelt_actor1_country\":\"MEX\",\"gdelt_actor2_country\":\"BRA\",\"gdelt_action_geo_fullname\":\"Jerusalem, Israel (general), Israel\",\"source_url\":\"https://wire.example.com/item\"}\n",
         ]
         .concat(),
     )
@@ -125,6 +125,7 @@ fn gdelt_field_anchors_import_from_structured_rows() {
     for anchor in [
         AnchorSpec::GdeltEventCode("010".to_string()),
         AnchorSpec::GdeltActor1Country("USA".to_string()),
+        AnchorSpec::GeoFullContains("United States".to_string()),
         AnchorSpec::GdeltActorPair("USA".to_string(), "CAN".to_string()),
         AnchorSpec::GdeltActorCountryPair("USA".to_string(), "CAN".to_string()),
         AnchorSpec::GdeltSqlDatePrefix("202401".to_string()),

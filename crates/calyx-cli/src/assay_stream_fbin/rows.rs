@@ -51,6 +51,10 @@ struct RawRow {
     #[serde(default)]
     row: Option<usize>,
     text: String,
+    #[serde(default)]
+    gdelt_action_geo_country: Option<String>,
+    #[serde(default)]
+    gdelt_action_geo_fullname: Option<String>,
     label: RawLabel,
     #[serde(default)]
     event_time: Option<Value>,
@@ -148,7 +152,7 @@ fn parse(line_idx: usize, line: &str) -> CliResult<Row> {
     let temporal = row_temporal(line_idx, &raw)?;
     Ok(Row {
         id,
-        text: raw.text,
+        text: row_text(&raw),
         label,
         event_time_secs: temporal.event_time_secs,
         event_time_raw: temporal.event_time_raw,
@@ -156,6 +160,39 @@ fn parse(line_idx: usize, line: &str) -> CliResult<Row> {
         temporal_inactive_reason: temporal.inactive_reason,
         source_sequence_index: line_idx,
     })
+}
+
+fn row_text(row: &RawRow) -> String {
+    augment_gdelt_action_geo(
+        &row.text,
+        row.gdelt_action_geo_fullname.as_deref(),
+        row.gdelt_action_geo_country.as_deref(),
+    )
+}
+
+fn augment_gdelt_action_geo(text: &str, fullname: Option<&str>, country: Option<&str>) -> String {
+    if text.contains("ActionGeo ") {
+        return text.to_string();
+    }
+    let fullname = clean_geo_field(fullname);
+    let country = clean_geo_field(country);
+    if fullname.is_none() && country.is_none() {
+        return text.to_string();
+    }
+    let segment = format!(
+        "ActionGeo {} country {}",
+        fullname.unwrap_or("UNK"),
+        country.unwrap_or("UNK")
+    );
+    if let Some((head, tail)) = text.split_once(" | SourceURL ") {
+        format!("{head} | {segment} | SourceURL {tail}")
+    } else {
+        format!("{text} | {segment}")
+    }
+}
+
+fn clean_geo_field(value: Option<&str>) -> Option<&str> {
+    value.map(str::trim).filter(|value| !value.is_empty())
 }
 
 struct RowTemporal {
@@ -348,5 +385,32 @@ impl TimelineAccumulator {
 
     fn finish(self) -> TimelineStats {
         self.stats
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::augment_gdelt_action_geo;
+
+    #[test]
+    fn augments_legacy_gdelt_text_with_action_geo_before_source_url() {
+        let text = "EventCode 031 root 03 quad 1 | SourceURL https://example.test/a";
+        let augmented =
+            augment_gdelt_action_geo(text, Some("Gaza, Israel (general), Israel"), Some("IS"));
+
+        assert_eq!(
+            augmented,
+            "EventCode 031 root 03 quad 1 | ActionGeo Gaza, Israel (general), Israel country IS | SourceURL https://example.test/a"
+        );
+    }
+
+    #[test]
+    fn leaves_existing_action_geo_text_unchanged() {
+        let text = "EventCode 031 root 03 quad 1 | ActionGeo Gaza country IS | SourceURL https://example.test/a";
+
+        assert_eq!(
+            augment_gdelt_action_geo(text, Some("Other"), Some("US")),
+            text
+        );
     }
 }

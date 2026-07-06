@@ -53,6 +53,10 @@ struct RawRow {
     #[serde(default)]
     text: Option<String>,
     #[serde(default)]
+    gdelt_action_geo_country: Option<String>,
+    #[serde(default)]
+    gdelt_action_geo_fullname: Option<String>,
+    #[serde(default)]
     input_path: Option<PathBuf>,
     label: RawLabel,
     #[serde(default)]
@@ -256,10 +260,15 @@ fn validate_row(line_idx: usize, row: &RawRow) -> Result<(), String> {
 
 fn row_input(line_idx: usize, row: &RawRow, rows_jsonl: &Path) -> Result<RowInput, String> {
     if let Some(text) = row.text.as_deref().filter(|value| !value.trim().is_empty()) {
+        let text = augment_gdelt_action_geo(
+            text,
+            row.gdelt_action_geo_fullname.as_deref(),
+            row.gdelt_action_geo_country.as_deref(),
+        );
         return Ok(RowInput {
             bytes: text.as_bytes().to_vec(),
             pointer: format!("jsonl://line/{line_idx}#field=text"),
-            text: text.to_string(),
+            text,
         });
     }
     let path = row.input_path.as_ref().ok_or_else(|| {
@@ -321,6 +330,58 @@ fn row_label(line_idx: usize, label: &RawLabel) -> Result<usize, String> {
                 "CALYX_FSV_ASSAY_CORPUS_BUILD_INVALID_ROW: line {line_idx} label must be usize: {error}"
             )
         }),
+    }
+}
+
+fn augment_gdelt_action_geo(text: &str, fullname: Option<&str>, country: Option<&str>) -> String {
+    if text.contains("ActionGeo ") {
+        return text.to_string();
+    }
+    let fullname = clean_geo_field(fullname);
+    let country = clean_geo_field(country);
+    if fullname.is_none() && country.is_none() {
+        return text.to_string();
+    }
+    let segment = format!(
+        "ActionGeo {} country {}",
+        fullname.unwrap_or("UNK"),
+        country.unwrap_or("UNK")
+    );
+    if let Some((head, tail)) = text.split_once(" | SourceURL ") {
+        format!("{head} | {segment} | SourceURL {tail}")
+    } else {
+        format!("{text} | {segment}")
+    }
+}
+
+fn clean_geo_field(value: Option<&str>) -> Option<&str> {
+    value.map(str::trim).filter(|value| !value.is_empty())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::augment_gdelt_action_geo;
+
+    #[test]
+    fn augments_legacy_gdelt_text_with_action_geo_before_source_url() {
+        let text = "EventCode 031 root 03 quad 1 | SourceURL https://example.test/a";
+        let augmented =
+            augment_gdelt_action_geo(text, Some("Gaza, Israel (general), Israel"), Some("IS"));
+
+        assert_eq!(
+            augmented,
+            "EventCode 031 root 03 quad 1 | ActionGeo Gaza, Israel (general), Israel country IS | SourceURL https://example.test/a"
+        );
+    }
+
+    #[test]
+    fn leaves_existing_action_geo_text_unchanged() {
+        let text = "EventCode 031 root 03 quad 1 | ActionGeo Gaza country IS | SourceURL https://example.test/a";
+
+        assert_eq!(
+            augment_gdelt_action_geo(text, Some("Other"), Some("US")),
+            text
+        );
     }
 }
 

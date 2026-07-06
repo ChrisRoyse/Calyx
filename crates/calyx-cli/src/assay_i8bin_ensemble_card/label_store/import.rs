@@ -126,6 +126,8 @@ struct RowJson {
     #[serde(default)]
     gdelt_action_geo_country: Option<String>,
     #[serde(default)]
+    gdelt_action_geo_fullname: Option<String>,
+    #[serde(default)]
     gdelt_actor1_country: Option<String>,
     #[serde(default)]
     gdelt_actor2_name: Option<String>,
@@ -141,6 +143,7 @@ pub(crate) enum AnchorSpec {
     GdeltRoot(String),
     GdeltQuad(String),
     GdeltActionGeo(String),
+    GeoFullContains(String),
     GdeltActor1Country(String),
     GdeltActor2Country(String),
     GdeltActorCountry(String),
@@ -174,6 +177,9 @@ impl AnchorSpec {
         }
         if let Some(value) = raw.strip_prefix("gdelt_action_geo:") {
             return Ok(Self::GdeltActionGeo(value.to_string()));
+        }
+        if let Some(value) = raw.strip_prefix("gdelt_action_geo_fullname_contains:") {
+            return Ok(Self::GeoFullContains(value.to_string()));
         }
         if let Some(value) = raw.strip_prefix("gdelt_actor1_country:") {
             return Ok(Self::GdeltActor1Country(value.to_string()));
@@ -246,6 +252,7 @@ impl AnchorSpec {
             Self::GdeltRoot(value) => format!("gdelt_root_{value}"),
             Self::GdeltQuad(value) => format!("gdelt_quad_{value}"),
             Self::GdeltActionGeo(value) => format!("gdelt_action_geo_{value}"),
+            Self::GeoFullContains(value) => format!("gdelt_action_geo_fullname_contains_{value}"),
             Self::GdeltActor1Country(value) => format!("gdelt_actor1_country_{value}"),
             Self::GdeltActor2Country(value) => format!("gdelt_actor2_country_{value}"),
             Self::GdeltActorCountry(value) => format!("gdelt_actor_country_{value}"),
@@ -290,6 +297,12 @@ impl AnchorSpec {
                 .as_deref()
                 .unwrap_or_default()
                 .eq_ignore_ascii_case(expected)),
+            Self::GeoFullContains(expected) => Ok(row
+                .gdelt_action_geo_fullname
+                .as_deref()
+                .unwrap_or_default()
+                .to_ascii_lowercase()
+                .contains(&expected.to_ascii_lowercase())),
             Self::GdeltActor1Country(expected) => {
                 Ok(eq_ascii(row.gdelt_actor1_country.as_deref(), expected))
             }
