@@ -392,6 +392,13 @@ fn args_reject_slot_manifest_and_db_truth_sources_together() {
 }
 
 #[test]
+fn gate_scale_truth_ignores_file_manifest_truth() {
+    assert!(!gate_scale_truth(true, false, true, false));
+    assert!(gate_scale_truth(false, true, false, false));
+    assert!(gate_scale_truth(false, false, false, true));
+}
+
+#[test]
 fn to_index_hits_preserves_rank_and_cx_id() {
     let hits = to_index_hits(vec![(9, 0.1), (3, 0.2)]);
 

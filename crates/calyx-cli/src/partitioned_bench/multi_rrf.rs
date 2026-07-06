@@ -189,18 +189,20 @@ pub(crate) fn run(raw: &[String]) -> CliResult {
         }
         None => None,
     };
-    let scale_truth = precomputed_truth
-        .as_ref()
-        .is_some_and(ground_truth::PrecomputedTruth::scale_suitable)
-        || db_fused_truth
+    let scale_truth = gate_scale_truth(
+        precomputed_truth
             .as_ref()
-            .is_some_and(fused_truth_db::DbFusedTruth::scale_suitable)
-        || slot_truth
+            .is_some_and(ground_truth::PrecomputedTruth::scale_suitable),
+        db_fused_truth
             .as_ref()
-            .is_some_and(slot_truth::SlotTruth::scale_suitable)
-        || db_slot_truth
+            .is_some_and(fused_truth_db::DbFusedTruth::scale_suitable),
+        slot_truth
             .as_ref()
-            .is_some_and(slot_truth_db::DbSlotTruth::scale_suitable);
+            .is_some_and(slot_truth::SlotTruth::scale_suitable),
+        db_slot_truth
+            .as_ref()
+            .is_some_and(slot_truth_db::DbSlotTruth::scale_suitable),
+    );
     truth_gate::enforce(args.recall_floor.is_some(), truth_n, scale_truth)?;
     if n == 0 {
         return Err(CliError::usage(
@@ -453,6 +455,15 @@ fn fuse(per_slot: &BTreeMap<SlotId, Vec<IndexSearchHit>>, k: usize) -> Vec<calyx
         stage1_slots: Vec::new(),
     };
     fusion::fuse(per_slot, &context)
+}
+
+fn gate_scale_truth(
+    _file_fused_truth_scale_suitable: bool,
+    db_fused_truth_scale_suitable: bool,
+    _file_slot_truth_scale_suitable: bool,
+    db_slot_truth_scale_suitable: bool,
+) -> bool {
+    db_fused_truth_scale_suitable || db_slot_truth_scale_suitable
 }
 
 #[cfg(test)]
