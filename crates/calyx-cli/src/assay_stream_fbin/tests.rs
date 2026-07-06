@@ -5,12 +5,8 @@ use serde_json::Value;
 
 use super::args::StreamMode;
 use super::format::VectorFormat;
+use super::tests_support::{Fixture, staging_dir, write_bits_with_gate, write_legacy_bits};
 use super::write;
-
-#[path = "tests/support.rs"]
-mod support;
-
-use support::{Fixture, staging_dir, write_bits_with_gate, write_legacy_bits};
 
 #[test]
 fn stream_fbin_can_emit_i8bin_vector_sources() {

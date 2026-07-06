@@ -278,3 +278,48 @@ fn parse_mode(value: &str) -> CliResult<StreamMode> {
         ))),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::path::Path;
+
+    use super::*;
+
+    #[test]
+    fn parses_worker_passthrough_flags() {
+        let raw = [
+            "--rows-jsonl",
+            "rows.jsonl",
+            "--out-dir",
+            "out",
+            "--dataset",
+            "unit",
+            "--target-class",
+            "1",
+            "--lens-template-cf-root",
+            "template_cf",
+            "--a37-admission-cf-root",
+            "a37_cf",
+            "--query-count",
+            "8",
+            "--cost-override-json",
+            "costs.json",
+            "--embedding-model-id",
+            "intfloat/multilingual-e5-base",
+        ]
+        .into_iter()
+        .map(str::to_string)
+        .collect::<Vec<_>>();
+
+        let args = Args::parse(&raw).unwrap();
+
+        assert_eq!(
+            args.cost_override_json.as_deref(),
+            Some(Path::new("costs.json"))
+        );
+        assert_eq!(
+            args.embedding_model_id.as_deref(),
+            Some("intfloat/multilingual-e5-base")
+        );
+    }
+}

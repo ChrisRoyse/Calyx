@@ -358,33 +358,6 @@ fn clean_geo_field(value: Option<&str>) -> Option<&str> {
     value.map(str::trim).filter(|value| !value.is_empty())
 }
 
-#[cfg(test)]
-mod tests {
-    use super::augment_gdelt_action_geo;
-
-    #[test]
-    fn augments_legacy_gdelt_text_with_action_geo_before_source_url() {
-        let text = "EventCode 031 root 03 quad 1 | SourceURL https://example.test/a";
-        let augmented =
-            augment_gdelt_action_geo(text, Some("Gaza, Israel (general), Israel"), Some("IS"));
-
-        assert_eq!(
-            augmented,
-            "EventCode 031 root 03 quad 1 | ActionGeo Gaza, Israel (general), Israel country IS | SourceURL https://example.test/a"
-        );
-    }
-
-    #[test]
-    fn leaves_existing_action_geo_text_unchanged() {
-        let text = "EventCode 031 root 03 quad 1 | ActionGeo Gaza country IS | SourceURL https://example.test/a";
-
-        assert_eq!(
-            augment_gdelt_action_geo(text, Some("Other"), Some("US")),
-            text
-        );
-    }
-}
-
 fn validate_loaded_rows(request: &CorpusBuildRequest, rows: &[LabeledRow]) -> Result<(), String> {
     if rows.len() < MIN_ROWS {
         return Err(format!(
@@ -411,4 +384,31 @@ fn validate_loaded_rows(request: &CorpusBuildRequest, rows: &[LabeledRow]) -> Re
         ));
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::augment_gdelt_action_geo;
+
+    #[test]
+    fn augments_legacy_gdelt_text_with_action_geo_before_source_url() {
+        let text = "EventCode 031 root 03 quad 1 | SourceURL https://example.test/a";
+        let augmented =
+            augment_gdelt_action_geo(text, Some("Gaza, Israel (general), Israel"), Some("IS"));
+
+        assert_eq!(
+            augmented,
+            "EventCode 031 root 03 quad 1 | ActionGeo Gaza, Israel (general), Israel country IS | SourceURL https://example.test/a"
+        );
+    }
+
+    #[test]
+    fn leaves_existing_action_geo_text_unchanged() {
+        let text = "EventCode 031 root 03 quad 1 | ActionGeo Gaza country IS | SourceURL https://example.test/a";
+
+        assert_eq!(
+            augment_gdelt_action_geo(text, Some("Other"), Some("US")),
+            text
+        );
+    }
 }

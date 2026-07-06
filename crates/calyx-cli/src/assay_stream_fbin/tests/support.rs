@@ -11,8 +11,9 @@ use crate::assay_multi_anchor_card::model::{
     LensEvidence, MultiAnchorReport, TargetLensValue, TargetSummary,
 };
 
-use super::super::args::{Args, StreamMode};
-use super::super::format::VectorFormat;
+use super::args::{Args, StreamMode};
+use super::format::VectorFormat;
+use super::{DEFAULT_MIN_BITS, MIN_A35_LENSES, template};
 
 pub(super) struct Fixture {
     pub(super) root: PathBuf,
@@ -66,11 +67,11 @@ impl Fixture {
     }
 
     pub(super) fn args(&self, query_count: usize) -> Args {
-        let record = super::super::template::record_from_manifests(&self.manifests).unwrap();
+        let record = template::record_from_manifests(&self.manifests).unwrap();
         let _ = fs::remove_dir_all(&self.template_cf);
-        super::super::template::write(
+        template::write(
             &self.template_cf,
-            super::super::template::DEFAULT_ASSOCIATION_KEY,
+            template::DEFAULT_ASSOCIATION_KEY,
             &record,
         )
         .unwrap();
@@ -81,7 +82,7 @@ impl Fixture {
             target_class: 1,
             manifests: Vec::new(),
             lens_template_cf_root: Some(self.template_cf.clone()),
-            lens_template_key: super::super::template::DEFAULT_ASSOCIATION_KEY.to_string(),
+            lens_template_key: template::DEFAULT_ASSOCIATION_KEY.to_string(),
             lens_template_specs: Vec::new(),
             bits_report: None,
             a37_admission_cf_root: Some(self.a37.clone()),
@@ -129,7 +130,7 @@ fn write_a37_admission(
     bits: f32,
 ) {
     let names = names.unwrap_or_else(|| (0..lenses).map(|idx| format!("lens-{idx}")).collect());
-    let gate_passed = admitted == lenses && bits >= super::super::DEFAULT_MIN_BITS;
+    let gate_passed = admitted == lenses && bits >= DEFAULT_MIN_BITS;
     let report = MultiAnchorReport {
         schema_version: 1,
         role: "a37_multi_anchor_admission_card".to_string(),
@@ -144,8 +145,8 @@ fn write_a37_admission(
         report_count: 1,
         lens_count: lenses,
         passing_lens_count: admitted,
-        min_lenses: super::super::MIN_A35_LENSES,
-        min_marginal_bits: super::super::DEFAULT_MIN_BITS,
+        min_lenses: MIN_A35_LENSES,
+        min_marginal_bits: DEFAULT_MIN_BITS,
         max_redundancy: 0.6,
         family_span_pass: gate_passed,
         redundancy_bound_pass: gate_passed,

@@ -2,14 +2,8 @@ use std::fs;
 
 use serde_json::Value;
 
+use super::tests_support::Fixture;
 use super::write;
-
-#[path = "tests/support.rs"]
-#[allow(clippy::duplicate_mod)]
-#[allow(dead_code)]
-mod support;
-
-use support::Fixture;
 
 #[test]
 fn stream_fbin_writes_structured_progress_snapshot() {

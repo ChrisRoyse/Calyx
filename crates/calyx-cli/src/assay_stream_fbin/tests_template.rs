@@ -3,12 +3,8 @@ use std::path::Path;
 
 use super::format::VectorFormat;
 use super::template;
+use super::tests_support::Fixture;
 use super::write;
-
-#[path = "tests/support.rs"]
-mod support;
-
-use support::Fixture;
 
 #[test]
 fn db_template_streams_without_manifest_args_or_json_sidecars() {

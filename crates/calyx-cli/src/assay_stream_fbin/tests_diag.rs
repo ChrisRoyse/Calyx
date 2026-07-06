@@ -3,14 +3,8 @@ use std::fs;
 use serde_json::Value;
 
 use super::args::StreamMode;
+use super::tests_support::{Fixture, staging_dir, write_bits_with_panel_names};
 use super::write;
-
-#[path = "tests/support.rs"]
-#[allow(clippy::duplicate_mod)]
-#[allow(dead_code)]
-mod support;
-
-use support::{Fixture, staging_dir, write_bits_with_panel_names};
 
 #[test]
 fn diagnostic_mode_can_measure_unadmitted_lens() {
