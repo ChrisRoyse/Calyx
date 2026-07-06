@@ -100,14 +100,22 @@ store, and the resource-aware admission packer (#729) gates by `bits / VRAM-MB`.
 GPU policy: resident service, `--dtype float16`, batched requests, and no hidden CPU
 execution. Model choice is still measured. The active aiwonder dense default is the
 Calyx-owned FP16 `multilingual-e5-base` service on `:18190`; BGE-M3 on `:18188` is a
-deliberate diversity lens, not the default dense lane. `Qwen/Qwen3-Embedding-0.6B`
+deliberate diversity lens, not the default dense lane. The hardware target is RTX
+5090 `sm_120`; the TEI runtime must be a Blackwell 12.0 build and startup readback
+must show `Float16`, host `libcuda`, and `CudaDevice` execution. The current
+aiwonder services run TEI `120-1.9.3` through the driver-610 wrapper; upstream TEI
+also publishes a Blackwell 12.0 image line, so changing images is a measured rollout
+item, not a reason to disturb a healthy GPU-resident service. `Qwen/Qwen3-Embedding-0.6B`
 is the largest normal candidate before tier-3, and is admitted only when Calyx
 readback beats the smaller lane on `bits / VRAM-MB`. Use resident FP16
 (`float16`/`f16`) first, BF16 only if a specific model requires it or a measured run
 beats FP16, and INT8/FP8 only after GPU provider readback proves no hidden CPU
-execution. The large 4B/8B Qwen/GTE/E5-class embedders are not default-roster
-material; they are one-at-a-time tier-3 probes unless they beat compact panels on
-measured `bits / VRAM-MB`.
+execution. The host CUDA toolkit may be 13.3, but framework support is still a
+separate gate: PyTorch stable Blackwell wheels are CUDA 13.0-family and CUDA 13.2+
+is treated as experimental until runtime readback proves sm_120 kernels. The large
+4B/8B Qwen/GTE/E5-class embedders are not default-roster material; they are
+one-at-a-time tier-3 probes unless they beat compact panels on measured
+`bits / VRAM-MB`.
 
 > A 110 M-param encoder is ≈ **220 MB FP16 / 110 MB INT8**. A 300–335 M base is ≈
 > **0.6 GB FP16 / 0.3 GB INT8**. A 0.6 B LLM-embedder is ≈ **1.2 GB FP16 / 0.6 GB INT8**.
@@ -366,7 +374,8 @@ resident at any instant (A5 hot-swap, A36 templates).
 - MTEB leaderboard / model survey — Modal, BentoML, Baseten, Milvus, Ailog guides.
 - NVIDIA CUDA 13.3 release notes / CUDA GPU table; Hugging Face TEI Blackwell GPU
   docs for compute capability 12.0 (`ghcr.io/huggingface/text-embeddings-inference:120-1.9`)
-  and `--dtype float16`.
+  and `--dtype float16`; PyTorch release matrix for CUDA 13.0 stable and 13.2
+  experimental Blackwell support.
 - Qwen3-Embedding (0.6B/4B/8B) — QwenLM blog & GitHub; treated as measured FP16
   candidates, not the active default dense lane.
 - EmbeddingGemma-300M — Google / arXiv 2509.20354; HF model card.

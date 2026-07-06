@@ -34,6 +34,11 @@ shared HF cache. The repo templates live under
 not in the repo templates. Forge runs under a **soft VRAM budget** (config), yields to
 serving/marketplace load; Anneal capped (`12 §6`). Honor
 `leapable-gpu-max-power.service` (600 W cap).
+The owned dense default is E5 on `:18190`; BGE-M3 on `:18188` is kept for
+diversity and may load slower because the upstream model falls back to
+`pytorch_model.bin`, but it is still FP16 GPU-resident after warmup. Do not
+promote a larger dense embedder or a different container image without Calyx
+readback proving GPU residency, throughput, and better `bits / VRAM-MB`.
 
 ## 2. systemd unit
 
@@ -84,6 +89,10 @@ zfs create archive/calyx-restic    -o mountpoint=/zfs/archive/calyx/restic
 
 - Driver/userspace skew after unattended-upgrades → `nvidia-smi` mismatch; cure is reboot. Calyx `healthcheck` MUST probe CUDA init and fail loud (A16), not silently CPU-fallback in server mode.
 - CUDA 13.3 from NVIDIA toolkit packages; Forge links `/usr/local/cuda` (currently `/usr/local/cuda-13.3`). Ship sm_120 cubin + PTX JIT fallback (`13`).
+- Framework runtime support is separate from the host toolkit: TEI must use a
+  Blackwell 12.0 build and PyTorch probes must use a wheel line that actually
+  supports sm_120 at runtime. Current policy is CUDA 13.0 stable PyTorch for
+  Blackwell, CUDA 13.2+ experimental only after measured readback.
 
 ## 5. Networking & security
 

@@ -73,7 +73,12 @@ if `text-embeddings-router` would still map the CUDA 12.9 compat `libcuda`.
 Current Calyx-owned containers run `ghcr.io/leapable/tei-blackwell:phase0-wrapper`,
 a pinned Blackwell SM120 TEI image based on Hugging Face TEI `120-1.9.3`; the
 wrapper only fixes driver-610 library resolution and keeps the model path
-GPU-resident.
+GPU-resident. Live readback on 2026-07-06 showed RTX 5090 compute capability
+12.0, CUDA 13.3, `DTYPE=float16`, `text-embeddings-router 1.9.3`, host
+`libcuda.so.1`, and `FlashBert` starting on `CudaDevice` for both owned TEI
+services. Upstream Hugging Face TEI now publishes a Blackwell 12.0 image line;
+keep the current wrapper unless an A/B restart proves the upstream image is at
+least as fast and preserves driver-610 CUDA resolution.
 Install or refresh the systemd drop-ins with
 `sudo infra/aiwonder/bin/install-tei-driver610-runtime.sh --restart`.
 
