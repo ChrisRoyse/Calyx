@@ -28,6 +28,8 @@ mod multi_rrf;
 mod progress;
 #[path = "partitioned_bench/rrf_plan.rs"]
 pub(crate) mod rrf_plan;
+#[path = "partitioned_bench/rrf_plan_remap.rs"]
+mod rrf_plan_remap;
 #[path = "partitioned_bench/slot_truth_generate.rs"]
 mod slot_truth_generate;
 #[path = "partitioned_bench/slot_truth_store.rs"]
@@ -197,6 +199,10 @@ pub(crate) fn run_rrf(args: &[String]) -> CliResult {
 
 pub(crate) fn run_rrf_plan(args: &[String]) -> CliResult {
     rrf_plan::run_import(args)
+}
+
+pub(crate) fn run_rrf_plan_remap(args: &[String]) -> CliResult {
+    rrf_plan_remap::run(args)
 }
 
 pub(crate) fn run_rrf_slot_truth(args: &[String]) -> CliResult {

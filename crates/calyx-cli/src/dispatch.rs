@@ -64,6 +64,11 @@ pub(crate) fn run(args: Vec<String>) -> CliResult {
             partitioned_bench::run_rrf_plan(rest)
         }
         [command, topic, rest @ ..]
+            if command == "bench" && topic == "partitioned-rrf-plan-remap" =>
+        {
+            partitioned_bench::run_rrf_plan_remap(rest)
+        }
+        [command, topic, rest @ ..]
             if command == "bench" && topic == "partitioned-rrf-slot-truth" =>
         {
             partitioned_bench::run_rrf_slot_truth(rest)
