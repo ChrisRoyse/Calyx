@@ -348,6 +348,9 @@ fn add_worker_args(
     if let Some(id) = &args.embedding_model_id {
         command.arg("--embedding-model-id").arg(id);
     }
+    if !args.emit_artifacts {
+        command.arg("--db-only");
+    }
 }
 
 #[cfg(not(test))]

@@ -4,7 +4,7 @@ use crate::error::CliResult;
 
 use super::super::args::Args;
 use super::super::{MIN_A35_LENSES, local_error};
-use super::bits::{load_bits, streamable_for_mode};
+use super::bits::{diagnostic_bootstrap_bits, load_bits, streamable_for_mode};
 use crate::a35_signal::{lens_spec_signal_kind_name, require_countable_content_signal_kind};
 
 pub(super) fn validate_floor_before_runtime(args: &Args) -> CliResult {
@@ -23,7 +23,13 @@ pub(super) fn validate_floor_before_runtime(args: &Args) -> CliResult {
             lens_spec_signal_kind_name(&spec),
             "assay stream-fbin pre-runtime A35 gate",
         )?;
-        let Some(bits) = bits.get(&spec.name) else {
+        let bootstrap_bits;
+        let bits = if let Some(bits) = bits.get(&spec.name) {
+            bits
+        } else if args.diagnostic_bootstrap_without_admission() {
+            bootstrap_bits = diagnostic_bootstrap_bits(&spec.name, args);
+            &bootstrap_bits
+        } else {
             return Err(local_error(
                 "CALYX_FSV_ASSAY_STREAM_FBIN_BITS_MISSING",
                 format!("lens {} missing from bits report", spec.name),

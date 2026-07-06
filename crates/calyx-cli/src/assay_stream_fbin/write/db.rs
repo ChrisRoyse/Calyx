@@ -13,13 +13,31 @@ use super::paths::display;
 pub(super) fn persist_after_promotion(args: &Args, staged: &mut StagedExport) -> CliResult {
     persist_plan(args, staged)?;
     persist_timeline(args, staged)?;
-    fs::write(
-        args.out_dir.join("stream_fbin_report.json"),
-        serde_json::to_vec_pretty(&staged.evidence).map_err(|error| {
-            CliError::runtime(format!("serialize stream_fbin_report.json: {error}"))
-        })?,
-    )
-    .map_err(io_error)
+    if args.emit_artifacts {
+        fs::write(
+            args.out_dir.join("stream_fbin_report.json"),
+            serde_json::to_vec_pretty(&staged.evidence).map_err(|error| {
+                CliError::runtime(format!("serialize stream_fbin_report.json: {error}"))
+            })?,
+        )
+        .map_err(io_error)?;
+    }
+    Ok(())
+}
+
+pub(super) fn remove_json_artifacts(args: &Args) -> CliResult {
+    for name in [
+        "partitioned_rrf_plan.json",
+        "timeline.jsonl",
+        "stream_fbin_progress.json",
+        "stream_fbin_report.json",
+    ] {
+        let path = args.out_dir.join(name);
+        if path.exists() {
+            fs::remove_file(&path).map_err(io_error)?;
+        }
+    }
+    Ok(())
 }
 
 fn persist_plan(args: &Args, staged: &mut StagedExport) -> CliResult {

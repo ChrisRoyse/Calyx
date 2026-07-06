@@ -9,7 +9,7 @@ use crate::error::CliResult;
 
 use super::super::args::Args;
 use super::super::{MIN_A35_LENSES, local_error};
-use super::bits::{BitsLens, load_bits, streamable_for_mode};
+use super::bits::{BitsLens, diagnostic_bootstrap_bits, load_bits, streamable_for_mode};
 
 pub(super) struct SelectedLens {
     pub(super) manifest: PathBuf,
@@ -70,7 +70,11 @@ fn selected_lenses_with_min(args: &Args, min_lenses: usize) -> CliResult<Vec<Sel
                 "deduplicate the stream-fbin manifest roster",
             ));
         }
-        let Some(bits) = bits.get(&spec.name).cloned() else {
+        let bits = if let Some(bits) = bits.get(&spec.name).cloned() {
+            bits
+        } else if args.diagnostic_bootstrap_without_admission() {
+            diagnostic_bootstrap_bits(&spec.name, args)
+        } else {
             return Err(local_error(
                 "CALYX_FSV_ASSAY_STREAM_FBIN_BITS_MISSING",
                 format!("lens {} missing from bits report", spec.name),

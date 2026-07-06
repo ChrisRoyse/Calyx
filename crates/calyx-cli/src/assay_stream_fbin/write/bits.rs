@@ -36,6 +36,9 @@ pub(super) fn load_bits(args: &Args) -> CliResult<BTreeMap<String, BitsLens>> {
     if args.a37_admission_cf_root.is_some() {
         return load_a37_admission_bits(args);
     }
+    if args.diagnostic_bootstrap_without_admission() {
+        return Ok(BTreeMap::new());
+    }
     if args.mode.requires_gate() {
         return Err(local_error(
             "CALYX_FSV_ASSAY_STREAM_FBIN_A37_DB_REQUIRED",
@@ -72,6 +75,14 @@ pub(super) fn load_bits(args: &Args) -> CliResult<BTreeMap<String, BitsLens>> {
         .into_iter()
         .map(|lens| (lens.name.clone(), lens))
         .collect())
+}
+
+pub(super) fn diagnostic_bootstrap_bits(name: &str, args: &Args) -> BitsLens {
+    BitsLens {
+        name: name.to_string(),
+        bits_about: args.min_bits,
+        admitted: false,
+    }
 }
 
 pub(super) fn load_a37_admission(
@@ -193,6 +204,7 @@ mod tests {
             worker_slot: None,
             lens_parallelism: 1,
             worker_gpu_mem_limit_mib: None,
+            emit_artifacts: true,
         }
     }
 

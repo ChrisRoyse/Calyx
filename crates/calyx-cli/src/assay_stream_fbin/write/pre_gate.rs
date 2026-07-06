@@ -62,6 +62,9 @@ pub(super) fn validate_before_full_encode(args: &Args) -> CliResult<PreEncodeGat
     if args.a37_admission_cf_root.is_some() {
         return validate_db_admission_before_full_encode(args);
     }
+    if args.diagnostic_bootstrap_without_admission() {
+        return diagnostic_bootstrap_evidence(args);
+    }
     if args.mode.requires_gate() {
         return Err(local_error(
             "CALYX_FSV_ASSAY_STREAM_FBIN_A37_DB_REQUIRED",
@@ -162,6 +165,36 @@ fn validate_db_admission_before_full_encode(args: &Args) -> CliResult<PreEncodeG
         },
         admitted_lenses,
         streamed_lenses,
+    })
+}
+
+fn diagnostic_bootstrap_evidence(args: &Args) -> CliResult<PreEncodeGateEvidence> {
+    Ok(PreEncodeGateEvidence {
+        mode: args.mode.as_str(),
+        diagnostic_only: true,
+        bits_report: "none:diagnostic_bootstrap_without_a37_admission".to_string(),
+        anchor_entropy_bits: 0.0,
+        sufficiency_basis_bits: 0.0,
+        power_adjusted_target_bits: args.min_bits,
+        deficit_bits: args.min_bits,
+        estimate_bound: "missing_db_admission".to_string(),
+        power_calibration_status: "not_run".to_string(),
+        power_recovery_ratio: 0.0,
+        min_power_recovery_ratio: DEFAULT_MIN_POWER_RECOVERY_RATIO,
+        sufficient: false,
+        grounded_gate_eligible: false,
+        anchor_audit: AnchorAudit {
+            grounded_gate_eligible: false,
+            audit_kind: Some("diagnostic_bootstrap_without_a37_admission".to_string()),
+            source: Some("assay stream-fbin diagnostic bootstrap".to_string()),
+            reason: Some(
+                "no Calyx/Aster A37 admission row supplied; this encode is diagnostic-only"
+                    .to_string(),
+            ),
+            ..AnchorAudit::default()
+        },
+        admitted_lenses: Vec::new(),
+        streamed_lenses: streamed_manifest_names(args)?,
     })
 }
 

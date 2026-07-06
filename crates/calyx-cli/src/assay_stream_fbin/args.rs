@@ -47,6 +47,7 @@ pub(crate) struct Args {
     pub(crate) worker_slot: Option<usize>,
     pub(crate) lens_parallelism: usize,
     pub(crate) worker_gpu_mem_limit_mib: Option<usize>,
+    pub(crate) emit_artifacts: bool,
 }
 
 impl Args {
@@ -71,6 +72,7 @@ impl Args {
         let mut worker_slot = None;
         let mut lens_parallelism = 1usize;
         let mut worker_gpu_mem_limit_mib = None;
+        let mut emit_artifacts = true;
         let mut it = raw.iter();
         while let Some(flag) = it.next() {
             let mut next = || {
@@ -104,6 +106,7 @@ impl Args {
                 "--worker-gpu-mem-limit-mib" => {
                     worker_gpu_mem_limit_mib = Some(parse_usize(&next()?, flag)?);
                 }
+                "--db-only" | "--no-artifacts" => emit_artifacts = false,
                 other => {
                     return Err(CliError::usage(format!(
                         "unknown assay stream-fbin arg: {other}"
@@ -135,6 +138,7 @@ impl Args {
             worker_slot,
             lens_parallelism,
             worker_gpu_mem_limit_mib,
+            emit_artifacts,
         };
         args.validate()?;
         Ok(args)
@@ -176,9 +180,14 @@ impl Args {
         }
         let has_bits_report = self.bits_report.is_some();
         let has_admission_db = self.a37_admission_cf_root.is_some();
-        if has_bits_report == has_admission_db {
+        if has_bits_report && has_admission_db {
             return Err(CliError::usage(
-                "provide exactly one of --bits-report <json> or --a37-admission-cf-root <dir>",
+                "provide at most one of --bits-report <json> or --a37-admission-cf-root <dir>",
+            ));
+        }
+        if self.mode.requires_gate() && !has_admission_db {
+            return Err(CliError::usage(
+                "gate mode requires --a37-admission-cf-root <dir>",
             ));
         }
         if has_bits_report && self.mode.requires_gate() {
@@ -214,6 +223,12 @@ impl Args {
             return Err(CliError::usage("--worker-gpu-mem-limit-mib must be > 0"));
         }
         Ok(())
+    }
+
+    pub(crate) fn diagnostic_bootstrap_without_admission(&self) -> bool {
+        !self.mode.requires_gate()
+            && self.bits_report.is_none()
+            && self.a37_admission_cf_root.is_none()
     }
 }
 

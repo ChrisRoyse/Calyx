@@ -12,6 +12,7 @@ pub(crate) const TEMPORAL_LANE_ROLE: &str = "time_manipulation_walk_forward_back
 
 #[derive(Clone, Debug, Serialize)]
 pub(crate) struct Evidence {
+    pub(crate) artifact_mode: String,
     pub(crate) out_dir: String,
     pub(crate) rows_jsonl: String,
     pub(crate) plan_path: String,
