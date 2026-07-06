@@ -8,7 +8,7 @@ use sha2::{Digest, Sha256};
 
 const KEY_PREFIX: &[u8] = b"calyx/partitioned-rrf/slot-truth/v1/";
 const VALUE_MAGIC: &[u8] = b"CRRFST1\0";
-const CF_MEMTABLE_CAP: usize = 8 * 1024 * 1024;
+const CF_MEMTABLE_CAP: usize = 64 * 1024 * 1024;
 
 pub(crate) const DEFAULT_ASSOCIATION_KEY: &str = "partitioned_rrf_slot_truth";
 pub(crate) const FORMAT: &str = "calyx-partitioned-rrf-slot-ground-truth-v1";
@@ -220,6 +220,47 @@ mod tests {
         assert!(written.readback_matches);
         assert_eq!(written.value_sha256, readback.value_sha256);
         assert_eq!(read_record.slots[0].rows[0], vec![3, 5]);
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn graph_cf_slot_truth_accepts_broad_query_rows() {
+        let root = temp_root("slot-truth-db-broad");
+        let rows = (0..20_000)
+            .map(|row| {
+                (0..64)
+                    .map(|col| u64::MAX - ((row * 64 + col) as u64))
+                    .collect::<Vec<_>>()
+            })
+            .collect::<Vec<_>>();
+        let record = SlotTruthRecord {
+            format: FORMAT.to_string(),
+            mode: MODE.to_string(),
+            row_id_space: ROW_ID_SPACE.to_string(),
+            plan_sha256: "00".repeat(32),
+            query_count: rows.len(),
+            truth_depth: 64,
+            corpus_rows: 20_000_000,
+            reference_backend: "unit".to_string(),
+            scale_suitable: true,
+            slots: vec![SlotTruthRecordSlot {
+                slot: 0,
+                lens_id: "11".repeat(16),
+                weights_sha256: "22".repeat(32),
+                signal_kind: "learned_encoder".to_string(),
+                rows,
+            }],
+        };
+        let encoded = encode(&record).unwrap();
+        assert!(encoded.len() > 8 * 1024 * 1024);
+
+        let written = write(&root, "unit_truth_broad", &record).unwrap();
+        let (read_record, readback) = read(&root, "unit_truth_broad").unwrap();
+
+        assert!(written.readback_matches);
+        assert_eq!(written.value_sha256, readback.value_sha256);
+        assert_eq!(read_record.query_count, 20_000);
+        assert_eq!(read_record.slots[0].rows[19_999].len(), 64);
         let _ = fs::remove_dir_all(root);
     }
 
