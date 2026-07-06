@@ -1,5 +1,7 @@
 use calyx_core::SlotId;
 
+use crate::logistic::logistic_probe_mi_multiseed_calibrated;
+
 use super::*;
 
 const DIM: usize = 8;
@@ -68,6 +70,34 @@ fn sub_ten_gate_panels_fail_closed() {
     assert!(error.message.contains("at least 10"));
 }
 
+#[test]
+fn leave_one_out_baseline_uses_calibrated_estimator() {
+    let (lenses, labels) = fixture_panel(160);
+    let card = ensemble_card(&lenses, &labels, None, &EnsembleConfig::default()).unwrap();
+    let excluded = lenses
+        .iter()
+        .position(|lens| lens.name == "real_b")
+        .unwrap();
+    let expected = logistic_probe_mi_multiseed_calibrated(
+        &concat_fixture_lenses_without(&lenses, excluded),
+        &labels,
+        None,
+    )
+    .unwrap();
+    let actual = card
+        .lenses
+        .iter()
+        .find(|lens| lens.name == "real_b")
+        .unwrap()
+        .panel_without_bits;
+
+    assert!(
+        (actual - expected.estimate.bits).abs() < 1.0e-6,
+        "actual {actual} expected {}",
+        expected.estimate.bits
+    );
+}
+
 fn fixture_panel(rows: usize) -> (Vec<EnsembleLensInput>, Vec<bool>) {
     let labels = (0..rows).map(|idx| idx % 2 == 0).collect::<Vec<_>>();
     let real_a = lens_rows(rows, &labels, 1.0, 0.18, 1);
@@ -99,6 +129,20 @@ fn fixture_panel(rows: usize) -> (Vec<EnsembleLensInput>, Vec<bool>) {
         .map(|(idx, (name, rows))| EnsembleLensInput::new(name, SlotId::new(idx as u16), rows))
         .collect();
     (lenses, labels)
+}
+
+fn concat_fixture_lenses_without(lenses: &[EnsembleLensInput], excluded: usize) -> Vec<Vec<f32>> {
+    let rows = lenses.first().map(|lens| lens.vectors.len()).unwrap_or(0);
+    let mut joint = vec![Vec::new(); rows];
+    for (idx, lens) in lenses.iter().enumerate() {
+        if idx == excluded {
+            continue;
+        }
+        for (sample, row) in lens.vectors.iter().enumerate() {
+            joint[sample].extend_from_slice(row);
+        }
+    }
+    joint
 }
 
 fn lens_rows(rows: usize, labels: &[bool], weight: f32, noise: f32, seed: u64) -> Vec<Vec<f32>> {

@@ -241,7 +241,7 @@ fn estimate_panel_without(
     groups: Option<&[String]>,
     excluded: usize,
 ) -> Result<crate::LogisticProbeReport> {
-    logistic_probe_mi_multiseed(&concat_lenses(lenses, Some(excluded)), labels, groups)
+    logistic_probe_mi_multiseed_calibrated(&concat_lenses(lenses, Some(excluded)), labels, groups)
 }
 
 fn pair_values(
