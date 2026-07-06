@@ -67,6 +67,94 @@ fn lens_template_import_refuses_duplicate_key() {
     let _ = fs::remove_dir_all(fixture.root);
 }
 
+#[test]
+fn direct_lens_template_import_writes_db_row_without_json_sidecars() {
+    let root = std::env::temp_dir().join(format!(
+        "calyx-stream-fbin-direct-template-{}",
+        std::process::id()
+    ));
+    let raw = direct_template_args(&root);
+
+    template::run_import(&raw).unwrap();
+
+    let (record, readback) = template::read(&root, "unit_direct_template").unwrap();
+    assert!(readback.readback_matches);
+    assert_eq!(record.descriptors.len(), 10);
+    assert_eq!(record.descriptors[0].name, "semantic-e5-base-tei");
+    assert_eq!(record.descriptors[0].dtype, "float16");
+    assert_eq!(record.descriptors[0].max_batch, Some(64));
+    assert!(
+        record
+            .descriptors
+            .iter()
+            .all(|descriptor| descriptor.source_path.starts_with("calyx-db-direct:")),
+        "direct roster must not cite filesystem manifests"
+    );
+    assert_eq!(json_count(&root), 0);
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn direct_lens_template_import_refuses_manifest_mix() {
+    let root = std::env::temp_dir().join(format!(
+        "calyx-stream-fbin-direct-template-mix-{}",
+        std::process::id()
+    ));
+    let mut raw = vec![
+        "--manifest".to_string(),
+        "legacy.json".to_string(),
+        "--cf-root".to_string(),
+        root.display().to_string(),
+        "--tei".to_string(),
+        "semantic-e5-base-tei".to_string(),
+        "http://127.0.0.1:18190/embed".to_string(),
+        "768".to_string(),
+    ];
+    raw.push("--lens-template-key".to_string());
+    raw.push("unit_direct_template_mix".to_string());
+
+    let error = template::run_import(&raw).unwrap_err();
+    assert!(
+        error
+            .to_string()
+            .contains("cannot mix --manifest with direct --tei/--algorithmic")
+    );
+    let _ = fs::remove_dir_all(root);
+}
+
+fn direct_template_args(root: &Path) -> Vec<String> {
+    let mut raw = vec![
+        "--cf-root".to_string(),
+        root.display().to_string(),
+        "--lens-template-key".to_string(),
+        "unit_direct_template".to_string(),
+        "--tei".to_string(),
+        "semantic-e5-base-tei".to_string(),
+        "http://127.0.0.1:18190/embed".to_string(),
+        "768".to_string(),
+        "--tei".to_string(),
+        "semantic-bge-m3-tei".to_string(),
+        "http://127.0.0.1:18188/embed".to_string(),
+        "1024".to_string(),
+    ];
+    for (name, kind, dim) in [
+        ("gdelt-cameo-event-code", "gdelt-cameo", "16"),
+        ("gdelt-actor-geo-entity", "gdelt-actor-geo", "512"),
+        ("gdelt-source-domain", "gdelt-source-domain", "512"),
+        ("gdelt-event-geo", "gdelt-event-geo", "512"),
+        ("gdelt-actor-pair", "gdelt-actor-pair", "512"),
+        ("gdelt-event-actor", "gdelt-event-actor", "512"),
+        ("gdelt-tone-signal", "gdelt-tone-signal", "512"),
+        ("gdelt-source-event", "gdelt-source-event", "512"),
+    ] {
+        raw.push("--algorithmic".to_string());
+        raw.push(name.to_string());
+        raw.push(kind.to_string());
+        raw.push(dim.to_string());
+    }
+    raw
+}
+
 fn json_count(root: &Path) -> usize {
     let mut count = 0;
     if let Ok(entries) = fs::read_dir(root) {

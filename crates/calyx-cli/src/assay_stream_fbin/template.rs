@@ -25,6 +25,8 @@ pub(crate) const DEFAULT_ASSOCIATION_KEY: &str = "stream_fbin_lens_template";
 pub(crate) const FORMAT: &str = "calyx-assay-stream-fbin-lens-template-v1";
 pub(crate) const MODE: &str = "stream_fbin_lens_template";
 
+mod direct;
+mod import_args;
 mod lens_spec_db;
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -83,8 +85,8 @@ impl RuntimeTemplate {
 }
 
 pub(crate) fn run_import(raw: &[String]) -> CliResult {
-    let args = ImportArgs::parse(raw)?;
-    let record = record_from_manifests(&args.manifests)?;
+    let args = import_args::ImportArgs::parse(raw)?;
+    let record = args.record()?;
     let readback = write(&args.cf_root, &args.association_key, &record).map_err(CliError::Calyx)?;
     println!(
         "stream_fbin_lens_template_db cf_root={} association_key={} descriptors={} roster_sha256={} value_bytes={} value_sha256={} readback_matches={}",
@@ -436,40 +438,4 @@ fn hex_sha256(bytes: &[u8]) -> String {
 
 fn hex_from_digest(bytes: &[u8]) -> String {
     bytes.iter().map(|byte| format!("{byte:02x}")).collect()
-}
-
-struct ImportArgs {
-    manifests: Vec<PathBuf>,
-    cf_root: PathBuf,
-    association_key: String,
-}
-
-impl ImportArgs {
-    fn parse(raw: &[String]) -> CliResult<Self> {
-        let mut manifests = Vec::new();
-        let mut cf_root = None;
-        let mut association_key = DEFAULT_ASSOCIATION_KEY.to_string();
-        let mut it = raw.iter();
-        while let Some(flag) = it.next() {
-            let mut next = || {
-                it.next()
-                    .cloned()
-                    .ok_or_else(|| CliError::usage(format!("{flag} requires a value")))
-            };
-            match flag.as_str() {
-                "--manifest" => manifests.push(PathBuf::from(next()?)),
-                "--cf-root" => cf_root = Some(PathBuf::from(next()?)),
-                "--association-key" | "--lens-template-key" => association_key = next()?,
-                other => return Err(CliError::usage(format!("unknown flag: {other}"))),
-            }
-        }
-        if association_key.trim().is_empty() {
-            return Err(CliError::usage("--lens-template-key must be non-empty"));
-        }
-        Ok(Self {
-            manifests,
-            cf_root: cf_root.ok_or_else(|| CliError::usage("--cf-root <dir> is required"))?,
-            association_key,
-        })
-    }
 }
