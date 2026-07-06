@@ -5,6 +5,7 @@ use super::super::assignment::{
 use crate::index::SpannCentroidIndex;
 use crate::index::partitioned::{
     PartitionBuildParams, PartitionedSearch, VectorSource, build_partitioned_vault,
+    partitioned_manifest_db_exists,
 };
 
 #[test]
@@ -44,6 +45,31 @@ fn partitioned_open_rejects_corrupt_unprobed_region_graph() {
     assert_eq!(error.code, crate::error::CALYX_INDEX_CORRUPT);
     assert!(error.message.contains("region"));
     assert!(error.message.contains(&meta.graph_rel));
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn partitioned_manifest_is_db_native_and_required() {
+    let dir = std::env::temp_dir().join(format!("calyx-part-db-manifest-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    let p = params(41);
+    let built = build_partitioned_vault(&dir, p).expect("build");
+
+    assert!(partitioned_manifest_db_exists(&dir).expect("manifest db exists"));
+    assert!(
+        !dir.join("partitioned-manifest.json").exists(),
+        "partitioned manifest authority must not be persisted as JSON"
+    );
+    let search = PartitionedSearch::open(&dir).expect("open from db manifest");
+    assert_eq!(search.manifest().n_cx, built.n_cx);
+    assert_eq!(search.manifest().regions.len(), built.regions.len());
+
+    std::fs::remove_dir_all(dir.join("cf")).expect("remove manifest db rows");
+    let error = match PartitionedSearch::open(&dir) {
+        Ok(_) => panic!("missing DB manifest opened"),
+        Err(error) => error,
+    };
+    assert_eq!(error.code, crate::error::CALYX_INDEX_MANIFEST_DB_MISSING);
     let _ = std::fs::remove_dir_all(&dir);
 }
 

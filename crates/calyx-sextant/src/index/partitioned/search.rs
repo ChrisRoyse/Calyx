@@ -10,9 +10,7 @@ use crate::index::distance::l2_sq;
 use crate::index::{DiskAnnSearch, DiskAnnSearchParams, SpannCentroidIndex, open_diskann_graph};
 
 use super::assignment::read_ids;
-use super::{
-    CENTROID_DIR, MANIFEST_FILE, PartitionDistanceMetric, PartitionedManifest, RegionMeta, cx,
-};
+use super::{CENTROID_DIR, PartitionDistanceMetric, PartitionedManifest, RegionMeta, cx, manifest};
 
 /// Search-time knobs. `n_probe` is the probe CEILING; when `pruning_epsilon` is
 /// set, SPANN-style query-aware dynamic pruning keeps only candidate regions with
@@ -48,12 +46,7 @@ pub struct PartitionedSearchReadback {
 
 impl PartitionedSearch {
     pub fn open(root: &Path) -> Result<Self> {
-        let bytes = std::fs::read(root.join(MANIFEST_FILE)).map_err(|e| {
-            crate::error::sextant_error(crate::error::CALYX_INDEX_IO, e.to_string())
-        })?;
-        let manifest: PartitionedManifest = serde_json::from_slice(&bytes).map_err(|e| {
-            crate::error::sextant_error(crate::error::CALYX_INDEX_IO, e.to_string())
-        })?;
+        let manifest = manifest::read_manifest_db(root)?;
         validate_manifest_artifacts(root, &manifest)?;
         let centroids = SpannCentroidIndex::open(root.join(CENTROID_DIR))?;
         let region_meta = manifest.regions.iter().map(|m| (m.id, m.clone())).collect();

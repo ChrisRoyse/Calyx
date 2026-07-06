@@ -828,6 +828,7 @@ dependencies = [
 name = "calyx-sextant"
 version = "0.1.0"
 dependencies = [
+ "bincode_reloaded",
  "blake3",
  "calyx-anneal",
  "calyx-aster",

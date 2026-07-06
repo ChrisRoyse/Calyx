@@ -254,37 +254,28 @@ fn i8bin_build_and_search_uses_real_vector_files() {
     ])
     .expect("build partitioned i8bin vault");
 
-    let manifest_path = vault.join("partitioned-manifest.json");
-    let manifest: serde_json::Value =
-        serde_json::from_slice(&std::fs::read(&manifest_path).unwrap()).unwrap();
-    assert_eq!(manifest["n_cx"], 6);
-    assert_eq!(manifest["dim"], 3);
-    assert_eq!(manifest["n_regions"], 3);
+    assert!(calyx_sextant::index::partitioned_manifest_db_exists(&vault).unwrap());
+    assert!(!vault.join("partitioned-manifest.json").exists());
+    let search = calyx_sextant::index::PartitionedSearch::open(&vault).unwrap();
+    let manifest = search.manifest();
+    assert_eq!(manifest.n_cx, 6);
+    assert_eq!(manifest.dim, 3);
+    assert_eq!(manifest.n_regions, 3);
+    assert!(vault.join(&manifest.root_graph_rel).is_file());
     assert!(
         vault
-            .join(manifest["root_graph_rel"].as_str().unwrap())
-            .is_file()
-    );
-    assert!(
-        vault
-            .join(manifest["centroids_rel"].as_str().unwrap())
+            .join(&manifest.centroids_rel)
             .metadata()
             .map(|meta| meta.len() > 0)
             .unwrap_or(false)
     );
-    assert!(
-        manifest["regions"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .all(|region| {
-                vault
-                    .join(region["graph_rel"].as_str().unwrap())
-                    .metadata()
-                    .map(|meta| meta.len() > 0)
-                    .unwrap_or(false)
-            })
-    );
+    assert!(manifest.regions.iter().all(|region| {
+        vault
+            .join(&region.graph_rel)
+            .metadata()
+            .map(|meta| meta.len() > 0)
+            .unwrap_or(false)
+    }));
 
     run_search(&[
         "--vault".into(),
@@ -423,10 +414,8 @@ fn raw_l2_i8bin_search_accepts_i32bin_ground_truth() {
     ])
     .expect("build raw-l2 partitioned i8bin vault");
 
-    let manifest: serde_json::Value =
-        serde_json::from_slice(&std::fs::read(vault.join("partitioned-manifest.json")).unwrap())
-            .unwrap();
-    assert_eq!(manifest["distance_metric"], "raw-l2");
+    let search = calyx_sextant::index::PartitionedSearch::open(&vault).unwrap();
+    assert_eq!(search.manifest().distance_metric.as_str(), "raw-l2");
 
     run_search(&[
         "--vault".into(),

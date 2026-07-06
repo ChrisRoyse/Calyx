@@ -18,6 +18,7 @@ default = []
 cuda = ["dep:cudarc", "dep:cuvs-sys"]
 
 [dependencies]
+bincode.workspace = true
 blake3.workspace = true
 calyx-anneal = { path = "../calyx-anneal" }
 calyx-aster = { path = "../calyx-aster" }

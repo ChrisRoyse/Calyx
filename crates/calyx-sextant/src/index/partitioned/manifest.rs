@@ -1,8 +1,17 @@
 //! Partitioned-vault manifest types and closure-assignment telemetry (#1129).
 
+use std::path::Path;
+
+use bincode::config;
+use calyx_aster::cf::{CfRouter, ColumnFamily};
+use calyx_core::Result;
 use serde::{Deserialize, Serialize};
 
 use super::{DiskAnnBuildBackend, PartitionDistanceMetric};
+
+const MANIFEST_DB_KEY: &[u8] = b"calyx/partitioned-vault/manifest/v1/default";
+const MANIFEST_DB_VALUE_MAGIC: &[u8] = b"CPARTM1\0";
+const CF_MEMTABLE_CAP: usize = 64 * 1024 * 1024;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RegionMeta {
@@ -95,4 +104,91 @@ fn default_graph_build_backend() -> DiskAnnBuildBackend {
 
 pub(super) fn default_rng_factor() -> f32 {
     1.0
+}
+
+pub(super) fn write_manifest_db(root: &Path, manifest: &PartitionedManifest) -> Result<()> {
+    let value = encode_manifest(manifest)?;
+    let mut router = CfRouter::open(root, CF_MEMTABLE_CAP)?;
+    router.put(ColumnFamily::Graph, MANIFEST_DB_KEY, &value)?;
+    router.flush_cf(ColumnFamily::Graph)?;
+    drop(router);
+
+    let readback = read_manifest_bytes(root)?.ok_or_else(|| {
+        crate::error::sextant_error(
+            crate::error::CALYX_INDEX_MANIFEST_DB_MISSING,
+            "partitioned manifest Graph CF row missing after write",
+        )
+    })?;
+    if readback != value {
+        return Err(crate::error::sextant_error(
+            crate::error::CALYX_INDEX_MANIFEST_DB_MISMATCH,
+            "partitioned manifest Graph CF readback bytes changed after write",
+        ));
+    }
+    Ok(())
+}
+
+pub(super) fn read_manifest_db(root: &Path) -> Result<PartitionedManifest> {
+    let value = read_manifest_bytes(root)?.ok_or_else(|| {
+        crate::error::sextant_error(
+            crate::error::CALYX_INDEX_MANIFEST_DB_MISSING,
+            "partitioned manifest Graph CF row is missing",
+        )
+    })?;
+    decode_manifest(&value)
+}
+
+pub(super) fn manifest_db_exists(root: &Path) -> Result<bool> {
+    if !graph_cf_dir(root).is_dir() {
+        return Ok(false);
+    }
+    Ok(read_manifest_bytes(root)?.is_some())
+}
+
+fn read_manifest_bytes(root: &Path) -> Result<Option<Vec<u8>>> {
+    if !graph_cf_dir(root).is_dir() {
+        return Ok(None);
+    }
+    let router = CfRouter::open(root, CF_MEMTABLE_CAP)?;
+    router.get(ColumnFamily::Graph, MANIFEST_DB_KEY)
+}
+
+fn graph_cf_dir(root: &Path) -> std::path::PathBuf {
+    root.join("cf").join(ColumnFamily::Graph.name())
+}
+
+fn encode_manifest(manifest: &PartitionedManifest) -> Result<Vec<u8>> {
+    let payload = bincode::serde::encode_to_vec(manifest, config::standard()).map_err(|err| {
+        crate::error::sextant_error(
+            crate::error::CALYX_INDEX_MANIFEST_DB_INVALID,
+            format!("encode partitioned manifest DB row failed: {err}"),
+        )
+    })?;
+    let mut value = Vec::with_capacity(MANIFEST_DB_VALUE_MAGIC.len() + payload.len());
+    value.extend_from_slice(MANIFEST_DB_VALUE_MAGIC);
+    value.extend_from_slice(&payload);
+    Ok(value)
+}
+
+fn decode_manifest(value: &[u8]) -> Result<PartitionedManifest> {
+    let payload = value.strip_prefix(MANIFEST_DB_VALUE_MAGIC).ok_or_else(|| {
+        crate::error::sextant_error(
+            crate::error::CALYX_INDEX_MANIFEST_DB_INVALID,
+            "partitioned manifest DB row has invalid magic",
+        )
+    })?;
+    let (manifest, consumed): (PartitionedManifest, usize) =
+        bincode::serde::decode_from_slice(payload, config::standard()).map_err(|err| {
+            crate::error::sextant_error(
+                crate::error::CALYX_INDEX_MANIFEST_DB_INVALID,
+                format!("decode partitioned manifest DB row failed: {err}"),
+            )
+        })?;
+    if consumed != payload.len() {
+        return Err(crate::error::sextant_error(
+            crate::error::CALYX_INDEX_MANIFEST_DB_INVALID,
+            "partitioned manifest DB row has trailing bytes",
+        ));
+    }
+    Ok(manifest)
 }

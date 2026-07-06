@@ -52,7 +52,7 @@ pub use partitioned::{
     PartitionedSearchReadback, RegionMeta, SyntheticSource, VectorSource, build_partitioned_vault,
     build_partitioned_vault_from_source, build_partitioned_vault_from_source_with_backend,
     build_partitioned_vault_from_source_with_backend_and_metric,
-    build_partitioned_vault_with_backend, gen_row,
+    build_partitioned_vault_with_backend, gen_row, partitioned_manifest_db_exists,
 };
 pub use quant_config::{QuantConfig, QuantKind, QuantizedVector};
 pub use spann::{

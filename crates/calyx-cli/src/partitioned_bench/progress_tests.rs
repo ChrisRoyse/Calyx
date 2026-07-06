@@ -43,10 +43,14 @@ fn partitioned_build_progress_file_records_complete_readback() {
     assert_eq!(snapshot["geometry"]["requested_regions"], 2);
     assert_eq!(snapshot["geometry"]["build_backend"], "cpu-vamana");
     assert_eq!(snapshot["geometry"]["distance_metric"], "unit-l2");
-    assert!(snapshot["counts"]["manifest_exists"].as_bool().unwrap());
+    assert!(snapshot["counts"]["manifest_db_exists"].as_bool().unwrap());
     assert!(snapshot["counts"]["final_ids_files"].as_u64().unwrap() > 0);
     assert!(snapshot["counts"]["graph_files"].as_u64().unwrap() > 0);
-    assert!(vault.join("partitioned-manifest.json").is_file());
+    assert!(
+        calyx_sextant::index::partitioned_manifest_db_exists(&vault).unwrap(),
+        "partitioned build progress must observe the DB manifest row"
+    );
+    assert!(!vault.join("partitioned-manifest.json").exists());
     let _ = std::fs::remove_dir_all(root);
 }
 
@@ -82,7 +86,7 @@ fn partitioned_build_progress_file_records_prepare_failure() {
             .unwrap()
             .contains("must end in .fbin or .i8bin")
     );
-    assert!(!snapshot["counts"]["manifest_exists"].as_bool().unwrap());
+    assert!(!snapshot["counts"]["manifest_db_exists"].as_bool().unwrap());
     assert_eq!(snapshot["counts"]["final_ids_files"], 0);
     assert_eq!(snapshot["counts"]["graph_files"], 0);
     let _ = std::fs::remove_dir_all(root);

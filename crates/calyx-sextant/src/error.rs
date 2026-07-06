@@ -45,6 +45,9 @@ pub const CALYX_SEXTANT_SKILL_PAIR_NO_OVERLAP: &str = "CALYX_SEXTANT_SKILL_PAIR_
 pub const CALYX_TEMPORAL_WINDOW_BUDGET_EXHAUSTED: &str = "CALYX_TEMPORAL_WINDOW_BUDGET_EXHAUSTED";
 pub const CALYX_INDEX_CORRUPT: &str = "CALYX_INDEX_CORRUPT";
 pub const CALYX_INDEX_IO: &str = "CALYX_INDEX_IO";
+pub const CALYX_INDEX_MANIFEST_DB_MISSING: &str = "CALYX_INDEX_MANIFEST_DB_MISSING";
+pub const CALYX_INDEX_MANIFEST_DB_INVALID: &str = "CALYX_INDEX_MANIFEST_DB_INVALID";
+pub const CALYX_INDEX_MANIFEST_DB_MISMATCH: &str = "CALYX_INDEX_MANIFEST_DB_MISMATCH";
 pub const CALYX_INDEX_DIM_MISMATCH: &str = "CALYX_INDEX_DIM_MISMATCH";
 pub const CALYX_INDEX_INVALID_PARAMS: &str = "CALYX_INDEX_INVALID_PARAMS";
 pub const CALYX_INDEX_DIRECTION_UNAVAILABLE: &str = "CALYX_INDEX_DIRECTION_UNAVAILABLE";
@@ -131,6 +134,15 @@ pub fn sextant_error(code: &'static str, message: impl Into<String>) -> CalyxErr
             "rebuild the on-disk index from the vault; do not trust partial reads"
         }
         CALYX_INDEX_IO => "inspect disk/permissions on the index path, then rebuild",
+        CALYX_INDEX_MANIFEST_DB_MISSING => {
+            "rebuild or migrate the partitioned vault so the manifest is a Calyx/Aster Graph CF row"
+        }
+        CALYX_INDEX_MANIFEST_DB_INVALID => {
+            "discard the corrupt partitioned manifest row and rebuild the partitioned vault"
+        }
+        CALYX_INDEX_MANIFEST_DB_MISMATCH => {
+            "rebuild the partitioned vault; manifest DB readback changed after write"
+        }
         CALYX_INDEX_DIM_MISMATCH => "submit a query vector matching the DiskANN graph dimension",
         CALYX_INDEX_INVALID_PARAMS => {
             "supply non-empty vectors with dense ids and dim/m_max/ef/alpha within bounds"

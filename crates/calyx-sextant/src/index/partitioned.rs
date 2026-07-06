@@ -27,7 +27,6 @@ pub use search::{PartitionedSearch, PartitionedSearchOptions, PartitionedSearchR
 use sources::normalize;
 pub use sources::{FbinSource, I8BinSource, SyntheticSource, VectorSource, gen_row};
 
-const MANIFEST_FILE: &str = "partitioned-manifest.json";
 const CENTROID_DIR: &str = "idx/slot_00.sparse";
 const ROOT_GRAPH: &str = "idx/slot_00.ann/graph.cda";
 /// Mixing constant for per-index RNG seeding (splitmix64 multiplier).
@@ -414,11 +413,12 @@ pub fn build_partitioned_vault_from_source_with_backend_and_metric(
         root_graph_rel: ROOT_GRAPH.to_string(),
         regions,
     };
-    let bytes = serde_json::to_vec_pretty(&manifest)
-        .map_err(|e| crate::error::sextant_error(crate::error::CALYX_INDEX_IO, e.to_string()))?;
-    std::fs::write(root.join(MANIFEST_FILE), bytes)
-        .map_err(|e| crate::error::sextant_error(crate::error::CALYX_INDEX_IO, e.to_string()))?;
+    manifest::write_manifest_db(root, &manifest)?;
     Ok(manifest)
+}
+
+pub fn partitioned_manifest_db_exists(root: &Path) -> Result<bool> {
+    manifest::manifest_db_exists(root)
 }
 
 fn build_partitioned_graph(
