@@ -34,7 +34,7 @@ gate is a placeholder that defaults to safe with a TODO marker for PH29 Assay).
   (accept_quant §4.4)`; if `false` → `ForgeError::QuantError { detail: "slot {slot_id} not Assay-safe for FP4" }`
 - [x] CUDA GEMM path extension in `src/cuda/gemm.rs`: `pub fn gemm_mxfp4_fp32_accum(ctx: &CudaContext, a_blocks: &[MxFp4Block], b_blocks: &[MxFp4Block], m: usize, k: usize, n: usize, out: &mut CudaSlice<f32>) -> Result<(), ForgeError>`
   — sm version check: `ctx.compute_capability()` → if `< (12, 0)` → `ForgeError::DeviceUnavailable { detail: "MXFP4 requires sm_120 (Blackwell). Got sm_XY" }`;
-  call cuBLAS fp4 GEMM with fp32 accumulate (or CUTLASS path if cuBLAS doesn't expose fp4 on 13.2)
+  call cuBLAS fp4 GEMM with fp32 accumulate (or CUTLASS path if cuBLAS doesn't expose fp4 on 13.3)
 - [x] Document in `gemm_mxfp4_fp32_accum`: if CUDA 13.3 does not yet expose fp4-native
   GEMM via cuBLAS C API, use CUTLASS 3.x grouped GEMM with MxFp4 dtype; cite the CUTLASS
   `examples/` path in a comment

@@ -3,7 +3,7 @@
 # cargo check learns to enable the feature.
 #
 # CUDA runtime is `#[cfg(feature = "cuda")] pub mod cuda;` and only builds
-# where nvcc/CUDA 13.2 exist (aiwonder). On aiwonder the shared target dir
+# where nvcc/CUDA 13.3 exist (aiwonder). On aiwonder the shared target dir
 # usually contains cuda dep-info anyway; this entry keeps the gate exact on
 # CPU-only machines.
 crates/calyx-forge/src/cuda/

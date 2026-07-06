@@ -246,7 +246,7 @@ cuda = ["dep:cudarc"]    # Cargo.toml:9-11
 
 The entire `cuda` module is gated behind the `cuda` feature, which enables the
 optional `cudarc` dependency with features
-`["std","driver","cublas","nvrtc","dynamic-loading","cuda-13020"]` (CUDA 13.3 runtime,
+`["std","driver","cublas","nvrtc","dynamic-linking","cuda-13030"]` (CUDA 13.3 runtime,
 dynamic driver loading, NVRTC for PTX, cuBLAS for GEMM).
 
 ---

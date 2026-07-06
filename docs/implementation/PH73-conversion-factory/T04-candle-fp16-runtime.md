@@ -11,7 +11,7 @@
 - weights hash: Calyx length-delimited SHA-256 over the full ordered manifest artifact set. The runtime verifies this same set before loading the model.
 - output: dense `f32` slot vector after deterministic fixed-order pooling and declared `NormPolicy`.
 - CUDA: `CandleDevicePolicy::CudaFailLoud { ordinal: 0 }` for persisted `LensSpec` reload. Building without `calyx-registry/candle-cuda` returns a loud unreachable error instead of falling back to CPU.
-- aiwonder CUDA build environment: `NVCC=/usr/local/cuda-13.2/bin/nvcc`, `CUDA_HOME=/usr/local/cuda-13.2`, and `CUDA_COMPUTE_CAP=120`.
+- aiwonder CUDA build environment: `NVCC=/usr/local/cuda-13.3/bin/nvcc`, `CUDA_HOME=/usr/local/cuda-13.3`, and `CUDA_COMPUTE_CAP=120`.
 - half-precision CUDA stability: f16/bf16 Candle BERT loads clamp in-memory `layer_norm_eps` to at least `1.0e-5`; artifact bytes and hashes remain unchanged. If a half/bf16 CUDA measure emits non-finite values, the runtime replays once through an F32 model on the same CUDA device and still never falls back to CPU.
 
 ## Guards

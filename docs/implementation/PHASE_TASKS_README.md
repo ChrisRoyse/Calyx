@@ -100,8 +100,9 @@ From `DOCTRINE.md` + `02_WORKING_AGREEMENT.md`:
 - **≤500 lines** per `.rs` source/test file (hard). Over-limit → modularize first.
 - **Fail closed** (A16): every error path returns a structured `CALYX_*` code with
   remediation; never a silent fallback/zero-fill.
-- **Build/run/test on aiwonder** (`/home/croyse/calyx`, CUDA 13.2, RTX 5090
-  sm_120, resident TEI on :8088/:8089/:8090). This box authors only.
+- **Build/run/test on aiwonder** (`/home/croyse/calyx`, CUDA 13.3, RTX 5090
+  sm_120, owned resident TEI on :18190/:18188; legacy/shared TEI remains on
+  :8088/:8089/:8090 for explicit compatibility runs). This box authors only.
 - **Tests support FSV, don't replace it:** FIRST + property/fuzz/mutation; seed
   all RNG; inject the clock (`Clock` trait, never `SystemTime::now()` in logic).
 - **No CI** — `cargo check`/`clippy -D warnings`/`test` + line-count gate +
