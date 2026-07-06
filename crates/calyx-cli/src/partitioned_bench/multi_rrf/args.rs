@@ -153,10 +153,21 @@ impl Args {
                 "pass exactly one of --plan <json> or --plan-cf-root <aster-dir>",
             ));
         }
-        if recall_floor.is_some() && plan_cf_root.is_none() {
-            return Err(CliError::usage(
-                "--recall-floor requires --plan-cf-root so gate-bearing RRF recall uses DB plan authority",
-            ));
+        if recall_floor.is_some() {
+            validate_recall_gate_args(RecallGateArgRefs {
+                plan_cf_root: plan_cf_root.as_ref(),
+                timeline_cf_root: timeline_cf_root.as_ref(),
+                fused_file: fused_ground_truth_file.as_ref(),
+                fused_manifest: fused_ground_truth_manifest.as_ref(),
+                fused_cf_root: fused_ground_truth_cf_root.as_ref(),
+                slot_manifest: slot_ground_truth_manifest.as_ref(),
+                slot_cf_root: slot_ground_truth_cf_root.as_ref(),
+                ensemble_card: ensemble_card.as_ref(),
+                a37_card: a37_admission_card.as_ref(),
+                a37_cf_root: a37_admission_cf_root.as_ref(),
+                write_file: write_fused_ground_truth_file.as_ref(),
+                write_manifest: write_fused_ground_truth_manifest.as_ref(),
+            })?;
         }
         if plan_key.trim().is_empty() {
             return Err(CliError::usage("--plan-key must be non-empty"));
@@ -254,6 +265,60 @@ struct TruthArgRefs<'a> {
     report_cf_root: Option<&'a PathBuf>,
     report_db_only: bool,
     out: Option<&'a PathBuf>,
+}
+
+struct RecallGateArgRefs<'a> {
+    plan_cf_root: Option<&'a PathBuf>,
+    timeline_cf_root: Option<&'a PathBuf>,
+    fused_file: Option<&'a PathBuf>,
+    fused_manifest: Option<&'a PathBuf>,
+    fused_cf_root: Option<&'a PathBuf>,
+    slot_manifest: Option<&'a PathBuf>,
+    slot_cf_root: Option<&'a PathBuf>,
+    ensemble_card: Option<&'a PathBuf>,
+    a37_card: Option<&'a PathBuf>,
+    a37_cf_root: Option<&'a PathBuf>,
+    write_file: Option<&'a PathBuf>,
+    write_manifest: Option<&'a PathBuf>,
+}
+
+fn validate_recall_gate_args(args: RecallGateArgRefs<'_>) -> CliResult {
+    if args.plan_cf_root.is_none() {
+        return Err(CliError::usage(
+            "--recall-floor requires --plan-cf-root so gate-bearing RRF recall uses DB plan authority",
+        ));
+    }
+    if args.timeline_cf_root.is_none() {
+        return Err(CliError::usage(
+            "--recall-floor requires --timeline-cf-root so gate-bearing RRF recall uses DB timeline authority",
+        ));
+    }
+    if args.a37_cf_root.is_none() {
+        return Err(CliError::usage(
+            "--recall-floor requires --a37-admission-cf-root so gate-bearing RRF recall uses DB admission authority",
+        ));
+    }
+    if args.a37_card.is_some() || args.ensemble_card.is_some() {
+        return Err(CliError::usage(
+            "--recall-floor cannot use JSON A37 admission or ensemble cards as gate authority",
+        ));
+    }
+    if args.fused_file.is_some() || args.fused_manifest.is_some() || args.slot_manifest.is_some() {
+        return Err(CliError::usage(
+            "--recall-floor cannot use file or manifest truth; pass DB fused or slot truth",
+        ));
+    }
+    if args.write_file.is_some() || args.write_manifest.is_some() {
+        return Err(CliError::usage(
+            "--recall-floor cannot write file truth; use --write-fused-ground-truth-cf-root for DB output",
+        ));
+    }
+    if args.fused_cf_root.is_none() && args.slot_cf_root.is_none() {
+        return Err(CliError::usage(
+            "--recall-floor requires --fused-ground-truth-cf-root or --slot-ground-truth-cf-root",
+        ));
+    }
+    Ok(())
 }
 
 fn validate_truth_args(args: TruthArgRefs<'_>) -> CliResult {

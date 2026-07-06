@@ -130,6 +130,11 @@ Biomedical claim ladder:
 - Full State Verification reads the persisted Calyx/Aster source of truth after
   the write. Command success, logs, JSON files, and tests are supporting
   evidence, not proof.
+- Gate-bearing partitioned RRF recall is a DB-only control path: plan,
+  timeline, A37 admission, and accepted-reference truth must all be
+  Calyx/Aster rows read back from their CF roots. JSON cards, manifests, logs,
+  and vector files may support diagnostics, import/export, or raw vector bytes,
+  but they cannot satisfy `--recall-floor`.
 - If a prerequisite is missing, create the atomic issue and wire it into the
   dependency order before doing downstream mining.
 - Prefer root-cause Calyx capability work over one-off scripts. Scripts are

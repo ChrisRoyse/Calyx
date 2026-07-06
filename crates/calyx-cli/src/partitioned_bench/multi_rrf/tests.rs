@@ -2,6 +2,9 @@ use super::args::Args;
 use super::*;
 use std::path::PathBuf;
 
+#[path = "args_gate_tests.rs"]
+mod args_gate_tests;
+
 #[test]
 fn args_parse_plan_truth_depth_and_tuner_vault() {
     let args = Args::parse(&strings([
@@ -25,14 +28,14 @@ fn args_parse_plan_truth_depth_and_tuner_vault() {
         "5",
         "--truth-depth",
         "40",
-        "--fused-ground-truth-file",
-        "truth.i32bin",
-        "--fused-ground-truth-manifest",
-        "truth.manifest.json",
-        "--ensemble-card",
-        "ensemble_card.json",
-        "--a37-admission-card",
-        "multi_anchor_ensemble_card.json",
+        "--slot-ground-truth-cf-root",
+        "slot-truth-db",
+        "--slot-ground-truth-key",
+        "issue791_truth",
+        "--a37-admission-cf-root",
+        "a37-admission-db",
+        "--a37-admission-key",
+        "issue791_a37",
         "--recall-floor",
         "0.8",
         "--anneal-vault",
@@ -54,23 +57,21 @@ fn args_parse_plan_truth_depth_and_tuner_vault() {
     assert_eq!(args.n, 12);
     assert_eq!(args.k, 4);
     assert_eq!(args.truth_depth, Some(40));
+    assert_eq!(args.fused_ground_truth_file, None);
+    assert_eq!(args.fused_ground_truth_manifest, None);
     assert_eq!(
-        args.fused_ground_truth_file,
-        Some(PathBuf::from("truth.i32bin"))
+        args.slot_ground_truth_cf_root,
+        Some(PathBuf::from("slot-truth-db"))
     );
-    assert_eq!(
-        args.fused_ground_truth_manifest,
-        Some(PathBuf::from("truth.manifest.json"))
-    );
+    assert_eq!(args.slot_ground_truth_key, "issue791_truth");
     assert_eq!(args.slot_ground_truth_manifest, None);
+    assert_eq!(args.ensemble_card, None);
     assert_eq!(
-        args.ensemble_card,
-        Some(PathBuf::from("ensemble_card.json"))
+        args.a37_admission_cf_root,
+        Some(PathBuf::from("a37-admission-db"))
     );
-    assert_eq!(
-        args.a37_admission_card,
-        Some(PathBuf::from("multi_anchor_ensemble_card.json"))
-    );
+    assert_eq!(args.a37_admission_key, "issue791_a37");
+    assert_eq!(args.a37_admission_card, None);
     assert_eq!(args.recall_floor, Some(0.8));
     assert_eq!(args.out, None);
     assert_eq!(args.report_cf_root, Some(PathBuf::from("report-db")));
