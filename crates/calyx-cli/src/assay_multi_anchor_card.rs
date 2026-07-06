@@ -1,5 +1,6 @@
 mod engine;
 pub(crate) mod model;
+mod readback;
 mod request;
 mod write;
 
@@ -11,8 +12,9 @@ use calyx_core::CalyxError;
 use crate::error::{CliError, CliResult};
 
 use engine::evaluate;
+use readback::run as run_readback_inner;
 use request::Request;
-use write::write_outputs;
+use write::{format_evidence, write_outputs};
 
 const CODE_INVALID_CONFIG: &str = "CALYX_FSV_ASSAY_MULTI_ANCHOR_INVALID_CONFIG";
 const CODE_INVALID_REPORT: &str = "CALYX_FSV_ASSAY_MULTI_ANCHOR_INVALID_REPORT";
@@ -40,12 +42,12 @@ pub(crate) fn run(args: &[String]) -> CliResult {
         )));
     }
     let evidence = write_outputs(&request, &report).map_err(multi_anchor_runtime_error)?;
-    println!(
-        "{}",
-        serde_json::to_string_pretty(&evidence).map_err(|error| {
-            CliError::runtime(format!("serialize multi-anchor evidence: {error}"))
-        })?
-    );
+    print!("{}", format_evidence(&evidence));
+    Ok(())
+}
+
+pub(crate) fn run_readback(args: &[String]) -> CliResult {
+    run_readback_inner(args).map_err(multi_anchor_runtime_error)?;
     Ok(())
 }
 
@@ -75,6 +77,8 @@ fn multi_anchor_error(error: String) -> CliError {
         "CALYX_FSV_A37_ADMISSION_DB_MISMATCH" => "CALYX_FSV_A37_ADMISSION_DB_MISMATCH",
         "CALYX_FSV_A37_ADMISSION_DB_INVALID_KEY" => "CALYX_FSV_A37_ADMISSION_DB_INVALID_KEY",
         "CALYX_FSV_A37_ADMISSION_DB_ENCODE" => "CALYX_FSV_A37_ADMISSION_DB_ENCODE",
+        "CALYX_FSV_A37_ADMISSION_DB_INVALID" => "CALYX_FSV_A37_ADMISSION_DB_INVALID",
+        "CALYX_FSV_A37_ADMISSION_DB_DECODE" => "CALYX_FSV_A37_ADMISSION_DB_DECODE",
         _ => return CliError::usage(error),
     };
     CliError::from(CalyxError {

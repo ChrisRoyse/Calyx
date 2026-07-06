@@ -104,6 +104,56 @@ pub(crate) fn write_outputs(
     })
 }
 
+pub(crate) fn format_evidence(evidence: &Evidence) -> String {
+    let mut out = String::new();
+    out.push_str("a37_multi_anchor_evidence\n");
+    out.push_str(&format!("artifact_mode={}\n", evidence.artifact_mode));
+    out.push_str(&format!("out_dir={}\n", evidence.out_dir));
+    out.push_str(&format!("cf_root={}\n", evidence.cf_root));
+    out.push_str(&format!("association_key={}\n", evidence.association_key));
+    out.push_str(&format!(
+        "row_key_sha256={}\n",
+        evidence.db_readback.row_key_sha256
+    ));
+    out.push_str(&format!(
+        "value_bytes={}\n",
+        evidence.db_readback.value_bytes
+    ));
+    out.push_str(&format!(
+        "value_sha256={}\n",
+        evidence.db_readback.value_sha256
+    ));
+    out.push_str(&format!(
+        "db_readback_matches={}\n",
+        evidence.db_readback.readback_matches
+    ));
+    out.push_str(&format!("readback_matches={}\n", evidence.readback_matches));
+    out.push_str(&format!(
+        "status={} gate_passed={}\n",
+        evidence.status, evidence.gate_passed
+    ));
+    out.push_str(&format!(
+        "report_count={} lens_count={} passing_lens_count={}\n",
+        evidence.report_count, evidence.lens_count, evidence.passing_lens_count
+    ));
+    out.push_str(&format!("weakest_lens={}\n", evidence.weakest_lens));
+    out.push_str(&format!(
+        "min_best_marginal_bits={:.9} max_best_marginal_bits={:.9}\n",
+        evidence.min_best_marginal_bits, evidence.max_best_marginal_bits
+    ));
+    if !evidence.report_path.is_empty() {
+        out.push_str(&format!("report_path={}\n", evidence.report_path));
+        out.push_str(&format!("lens_values_path={}\n", evidence.lens_values_path));
+        out.push_str(&format!(
+            "target_summary_path={}\n",
+            evidence.target_summary_path
+        ));
+        out.push_str(&format!("report_sha256={}\n", evidence.report_sha256));
+        out.push_str(&format!("readback_sha256={}\n", evidence.readback_sha256));
+    }
+    out
+}
+
 fn lens_values(report: &MultiAnchorReport) -> String {
     let mut out = String::new();
     for lens in &report.lenses {

@@ -100,6 +100,9 @@ pub(crate) fn run(args: Vec<String>) -> CliResult {
         {
             assay_multi_anchor_card::run(rest)
         }
+        [command, topic, rest @ ..] if command == "assay" && topic == "multi-anchor-readback" => {
+            assay_multi_anchor_card::run_readback(rest)
+        }
         [command, topic, rest @ ..] if command == "assay" && topic == "corpus-build" => {
             assay_corpus_build::run(rest)
         }
