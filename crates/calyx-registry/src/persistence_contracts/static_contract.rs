@@ -91,6 +91,30 @@ fn algorithmic_encoder(kind: &str, shape: SlotShape) -> Option<AlgorithmicEncode
         "byte_features" | "byte-features" | "byte" => Some(AlgorithmicEncoder::ByteFeatures),
         "scalar" => Some(AlgorithmicEncoder::Scalar),
         "ast_style" | "ast-style" => Some(AlgorithmicEncoder::AstStyle),
+        "gdelt_cameo" | "gdelt-cameo" => Some(AlgorithmicEncoder::GdeltCameo),
+        "gdelt_actor_geo" | "gdelt-actor-geo" => Some(AlgorithmicEncoder::GdeltActorGeo {
+            dim: sparse_dim(shape)?,
+        }),
+        "gdelt_source_domain" | "gdelt-source-domain" => {
+            Some(AlgorithmicEncoder::GdeltSourceDomain {
+                dim: sparse_dim(shape)?,
+            })
+        }
+        "gdelt_event_geo" | "gdelt-event-geo" => Some(AlgorithmicEncoder::GdeltEventGeo {
+            dim: sparse_dim(shape)?,
+        }),
+        "gdelt_actor_pair" | "gdelt-actor-pair" => Some(AlgorithmicEncoder::GdeltActorPair {
+            dim: sparse_dim(shape)?,
+        }),
+        "gdelt_event_actor" | "gdelt-event-actor" => Some(AlgorithmicEncoder::GdeltEventActor {
+            dim: sparse_dim(shape)?,
+        }),
+        "gdelt_tone_signal" | "gdelt-tone-signal" => Some(AlgorithmicEncoder::GdeltToneSignal {
+            dim: sparse_dim(shape)?,
+        }),
+        "gdelt_source_event" | "gdelt-source-event" => Some(AlgorithmicEncoder::GdeltSourceEvent {
+            dim: sparse_dim(shape)?,
+        }),
         "sparse" | "sparse_keywords" | "sparse-keywords" => {
             Some(AlgorithmicEncoder::SparseKeywords {
                 dim: sparse_dim(shape)?,

@@ -32,6 +32,18 @@ pub enum AlgorithmicEncoder {
     GdeltCameo,
     /// Sparse actor/country/geography entity features from GDELT text rows.
     GdeltActorGeo { dim: u32 },
+    /// Sparse source URL host/path features from GDELT text rows.
+    GdeltSourceDomain { dim: u32 },
+    /// Sparse event-code/geography interaction features from GDELT text rows.
+    GdeltEventGeo { dim: u32 },
+    /// Sparse directed actor-pair features from GDELT text rows.
+    GdeltActorPair { dim: u32 },
+    /// Sparse event-code/actor interaction features from GDELT text rows.
+    GdeltEventActor { dim: u32 },
+    /// Sparse Goldstein/tone bucket features from GDELT text rows.
+    GdeltToneSignal { dim: u32 },
+    /// Sparse source-domain/event-code interaction features from GDELT text rows.
+    GdeltSourceEvent { dim: u32 },
 }
 
 impl AlgorithmicEncoder {
@@ -48,7 +60,14 @@ impl AlgorithmicEncoder {
                 }
             }
             Self::AstStyle => 8,
-            Self::SparseKeywords { dim } => {
+            Self::SparseKeywords { dim }
+            | Self::GdeltActorGeo { dim }
+            | Self::GdeltSourceDomain { dim }
+            | Self::GdeltEventGeo { dim }
+            | Self::GdeltActorPair { dim }
+            | Self::GdeltEventActor { dim }
+            | Self::GdeltToneSignal { dim }
+            | Self::GdeltSourceEvent { dim } => {
                 if dim == 0 {
                     1
                 } else {
@@ -63,21 +82,19 @@ impl AlgorithmicEncoder {
                 }
             }
             Self::GdeltCameo => 16,
-            Self::GdeltActorGeo { dim } => {
-                if dim == 0 {
-                    1
-                } else {
-                    dim
-                }
-            }
         }
     }
 
     pub const fn shape(self) -> SlotShape {
         match self {
-            Self::SparseKeywords { dim } | Self::GdeltActorGeo { dim } => {
-                SlotShape::Sparse(if dim == 0 { 1 } else { dim })
-            }
+            Self::SparseKeywords { dim }
+            | Self::GdeltActorGeo { dim }
+            | Self::GdeltSourceDomain { dim }
+            | Self::GdeltEventGeo { dim }
+            | Self::GdeltActorPair { dim }
+            | Self::GdeltEventActor { dim }
+            | Self::GdeltToneSignal { dim }
+            | Self::GdeltSourceEvent { dim } => SlotShape::Sparse(if dim == 0 { 1 } else { dim }),
             Self::TokenHash { token_dim } => SlotShape::Multi {
                 token_dim: if token_dim == 0 { 1 } else { token_dim },
             },
@@ -127,6 +144,34 @@ impl AlgorithmicLens {
 
     pub fn gdelt_actor_geo(name: impl Into<String>, modality: Modality, dim: u32) -> Self {
         Self::new(name, modality, AlgorithmicEncoder::GdeltActorGeo { dim })
+    }
+
+    pub fn gdelt_source_domain(name: impl Into<String>, modality: Modality, dim: u32) -> Self {
+        Self::new(
+            name,
+            modality,
+            AlgorithmicEncoder::GdeltSourceDomain { dim },
+        )
+    }
+
+    pub fn gdelt_event_geo(name: impl Into<String>, modality: Modality, dim: u32) -> Self {
+        Self::new(name, modality, AlgorithmicEncoder::GdeltEventGeo { dim })
+    }
+
+    pub fn gdelt_actor_pair(name: impl Into<String>, modality: Modality, dim: u32) -> Self {
+        Self::new(name, modality, AlgorithmicEncoder::GdeltActorPair { dim })
+    }
+
+    pub fn gdelt_event_actor(name: impl Into<String>, modality: Modality, dim: u32) -> Self {
+        Self::new(name, modality, AlgorithmicEncoder::GdeltEventActor { dim })
+    }
+
+    pub fn gdelt_tone_signal(name: impl Into<String>, modality: Modality, dim: u32) -> Self {
+        Self::new(name, modality, AlgorithmicEncoder::GdeltToneSignal { dim })
+    }
+
+    pub fn gdelt_source_event(name: impl Into<String>, modality: Modality, dim: u32) -> Self {
+        Self::new(name, modality, AlgorithmicEncoder::GdeltSourceEvent { dim })
     }
 
     /// Creates an algorithmic lens from an encoder.
@@ -187,6 +232,14 @@ impl Lens for AlgorithmicLens {
                 data: gdelt::cameo_features(&input.bytes),
             },
             AlgorithmicEncoder::GdeltActorGeo { dim } => gdelt::actor_geo(&input.bytes, dim)?,
+            AlgorithmicEncoder::GdeltSourceDomain { dim } => {
+                gdelt::source_domain(&input.bytes, dim)?
+            }
+            AlgorithmicEncoder::GdeltEventGeo { dim } => gdelt::event_geo(&input.bytes, dim)?,
+            AlgorithmicEncoder::GdeltActorPair { dim } => gdelt::actor_pair(&input.bytes, dim)?,
+            AlgorithmicEncoder::GdeltEventActor { dim } => gdelt::event_actor(&input.bytes, dim)?,
+            AlgorithmicEncoder::GdeltToneSignal { dim } => gdelt::tone_signal(&input.bytes, dim)?,
+            AlgorithmicEncoder::GdeltSourceEvent { dim } => gdelt::source_event(&input.bytes, dim)?,
         })
     }
 }

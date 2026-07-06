@@ -141,6 +141,24 @@ fn algorithmic_lens(
         "gdelt-actor-geo" | "gdelt_actor_geo" => {
             AlgorithmicLens::gdelt_actor_geo(name, modality, dim(shape))
         }
+        "gdelt-source-domain" | "gdelt_source_domain" => {
+            AlgorithmicLens::gdelt_source_domain(name, modality, dim(shape))
+        }
+        "gdelt-event-geo" | "gdelt_event_geo" => {
+            AlgorithmicLens::gdelt_event_geo(name, modality, dim(shape))
+        }
+        "gdelt-actor-pair" | "gdelt_actor_pair" => {
+            AlgorithmicLens::gdelt_actor_pair(name, modality, dim(shape))
+        }
+        "gdelt-event-actor" | "gdelt_event_actor" => {
+            AlgorithmicLens::gdelt_event_actor(name, modality, dim(shape))
+        }
+        "gdelt-tone-signal" | "gdelt_tone_signal" => {
+            AlgorithmicLens::gdelt_tone_signal(name, modality, dim(shape))
+        }
+        "gdelt-source-event" | "gdelt_source_event" => {
+            AlgorithmicLens::gdelt_source_event(name, modality, dim(shape))
+        }
         "sparse" | "sparse-keywords" => {
             AlgorithmicLens::sparse_keywords(name, modality, dim(shape))
         }

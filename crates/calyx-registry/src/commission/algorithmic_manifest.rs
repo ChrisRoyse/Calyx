@@ -25,7 +25,20 @@ pub(super) fn output_shape(runtime: &str, dim: u32) -> Result<SlotShape> {
         "byte" | "byte-features" => checked_dense(kind, dim, 16)?,
         "ast-style" | "ast_style" => checked_dense(kind, dim, 8)?,
         "gdelt-cameo" | "gdelt_cameo" => checked_dense(kind, dim, 16)?,
-        "gdelt-actor-geo" | "gdelt_actor_geo" => SlotShape::Sparse(checked_positive(kind, dim)?),
+        "gdelt-actor-geo"
+        | "gdelt_actor_geo"
+        | "gdelt-source-domain"
+        | "gdelt_source_domain"
+        | "gdelt-event-geo"
+        | "gdelt_event_geo"
+        | "gdelt-actor-pair"
+        | "gdelt_actor_pair"
+        | "gdelt-event-actor"
+        | "gdelt_event_actor"
+        | "gdelt-tone-signal"
+        | "gdelt_tone_signal"
+        | "gdelt-source-event"
+        | "gdelt_source_event" => SlotShape::Sparse(checked_positive(kind, dim)?),
         "scalar" => checked_dense(kind, dim, 1)?,
         "sparse" | "sparse-keywords" | "sparse_keywords" => {
             SlotShape::Sparse(checked_positive(kind, dim)?)
@@ -83,6 +96,24 @@ fn encoder_from_kind(kind: &str, shape: SlotShape) -> Result<AlgorithmicEncoder>
         "ast-style" | "ast_style" => AlgorithmicEncoder::AstStyle,
         "gdelt-cameo" | "gdelt_cameo" => AlgorithmicEncoder::GdeltCameo,
         "gdelt-actor-geo" | "gdelt_actor_geo" => AlgorithmicEncoder::GdeltActorGeo {
+            dim: sparse_shape_dim(kind, shape)?,
+        },
+        "gdelt-source-domain" | "gdelt_source_domain" => AlgorithmicEncoder::GdeltSourceDomain {
+            dim: sparse_shape_dim(kind, shape)?,
+        },
+        "gdelt-event-geo" | "gdelt_event_geo" => AlgorithmicEncoder::GdeltEventGeo {
+            dim: sparse_shape_dim(kind, shape)?,
+        },
+        "gdelt-actor-pair" | "gdelt_actor_pair" => AlgorithmicEncoder::GdeltActorPair {
+            dim: sparse_shape_dim(kind, shape)?,
+        },
+        "gdelt-event-actor" | "gdelt_event_actor" => AlgorithmicEncoder::GdeltEventActor {
+            dim: sparse_shape_dim(kind, shape)?,
+        },
+        "gdelt-tone-signal" | "gdelt_tone_signal" => AlgorithmicEncoder::GdeltToneSignal {
+            dim: sparse_shape_dim(kind, shape)?,
+        },
+        "gdelt-source-event" | "gdelt_source_event" => AlgorithmicEncoder::GdeltSourceEvent {
             dim: sparse_shape_dim(kind, shape)?,
         },
         "scalar" => AlgorithmicEncoder::Scalar,
@@ -212,6 +243,10 @@ mod tests {
         );
         assert_eq!(
             output_shape("algorithmic:gdelt-actor-geo", 512).unwrap(),
+            SlotShape::Sparse(512)
+        );
+        assert_eq!(
+            output_shape("algorithmic:gdelt-source-event", 512).unwrap(),
             SlotShape::Sparse(512)
         );
     }

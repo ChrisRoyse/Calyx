@@ -202,7 +202,13 @@ pub(super) fn association_family(spec: &LensSpec) -> &'static str {
     }
     match &spec.runtime {
         LensRuntime::Algorithmic { kind }
-            if kind.contains("cameo") || kind.contains("actor") || kind.contains("geo") =>
+            if kind.contains("gdelt")
+                || kind.contains("cameo")
+                || kind.contains("actor")
+                || kind.contains("geo")
+                || kind.contains("event")
+                || kind.contains("source")
+                || kind.contains("tone") =>
         {
             "entity_cameo_graph"
         }
@@ -263,6 +269,36 @@ fn algorithmic_lens(spec: &LensSpec, kind: &str) -> Result<AlgorithmicLens, Caly
             Ok(AlgorithmicLens::gdelt_cameo(&spec.name, spec.modality))
         }
         "gdelt-actor-geo" | "gdelt_actor_geo" => Ok(AlgorithmicLens::gdelt_actor_geo(
+            &spec.name,
+            spec.modality,
+            dim(spec.output),
+        )),
+        "gdelt-source-domain" | "gdelt_source_domain" => Ok(AlgorithmicLens::gdelt_source_domain(
+            &spec.name,
+            spec.modality,
+            dim(spec.output),
+        )),
+        "gdelt-event-geo" | "gdelt_event_geo" => Ok(AlgorithmicLens::gdelt_event_geo(
+            &spec.name,
+            spec.modality,
+            dim(spec.output),
+        )),
+        "gdelt-actor-pair" | "gdelt_actor_pair" => Ok(AlgorithmicLens::gdelt_actor_pair(
+            &spec.name,
+            spec.modality,
+            dim(spec.output),
+        )),
+        "gdelt-event-actor" | "gdelt_event_actor" => Ok(AlgorithmicLens::gdelt_event_actor(
+            &spec.name,
+            spec.modality,
+            dim(spec.output),
+        )),
+        "gdelt-tone-signal" | "gdelt_tone_signal" => Ok(AlgorithmicLens::gdelt_tone_signal(
+            &spec.name,
+            spec.modality,
+            dim(spec.output),
+        )),
+        "gdelt-source-event" | "gdelt_source_event" => Ok(AlgorithmicLens::gdelt_source_event(
             &spec.name,
             spec.modality,
             dim(spec.output),

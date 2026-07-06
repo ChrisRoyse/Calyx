@@ -264,6 +264,49 @@ fn registry_contract_audit_empty_snapshot_is_valid() {
     assert_eq!(before_manifest.registry_ref, after_manifest.registry_ref);
 }
 
+#[test]
+fn gdelt_algorithmic_specs_reconstruct_runtime_contracts() {
+    let cases = [
+        ("gdelt-cameo", SlotShape::Dense(16)),
+        ("gdelt-actor-geo", SlotShape::Sparse(512)),
+        ("gdelt-source-domain", SlotShape::Sparse(512)),
+        ("gdelt-event-geo", SlotShape::Sparse(512)),
+        ("gdelt-actor-pair", SlotShape::Sparse(512)),
+        ("gdelt-event-actor", SlotShape::Sparse(512)),
+        ("gdelt-tone-signal", SlotShape::Sparse(512)),
+        ("gdelt-source-event", SlotShape::Sparse(512)),
+    ];
+
+    for (kind, output) in cases {
+        let spec = LensSpec {
+            name: format!("persist-{kind}"),
+            runtime: LensRuntime::Algorithmic {
+                kind: kind.to_string(),
+            },
+            output,
+            modality: Modality::Text,
+            weights_sha256: [0; 32],
+            corpus_hash: [0; 32],
+            norm_policy: NormPolicy::None,
+            max_batch: None,
+            axis: None,
+            asymmetry: Asymmetry::None,
+            quant_default: QuantPolicy::turboquant_default(),
+            truncate_dim: None,
+            recall_delta: crate::spec::default_recall_delta(),
+            retrieval_only: false,
+            excluded_from_dedup: false,
+        };
+        let contract = derive_runtime_contract_from_spec(&spec).unwrap();
+        let (lens, runtime_contract) = load_runtime_lens_from_spec(&spec).unwrap();
+
+        println!("GDELT_PERSISTED_KIND={kind} lens={}", contract.lens_id());
+        assert_eq!(contract.shape(), output);
+        assert_eq!(runtime_contract.lens_id(), contract.lens_id());
+        assert_eq!(lens.shape(), output);
+    }
+}
+
 mod spec_hashes;
 
 #[derive(Clone, Debug, PartialEq, Eq)]

@@ -17,6 +17,24 @@ pub(super) fn algorithmic_lens(
         "gdelt-actor-geo" | "gdelt_actor_geo" => {
             AlgorithmicLens::gdelt_actor_geo(&spec.name, spec.modality, dim(spec.output))
         }
+        "gdelt-source-domain" | "gdelt_source_domain" => {
+            AlgorithmicLens::gdelt_source_domain(&spec.name, spec.modality, dim(spec.output))
+        }
+        "gdelt-event-geo" | "gdelt_event_geo" => {
+            AlgorithmicLens::gdelt_event_geo(&spec.name, spec.modality, dim(spec.output))
+        }
+        "gdelt-actor-pair" | "gdelt_actor_pair" => {
+            AlgorithmicLens::gdelt_actor_pair(&spec.name, spec.modality, dim(spec.output))
+        }
+        "gdelt-event-actor" | "gdelt_event_actor" => {
+            AlgorithmicLens::gdelt_event_actor(&spec.name, spec.modality, dim(spec.output))
+        }
+        "gdelt-tone-signal" | "gdelt_tone_signal" => {
+            AlgorithmicLens::gdelt_tone_signal(&spec.name, spec.modality, dim(spec.output))
+        }
+        "gdelt-source-event" | "gdelt_source_event" => {
+            AlgorithmicLens::gdelt_source_event(&spec.name, spec.modality, dim(spec.output))
+        }
         value if value.starts_with("one-hot:") || value.starts_with("one_hot:") => {
             let buckets = parse_kind_dim(value)?;
             AlgorithmicLens::one_hot(&spec.name, spec.modality, buckets)

@@ -120,6 +120,42 @@ fn build_algorithmic_lens(
         "byte" | "byte-features" => AlgorithmicLens::byte_features(name, modality),
         "scalar" => AlgorithmicLens::scalar(name, modality),
         "ast-style" => AlgorithmicLens::ast_style(name, modality),
+        "gdelt-cameo" | "gdelt_cameo" => AlgorithmicLens::gdelt_cameo(name, modality),
+        "gdelt-actor-geo" | "gdelt_actor_geo" => AlgorithmicLens::gdelt_actor_geo(
+            name,
+            modality,
+            sparse_dim(requested.unwrap_or(SlotShape::Sparse(512)))?,
+        ),
+        "gdelt-source-domain" | "gdelt_source_domain" => AlgorithmicLens::gdelt_source_domain(
+            name,
+            modality,
+            sparse_dim(requested.unwrap_or(SlotShape::Sparse(512)))?,
+        ),
+        "gdelt-event-geo" | "gdelt_event_geo" => AlgorithmicLens::gdelt_event_geo(
+            name,
+            modality,
+            sparse_dim(requested.unwrap_or(SlotShape::Sparse(512)))?,
+        ),
+        "gdelt-actor-pair" | "gdelt_actor_pair" => AlgorithmicLens::gdelt_actor_pair(
+            name,
+            modality,
+            sparse_dim(requested.unwrap_or(SlotShape::Sparse(512)))?,
+        ),
+        "gdelt-event-actor" | "gdelt_event_actor" => AlgorithmicLens::gdelt_event_actor(
+            name,
+            modality,
+            sparse_dim(requested.unwrap_or(SlotShape::Sparse(512)))?,
+        ),
+        "gdelt-tone-signal" | "gdelt_tone_signal" => AlgorithmicLens::gdelt_tone_signal(
+            name,
+            modality,
+            sparse_dim(requested.unwrap_or(SlotShape::Sparse(512)))?,
+        ),
+        "gdelt-source-event" | "gdelt_source_event" => AlgorithmicLens::gdelt_source_event(
+            name,
+            modality,
+            sparse_dim(requested.unwrap_or(SlotShape::Sparse(512)))?,
+        ),
         "sparse" | "sparse-keywords" => AlgorithmicLens::sparse_keywords(
             name,
             modality,

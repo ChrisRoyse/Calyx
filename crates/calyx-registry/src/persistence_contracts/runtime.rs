@@ -109,6 +109,46 @@ fn algorithmic_lens(spec: &LensSpec, kind: &str) -> Option<AlgorithmicLens> {
         }
         "scalar" => Some(AlgorithmicLens::scalar(&spec.name, spec.modality)),
         "ast_style" | "ast-style" => Some(AlgorithmicLens::ast_style(&spec.name, spec.modality)),
+        "gdelt_cameo" | "gdelt-cameo" => {
+            Some(AlgorithmicLens::gdelt_cameo(&spec.name, spec.modality))
+        }
+        "gdelt_actor_geo" | "gdelt-actor-geo" => Some(AlgorithmicLens::gdelt_actor_geo(
+            &spec.name,
+            spec.modality,
+            sparse_dim(spec.output)?,
+        )),
+        "gdelt_source_domain" | "gdelt-source-domain" => {
+            Some(AlgorithmicLens::gdelt_source_domain(
+                &spec.name,
+                spec.modality,
+                sparse_dim(spec.output)?,
+            ))
+        }
+        "gdelt_event_geo" | "gdelt-event-geo" => Some(AlgorithmicLens::gdelt_event_geo(
+            &spec.name,
+            spec.modality,
+            sparse_dim(spec.output)?,
+        )),
+        "gdelt_actor_pair" | "gdelt-actor-pair" => Some(AlgorithmicLens::gdelt_actor_pair(
+            &spec.name,
+            spec.modality,
+            sparse_dim(spec.output)?,
+        )),
+        "gdelt_event_actor" | "gdelt-event-actor" => Some(AlgorithmicLens::gdelt_event_actor(
+            &spec.name,
+            spec.modality,
+            sparse_dim(spec.output)?,
+        )),
+        "gdelt_tone_signal" | "gdelt-tone-signal" => Some(AlgorithmicLens::gdelt_tone_signal(
+            &spec.name,
+            spec.modality,
+            sparse_dim(spec.output)?,
+        )),
+        "gdelt_source_event" | "gdelt-source-event" => Some(AlgorithmicLens::gdelt_source_event(
+            &spec.name,
+            spec.modality,
+            sparse_dim(spec.output)?,
+        )),
         "sparse" | "sparse_keywords" | "sparse-keywords" => Some(AlgorithmicLens::sparse_keywords(
             &spec.name,
             spec.modality,
