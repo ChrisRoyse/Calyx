@@ -35,6 +35,21 @@ pub(super) fn algorithmic_lens(
         "gdelt-source-event" | "gdelt_source_event" => {
             AlgorithmicLens::gdelt_source_event(&spec.name, spec.modality, dim(spec.output))
         }
+        "gdelt-action-geo" | "gdelt_action_geo" => {
+            AlgorithmicLens::gdelt_action_geo(&spec.name, spec.modality, dim(spec.output))
+        }
+        "gdelt-actor-country" | "gdelt_actor_country" => {
+            AlgorithmicLens::gdelt_actor_country(&spec.name, spec.modality, dim(spec.output))
+        }
+        "gdelt-source-host" | "gdelt_source_host" => {
+            AlgorithmicLens::gdelt_source_host(&spec.name, spec.modality, dim(spec.output))
+        }
+        "gdelt-sqldate" | "gdelt_sqldate" => {
+            AlgorithmicLens::gdelt_sql_date(&spec.name, spec.modality, dim(spec.output))
+        }
+        "gdelt-event-code" | "gdelt_event_code" => {
+            AlgorithmicLens::gdelt_event_code(&spec.name, spec.modality, dim(spec.output))
+        }
         value if value.starts_with("one-hot:") || value.starts_with("one_hot:") => {
             let buckets = parse_kind_dim(value)?;
             AlgorithmicLens::one_hot(&spec.name, spec.modality, buckets)
