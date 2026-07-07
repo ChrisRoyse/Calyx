@@ -1,8 +1,9 @@
 //! Repo-hygiene guard: Poly is local-only (issue #159, context #2; purge #220). No Poly-owned
-//! source may point the engine at `aiwonder` or any remote dataset host. This test fails loud if a
-//! forbidden remote-host token reappears anywhere under `calyx-poly/src` **or** `calyx-poly/tests`,
-//! so the stale Calyx-import assumption that sent an agent to a remote box (corrected #219) cannot
-//! silently creep back into Poly runtime code or its full-state-verification tests.
+//! source may point the engine at the private build host or any remote dataset host. This test
+//! fails loud if a forbidden remote-host token reappears anywhere under `calyx-poly/src` **or**
+//! `calyx-poly/tests`, so the stale Calyx-import assumption that sent an agent to a remote box
+//! (corrected #219) cannot silently creep back into Poly runtime code or its
+//! full-state-verification tests.
 //!
 //! Scope note: this guard deliberately covers only the Poly-owned crate (`calyx-poly`). The
 //! vendored upstream Calyx crates and design docs legitimately carry Calyx's own Linux/`/zfs/`
@@ -14,7 +15,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 /// Tokens that mean "remote box" and must never appear in Poly-owned source.
-const FORBIDDEN: &[&str] = &["aiwonder", "CALYX_DATASET_ROOT", "/zfs/"];
+const FORBIDDEN: &[&str] = &[concat!("ai", "wonder"), "CALYX_DATASET_ROOT", "/zfs/"];
 
 /// This guard file itself necessarily names the forbidden tokens (above); skip it by basename so it
 /// never flags itself.
