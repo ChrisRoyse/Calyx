@@ -60,15 +60,18 @@ fn issue129_daily_jobs_runbook_fsv() {
 }
 
 fn doc_path(name: &str) -> std::path::PathBuf {
-    for ancestor in std::path::Path::new(env!("CARGO_MANIFEST_DIR")).ancestors() {
+    let crate_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    let crate_local = crate_root.join("runbooks").join(name);
+    if crate_local.exists() {
+        return crate_local;
+    }
+    for ancestor in crate_root.ancestors() {
         let candidate = ancestor.join("docs").join(name);
         if candidate.exists() {
             return candidate;
         }
     }
-    std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../docs")
-        .join(name)
+    crate_root.join("../../docs").join(name)
 }
 
 fn verify_runbook_contract(runbook: &str) -> Result<serde_json::Value, serde_json::Value> {

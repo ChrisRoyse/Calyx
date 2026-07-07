@@ -74,6 +74,9 @@ Project doctrine treats those commands as supporting gates only. Full State Veri
 proof standard: execute the code, read back the source of truth separately, exercise at least three
 edges, and record the smallest corpus that fully proves the claim.
 
+Operational runbooks that are part of the crate's public verification surface live in
+`runbooks/`, with repository-level copies kept under `docs/` in the private development checkout.
+
 ## FSV Pattern
 
 Every non-trivial change should include:
