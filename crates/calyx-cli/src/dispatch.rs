@@ -54,29 +54,8 @@ pub(crate) fn run(args: Vec<String>) -> CliResult {
         [command, rest @ ..] if command == "build-partitioned-vault" => {
             partitioned_bench::run_build(rest)
         }
-        [command, topic, rest @ ..] if command == "bench" && topic == "partitioned-search" => {
-            partitioned_bench::run_search(rest)
-        }
-        [command, topic, rest @ ..] if command == "bench" && topic == "partitioned-rrf" => {
-            partitioned_bench::run_rrf(rest)
-        }
-        [command, topic, rest @ ..] if command == "bench" && topic == "partitioned-rrf-plan" => {
-            partitioned_bench::run_rrf_plan(rest)
-        }
-        [command, topic, rest @ ..]
-            if command == "bench" && topic == "partitioned-rrf-plan-remap" =>
-        {
-            partitioned_bench::run_rrf_plan_remap(rest)
-        }
-        [command, topic, rest @ ..]
-            if command == "bench" && topic == "partitioned-rrf-slot-truth" =>
-        {
-            partitioned_bench::run_rrf_slot_truth(rest)
-        }
-        [command, topic, rest @ ..]
-            if command == "bench" && topic == "partitioned-rrf-timeline" =>
-        {
-            partitioned_bench::run_rrf_timeline(rest)
+        [command, topic, rest @ ..] if command == "bench" && partitioned_bench::is_topic(topic) => {
+            partitioned_bench::run_topic(topic, rest)
         }
         [command, topic, rest @ ..] if command == "bench" => sextant_bench::run_bench(topic, rest),
         [command, topic, rest @ ..] if command == "sextant" => sextant_commands::run(topic, rest),

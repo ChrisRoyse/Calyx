@@ -26,6 +26,8 @@ mod build;
 mod multi_rrf;
 #[path = "partitioned_bench/progress.rs"]
 mod progress;
+#[path = "partitioned_bench/report_readback.rs"]
+mod report_readback;
 #[path = "partitioned_bench/rrf_plan.rs"]
 pub(crate) mod rrf_plan;
 #[path = "partitioned_bench/rrf_plan_remap.rs"]
@@ -205,12 +207,44 @@ pub(crate) fn run_rrf_plan_remap(args: &[String]) -> CliResult {
     rrf_plan_remap::run(args)
 }
 
+pub(crate) fn run_rrf_report_readback(args: &[String]) -> CliResult {
+    report_readback::run(args)
+}
+
 pub(crate) fn run_rrf_slot_truth(args: &[String]) -> CliResult {
     slot_truth_generate::run(args)
 }
 
 pub(crate) fn run_rrf_timeline(args: &[String]) -> CliResult {
     timeline_import::run(args)
+}
+
+pub(crate) fn is_topic(topic: &str) -> bool {
+    matches!(
+        topic,
+        "partitioned-search"
+            | "partitioned-rrf"
+            | "partitioned-rrf-plan"
+            | "partitioned-rrf-plan-remap"
+            | "partitioned-rrf-report-readback"
+            | "partitioned-rrf-slot-truth"
+            | "partitioned-rrf-timeline"
+    )
+}
+
+pub(crate) fn run_topic(topic: &str, args: &[String]) -> CliResult {
+    match topic {
+        "partitioned-search" => run_search(args),
+        "partitioned-rrf" => run_rrf(args),
+        "partitioned-rrf-plan" => run_rrf_plan(args),
+        "partitioned-rrf-plan-remap" => run_rrf_plan_remap(args),
+        "partitioned-rrf-report-readback" => run_rrf_report_readback(args),
+        "partitioned-rrf-slot-truth" => run_rrf_slot_truth(args),
+        "partitioned-rrf-timeline" => run_rrf_timeline(args),
+        _ => Err(CliError::usage(format!(
+            "unknown partitioned bench topic: {topic}"
+        ))),
+    }
 }
 
 /// REAL-data search: real query embeddings + brute-force ground truth over the REAL

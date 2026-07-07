@@ -85,7 +85,6 @@ pub(crate) fn write(
     ))
 }
 
-#[cfg(test)]
 pub(crate) fn read(
     cf_root: &Path,
     association_key: &str,
