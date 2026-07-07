@@ -13,6 +13,8 @@ mod validation_tokens;
 use validation_tokens::association_validation_tokens;
 mod typed_miner_tokens;
 use typed_miner_tokens::typed_association_miner_tokens;
+mod biomedical_tokens;
+use biomedical_tokens::biomedical_blindspot_audit_tokens;
 
 pub(super) fn subcommand_tokens(command: &Subcommand) -> Vec<String> {
     match command {
@@ -132,6 +134,7 @@ pub(super) fn subcommand_tokens(command: &Subcommand) -> Vec<String> {
         Subcommand::AssociationValidationGates(args) => association_validation_tokens(args),
         Subcommand::TypedAssociationMiner(args) => typed_association_miner_tokens(args),
         Subcommand::HypothesisFalsificationSweep(args) => hypothesis_falsification_tokens(args),
+        Subcommand::BiomedicalBlindspotAudit(args) => biomedical_blindspot_audit_tokens(args),
         Subcommand::GraphCollectionGenerations(args) => graph_collection_generations_tokens(args),
         Subcommand::GraphCollectionState(args) => graph_collection_state_tokens(args),
         Subcommand::DiscoveryChain(args) => discovery_chain_tokens(args),

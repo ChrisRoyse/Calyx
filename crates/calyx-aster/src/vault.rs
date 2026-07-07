@@ -17,6 +17,7 @@ mod htap;
 mod key;
 pub mod keyspace;
 mod layer_commit;
+mod ledger_anchor_batch;
 mod ledger_append;
 mod ledger_hook;
 pub mod ledger_stub;
@@ -30,7 +31,6 @@ mod slot_backfill;
 mod slot_column;
 mod store;
 mod temporal_xterm;
-
 #[cfg(test)]
 use crate::cf::ledger_key;
 use crate::cf::{CfRouter, ColumnFamily, KeyRange, anchor_key, base_key, slot_key};

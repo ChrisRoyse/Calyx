@@ -89,7 +89,7 @@ h1, h2, h3, h4 { -webkit-column-break-after: avoid; }
 <h1 class="no_toc" id="abstract">Abstract</h1>
 <p>Early-stage drug discovery is bottlenecked not at the bench but <em>before</em> it: at the generation and prioritization of hypotheses worth testing. Widely cited estimates put the capitalized cost of bringing a single drug to approval near <strong>US$2.6 billion</strong>, over <strong>10–15 years</strong>, with end-to-end success probabilities in the low single digits. Much of that cost is failure, and much of that failure traces to weak, poorly-prioritized starting hypotheses. If a computational system can generate <em>more</em>, <em>better-prioritized</em>, <em>pre-screened</em>, and <em>fully traceable</em> hypotheses — and, just as importantly, <em>reject</em> the wrong and dangerous ones before anyone acts on them — the potential benefit to the pipeline is substantial.</p>
 <p>This report describes such a system and everything it produced. <strong>Calyx</strong> is an association-native knowledge engine. From a corpus of 198,993 anchored clinical records it builds a directed association graph (≈2.44 million edges over 13.1 million cross-signal agreement terms), grounds a compact reasoning kernel, and runs a complete discovery pipeline — novelty detection, Swanson-style bridge mining, spectral community bridges, gated multi-hop association walks, AI-scored A–B–C hypotheses, concept normalization, a typed relationship graph, and cross-validation against a dozen external biomedical databases. Every generated hypothesis then passes a counter-evidence falsification sweep and a safety triage before it reaches a review queue.</p>
-<p>The pipeline produced a <strong>human-review atlas of 1,877 hypotheses</strong> across five disease areas — of which <strong>726 cleared screening and are marked ready for experimental review</strong>, 69 are known-positive calibration references that prove the machinery recovers real biology, and 1,082 were held back as incomplete pending more data or a human decision — plus a separate <strong>1,750 ranked drug-combination hypotheses.</strong> None has been experimentally validated, and that is by design: the engine advances each candidate as far as computation can take it and then stops at the human handoff.</p>
+<p>The pipeline produced a <strong>human-review atlas of 1,877 hypotheses</strong> across five disease areas — of which <strong>726 cleared the pre-blindspot screening used in that run</strong>, 69 are known-positive calibration references that prove the machinery recovers real biology, and 1,082 were held back as incomplete pending more data or a human decision — plus a separate <strong>1,750 ranked drug-combination hypotheses.</strong> After the 2026-07-07 hardening pass, those 726 rows should be rerun through the biomedical blindspot audit before being treated as ready for experimental review. None has been experimentally validated, and that is by design: the engine advances each candidate as far as computation can take it and then stops at the human handoff.</p>
 <p>This document combines three works into one report. <strong>Part I</strong> presents the engine, the methods, the leads, the economics, and an honest account of validation status, speculation, and blindspots. <strong>Part II</strong> is a lead-by-lead catalog of every named hypothesis, what makes each distinctive, and a candid probability that pursuing it would prove useful. <strong>Part III</strong> is the rejection ledger: every hypothesis, drug pairing, and safety signal the engine ruled out — including a lead that would have harmed a patient — and why catching those is as important as generating the good ones.</p>
 <h1 class="no_toc" id="how-to-read-this-document">How to read this document</h1>
 <p>The three parts are self-contained but complementary, and are best read in order.</p>
@@ -115,7 +115,7 @@ h1, h2, h3, h4 { -webkit-column-break-after: avoid; }
 <li><a href="#7-results-i-the-substrate-the-engine-reasons-over">7. Results I — the substrate the engine reasons over</a></li>
 <li><a href="#8-results-ii-calibration-the-engine-recovers-known-biology">8. Results II — calibration: the engine recovers known biology</a></li>
 <li><a href="#9-results-iii-the-five-disease-area-hypothesis-hunts">9. Results III — the five disease-area hypothesis hunts</a></li>
-<li><a href="#10-results-iv-the-human-review-atlas-726-hypotheses-ready-to-test">10. Results IV — the human-review atlas: 726 hypotheses ready to test</a></li>
+<li><a href="#10-results-iv-the-human-review-atlas-726-pre-blindspot-ready-hypotheses">10. Results IV — the human-review atlas: 726 pre-blindspot ready hypotheses</a></li>
 <li><a href="#11-results-v-1750-ranked-drug-combination-hypotheses">11. Results V — 1,750 ranked drug-combination hypotheses</a></li>
 <li><a href="#12-results-vi-the-filter-working-a-false-safety-lead-correctly-demoted">12. Results VI — the filter working: a false safety lead, correctly demoted</a></li>
 <li><a href="#13-discussion-what-this-means-for-the-economics-of-discovery">13. Discussion — what this means for the economics of discovery</a></li>
@@ -227,7 +227,7 @@ validate→ Open Targets · PubTator/PubMed · ClinicalTrials · DGIdb · LINCS/
 mine   → all-pair typed miner → falsification sweep
 hunt   → oncology · metabolic · neuro · infectious · rare disease
 triage → drug safety · novelty/calibration split · generated-candidate falsification
-atlas  → 1,877-hypothesis human-review atlas   ← 726 ready to test
+atlas  → 1,877-hypothesis human-review atlas   ← 726 pre-blindspot ready rows
 combos → 1,750 drug-pair hypotheses + external evidence cross-check
 </code></pre>
 <h3 id="51-anchored-corpus">5.1 Anchored corpus</h3>
@@ -368,7 +368,7 @@ combos → 1,750 drug-pair hypotheses + external evidence cross-check
 <p>Composed from curated precision-oncology evidence and the typed miner: NF1/selumetinib (plexiform neurofibroma, low-grade glioma), IGF1R/metformin+exemestane (breast cancer context), NRAS/metformin+trametinib (cancer context), and meningioma prognostic markers (PTTG1, LEPR).</p>
 <p>Across all five hunts, <strong>every drug-bearing hypothesis was correctly flagged for safety review</strong>, and none was presented as an efficacy claim — the screening discipline (§6) applied uniformly.</p>
 <hr />
-<h2 id="10-results-iv-the-human-review-atlas-726-hypotheses-ready-to-test">10. Results IV — the human-review atlas: 726 hypotheses ready to test</h2>
+<h2 id="10-results-iv-the-human-review-atlas-726-pre-blindspot-ready-hypotheses">10. Results IV — the human-review atlas: 726 pre-blindspot ready hypotheses</h2>
 <p>The five hunts converge into a single <strong>human-review hypothesis atlas</strong>: 1,885 raw candidates, 1,877 after deduplication, each carrying a normalized hypothesis statement, a source snippet, an evidence bundle, a support/counter overlay, safety/trial flags, source checksums, and — critically — a <strong>"next validation experiment" field</strong>.</p>
 <table>
 <thead>
@@ -426,7 +426,7 @@ combos → 1,750 drug-pair hypotheses + external evidence cross-check
 </tr>
 </tbody>
 </table>
-<p><strong>726 falsification-screened, provenance-traceable hypotheses ready for experimental review is the headline result of this program.</strong> To put that in perspective: assembling, typing, cross-validating, and counter-evidence-screening even a few dozen such hypotheses by hand is months of expert work. This pipeline produced 726 in a single automated run, each reducible to its source and each carrying an explicit falsification status. The top ready-for-review rows — TNF/CD4/CD8A→proteinuria target leads and disease-cluster associations — each ship with the recommended next step: <em>validate the target–disease association in an outcome-backed assay before drug inference.</em> That is a hypothesis backlog, ordered and screened, handed to whoever has the lab.</p>
+<p><strong>726 falsification-screened, provenance-traceable hypotheses were the pre-blindspot review backlog from the original run.</strong> To put that in perspective: assembling, typing, cross-validating, and counter-evidence-screening even a few dozen such hypotheses by hand is months of expert work. This pipeline produced 726 in a single automated run, each reducible to its source and each carrying an explicit falsification status. After the blindspot hardening pass, they are not considered fully ready until <code>calyx biomedical-blindspot-audit</code> clears the row against literature novelty, run stability, patient context, drug lifecycle, and transcriptomic specificity. The top pre-blindspot rows — TNF/CD4/CD8A→proteinuria target leads and disease-cluster associations — each ship with the recommended next step: <em>validate the target–disease association in an outcome-backed assay before drug inference.</em> That is a hypothesis backlog, ordered and screened, handed to whoever has the lab.</p>
 <hr />
 <h2 id="11-results-v-1750-ranked-drug-combination-hypotheses">11. Results V — 1,750 ranked drug-combination hypotheses</h2>
 <p>Drug combinations are a high-value, combinatorially explosive frontier where computational prioritization is especially valuable. The combination miner extracted drug-bearing components from the atlas, paired them by disease context, and scored each pair for complementary-target/convergent-pathway rationale — producing <strong>1,750 ranked drug-pair hypotheses</strong>, then cross-checking them against preclinical synergy and combination databases:</p>
@@ -456,7 +456,7 @@ combos → 1,750 drug-pair hypotheses + external evidence cross-check
 <ol>
 <li><strong>Scale without proportional cost.</strong> The marginal cost of the 727th hypothesis is near zero; the pipeline mined ~199,000 records into ≈2.44M associations and screened nearly 1,900 candidates in days.</li>
 <li><strong>Prioritization, not just enumeration.</strong> Every candidate is ranked, and the falsification/safety/novelty screens <em>remove</em> the low-value tail — the exact failure mode (unbounded noisy enumeration) that historically sank literature-based discovery.</li>
-<li><strong>Traceability that makes review fast.</strong> Because every claim reduces to its source and a sufficiency check, a human expert reviews an <em>evidence bundle</em>, not a bare assertion. This is what makes 726 hypotheses reviewable at all.</li>
+<li><strong>Traceability that makes review fast.</strong> Because every claim reduces to its source and a sufficiency check, a human expert reviews an <em>evidence bundle</em>, not a bare assertion. This is what makes the 726 pre-blindspot hypotheses reviewable at all.</li>
 </ol>
 <p>The metformin+trametinib case (§12) sharpens the point: the pipeline's ability to <em>reject</em> a confounded signal, with a mechanistic explanation, directly protects the most expensive resource — laboratory time — from being spent on a false lead.</p>
 <p>None of this asserts that any specific hypothesis will succeed clinically. It asserts something narrower and defensible: <strong>the engine changes the throughput and quality of the hypothesis-generation step, which is where a large share of discovery cost and failure originates.</strong></p>
@@ -502,7 +502,7 @@ combos → 1,750 drug-pair hypotheses + external evidence cross-check
 <h3 id="153-the-odds-of-usefulness-calibrated-not-hyped">15.3 The odds of usefulness — calibrated, not hyped</h3>
 <p>Honest expectation-setting requires the base rates. A fresh target–disease hypothesis inherits roughly the industry base rate: single-digit-percent odds of ever becoming an approved drug, against a ~US$2.6 billion capitalized cost and a decade-plus timeline. Screening of the kind here can plausibly <em>raise the prior</em> — a lead that is a real graph association, survived counter-evidence, is externally corroborated, and is safety-flagged should beat a random starting hypothesis — but the Tier-3 cases prove screening is imperfect and cannot replace expert mechanistic judgment.</p>
 <p>The broader field offers a sobering calibration. As of 2026 there are on the order of <em>173 AI-originated drug programs</em> in clinical development, and the most advanced (e.g., Insilico Medicine's rentosertib) is approaching Phase III — yet <strong>no fully AI-originated drug has completed all trial phases and won approval</strong>, with the first such approval only projected for 2026–2027 at roughly even odds, and documented setbacks along the way. AI has compressed the <em>early</em> timeline and expanded the <em>number</em> of shots on goal; it has not yet been shown to change the <em>finish-line</em> success rate. This engine belongs to the same story: its demonstrated contribution is throughput and prioritization at the front of the funnel, and its effect on ultimate success is a <em>reasonable hope, not a proven fact</em>.</p>
-<p>The intellectually honest way to state the value is therefore probabilistic and portfolio-shaped: <em>most of these 726 hypotheses will not pan out; the point is that generating and pre-screening 726 of them cost essentially one automated run, so even if only a handful clear the bench — especially in rare and neglected diseases where nothing else was searching — the low cost of producing them makes the exercise worthwhile.</em></p>
+<p>The intellectually honest way to state the value is therefore probabilistic and portfolio-shaped: <em>most of these 726 pre-blindspot hypotheses will not pan out; the point is that generating and pre-screening 726 of them cost essentially one automated run, and the new audit now forces the riskiest classes back into blocked or pending states before expert review. If only a handful clear the audit and then the bench — especially in rare and neglected diseases where nothing else was searching — the low cost of producing them makes the exercise worthwhile.</em></p>
 <h3 id="154-what-this-means-for-humanity-stated-plainly">15.4 What this means for humanity, stated plainly</h3>
 <p>The realistic vision is not "AI cures diseases." It is <strong>"AI fills the funnel; humans empty it."</strong> The step this engine automates — generating, screening, ranking, and explaining biomedical hypotheses — is a real bottleneck, and automating it cheaply has three plausible benefits: it lets under-resourced rare-disease and academic groups do more with limited resources; it surfaces repurposing opportunities for cheap, off-patent drugs that no company is incentivized to hunt for; and it makes the reasoning behind every proposal auditable rather than a black box. None of that shortens a clinical trial or removes biological uncertainty. Moving the front of discovery from artisanal toward industrial — without sacrificing traceability — is a useful contribution, and this run is a concrete demonstration that it can be done at scale in a single pass.</p>
 <p><strong>A deliberately modest account of the near-term impact.</strong> It is worth stating plainly, because the temptation to overclaim here is strong. This run did not produce a therapy, a validated target, or a result that changes any clinical decision today — it produced a screened backlog of <em>unvalidated</em> hypotheses, most of which will not pan out, and whose top-ranked members are largely already-known or already-being-researched (§15.1). Its realistic near-term uses are correspondingly bounded: a specialist could take a few of the frontier leads (the MEK-inhibitor RASopathy and PIK3CA-meningioma hypotheses are the strongest) and design experiments; a rare-disease group could triage the long tail for cheap starting points; and the rejection record (the companion rejection ledger) could spare others from chasing leads that are already known to fail. Whether <em>any</em> of it reaches a patient depends entirely on wet-lab and clinical work that has not been done and that this project cannot do. So the honest societal claim is narrow: not that this changes medicine, but that it shows one expensive step of the discovery process can be automated, scaled, and screened cheaply while staying traceable and honest about its own limits. That is a useful capability to have demonstrated — no more, and no less.</p>
@@ -517,7 +517,7 @@ combos → 1,750 drug-pair hypotheses + external evidence cross-check
 <li><strong>Germline vs somatic — the olaparib/Fanconi trap.</strong> A drug that is therapeutic because it <em>selectively kills cells carrying a defect</em> (olaparib against BRCA2-mutant tumors) can be <em>toxic</em> when the patient carries that defect in <em>every</em> cell (germline BRCA2 / Fanconi anemia). Same gene, opposite clinical meaning.</li>
 <li><strong>Drug viability.</strong> Is the drug even alive? Tarextumab is discontinued; simufilam is discredited. A target match to a dead or disgraced molecule is not a lead.</li>
 </ul>
-<p><strong>The open question:</strong> how many of the 726 ready hypotheses rest on a bare target match that would not survive this four-point pharmacological check? That number should be measured, and the pipeline should ideally encode these checks as additional screens.</p>
+<p><strong>Implementation update (2026-07-07):</strong> the audit surface now exists. The historical 726-ready atlas should be rerun through <code>calyx biomedical-blindspot-audit</code> with external literature, stability, drug-lifecycle, patient-context, and transcriptomic audit inputs before any row is called ready after blindspot review. The remaining open number is the measured post-audit survivor count, not whether the checks are encoded.</p>
 <h3 id="162-the-questions-the-author-should-be-asking-and-their-status">16.2 The questions the author should be asking (and their status)</h3>
 <table>
 <thead>
@@ -531,30 +531,30 @@ combos → 1,750 drug-pair hypotheses + external evidence cross-check
 <tr>
 <td><strong>How many leads are genuinely novel vs. already in the literature?</strong></td>
 <td>"AI found new biology" is only true for the novel fraction; the top ranks are largely rediscovery.</td>
-<td>Unmeasured. Needs a systematic novelty audit against literature, not the engine's internal novelty score.</td>
+<td>Audit surface implemented: <code>calyx biomedical-blindspot-audit</code> requires external literature-audit rows and persists co-mention counts/classes. The historical 726-row atlas still needs rerun through that input.</td>
 </tr>
 <tr>
 <td><strong>Does the engine's novelty score correlate with <em>actual</em> literature novelty?</strong></td>
 <td>If not, "novelty-prioritized" is mislabeled.</td>
-<td>Untested.</td>
+<td>Audit metrics now persist novelty-score calibration inputs when literature labels/counts are supplied; the full historical calibration remains to be run.</td>
 </tr>
 <tr>
 <td><strong>What fraction survives a mechanistic (direction/LoF/germline) check?</strong></td>
 <td>Directly bounds how many leads are real (§16.1).</td>
-<td>Not yet a screen; must be added or done by reviewers.</td>
+<td>Screen implemented in two layers: the direction gate (#1269) plus blindspot audit blocks germline synthetic-lethality inversion and missing patient context. The historical atlas needs rerun for the measured survivor fraction.</td>
 </tr>
 <tr>
 <td><strong>Would a different corpus or random seed produce the same leads?</strong></td>
 <td>Stability is a precondition for trusting any single lead.</td>
-<td>Untested; sensitivity/reproducibility analysis needed.</td>
+<td>Audit surface implemented: repeated-run frequency is required and low stability blocks rows. A full multi-corpus/seed sensitivity study is still outstanding.</td>
 </tr>
 <tr>
 <td><strong>How does this compare to existing repurposing platforms</strong> (Open Targets, Hetionet/Rephetio, commercial AI platforms)?</td>
 <td>Without a benchmark, "high-throughput" is unquantified relative to the state of the art.</td>
-<td>No head-to-head evaluation done.</td>
+<td>Benchmark-export JSONL is now produced for head-to-head scoring, but no head-to-head evaluation has been run.</td>
 </tr>
 <tr>
-<td><strong>Who actually validates 726 hypotheses, and at what cost?</strong></td>
+<td><strong>Who actually validates the post-audit survivors, and at what cost?</strong></td>
 <td>The bottleneck moves downstream; a list no one tests has no value. Triage and assays are themselves expensive.</td>
 <td>The engine assumes a human/lab consumer that must still be found and funded.</td>
 </tr>
@@ -566,7 +566,7 @@ combos → 1,750 drug-pair hypotheses + external evidence cross-check
 <tr>
 <td><strong>Does provenance create false confidence?</strong></td>
 <td>A rigorous-looking evidence bundle can make a <em>dangerous</em> lead (olaparib/Fanconi) look credible — automation bias.</td>
-<td>A live risk; the safety framing (§16.3) is the partial mitigation.</td>
+<td>Partly mitigated by fail-closed audit statuses and reason codes, including the olaparib/Fanconi class of germline synthetic-lethality inversion. Publication and consumer-misuse risk remains.</td>
 </tr>
 <tr>
 <td><strong>Is the central economic claim — that screened hypotheses beat unscreened ones — actually true?</strong></td>
@@ -578,7 +578,7 @@ combos → 1,750 drug-pair hypotheses + external evidence cross-check
 <h3 id="163-safety-dual-use-and-the-responsibility-of-publishing-leads">16.3 Safety, dual-use, and the responsibility of publishing leads</h3>
 <p>Publishing unvalidated biomedical hypotheses carries its own risk: a desperate patient or an unscrupulous actor could treat a ranked, official-looking lead as advice. The olaparib/Fanconi example is not academic — acting on it could actively harm. Two safeguards follow. First, every lead must travel with an unmistakable statement that it is a computational hypothesis, not medical advice, and that some leads are mechanistically wrong or dangerous. Second, the engine's output is properly an input to <em>qualified researchers</em>, not a consumer product; the traceability that makes it auditable for an expert is precisely what a layperson lacks the context to interrogate. The engine's honesty discipline helps here — it never claims efficacy — but honesty in the machine does not guarantee honesty in how its output is used.</p>
 <h3 id="164-the-absence-of-evidence-surfaces">16.4 The absence-of-evidence surfaces</h3>
-<p>Not every generation surface produced sharp leads. The transcriptomic-reversal screen, for instance, returned generic mechanism-class hits (broad HDAC/CDK/HSP90/MEK-inhibitor signatures) rather than specific, actionable candidates — a reminder that some methods yield low-specificity signal that should be read as a weak prior, not a lead. Reporting these honestly is part of not overselling the sharp results.</p>
+<p>Not every generation surface produced sharp leads. The transcriptomic-reversal screen, for instance, returned generic mechanism-class hits (broad HDAC/CDK/HSP90/MEK-inhibitor signatures) rather than specific, actionable candidates — a reminder that some methods yield low-specificity signal that should be read as a weak prior, not a lead. This is now encoded as a blindspot audit check: generic class breadth and non-reproducible/non-gold signatures are blocked rather than promoted as specific leads. Reporting these honestly is part of not overselling the sharp results.</p>
 <h3 id="165-the-deepest-question">16.5 The deepest question</h3>
 <p>Underneath all of the above sits one question worth stating plainly: <em>does raising the quality and quantity of starting hypotheses actually move the needle on drugs approved, or is the true bottleneck entirely downstream in trials and biology?</em> If discovery failure is dominated by clinical-stage biology that no amount of better hypothesis generation can fix, then even a perfect front-of-funnel engine yields modest end-to-end gains. If, instead, a meaningful share of failure traces to poorly-chosen starting points, the leverage is large. The honest position is that this is <em>unresolved</em>, that the truth is probably "some of both," and that the only way to know is to run the prospective study and measure it. This paper makes the case that the front-of-funnel bottleneck is real and worth attacking; it does not claim to have proven the size of the prize.</p>
 <h3 id="sources-for-1516">Sources for §15–§16</h3>
@@ -598,7 +598,7 @@ combos → 1,750 drug-pair hypotheses + external evidence cross-check
 <h2 id="18-the-handoff-what-a-wet-lab-does-with-this-output">18. The handoff: what a wet lab does with this output</h2>
 <p>The pipeline stops where a laboratory begins. Concretely, a research group receiving this output would:</p>
 <ol>
-<li><strong>Triage the 726 ready-for-review hypotheses</strong> by disease-area fit and available assays; the atlas ships each with an evidence bundle and a suggested next experiment.</li>
+<li><strong>Rerun and triage the 726 pre-blindspot ready-for-review hypotheses</strong> by disease-area fit and available assays; the atlas ships each with an evidence bundle and a suggested next experiment, and the blindspot audit decides which rows remain ready, pending, or blocked.</li>
 <li><strong>For a target–disease lead</strong> (e.g., TNF/CD4/CD8A → proteinuria), run an outcome-backed assay or model to test the association <em>before</em> any drug inference — exactly the next step the atlas prescribes.</li>
 <li><strong>For a rare-disease gene/drug mapping</strong> (e.g., PIK3CA/alpelisib in meningioma, BRCA2/olaparib in Fanconi anemia), check mechanistic plausibility against known biology and design a targeted validation.</li>
 <li><strong>For a combination candidate</strong> from the 1,750-pair backlog, run a preclinical synergy screen and a drug–drug interaction assessment; the pipeline already names which external databases supplied context and which evidence is still missing.</li>
@@ -611,12 +611,12 @@ combos → 1,750 drug-pair hypotheses + external evidence cross-check
 <li><strong>Broaden the corpus</strong> beyond clinical question-answer data to full-text literature and molecular/assay data, so the engine mines less-explored association space where novel leads concentrate.</li>
 <li><strong>Run the prospective lift study</strong> (§14): compare experimental success of pipeline-surfaced versus matched unfiltered hypotheses to quantify the improvement in prior probability.</li>
 <li><strong>Expand concept normalization and the safety knowledge base</strong> so fewer hypotheses are held for want of data.</li>
-<li><strong>Human expert review of the 726 ready hypotheses</strong>, converting the highest-priority leads into designed experiments.</li>
+<li><strong>Human expert review of the post-audit survivors</strong>, converting the highest-priority leads into designed experiments.</li>
 <li><strong>Close the feedback loop</strong>: incorporate experimental outcomes to continuously recalibrate the engine's priors.</li>
 </ol>
 <hr />
 <h2 id="20-conclusion">20. Conclusion</h2>
-<p>We built an association-native engine that mines a large clinical knowledge corpus into biomedical hypotheses, screens each one through a stack of filters — provenance, typing, external corroboration, counter-evidence falsification, safety triage, and a calibrated statistical bound — and hands the survivors to human review. From ~199,000 records and a 2.44-million-edge association graph, one automated run produced a <strong>1,877-hypothesis atlas with 726 candidates cleared for experimental review</strong>, a <strong>1,750-pair drug-combination backlog</strong>, and a clean demonstration that the filter correctly rejects a confounded false lead.</p>
+<p>We built an association-native engine that mines a large clinical knowledge corpus into biomedical hypotheses, screens each one through a stack of filters — provenance, typing, external corroboration, counter-evidence falsification, safety triage, and a calibrated statistical bound — and hands the survivors to human review. From ~199,000 records and a 2.44-million-edge association graph, one automated run produced a <strong>1,877-hypothesis atlas with 726 pre-blindspot candidates requiring the new audit before experimental-review routing</strong>, a <strong>1,750-pair drug-combination backlog</strong>, and a clean demonstration that the filter correctly rejects a confounded false lead.</p>
 <p>None of it is experimentally validated, and that is the point: the engine advances every candidate as far as computation can, then stops at the wet-lab boundary where a software program — however capable — must yield to human experiment. Against a discovery pipeline where hypothesis generation and prioritization is a dominant, expensive bottleneck, an engine that produces hundreds of screened, ranked, traceable hypotheses in a single run is not a null result. It is a throughput result — and if even a small fraction of these leads survives the bench, the payoff on the economics of discovery would be meaningful. Whether that happens is unknown and untested; the claim here is confined to what was actually demonstrated: the generation and screening step, done at scale and cheaply.</p>
 <p>A hypothesis surfaced here is a <strong>ranked, screened, traceable starting point for experiment</strong> — a genuinely useful thing to hand a scientist, and the thing the engine was built to produce at scale. It is a starting point, not a finding.</p>
 <hr />
@@ -663,7 +663,7 @@ combos → 1,750 drug-pair hypotheses + external evidence cross-check
 </tr>
 <tr>
 <td><strong>Ready for review</strong></td>
-<td>A hypothesis that cleared falsification screening and awaits human/experimental validation.</td>
+<td>A hypothesis that cleared falsification screening and, after the 2026-07-07 hardening pass, also cleared the biomedical blindspot audit before human/experimental validation.</td>
 </tr>
 <tr>
 <td><strong>Held</strong></td>
@@ -679,7 +679,7 @@ combos → 1,750 drug-pair hypotheses + external evidence cross-check
 <li><strong>Typed association</strong> — endpoints normalized to biomedical concepts; relationship typed.</li>
 <li><strong>Externally contextualized</strong> — corroborating records from external databases, where applicable.</li>
 <li><strong>Falsification-screened</strong> — support and counter-evidence gathered under strict relationship matching; survivors advance.</li>
-<li><strong>Safety-triaged and sufficiency-checked</strong> — drug labels and adverse-event context attached; the calibrated statistical bound evaluated. <strong>← the engine hands off here (the 726 ready hypotheses).</strong></li>
+<li><strong>Safety-triaged and sufficiency-checked</strong> — drug labels and adverse-event context attached; the calibrated statistical bound evaluated. <strong>← the original engine handed off here; the 726 pre-blindspot rows now pass through the biomedical blindspot audit before handoff.</strong></li>
 <li><strong>Experimentally tested</strong> — assay, model, or animal validation. <em>(wet lab)</em></li>
 <li><strong>Clinically evaluated</strong> — trials. <em>(clinic)</em></li>
 <li><strong>Clinically actionable</strong> — approved use. <em>(regulatory)</em></li>
@@ -761,7 +761,7 @@ combos → 1,750 drug-pair hypotheses + external evidence cross-check
 </tr>
 <tr>
 <td><strong>Human-review atlas</strong></td>
-<td><strong>1,877 total — 726 ready to test · 1,082 held · 69 calibration</strong></td>
+<td><strong>1,877 total — 726 pre-blindspot ready rows · 1,082 held · 69 calibration</strong></td>
 </tr>
 <tr>
 <td><strong>Combination miner</strong></td>
@@ -780,7 +780,7 @@ combos → 1,750 drug-pair hypotheses + external evidence cross-check
 <h1 class="part" id="part-ii-the-hypothesis-catalog-and-the-odds-of-usefulness">Part II — The Hypothesis Catalog and the Odds of Usefulness</h1>
 <p><em>A lead-by-lead companion. For every hypothesis the engine surfaced by name: what it is, what makes it special or unique, and a candid, subjective probability that pursuing it would produce something genuinely useful.</em></p>
 <h2 id="1-how-to-read-this-catalog">1. How to read this catalog</h2>
-<p>The engine produced far more hypotheses than any human would read: 726 leads marked ready for review, 1,082 more held behind evidence gates, 69 calibration references, and a separate 1,750 ranked drug-combination pairs. Cataloging literally <em>every one</em> of several thousand rows individually would be neither honest nor useful — most of the large rare-disease and combination buckets are variations on a theme, and the source only ever enumerated the top-ranked members of each.</p>
+<p>The engine produced far more hypotheses than any human would read: 726 leads marked ready for review before the blindspot audit, 1,082 more held behind evidence gates, 69 calibration references, and a separate 1,750 ranked drug-combination pairs. Cataloging literally <em>every one</em> of several thousand rows individually would be neither honest nor useful — most of the large rare-disease and combination buckets are variations on a theme, and the source only ever enumerated the top-ranked members of each.</p>
 <p>So this catalog does two things. For every hypothesis the engine surfaced <strong>by name</strong> — every lead that appears explicitly in the ranked outputs — it gives a full entry. For the large buckets where only the top rows were named, it details every named row and then characterizes the remainder statistically. Nothing here is invented; every lead below came out of the engine's own ranked tables.</p>
 <p>Each hunt section has the same shape: a table covering all its named leads, followed by prose deep-dives on the handful that genuinely matter. The tables carry three judgment columns, defined next.</p>
 <hr />
@@ -1392,7 +1392,7 @@ combos → 1,750 drug-pair hypotheses + external evidence cross-check
 <p><strong>Fraught tier (a meaningful slice of the top-ranked rare-disease and class-extrapolation rows):</strong> tarextumab/CADASIL, simufilam/Melnick-Needles, olaparib/Fanconi, the dabrafenib and anti-EGFR siblings, the gliptin/schizophrenia fan-out, the ototoxic "tinnitus treatments." These have low or <em>negative</em> expected value and, in the olaparib/Fanconi case, real safety risk. They are the price of a scoring function that rewards target-name overlap without a mechanism-direction check.</p>
 </li>
 <li>
-<p><strong>The long tail (the bulk of the 726 ready + 1,082 held):</strong> individually low-probability, collectively the point. If just 1–3% of the <em>novel</em> leads across all hunts turn out to be both real and non-obvious, that is on the order of <strong>10–30 genuine, useful contributions</strong> from a single automated run — most of them in rare and neglected diseases where nothing else was systematically searching. That is the number that justifies the whole exercise.</p>
+<p><strong>The long tail (the bulk of the 726 pre-blindspot ready + 1,082 held):</strong> individually low-probability, collectively the point. If just 1–3% of the <em>novel</em> leads across all hunts turn out to be both real and non-obvious after audit and expert review, that is on the order of <strong>10–30 genuine, useful contributions</strong> from a single automated run — most of them in rare and neglected diseases where nothing else was systematically searching. That is the number that justifies the whole exercise.</p>
 </li>
 </ul>
 <p>The realistic expected value of this specific run is therefore: a handful of frontier leads worth a specialist's serious time (led by the MEK-inhibitor RASopathy and PIK3CA-meningioma hypotheses), a larger set of screened rare-disease starting points worth cheap triage, a clear demonstration that the scoring recovers known biology, and a concrete, worked catalog of the failure mode (target-match without mechanism) that the next version of the engine should screen out. <strong>AI filled the funnel; a human still has to empty it — but the funnel is real, and a few things in it are worth carrying downstream.</strong></p>

@@ -52,7 +52,7 @@ serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
 ulid.workspace = true
-ureq = { version = "3.3.0", features = ["json"] }
+ureq.workspace = true
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61.2", features = [

@@ -486,7 +486,7 @@ The usable result is therefore the **capability and the discipline**: Calyx can 
 The surfaced leads fall into three honest tiers:
 
 - **Calibration / known-positive (69 atlas rows).** NF1/selumetinib, TNF-inhibitors/psoriatic arthritis, CD4/HIV, DPP4-inhibitors/T2D. Value: gate-health references, not novelty.
-- **Provisional research leads (726 ready-for-review rows).** TNF/CD4/CD8A→proteinuria; DPP4/metformin→schizophrenia bridges; the rare-disease gene/drug mappings (NOTCH3/tarextumab, BRAF/dabrafenib for CFC syndrome, BRCA2/olaparib for Fanconi anemia, PIK3CA/alpelisib for meningioma, FLNA/simufilam). Value: prioritized hypotheses for a human expert to inspect and, if warranted, design an outcome-backed assay around. **None is evidence that the drug treats the disease.**
+- **Provisional research leads (726 pre-blindspot ready-for-review rows).** TNF/CD4/CD8A→proteinuria; DPP4/metformin→schizophrenia bridges; the rare-disease gene/drug mappings (NOTCH3/tarextumab, BRAF/dabrafenib for CFC syndrome, BRCA2/olaparib for Fanconi anemia, PIK3CA/alpelisib for meningioma, FLNA/simufilam). Value: prioritized hypotheses for a human expert to inspect and, if warranted, design an outcome-backed assay around. Before any row is treated as ready after the 2026-07-07 hardening pass, it should clear `calyx biomedical-blindspot-audit` against external literature, stability, drug-lifecycle, patient-context, and transcriptomic-specificity sources. **None is evidence that the drug treats the disease.**
 - **Blocked (1,082 rows + 1,750 combinations).** Value: a precise, reason-coded manifest of exactly what evidence is missing.
 
 ### 13.4 How this changes the workflow
@@ -536,7 +536,7 @@ Concrete next steps, in dependency order, follow directly from the limitations:
 2. **Expand concept normalization** with improved NER, source-specific ontology lookup, and larger API budgets to shrink the 3,268-term unresolved queue.
 3. **Grow the safety substrate** past 14 component rows so combination promotion is not starved (the dominant #1190/#1228 blocker).
 4. **Broaden and strengthen the time-split validation benchmark** so the acceptance gate rests on more than 13 rows.
-5. **Human expert review of the 726 ready-for-review atlas rows**, defining outcome-backed instruments for the highest-priority target–disease leads (TNF/proteinuria class; rare-disease gene/drug mappings).
+5. **Rerun the 726 pre-blindspot ready-for-review atlas rows through the biomedical blindspot audit, then human expert review the survivors**, defining outcome-backed instruments for the highest-priority target–disease leads (TNF/proteinuria class; rare-disease gene/drug mappings).
 6. **Native Calyx collection lifecycle cleanup** (atomic replacement) to retire tombstoned collections.
 7. **Revisit GPU acceleration** only if a larger measured workload produces a dominant sparse-matvec/PPR bottleneck, verified against the CPU output hash.
 
@@ -621,7 +621,7 @@ Selected source-of-truth artifacts (all SHA-256/BLAKE3-checksummed in the findin
 | Drug safety | #1181 | `.../candidate_safety_flags.jsonl` | 14 therapies; all drug-bearing blocked |
 | Novelty/calibration split | #1226/#1227 | `.../novelty_prioritized_research_leads.jsonl` | 340 → 169 calibration / 171 novelty |
 | Generated falsification | #1223 | `.../candidate_falsification_flags.jsonl` | 1,877 flags; 1,082 blocked; 16 demoted |
-| Human-review atlas | #1193 | `.../human_review_...atlas.jsonl` (vault `01KWPJR0ADVZF580HNRBZ17CBZ`) | 1,877 rows; 1,082 blocked / 726 ready / 69 calibration |
+| Human-review atlas | #1193 | `.../human_review_...atlas.jsonl` (vault `01KWPJR0ADVZF580HNRBZ17CBZ`) | 1,877 rows; 1,082 blocked / 726 pre-blindspot ready / 69 calibration |
 | Combination miner | #1190 | `.../drug_combination_hypotheses.jsonl` | 1,750 pairs; 0 promoted |
 | Effect-result gate | #1252 | `.../effect_result_rollup_status.jsonl` | 35 rollups; all blocked |
 | Independent effect validation | #1253 | `.../independent_effect_rollup_status.jsonl` | **0 independent evidence rows** |

@@ -218,6 +218,11 @@ mod tests {
             Just(EntryKind::Migrate),
             Just(EntryKind::Admin),
             Just(EntryKind::Erase),
+            Just(EntryKind::Grounding),
+            Just(EntryKind::Admission),
+            Just(EntryKind::AgentForecast),
+            Just(EntryKind::Policy),
+            Just(EntryKind::Score),
         ]
     }
 

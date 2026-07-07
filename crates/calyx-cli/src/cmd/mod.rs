@@ -1,5 +1,6 @@
 mod artifact_hash;
 mod association_validation;
+mod biomedical_blindspot_audit;
 mod bridge_corpus;
 mod build_info;
 mod chain_walks;
@@ -22,6 +23,7 @@ mod hypothesis_rank;
 mod ingest;
 mod intelligence;
 mod kernel_build;
+mod known_commands;
 mod lens;
 mod lincs_reversal;
 pub(crate) mod mechanistic_direction;
@@ -53,18 +55,9 @@ use std::path::PathBuf;
 
 use crate::error::{CliError, CliResult};
 
+use known_commands::is_cmd;
 pub(crate) use panel_templates::PANEL_TEMPLATES;
 pub(crate) use parse_helpers::{validate_panel_template_name, validate_vault_name, value};
-
-const KNOWN_COMMANDS: &str = "\
-create-vault add-lens retire-lens park-lens retire-vault list-panel profile-lens \
-ingest ingest-status anchor measure erase search kernel-answer bits kernel guard abundance \
-propose-lens provenance verify-chain reproduce anneal-status rebuild-search-index kernel-build \
-weave-loom domain-bridges materialize-bridge-corpus discovery-chain chain-walks probe-matrix spectral-communities \
-materialize-graph-csr materialize-molecular-vault materialize-evidence-substrate materialize-lincs-reversal \
-assemble-hypothesis-evidence association-validation-gates typed-association-miner hypothesis-falsification-sweep \
-bridge-falsification-evaluate bridge-evaluate-rank novelty-calibration-split \
-graph-collection-generations graph-collection-state";
 
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) enum Subcommand {
@@ -110,6 +103,7 @@ pub(crate) enum Subcommand {
     AssociationValidationGates(association_validation::AssociationValidationArgs),
     TypedAssociationMiner(typed_association_miner::TypedAssociationMinerArgs),
     HypothesisFalsificationSweep(hypothesis_falsification::HypothesisFalsificationArgs),
+    BiomedicalBlindspotAudit(biomedical_blindspot_audit::BiomedicalBlindspotAuditArgs),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -263,6 +257,7 @@ fn run(command: Subcommand) -> CliResult {
         Subcommand::AssociationValidationGates(_) => association_validation::run(command),
         Subcommand::TypedAssociationMiner(_) => typed_association_miner::run(command),
         Subcommand::HypothesisFalsificationSweep(_) => hypothesis_falsification::run(command),
+        Subcommand::BiomedicalBlindspotAudit(_) => biomedical_blindspot_audit::run(command),
     }
 }
 
@@ -321,14 +316,11 @@ pub(crate) fn parse(args: &[String]) -> CliResult<Subcommand> {
         "hypothesis-falsification-sweep" => {
             hypothesis_falsification::parse_hypothesis_falsification_sweep(rest)
         }
+        "biomedical-blindspot-audit" => {
+            biomedical_blindspot_audit::parse_biomedical_blindspot_audit(rest)
+        }
         other => Err(CliError::usage(format!("unknown PH62 command {other}"))),
     }
-}
-
-fn is_cmd(command: &str) -> bool {
-    KNOWN_COMMANDS
-        .split_whitespace()
-        .any(|known| known == command)
 }
 
 fn parse_create_vault(rest: &[String]) -> CliResult<Subcommand> {

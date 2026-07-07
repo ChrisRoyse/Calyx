@@ -22,7 +22,7 @@
 
 ## 1. How to read this catalog
 
-The engine produced far more hypotheses than any human would read: 726 leads marked ready for review, 1,082 more held behind evidence gates, 69 calibration references, and a separate 1,750 ranked drug-combination pairs. Cataloging literally *every one* of several thousand rows individually would be neither honest nor useful — most of the large rare-disease and combination buckets are variations on a theme, and the source only ever enumerated the top-ranked members of each.
+The engine produced far more hypotheses than any human would read: 726 leads marked ready for review before the blindspot audit, 1,082 more held behind evidence gates, 69 calibration references, and a separate 1,750 ranked drug-combination pairs. Cataloging literally *every one* of several thousand rows individually would be neither honest nor useful — most of the large rare-disease and combination buckets are variations on a theme, and the source only ever enumerated the top-ranked members of each.
 
 So this catalog does two things. For every hypothesis the engine surfaced **by name** — every lead that appears explicitly in the ranked outputs — it gives a full entry. For the large buckets where only the top rows were named, it details every named row and then characterizes the remainder statistically. Nothing here is invented; every lead below came out of the engine's own ranked tables.
 
@@ -229,7 +229,7 @@ Putting the individual numbers together, the honest shape of the value is a port
 
 - **Fraught tier (a meaningful slice of the top-ranked rare-disease and class-extrapolation rows):** tarextumab/CADASIL, simufilam/Melnick-Needles, olaparib/Fanconi, the dabrafenib and anti-EGFR siblings, the gliptin/schizophrenia fan-out, the ototoxic "tinnitus treatments." These have low or *negative* expected value and, in the olaparib/Fanconi case, real safety risk. They are the price of a scoring function that rewards target-name overlap without a mechanism-direction check.
 
-- **The long tail (the bulk of the 726 ready + 1,082 held):** individually low-probability, collectively the point. If just 1–3% of the *novel* leads across all hunts turn out to be both real and non-obvious, that is on the order of **10–30 genuine, useful contributions** from a single automated run — most of them in rare and neglected diseases where nothing else was systematically searching. That is the number that justifies the whole exercise.
+- **The long tail (the bulk of the 726 pre-blindspot ready + 1,082 held):** individually low-probability, collectively the point. If just 1–3% of the *novel* leads across all hunts turn out to be both real and non-obvious after audit and expert review, that is on the order of **10–30 genuine, useful contributions** from a single automated run — most of them in rare and neglected diseases where nothing else was systematically searching. That is the number that justifies the whole exercise.
 
 The realistic expected value of this specific run is therefore: a handful of frontier leads worth a specialist's serious time (led by the MEK-inhibitor RASopathy and PIK3CA-meningioma hypotheses), a larger set of screened rare-disease starting points worth cheap triage, a clear demonstration that the scoring recovers known biology, and a concrete, worked catalog of the failure mode (target-match without mechanism) that the next version of the engine should screen out. **AI filled the funnel; a human still has to empty it — but the funnel is real, and a few things in it are worth carrying downstream.**
 

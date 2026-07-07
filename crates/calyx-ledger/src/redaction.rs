@@ -11,6 +11,7 @@ const MAX_HASH_OR_ID_LEN: usize = 64;
 const MAX_DISCOVERY_MANIFEST_TOKEN_LEN: usize = 160;
 const MAX_QUANT_SLOT_METADATA_LEN: usize = 4096;
 const MAX_SOURCE_METADATA_LEN: usize = 128;
+const MAX_STABLE_CODE_LEN: usize = 128;
 
 /// Per-vault ledger redaction policy.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -203,6 +204,9 @@ fn allowed_stable_identifier(token: &str, field: Option<&str>) -> bool {
     if is_source_metadata_field(&field) {
         return allowed_source_metadata_value(token);
     }
+    if field == "code" {
+        return allowed_stable_code(token);
+    }
     if field == "signature" {
         return token.len() == 128 && is_hex(token);
     }
@@ -222,6 +226,14 @@ fn allowed_stable_identifier(token: &str, field: Option<&str>) -> bool {
         return false;
     }
     is_hex(token) || is_base58(token) || is_uuid(token)
+}
+
+fn allowed_stable_code(token: &str) -> bool {
+    token.starts_with("CALYX_")
+        && token.len() <= MAX_STABLE_CODE_LEN
+        && token
+            .chars()
+            .all(|ch| ch.is_ascii_uppercase() || ch.is_ascii_digit() || ch == '_')
 }
 
 fn field_allows_stable_identifier(field: &str) -> bool {

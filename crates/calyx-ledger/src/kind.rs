@@ -17,11 +17,16 @@ pub enum EntryKind {
     Migrate,
     Admin,
     Erase,
+    Grounding,
+    Admission,
+    AgentForecast,
+    Policy,
+    Score,
 }
 
 impl EntryKind {
     /// All valid kinds in stable wire-code order.
-    pub const ALL: [Self; 10] = [
+    pub const ALL: [Self; 15] = [
         Self::Ingest,
         Self::Measure,
         Self::Assay,
@@ -32,6 +37,11 @@ impl EntryKind {
         Self::Migrate,
         Self::Admin,
         Self::Erase,
+        Self::Grounding,
+        Self::Admission,
+        Self::AgentForecast,
+        Self::Policy,
+        Self::Score,
     ];
 
     /// Returns the stable one-byte discriminant used in ledger hashes/codecs.
@@ -47,6 +57,11 @@ impl EntryKind {
             Self::Migrate => 7,
             Self::Admin => 8,
             Self::Erase => 9,
+            Self::Grounding => 10,
+            Self::Admission => 11,
+            Self::AgentForecast => 12,
+            Self::Policy => 13,
+            Self::Score => 14,
         }
     }
 
@@ -63,6 +78,11 @@ impl EntryKind {
             7 => Some(Self::Migrate),
             8 => Some(Self::Admin),
             9 => Some(Self::Erase),
+            10 => Some(Self::Grounding),
+            11 => Some(Self::Admission),
+            12 => Some(Self::AgentForecast),
+            13 => Some(Self::Policy),
+            14 => Some(Self::Score),
             _ => None,
         }
     }
@@ -80,6 +100,11 @@ impl EntryKind {
             Self::Migrate => "migrate",
             Self::Admin => "admin",
             Self::Erase => "erase",
+            Self::Grounding => "grounding",
+            Self::Admission => "admission",
+            Self::AgentForecast => "agent_forecast",
+            Self::Policy => "policy",
+            Self::Score => "score",
         }
     }
 }
@@ -100,6 +125,6 @@ mod tests {
             assert_eq!(kind.wire_code(), expected as u8);
             assert_eq!(EntryKind::from_wire_code(expected as u8), Some(kind));
         }
-        assert_eq!(EntryKind::from_wire_code(10), None);
+        assert_eq!(EntryKind::from_wire_code(15), None);
     }
 }

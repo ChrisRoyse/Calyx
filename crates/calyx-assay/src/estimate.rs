@@ -12,6 +12,11 @@ pub enum TrustTag {
     Provisional,
 }
 
+/// Source prefix for a resolved UMA outcome anchor.
+pub const RESOLVED_UMA_ANCHOR_SOURCE_PREFIX: &str = "uma:";
+/// Source prefix for a live-market proxy anchor.
+pub const PROXY_ANCHOR_SOURCE_PREFIX: &str = "proxy:";
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum EstimatorKind {
@@ -146,8 +151,23 @@ pub fn require_grounded_anchor(anchor: &Anchor) -> Result<TrustTag> {
 }
 
 fn is_grounded_anchor(anchor: &Anchor) -> bool {
-    !anchor.source.trim().is_empty()
-        && anchor.confidence.is_finite()
-        && anchor.confidence > 0.0
-        && anchor.confidence <= 1.0
+    let source = anchor.source.trim();
+    if source.is_empty()
+        || !anchor.confidence.is_finite()
+        || anchor.confidence <= 0.0
+        || anchor.confidence > 1.0
+    {
+        return false;
+    }
+
+    // Until Anchor carries a first-class origin field, market anchors stamp origin in source.
+    if source.starts_with(PROXY_ANCHOR_SOURCE_PREFIX) {
+        return false;
+    }
+
+    if source.starts_with(RESOLVED_UMA_ANCHOR_SOURCE_PREFIX) {
+        return anchor.confidence == 1.0;
+    }
+
+    true
 }

@@ -154,6 +154,24 @@ fn apply_to_payload_keeps_source_metadata_identifiers() {
     assert!(RedactionPolicy::check_payload(&bytes).is_ok());
 }
 
+#[test]
+fn check_payload_allows_stable_calyx_code_fields_only() {
+    let payload = serde_json::to_vec(&json!({
+        "code": "CALYX_POLY_ADMISSION_MARKET_INTEGRITY_LOW_HOLDER_DIVERSITY",
+        "nested": {
+            "code": "CALYX_POLY_ADMISSION_MARKET_INTEGRITY_MAKER_CONCENTRATION"
+        }
+    }))
+    .unwrap();
+    assert!(RedactionPolicy::check_payload(&payload).is_ok());
+
+    let same_token_wrong_field = serde_json::to_vec(&json!({
+        "reason": "CALYX_POLY_ADMISSION_MARKET_INTEGRITY_LOW_HOLDER_DIVERSITY"
+    }))
+    .unwrap();
+    assert_secret(same_token_wrong_field);
+}
+
 fn assert_secret(payload: Vec<u8>) {
     let error = RedactionPolicy::check_payload(&payload).unwrap_err();
     assert_eq!(error.code, "CALYX_LEDGER_SECRET_IN_PAYLOAD");

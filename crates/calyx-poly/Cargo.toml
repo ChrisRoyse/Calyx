@@ -1,0 +1,40 @@
+[package]
+name = "calyx-poly"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+publish.workspace = true
+description = "Local Polymarket forecasting engine built on the Calyx association-native database"
+
+[features]
+default = []
+
+[dependencies]
+calyx-aster = { path = "../calyx-aster" }
+calyx-anneal = { path = "../calyx-anneal" }
+calyx-assay = { path = "../calyx-assay" }
+calyx-core = { path = "../calyx-core" }
+calyx-ledger = { path = "../calyx-ledger" }
+calyx-lodestar = { path = "../calyx-lodestar" }
+calyx-loom = { path = "../calyx-loom" }
+calyx-mincut = { path = "../calyx-mincut" }
+calyx-oracle = { path = "../calyx-oracle" }
+calyx-paths = { path = "../calyx-paths" }
+calyx-registry = { path = "../calyx-registry" }
+calyx-sextant = { path = "../calyx-sextant" }
+calyx-ward = { path = "../calyx-ward" }
+blake3 = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+thiserror = { workspace = true }
+toml = { workspace = true }
+tracing = { workspace = true }
+tungstenite = { workspace = true }
+ureq = { workspace = true }
+zeroize = { workspace = true }
+
+[dev-dependencies]
+rand = { workspace = true }
+rand_chacha = { workspace = true }

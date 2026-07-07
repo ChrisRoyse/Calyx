@@ -4,21 +4,36 @@ pub mod attribution;
 pub mod bayesian;
 pub mod bootstrap;
 pub mod calibration;
+pub mod categorical_association;
+pub mod causal_pc;
+pub mod ccm;
+pub mod conditional_mi;
 pub mod contract;
+pub mod copula;
+pub mod cross_correlation;
+pub mod distance_correlation;
 pub mod ensemble;
 pub mod estimate;
 pub mod formula_catalog;
 pub mod formulas;
 pub mod gate;
+pub mod granger;
 pub mod group_split;
+pub mod hawkes;
+pub mod hsic;
 pub mod ksg;
 pub mod logistic;
 pub mod loom_adapter;
+pub mod mic;
 pub mod mmd;
 pub mod n_eff;
 pub mod nmi;
+pub mod partial_correlation;
+pub mod partial_network;
 pub mod periodicity;
+pub mod point_process;
 pub mod projection;
+pub mod rank_correlation;
 pub mod recurrence_anchor;
 pub mod recurrence_hazard;
 pub mod resource_contract;
@@ -49,9 +64,35 @@ pub use calibration::{
     DEFAULT_MIN_POWER_RECOVERY_RATIO, MIN_INFORMATIVE_TARGET_ENTROPY_BITS, PowerCalibration,
     PowerCalibrationStatus, ensure_informative_binary_labels,
 };
+pub use categorical_association::{
+    CategoricalReport, MIN_CATEGORICAL_SAMPLES, categorical_association, point_biserial,
+};
+pub use causal_pc::{
+    DEFAULT_PC_ALPHA, PcEdge, PcRemovedEdge, PcSeries, PcStableReport, pc_stable_gaussian,
+};
+pub use ccm::{
+    CcmConfig, CcmDirectionReport, CcmLibrarySkill, CcmReport, CcmVerdict,
+    DEFAULT_CCM_EMBEDDING_DIM, DEFAULT_CCM_MIN_CONVERGENCE_DELTA, DEFAULT_CCM_MIN_SKILL_GAP,
+    DEFAULT_CCM_TAU, convergent_cross_mapping,
+};
+pub use conditional_mi::{
+    ConditionalIndependence, ConditionalMiReport, DEFAULT_CMI_ALPHA, GAUSSIAN_CMI_FORMULA,
+    conditional_mutual_information_gaussian, conditional_mutual_information_gaussian_with_alpha,
+};
 pub use contract::{
     AdmissionDecision, CALYX_ASSAY_UNRESOLVED, CorrelationEvidence, admit_lens,
     admit_lens_estimate, admit_lens_estimate_with_signal_kind, admit_lens_with_strata,
+};
+pub use copula::{
+    CopulaTailReport, DEFAULT_TAIL_Q, MIN_COPULA_SAMPLES, empirical_copula_tail_dependence,
+    empirical_copula_tail_dependence_with_q,
+};
+pub use cross_correlation::{
+    CCF_LAG_CONVENTION, CrossCorrelationPoint, CrossCorrelationReport, cross_correlation_profile,
+};
+pub use distance_correlation::{
+    DEFAULT_DCOR_PERMUTATIONS, DEFAULT_DCOR_SEED, DcorPermConfig, DcorReport, DcorTest,
+    MIN_DCOR_SAMPLES, distance_correlation, distance_correlation_test,
 };
 pub use ensemble::{
     A37_DIVERSITY_DIAGNOSTIC_ONLY, A37_DIVERSITY_GATE_PASSED, A37_DIVERSITY_SCHEMA_VERSION,
@@ -74,7 +115,21 @@ pub use formula_catalog::{
 };
 pub use formulas::{dpi_ceiling, lens_signal, marginal_value, pair_redundancy};
 pub use gate::{AssayGate, LensSignal, PairGain};
+pub use granger::{
+    DEFAULT_GRANGER_LAG_SWEEP, DEFAULT_GRANGER_LAGS, GrangerReport, granger_causality,
+    granger_causality_lags, granger_causality_sweep, granger_causality_sweep_lags,
+};
 pub use group_split::{GroupSplit, group_holdout_split, row_groups};
+pub use hawkes::{
+    DEFAULT_HAWKES_DECAY, DEFAULT_HAWKES_ITERATIONS, DEFAULT_HAWKES_MIN_EDGE_BRANCHING_RATIO,
+    HawkesBaseline, HawkesConfig, HawkesEdge, HawkesEventSeries, HawkesReport, HawkesStability,
+    exponential_hawkes_em,
+};
+pub use hsic::{
+    DEFAULT_HSIC_PERMUTATIONS, DEFAULT_HSIC_SEED, HsicConfig, HsicEstimators, HsicPermConfig,
+    HsicReport, HsicTest, MIN_HSIC_GAMMA_SAMPLES, MIN_HSIC_SAMPLES, hsic, hsic_estimators,
+    hsic_estimators_with_config, hsic_permutation_test, hsic_with_config,
+};
 pub use ksg::{
     MIN_ASSAY_SAMPLES, ksg_mi_continuous, ksg_mi_continuous_discrete,
     ksg_mi_continuous_discrete_with_anchor, ksg_mi_continuous_with_anchor,
@@ -86,19 +141,36 @@ pub use logistic::{
     logistic_probe_mi_multiseed_with_anchor, logistic_probe_mi_with_anchor,
 };
 pub use loom_adapter::AsterAssayMaterializationGate;
+pub use mic::{DEFAULT_MIC_ALPHA, MIN_MIC_SAMPLES, MicReport, mic, mic_with_alpha};
 pub use mmd::{
     ChangePointReport, DEFAULT_MMD_ALPHA, DEFAULT_MMD_PERMUTATIONS, DEFAULT_MMD_SEED, MmdConfig,
     MmdReport, gaussian_mmd, gaussian_mmd_with_config, mmd_change_point,
 };
 pub use n_eff::{NeffReport, stable_rank};
 pub use nmi::{NmiReport, partitioned_histogram_nmi};
+pub use partial_correlation::{
+    MIN_PEARSON_SAMPLES, PartialReport, PearsonReport, partial_correlation,
+    partial_correlation_controlling, pearson,
+};
+pub use partial_network::{
+    DEFAULT_PARTIAL_NETWORK_ALPHA, DEFAULT_PARTIAL_NETWORK_MIN_ABS_R, PartialNetworkEdge,
+    PartialNetworkPrunedEdge, PartialNetworkReport, PartialNetworkSeries,
+    partial_correlation_network,
+};
 pub use periodicity::{
     AutocorrelationReport, DEFAULT_FAP_PERMUTATIONS, DEFAULT_MAX_PEAKS, DEFAULT_PERIODICITY_SEED,
     DEFAULT_PERIODOGRAM_OVERSAMPLE, MAX_ACF_SAMPLES, MAX_FREQUENCY_GRID, MIN_PERIODICITY_SAMPLES,
     PeriodicityReport, PeriodogramConfig, PeriodogramPeak, SIGNIFICANT_PEAK_FAP, autocorrelation,
     bin_event_counts, lomb_scargle, lomb_scargle_with_anchor, lomb_scargle_with_config,
 };
+pub use point_process::{
+    CoIntensityVerdict, CrossKPoint, CrossKReport, DEFAULT_CLUSTER_RATIO, DEFAULT_INHIBIT_RATIO,
+    MIN_POINT_EVENTS, temporal_cross_k,
+};
 pub use projection::{ProjectionReport, project_cpu, project_gpu, target_projection_dim};
+pub use rank_correlation::{
+    KendallReport, MIN_RANK_CORR_SAMPLES, SpearmanReport, kendall_tau_b, spearman_rho,
+};
 pub use recurrence_anchor::{
     CALYX_ASSAY_MISSING_OUTCOME_SLOT, CONSISTENT_AGREEMENT_THRESHOLD, DEFAULT_OUTCOME_ANCHOR_LABEL,
     Domain, OutcomeAgreement, RecurrenceAnchor, default_outcome_anchor, frequency_anchor_for,

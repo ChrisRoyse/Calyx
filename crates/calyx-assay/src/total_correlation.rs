@@ -20,11 +20,13 @@ pub const CALYX_TC_INSUFFICIENT_SAMPLES: &str = "CALYX_TC_INSUFFICIENT_SAMPLES";
 pub const MIN_QUORUM_TC_PER_SLOT: usize = 50;
 pub const DEFAULT_TC_K: usize = 3;
 pub const DEFAULT_TC_BOOTSTRAP_RESAMPLES: usize = 500;
+pub const DEFAULT_TC_BOOTSTRAP_SEED: u64 = 0x7C52_2026_0001;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct TotalCorrelationConfig {
     pub k: usize,
     pub bootstrap_resamples: usize,
+    pub bootstrap_seed: u64,
 }
 
 impl Default for TotalCorrelationConfig {
@@ -32,6 +34,7 @@ impl Default for TotalCorrelationConfig {
         Self {
             k: DEFAULT_TC_K,
             bootstrap_resamples: DEFAULT_TC_BOOTSTRAP_RESAMPLES,
+            bootstrap_seed: DEFAULT_TC_BOOTSTRAP_SEED,
         }
     }
 }
@@ -94,7 +97,7 @@ pub fn total_correlation_with_config(
     let ci_95 = if slot_count <= 1 {
         (0.0, 0.0)
     } else {
-        bootstrap_tc_ci(slots, estimate.tc, config, clock.now() ^ 0x7C52_0001)?
+        bootstrap_tc_ci(slots, estimate.tc, config, seed_for_slots(slots, config))?
     };
     Ok(TCResult {
         tc: estimate.tc,
@@ -162,7 +165,7 @@ pub fn interaction_information_with_config(
         slot_c,
         point,
         config,
-        clock.now() ^ 0x7C52_0002,
+        seed_for_triple(slot_a, slot_b, slot_c, config),
     )?;
     Ok(IIResult {
         ii: point,
@@ -330,6 +333,33 @@ fn validate_config(config: &TotalCorrelationConfig) -> Result<()> {
         ));
     }
     Ok(())
+}
+
+fn seed_for_slots(slots: &SlotVectors, config: &TotalCorrelationConfig) -> u64 {
+    let inputs = slots.iter().map(Vec::as_slice).collect::<Vec<_>>();
+    seed_for_inputs(config, b"tc", &inputs)
+}
+
+fn seed_for_triple(a: &[f32], b: &[f32], c: &[f32], config: &TotalCorrelationConfig) -> u64 {
+    seed_for_inputs(config, b"ii", &[a, b, c])
+}
+
+fn seed_for_inputs(config: &TotalCorrelationConfig, domain: &[u8], inputs: &[&[f32]]) -> u64 {
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(b"calyx-assay-total-correlation-bootstrap-v1");
+    hasher.update(domain);
+    hasher.update(&config.bootstrap_seed.to_le_bytes());
+    hasher.update(&(config.k as u64).to_le_bytes());
+    hasher.update(&(config.bootstrap_resamples as u64).to_le_bytes());
+    hasher.update(&(inputs.len() as u64).to_le_bytes());
+    for values in inputs {
+        hasher.update(&(values.len() as u64).to_le_bytes());
+        for value in *values {
+            hasher.update(&value.to_bits().to_le_bytes());
+        }
+    }
+    let hash = hasher.finalize();
+    u64::from_le_bytes(hash.as_bytes()[..8].try_into().expect("8 hash bytes"))
 }
 
 fn provisional_tc(slot_count: usize, n_samples: usize, clock: &dyn Clock) -> TCResult {

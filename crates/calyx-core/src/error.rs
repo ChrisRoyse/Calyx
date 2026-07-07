@@ -137,6 +137,9 @@ error_catalog! {
     AssayRedundant, assay_redundant, "CALYX_ASSAY_REDUNDANT",
     "pair corr > 0.6", "drop duplicate lens";
 
+    AssayDegenerateInput, assay_degenerate_input, "CALYX_ASSAY_DEGENERATE_INPUT",
+    "zero-variance / all-tied estimator input", "supply a non-constant paired series (correlation is undefined on a constant column)";
+
     KernelUngrounded, kernel_ungrounded, "CALYX_KERNEL_UNGROUNDED",
     "kernel over ungrounded graph", "add anchors (grounding_gaps)";
 
@@ -241,6 +244,7 @@ mod tests {
         "CALYX_ASSAY_INSUFFICIENT_SAMPLES",
         "CALYX_ASSAY_LOW_SIGNAL",
         "CALYX_ASSAY_REDUNDANT",
+        "CALYX_ASSAY_DEGENERATE_INPUT",
         "CALYX_KERNEL_UNGROUNDED",
         "CALYX_GUARD_PROVISIONAL",
         "CALYX_GUARD_OOD",

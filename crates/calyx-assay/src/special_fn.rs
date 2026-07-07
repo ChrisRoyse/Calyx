@@ -98,6 +98,153 @@ pub(crate) fn ln_gamma(z: f64) -> f64 {
     0.5 * (2.0 * std::f64::consts::PI).ln() + (z + 0.5) * t.ln() - t + a.ln()
 }
 
+const BETA_ITMAX: usize = 300;
+const BETA_EPS: f64 = 3.0e-14;
+const BETA_TINY: f64 = 1.0e-300;
+
+/// Gauss error function `erf(x)` via the regularised lower incomplete gamma
+/// identity `erf(x) = sign(x)·P(1/2, x²)`. Exact at `x = 0`; fails closed only
+/// if the underlying incomplete-gamma evaluation does (it never does for a
+/// finite `x`, since `x² ≥ 0` is always in-domain).
+pub(crate) fn erf(x: f64) -> Result<f64> {
+    if !x.is_finite() {
+        return Err(domain(format!("erf requires a finite argument, got {x}")));
+    }
+    if x == 0.0 {
+        return Ok(0.0);
+    }
+    let p = gammp(0.5, x * x)?;
+    Ok(if x < 0.0 { -p } else { p })
+}
+
+/// Two-sided standard-normal tail probability `P(|Z| ≥ |z|) = erfc(|z|/√2)`.
+pub(crate) fn normal_two_sided_p(z: f64) -> Result<f64> {
+    if !z.is_finite() {
+        return Err(domain(format!(
+            "normal tail requires a finite z-statistic, got {z}"
+        )));
+    }
+    let e = erf(z.abs() / std::f64::consts::SQRT_2)?;
+    Ok((1.0 - e).clamp(0.0, 1.0))
+}
+
+/// Regularised incomplete beta `I_x(a, b)` (Numerical Recipes: closed-form
+/// tails plus the Lentz continued fraction `betacf`, symmetry-reflected at the
+/// convergence boundary `x = (a+1)/(a+b+2)`). Fails closed outside `x ∈ [0,1]`
+/// or for non-positive shape parameters.
+pub(crate) fn betai(a: f64, b: f64, x: f64) -> Result<f64> {
+    if !a.is_finite() || a <= 0.0 || !b.is_finite() || b <= 0.0 {
+        return Err(domain(format!(
+            "incomplete beta requires a > 0 and b > 0, got a={a}, b={b}"
+        )));
+    }
+    if !x.is_finite() || !(0.0..=1.0).contains(&x) {
+        return Err(domain(format!(
+            "incomplete beta requires x ∈ [0, 1], got x={x}"
+        )));
+    }
+    if x == 0.0 {
+        return Ok(0.0);
+    }
+    if x == 1.0 {
+        return Ok(1.0);
+    }
+    let ln_front = ln_gamma(a + b) - ln_gamma(a) - ln_gamma(b) + a * x.ln() + b * (1.0 - x).ln();
+    let front = ln_front.exp();
+    if x < (a + 1.0) / (a + b + 2.0) {
+        Ok((front * betacf(a, b, x)? / a).clamp(0.0, 1.0))
+    } else {
+        Ok((1.0 - front * betacf(b, a, 1.0 - x)? / b).clamp(0.0, 1.0))
+    }
+}
+
+fn betacf(a: f64, b: f64, x: f64) -> Result<f64> {
+    let qab = a + b;
+    let qap = a + 1.0;
+    let qam = a - 1.0;
+    let mut c = 1.0;
+    let mut d = 1.0 - qab * x / qap;
+    if d.abs() < BETA_TINY {
+        d = BETA_TINY;
+    }
+    d = 1.0 / d;
+    let mut h = d;
+    for m in 1..=BETA_ITMAX {
+        let m = m as f64;
+        let m2 = 2.0 * m;
+        // Even step.
+        let aa = m * (b - m) * x / ((qam + m2) * (a + m2));
+        d = 1.0 + aa * d;
+        if d.abs() < BETA_TINY {
+            d = BETA_TINY;
+        }
+        c = 1.0 + aa / c;
+        if c.abs() < BETA_TINY {
+            c = BETA_TINY;
+        }
+        d = 1.0 / d;
+        h *= d * c;
+        // Odd step.
+        let aa = -(a + m) * (qab + m) * x / ((a + m2) * (qap + m2));
+        d = 1.0 + aa * d;
+        if d.abs() < BETA_TINY {
+            d = BETA_TINY;
+        }
+        c = 1.0 + aa / c;
+        if c.abs() < BETA_TINY {
+            c = BETA_TINY;
+        }
+        d = 1.0 / d;
+        let del = d * c;
+        h *= del;
+        if (del - 1.0).abs() < BETA_EPS {
+            return Ok(h);
+        }
+    }
+    Err(domain(
+        "incomplete beta continued fraction did not converge",
+    ))
+}
+
+/// Two-sided Student-t tail probability `P(|T_df| ≥ |t|)` via the incomplete
+/// beta: `I_{df/(df+t²)}(df/2, 1/2)`. `t = 0 → 1.0` (no evidence).
+pub(crate) fn student_t_two_sided_p(t: f64, df: f64) -> Result<f64> {
+    if !t.is_finite() {
+        return Err(domain(format!(
+            "student-t tail requires a finite t-statistic, got {t}"
+        )));
+    }
+    if !df.is_finite() || df <= 0.0 {
+        return Err(domain(format!(
+            "student-t tail requires df > 0, got df={df}"
+        )));
+    }
+    let x = df / (df + t * t);
+    betai(df / 2.0, 0.5, x)
+}
+
+/// Upper-tail probability `P(F ≥ f)` for the F-distribution with `(df1, df2)`
+/// degrees of freedom, via the incomplete beta. Using the CDF identity
+/// `P(F ≤ f) = I_{df1·f/(df1·f+df2)}(df1/2, df2/2)` and the beta symmetry
+/// `I_x(a,b) = 1 − I_{1−x}(b,a)`, the tail is `I_{df2/(df2+df1·f)}(df2/2, df1/2)`.
+/// `f = 0 → 1.0` (no evidence). Fails closed on non-positive degrees of freedom
+/// or a non-finite / negative statistic.
+pub(crate) fn f_upper_tail_p(f: f64, df1: f64, df2: f64) -> Result<f64> {
+    if !f.is_finite() || f < 0.0 {
+        return Err(domain(format!("F tail requires a finite F ≥ 0, got f={f}")));
+    }
+    if !df1.is_finite() || df1 <= 0.0 || !df2.is_finite() || df2 <= 0.0 {
+        return Err(domain(format!(
+            "F tail requires df1 > 0 and df2 > 0, got df1={df1}, df2={df2}"
+        )));
+    }
+    if f == 0.0 {
+        return Ok(1.0);
+    }
+    let x = df2 / (df2 + df1 * f);
+    betai(df2 / 2.0, df1 / 2.0, x)
+}
+
 fn domain(message: impl Into<String>) -> CalyxError {
     CalyxError::assay_insufficient_samples(message)
 }
@@ -153,6 +300,97 @@ mod tests {
                 "P+Q",
             );
         }
+    }
+
+    #[test]
+    fn erf_and_normal_cdf_match_known_values() {
+        // erf(0)=0, erf(1)=0.842700792949715, erf(-1) is its negative.
+        approx(erf(0.0).unwrap(), 0.0, 1e-15, "erf(0)");
+        approx(erf(1.0).unwrap(), 0.842_700_792_949_715, 1e-12, "erf(1)");
+        approx(erf(-1.0).unwrap(), -0.842_700_792_949_715, 1e-12, "erf(-1)");
+        // Two-sided normal tail: p(0)=1, and p at the 5% critical z ≈ 0.05.
+        approx(normal_two_sided_p(0.0).unwrap(), 1.0, 1e-15, "normal p(0)");
+        approx(
+            normal_two_sided_p(1.959_963_985).unwrap(),
+            0.05,
+            1e-8,
+            "normal two-sided p(1.96)",
+        );
+    }
+
+    #[test]
+    fn incomplete_beta_matches_known_values() {
+        // I_x(1,1) = x (uniform CDF).
+        approx(betai(1.0, 1.0, 0.3).unwrap(), 0.3, 1e-12, "I_0.3(1,1)");
+        // Symmetry: I_x(a,b) = 1 - I_{1-x}(b,a).
+        approx(
+            betai(2.0, 3.0, 0.4).unwrap(),
+            1.0 - betai(3.0, 2.0, 0.6).unwrap(),
+            1e-12,
+            "beta symmetry",
+        );
+        // I_x(0.5,0.5) = (2/π)·asin(√x): at x=0.5 → 0.5.
+        approx(betai(0.5, 0.5, 0.5).unwrap(), 0.5, 1e-12, "I_0.5(0.5,0.5)");
+    }
+
+    #[test]
+    fn student_t_two_sided_matches_known_values() {
+        // t = 0 → no evidence, p = 1.
+        approx(student_t_two_sided_p(0.0, 10.0).unwrap(), 1.0, 1e-12, "t=0");
+        // df=1 is Cauchy: P(|T| ≥ 1) = 0.5 (quartiles at ±1).
+        approx(
+            student_t_two_sided_p(1.0, 1.0).unwrap(),
+            0.5,
+            1e-9,
+            "cauchy quartile",
+        );
+        // Classic table value: two-sided p at t=2.228, df=10 ≈ 0.05.
+        approx(
+            student_t_two_sided_p(2.228_138_852, 10.0).unwrap(),
+            0.05,
+            1e-6,
+            "t(10) 5% critical",
+        );
+    }
+
+    #[test]
+    fn f_upper_tail_matches_known_values() {
+        // f = 0 → no evidence, p = 1.
+        approx(f_upper_tail_p(0.0, 3.0, 10.0).unwrap(), 1.0, 1e-12, "F f=0");
+        // Classic table value: F(3,10) 5% critical point ≈ 3.708265 → tail 0.05.
+        approx(
+            f_upper_tail_p(3.708_265, 3.0, 10.0).unwrap(),
+            0.05,
+            1e-5,
+            "F(3,10) 5% critical",
+        );
+        // F(1, df) equals a two-sided t: P(F_{1,df} ≥ t²) = P(|T_df| ≥ |t|).
+        approx(
+            f_upper_tail_p(4.0, 1.0, 20.0).unwrap(),
+            student_t_two_sided_p(2.0, 20.0).unwrap(),
+            1e-9,
+            "F(1,20) vs t(20)²",
+        );
+    }
+
+    #[test]
+    fn special_fn_fail_closed_on_bad_domain() {
+        assert_eq!(
+            betai(0.0, 1.0, 0.5).unwrap_err().code,
+            "CALYX_ASSAY_INSUFFICIENT_SAMPLES"
+        );
+        assert_eq!(
+            betai(1.0, 1.0, 1.5).unwrap_err().code,
+            "CALYX_ASSAY_INSUFFICIENT_SAMPLES"
+        );
+        assert_eq!(
+            student_t_two_sided_p(1.0, 0.0).unwrap_err().code,
+            "CALYX_ASSAY_INSUFFICIENT_SAMPLES"
+        );
+        assert_eq!(
+            erf(f64::NAN).unwrap_err().code,
+            "CALYX_ASSAY_INSUFFICIENT_SAMPLES"
+        );
     }
 
     #[test]
