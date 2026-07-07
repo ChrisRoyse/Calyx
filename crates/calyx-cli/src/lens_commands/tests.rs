@@ -5,11 +5,9 @@ fn lens_dispatch_rejects_unknown_subcommand() {
     let error = run("missing", &[]).unwrap_err();
 
     assert_eq!(error.code(), "CALYX_CLI_USAGE_ERROR");
-    assert!(
-        error
-            .message()
-            .contains("expected add, list, remove, card, explain")
-    );
+    assert!(error.message().contains(
+        "expected add, list, migrate-catalog, remove, card, explain, commission, or scale-audit"
+    ));
 }
 
 #[test]
