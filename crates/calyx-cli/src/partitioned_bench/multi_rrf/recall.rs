@@ -11,6 +11,9 @@ use super::timeline;
 use super::{OpenSlot, fuse, fused_hit_ids, report, row_for_metric, slot_id, to_index_hits};
 use crate::partitioned_bench::brute_force::brute_force_topk_vecfile_ranked;
 
+const DISTANCE_TIE_EPSILON: f32 = 1.0e-6;
+const RRF_K: f32 = 60.0;
+
 pub(super) struct Request<'a> {
     pub(super) slots: &'a [OpenSlot],
     pub(super) truth_n: usize,
@@ -51,11 +54,11 @@ pub(super) fn readback(req: Request<'_>) -> RecallReadback {
     let mut truth_sets = Vec::with_capacity(req.truth_n);
     for query_idx in 0..req.truth_n {
         let (exact_ids, exact_slot_rows) = exact_truth_for_query(&req, query_idx);
-        let truth = exact_ids.iter().copied().collect::<BTreeSet<_>>();
+        let truth = accepted_truth_for_query(&req, query_idx, &exact_ids);
         if sample_readback.len() < 3 {
             sample_readback.push(sample_row(&req, query_idx, &exact_ids, exact_slot_rows));
         }
-        let truth_len = truth.len();
+        let truth_len = exact_ids.len().max(1);
         let query_found = req.fused_hits[query_idx]
             .iter()
             .filter(|id| truth.contains(id))
@@ -161,6 +164,7 @@ fn fused_from_db_slot_truth(
             "source": "precomputed_slot_rrf_aster_cf",
             "exact_top_k": rows.iter().take(req.k).copied().collect::<Vec<_>>(),
             "truth_depth": rows.len(),
+            "acceptance_mode": "distance_tie_equivalence",
         }));
         let ranked = rows
             .into_iter()
@@ -188,6 +192,7 @@ fn fused_from_slot_truth(
             "source": "precomputed_slot_rrf_i32bin",
             "exact_top_k": rows.iter().take(req.k).copied().collect::<Vec<_>>(),
             "truth_depth": rows.len(),
+            "acceptance_mode": "distance_tie_equivalence",
         }));
         let ranked = rows
             .into_iter()
@@ -198,6 +203,135 @@ fn fused_from_slot_truth(
     }
     let exact_fused = fuse(&exact_per_slot, req.k);
     (fused_hit_ids(&exact_fused, req.k), exact_slot_rows)
+}
+
+fn accepted_truth_for_query(
+    req: &Request<'_>,
+    query_idx: usize,
+    exact_ids: &[u64],
+) -> BTreeSet<u64> {
+    let mut accepted = exact_ids.iter().copied().collect::<BTreeSet<_>>();
+    if req.slot_truth.is_none() && req.db_slot_truth.is_none() {
+        return accepted;
+    }
+    let mut candidates = accepted.clone();
+    candidates.extend(req.fused_hits[query_idx].iter().copied());
+    let scores = tie_aware_rrf_scores(req, query_idx, &candidates);
+    let cutoff = exact_ids
+        .iter()
+        .filter_map(|row_id| scores.get(row_id).copied())
+        .min_by(f32::total_cmp);
+    let Some(cutoff) = cutoff else {
+        return accepted;
+    };
+    for (row_id, score) in scores {
+        if candidates.contains(&row_id) && score + f32::EPSILON >= cutoff {
+            accepted.insert(row_id);
+        }
+    }
+    accepted
+}
+
+fn tie_aware_rrf_scores(
+    req: &Request<'_>,
+    query_idx: usize,
+    candidates: &BTreeSet<u64>,
+) -> BTreeMap<u64, f32> {
+    let mut scores = BTreeMap::new();
+    for slot in req.slots {
+        let slot_id = slot_id(slot.spec.slot);
+        let rows = slot_truth_rows(req, slot_id, query_idx);
+        let truth_distances = truth_distances(slot, query_idx, &rows);
+        let query = row_for_metric(&slot.queries, query_idx as u64, slot.distance_metric);
+        for row_id in candidates {
+            let row = row_for_metric(&slot.corpus, *row_id, slot.distance_metric);
+            let candidate_distance = distance(&query, &row, slot.distance_metric);
+            if let Some(rank) = strict_or_tied_rank(*row_id, candidate_distance, &truth_distances) {
+                *scores.entry(*row_id).or_insert(0.0) += 1.0 / (rank as f32 + RRF_K);
+            }
+        }
+    }
+    scores
+}
+
+fn slot_truth_rows(req: &Request<'_>, slot: SlotId, query_idx: usize) -> Vec<u64> {
+    if let Some(slot_truth) = req.slot_truth {
+        return slot_truth.row_ids(slot, query_idx).to_vec();
+    }
+    if let Some(slot_truth) = req.db_slot_truth {
+        return slot_truth.row_ids(slot, query_idx).to_vec();
+    }
+    Vec::new()
+}
+
+fn truth_distances(slot: &OpenSlot, query_idx: usize, rows: &[u64]) -> Vec<(u64, f32)> {
+    let query = row_for_metric(&slot.queries, query_idx as u64, slot.distance_metric);
+    rows.iter()
+        .copied()
+        .map(|row_id| {
+            let row = row_for_metric(&slot.corpus, row_id, slot.distance_metric);
+            (row_id, distance(&query, &row, slot.distance_metric))
+        })
+        .collect()
+}
+
+fn strict_or_tied_rank(
+    row_id: u64,
+    candidate_distance: f32,
+    truth_distances: &[(u64, f32)],
+) -> Option<usize> {
+    truth_distances
+        .iter()
+        .enumerate()
+        .find(|(_, (truth_id, _))| *truth_id == row_id)
+        .or_else(|| {
+            truth_distances
+                .iter()
+                .enumerate()
+                .find(|(_, (_, truth_distance))| distance_tied(candidate_distance, *truth_distance))
+        })
+        .map(|(idx, _)| idx + 1)
+}
+
+fn distance_tied(left: f32, right: f32) -> bool {
+    (left - right).abs() <= DISTANCE_TIE_EPSILON
+}
+
+fn distance(
+    left: &[f32],
+    right: &[f32],
+    metric: calyx_sextant::index::PartitionDistanceMetric,
+) -> f32 {
+    match metric {
+        calyx_sextant::index::PartitionDistanceMetric::UnitL2 => cosine_distance(left, right),
+        calyx_sextant::index::PartitionDistanceMetric::RawL2 => l2_distance(left, right),
+    }
+}
+
+fn cosine_distance(left: &[f32], right: &[f32]) -> f32 {
+    let mut dot = 0.0;
+    let mut left_norm = 0.0;
+    let mut right_norm = 0.0;
+    for (left, right) in left.iter().zip(right) {
+        dot += left * right;
+        left_norm += left * left;
+        right_norm += right * right;
+    }
+    if left_norm == 0.0 || right_norm == 0.0 {
+        1.0
+    } else {
+        (1.0 - dot / (left_norm.sqrt() * right_norm.sqrt())).max(0.0)
+    }
+}
+
+fn l2_distance(left: &[f32], right: &[f32]) -> f32 {
+    left.iter()
+        .zip(right)
+        .map(|(left, right)| {
+            let delta = left - right;
+            delta * delta
+        })
+        .sum()
 }
 
 fn sample_row(
@@ -340,5 +474,14 @@ mod tests {
         assert_eq!(control["slots"], json!([0, 1]));
         assert_eq!(control["recall_at_k"], json!(1.0));
         assert_eq!(control["fusion_matches_or_beats"], json!(true));
+    }
+
+    #[test]
+    fn strict_or_tied_rank_accepts_distance_equivalent_rows() {
+        let truth = vec![(7, 0.1), (9, 0.1), (8, 0.2), (6, 0.4)];
+
+        assert_eq!(strict_or_tied_rank(9, 0.1, &truth), Some(2));
+        assert_eq!(strict_or_tied_rank(99, 0.1, &truth), Some(1));
+        assert_eq!(strict_or_tied_rank(99, 0.3, &truth), None);
     }
 }
