@@ -21,7 +21,9 @@ use assignment::{
     stream_assign_to_ids_bounded, stream_assign_to_ids_with_routing,
 };
 use balance::balance_region_files;
-pub use manifest::{ClosureAssignmentStats, PartitionedManifest, RegionMeta};
+pub use manifest::{
+    ClosureAssignmentStats, PartitionedManifest, PartitionedManifestDbReadback, RegionMeta,
+};
 pub use metric::PartitionDistanceMetric;
 pub use search::{PartitionedSearch, PartitionedSearchOptions, PartitionedSearchReadback};
 use sources::normalize;
@@ -419,6 +421,10 @@ pub fn build_partitioned_vault_from_source_with_backend_and_metric(
 
 pub fn partitioned_manifest_db_exists(root: &Path) -> Result<bool> {
     manifest::manifest_db_exists(root)
+}
+
+pub fn partitioned_manifest_db_readback(root: &Path) -> Result<PartitionedManifestDbReadback> {
+    manifest::read_manifest_db_readback(root)
 }
 
 fn build_partitioned_graph(

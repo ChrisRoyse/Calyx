@@ -48,11 +48,13 @@ pub use inverted::InvertedIndex;
 pub use multi::MaxSimIndex;
 pub use partitioned::{
     DEFAULT_FINAL_ASSIGNMENT_PROBE, FbinSource, I8BinSource, PartitionBuildParams,
-    PartitionDistanceMetric, PartitionedManifest, PartitionedSearch, PartitionedSearchOptions,
-    PartitionedSearchReadback, RegionMeta, SyntheticSource, VectorSource, build_partitioned_vault,
-    build_partitioned_vault_from_source, build_partitioned_vault_from_source_with_backend,
+    PartitionDistanceMetric, PartitionedManifest, PartitionedManifestDbReadback, PartitionedSearch,
+    PartitionedSearchOptions, PartitionedSearchReadback, RegionMeta, SyntheticSource, VectorSource,
+    build_partitioned_vault, build_partitioned_vault_from_source,
+    build_partitioned_vault_from_source_with_backend,
     build_partitioned_vault_from_source_with_backend_and_metric,
     build_partitioned_vault_with_backend, gen_row, partitioned_manifest_db_exists,
+    partitioned_manifest_db_readback,
 };
 pub use quant_config::{QuantConfig, QuantKind, QuantizedVector};
 pub use spann::{

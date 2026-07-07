@@ -3,8 +3,8 @@ use std::path::Path;
 use crate::cli_support::{parse_i32, parse_i64, readback_hex};
 use crate::error::{CliError, CliResult};
 use crate::{
-    dedup_readback, kernel_health_readback, leapable, manifest_readback, recurrence_readback,
-    temporal_readback, vault_tree,
+    dedup_readback, kernel_health_readback, leapable, manifest_readback,
+    partitioned_manifest_readback, recurrence_readback, temporal_readback, vault_tree,
 };
 
 pub(crate) fn try_run(args: &[String]) -> Option<CliResult> {
@@ -124,6 +124,9 @@ pub(crate) fn try_run(args: &[String]) -> Option<CliResult> {
         }
         [command, topic, rest @ ..] if command == "readback" && topic == "periodic-recall" => {
             Some(recurrence_readback::readback_periodic_recall(rest))
+        }
+        [command, topic, rest @ ..] if command == "readback" && topic == "partitioned-manifest" => {
+            Some(partitioned_manifest_readback::run(rest))
         }
         _ => None,
     }

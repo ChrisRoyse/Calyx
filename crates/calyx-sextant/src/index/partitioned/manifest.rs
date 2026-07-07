@@ -98,6 +98,13 @@ pub struct PartitionedManifest {
     pub regions: Vec<RegionMeta>,
 }
 
+#[derive(Debug, Clone)]
+pub struct PartitionedManifestDbReadback {
+    pub manifest: PartitionedManifest,
+    pub value_bytes: usize,
+    pub value_blake3: String,
+}
+
 fn default_graph_build_backend() -> DiskAnnBuildBackend {
     DiskAnnBuildBackend::CpuVamana
 }
@@ -143,6 +150,21 @@ pub(super) fn manifest_db_exists(root: &Path) -> Result<bool> {
         return Ok(false);
     }
     Ok(read_manifest_bytes(root)?.is_some())
+}
+
+pub(super) fn read_manifest_db_readback(root: &Path) -> Result<PartitionedManifestDbReadback> {
+    let value = read_manifest_bytes(root)?.ok_or_else(|| {
+        crate::error::sextant_error(
+            crate::error::CALYX_INDEX_MANIFEST_DB_MISSING,
+            "partitioned manifest Graph CF row is missing",
+        )
+    })?;
+    let manifest = decode_manifest(&value)?;
+    Ok(PartitionedManifestDbReadback {
+        manifest,
+        value_bytes: value.len(),
+        value_blake3: blake3::hash(&value).to_hex().to_string(),
+    })
 }
 
 fn read_manifest_bytes(root: &Path) -> Result<Option<Vec<u8>>> {

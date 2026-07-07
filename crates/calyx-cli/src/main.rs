@@ -85,6 +85,7 @@ mod oracle_sufficiency_validation;
 mod output;
 mod panel_commands;
 mod partitioned_bench;
+mod partitioned_manifest_readback;
 mod partitioned_rrf_report_store;
 mod path_identity;
 mod ph42_readback;
