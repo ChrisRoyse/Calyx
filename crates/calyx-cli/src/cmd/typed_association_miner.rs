@@ -19,7 +19,7 @@ use super::{Subcommand, value};
 use crate::error::{CliError, CliResult};
 use crate::output::print_json;
 
-const SCHEMA_VERSION: u32 = 1;
+const SCHEMA_VERSION: u32 = 2;
 
 pub(crate) fn parse_typed_association_miner(rest: &[String]) -> CliResult<Subcommand> {
     let mut args = TypedAssociationMinerArgs::default();
@@ -125,13 +125,24 @@ pub(crate) fn run(command: Subcommand) -> CliResult {
         report_sha256: readback.report_sha256,
         hypotheses_jsonl: readback.hypotheses.display().to_string(),
         hypotheses_sha256: readback.hypotheses_sha256,
+        blocked_candidates_jsonl: readback.blocked_candidates.display().to_string(),
+        blocked_candidates_sha256: readback.blocked_candidates_sha256,
         score_summary_json: readback.summary.display().to_string(),
         score_summary_sha256: readback.summary_sha256,
         emitted_hypothesis_count: report.emitted_hypothesis_count,
         candidate_pair_count: report.candidate_pair_count,
+        blocked_candidate_count: report.blocked_candidate_count,
         readback_hypothesis_count: readback.hypothesis_count,
+        readback_blocked_candidate_count: readback.blocked_candidate_count,
         scan_limit_reached: report.scan_limit_reached,
-    })
+    })?;
+    if report.emitted_hypothesis_count == 0 {
+        return Err(CliError::runtime(format!(
+            "typed-association-miner emitted no accepted hypotheses; blocked candidates persisted at {}",
+            readback.blocked_candidates.display()
+        )));
+    }
+    Ok(())
 }
 
 fn build_report(args: &TypedAssociationMinerArgs) -> CliResult<MinerReport> {
@@ -156,7 +167,7 @@ fn build_report(args: &TypedAssociationMinerArgs) -> CliResult<MinerReport> {
     }
     let nodes = load::load_nodes(&args.typed_root.join("typed_nodes.jsonl"))?;
     let scan = load::scan_edges(args, &nodes)?;
-    if scan.candidates.is_empty() {
+    if scan.candidates.is_empty() && scan.blocked_candidates.is_empty() {
         return Err(CliError::runtime(
             "typed-association-miner found no candidates after filters",
         ));
@@ -189,6 +200,7 @@ fn build_report(args: &TypedAssociationMinerArgs) -> CliResult<MinerReport> {
         input_edge_count: scan.input_edges,
         scan_limit_reached: scan.limit_reached,
         candidate_pair_count,
+        blocked_candidate_count: scan.blocked_candidates.len(),
         emitted_hypothesis_count: hypotheses.len(),
         filters: json!({
             "source_type": args.source_type,
@@ -200,8 +212,10 @@ fn build_report(args: &TypedAssociationMinerArgs) -> CliResult<MinerReport> {
             "max_input_edges": args.max_input_edges,
             "max_paths_per_pair": args.max_paths_per_pair,
             "source_date_filter": "not_available_in_typed_overlay",
+            "mechanistic_direction_gate": "strict_for_target_disease_and_drug_target_pairs",
         }),
         hypotheses,
+        blocked_candidates: scan.blocked_candidates,
     })
 }
 

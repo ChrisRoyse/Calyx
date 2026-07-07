@@ -110,10 +110,10 @@ fn identifier_match_requires_asserted_endpoint_id_not_numeric_tail() {
         root.join("dgidb/parsed/seed_pair_graphql_interactions.jsonl"),
         concat!(
             r#"{"source_overlay_id":"CHEMBL:CHEMBL999","drug":"test drug","#,
-            r#""target_overlay_id":"HGNC:427","gene":"ALK","interaction_score":1.0}"#,
+            r#""target_overlay_id":"HGNC:427","gene":"ALK","interaction_score":1.0,"action_type":"INHIBITOR"}"#,
             "\n",
             r#"{"source_overlay_id":"CHEMBL:CHEMBL123","drug":"test drug","#,
-            r#""target_overlay_id":"HGNC:427","gene":"ALK","interaction_score":1.0}"#,
+            r#""target_overlay_id":"HGNC:427","gene":"ALK","interaction_score":1.0,"action_type":"INHIBITOR"}"#,
         ),
     );
     let report = build_report(&args(&root)).expect("build report");
@@ -145,6 +145,45 @@ fn internal_concept_ids_can_match_structured_endpoint_labels() {
     let report = build_report(&args(&root)).expect("build report");
     assert_eq!(report.support_evidence_count, 1);
     assert_eq!(report.support_evidence[0].source_row_index, 1);
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn open_targets_direction_conflict_is_counter_evidence() {
+    let root = temp_root("falsification-direction-conflict");
+    write(
+        root.join("miner_report.json"),
+        concat!(
+            r#"{"hypotheses":[{"hypothesis_id":"typed-assoc:tnf::psoriasis","#,
+            r#""source_id":"concept:gene:TNF","source_name":"TNF","source_type":"gene","#,
+            r#""target_id":"concept:disease:psoriasis","target_name":"psoriasis","target_type":"disease","#,
+            r#""support_count":3,"score":0.9,"mechanistic_direction_status":"direction_inferred","#,
+            r#""required_target_modulation":"activate","mutation_consequence":"gain_of_function","#,
+            r#""direction_reason_codes":["required_target_modulation:activate"]}]}"#
+        ),
+    );
+    seed_empty_sources(&root);
+    write(
+        root.join("open_targets/open_targets_validation_edges.jsonl"),
+        concat!(
+            r#"{"edge_id":"ot-conflict","target_name":"TNF","disease_name":"psoriasis","#,
+            r#""score":0.8,"overlay_target_concepts":["concept:gene:TNF"],"#,
+            r#""overlay_disease_concepts":["concept:disease:psoriasis"],"#,
+            r#""directionOnTarget":"Gain of Function","directionOnTrait":"Risk"}"#
+        ),
+    );
+
+    let report = build_report(&args(&root)).expect("build report");
+    assert_eq!(report.support_evidence_count, 0);
+    assert_eq!(report.counter_evidence_count, 1);
+    assert_eq!(
+        report.counter_evidence[0].reason_code,
+        "mechanistic_required_direction_conflict"
+    );
+    assert_eq!(
+        report.hypothesis_flags[0].mechanistic_direction_status,
+        "direction_ready"
+    );
     let _ = fs::remove_dir_all(root);
 }
 

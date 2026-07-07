@@ -5,9 +5,10 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
+use crate::cmd::mechanistic_direction::MechanisticDirectionEvidence;
 use crate::error::{CliError, CliResult};
 
-pub(crate) const REPORT_SCHEMA_VERSION: u32 = 1;
+pub(crate) const REPORT_SCHEMA_VERSION: u32 = 2;
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub(crate) struct GateParams {
@@ -42,7 +43,27 @@ pub(crate) struct BenchmarkSourceRow {
     pub label: Option<bool>,
     pub source_year: Option<i32>,
     pub features: Value,
+    pub mechanistic_direction: Option<MechanisticDirectionEvidence>,
     pub raw: Value,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub(crate) struct MechanisticDirectionBlockedRow {
+    pub source_system: String,
+    pub source_path: String,
+    pub source_line: Option<usize>,
+    pub source_row_sha256: String,
+    pub target_name: String,
+    pub disease_name: String,
+    pub reason_codes: Vec<String>,
+    pub mechanistic_direction: MechanisticDirectionEvidence,
+    pub raw: Value,
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub(crate) struct MechanisticDirectionCounts {
+    pub inferred_required_direction_rows: usize,
+    pub blocked_direction_rows: usize,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -117,7 +138,9 @@ pub(crate) struct AssociationValidationReport {
     pub params: GateParams,
     pub source_manifests: Vec<SourceManifest>,
     pub benchmark_counts: BenchmarkCounts,
+    pub mechanistic_direction_counts: MechanisticDirectionCounts,
     pub benchmark_source_rows: Vec<BenchmarkSourceRow>,
+    pub mechanistic_direction_blocked_rows: Vec<MechanisticDirectionBlockedRow>,
     pub train_test_split: Vec<TimeSplitRow>,
     pub scored_outputs: Vec<ScoredOutput>,
     pub metrics: ValidationMetrics,
@@ -133,6 +156,9 @@ pub(crate) struct ReadbackSummary {
     pub benchmark_source_rows_jsonl: PathBuf,
     pub benchmark_source_rows: usize,
     pub benchmark_source_rows_sha256: String,
+    pub mechanistic_direction_blocked_jsonl: PathBuf,
+    pub mechanistic_direction_blocked_rows: usize,
+    pub mechanistic_direction_blocked_sha256: String,
     pub train_test_split_jsonl: PathBuf,
     pub train_test_split_rows: usize,
     pub train_test_split_sha256: String,
@@ -154,12 +180,14 @@ pub(crate) fn persist_report_set(
 ) -> CliResult<ReadbackSummary> {
     fs::create_dir_all(out_dir)?;
     let source_rows_path = out_dir.join("benchmark_source_rows.jsonl");
+    let blocked_path = out_dir.join("mechanistic_direction_blocked_rows.jsonl");
     let split_path = out_dir.join("train_test_split.jsonl");
     let scored_path = out_dir.join("scored_outputs.jsonl");
     let metrics_path = out_dir.join("metrics.json");
     let report_path = out_dir.join("association_validation_report.json");
 
     let source_rows = jsonl_bytes(&report.benchmark_source_rows)?;
+    let blocked_rows = jsonl_bytes(&report.mechanistic_direction_blocked_rows)?;
     let split_rows = jsonl_bytes(&report.train_test_split)?;
     let scored_rows = jsonl_bytes(&report.scored_outputs)?;
     let metrics = serde_json::to_vec_pretty(&json!({
@@ -167,6 +195,7 @@ pub(crate) fn persist_report_set(
         "gate_passed": report.gate_passed,
         "params": report.params,
         "benchmark_counts": report.benchmark_counts,
+        "mechanistic_direction_counts": report.mechanistic_direction_counts,
         "metrics": report.metrics,
         "gate_decision": report.gate_decision,
     }))
@@ -175,6 +204,7 @@ pub(crate) fn persist_report_set(
         .map_err(|error| CliError::runtime(format!("serialize report: {error}")))?;
 
     write_if_same(&source_rows_path, &source_rows)?;
+    write_if_same(&blocked_path, &blocked_rows)?;
     write_if_same(&split_path, &split_rows)?;
     write_if_same(&scored_path, &scored_rows)?;
     write_if_same(&metrics_path, &metrics)?;
@@ -189,6 +219,7 @@ pub(crate) fn persist_report_set(
             ))
         })?;
     let source_readback = fs::read_to_string(&source_rows_path)?;
+    let blocked_readback = fs::read_to_string(&blocked_path)?;
     let split_readback = fs::read_to_string(&split_path)?;
     let scored_readback = fs::read_to_string(&scored_path)?;
 
@@ -199,6 +230,9 @@ pub(crate) fn persist_report_set(
         benchmark_source_rows_jsonl: source_rows_path,
         benchmark_source_rows: count_jsonl(&source_readback),
         benchmark_source_rows_sha256: sha256_hex(source_readback.as_bytes()),
+        mechanistic_direction_blocked_jsonl: blocked_path,
+        mechanistic_direction_blocked_rows: count_jsonl(&blocked_readback),
+        mechanistic_direction_blocked_sha256: sha256_hex(blocked_readback.as_bytes()),
         train_test_split_jsonl: split_path,
         train_test_split_rows: count_jsonl(&split_readback),
         train_test_split_sha256: sha256_hex(split_readback.as_bytes()),

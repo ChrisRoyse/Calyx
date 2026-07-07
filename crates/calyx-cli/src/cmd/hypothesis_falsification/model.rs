@@ -3,6 +3,9 @@ use std::path::PathBuf;
 use serde::{Deserialize, Serialize};
 
 use crate::cmd::discovery_run_preflight::DiscoveryRunPreflightArgs;
+use crate::cmd::mechanistic_direction::{
+    MechanisticDirectionEvidence, MutationConsequence, TargetModulation,
+};
 
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct HypothesisFalsificationArgs {
@@ -42,6 +45,16 @@ pub(super) struct InputHypothesis {
     pub target_type: String,
     pub support_count: usize,
     pub score: f64,
+    #[serde(default)]
+    pub mechanistic_direction_status: String,
+    #[serde(default)]
+    pub required_target_modulation: Option<TargetModulation>,
+    #[serde(default)]
+    pub observed_target_modulation: Option<TargetModulation>,
+    #[serde(default)]
+    pub mutation_consequence: Option<MutationConsequence>,
+    #[serde(default)]
+    pub direction_reason_codes: Vec<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -55,6 +68,7 @@ pub(super) struct EvidenceRow {
     pub source_row_index: usize,
     pub weight: f64,
     pub summary: String,
+    pub mechanistic_direction: Option<MechanisticDirectionEvidence>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -66,6 +80,7 @@ pub(super) struct SkippedEvidenceRow {
     pub source_sha256: String,
     pub source_row_index: usize,
     pub summary: String,
+    pub mechanistic_direction: Option<MechanisticDirectionEvidence>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -81,6 +96,10 @@ pub(super) struct HypothesisFlag {
     pub counter_weight: f64,
     pub falsification_score: f64,
     pub reason_codes: Vec<String>,
+    pub mechanistic_direction_status: String,
+    pub required_target_modulation: Option<TargetModulation>,
+    pub observed_target_modulation: Option<TargetModulation>,
+    pub mutation_consequence: Option<MutationConsequence>,
     pub sweep_status: String,
     pub human_review_atlas_status: String,
     pub clinical_boundary: String,

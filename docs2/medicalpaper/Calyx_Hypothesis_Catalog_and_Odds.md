@@ -37,6 +37,7 @@ Three columns appear throughout. They are **subjective priors, not experimental 
 **Validity** — is the underlying association *real*? Does the gene actually relate to the disease, does the drug actually act on the target? Graded High / Medium / Low.
 
 **Novelty** — is it *new*? Three states:
+
 - *Known* — already established, often already approved. Zero discovery value; maximum calibration value (it proves the engine's scoring tracks real biology).
 - *Frontier* — real, plausible, and actively being researched but not yet standard of care. This is where genuine value concentrates.
 - *Fraught* — the association is a surface match (drug hits the disease gene's product) that a pharmacologist would reject on mechanism. Often *negative* value: pursuing it wastes resources or, in a few cases, would be actively harmful.
@@ -72,7 +73,7 @@ The smallest and most rigorously-sourced hunt: 19 candidates, most drawn from cu
 
 **The deep dives:**
 
-**NF1 → plexiform neurofibroma → selumetinib (the calibration jackpot).** This is not a discovery and should not be sold as one. Selumetinib (Koselugo) has been FDA-approved for NF1-associated plexiform neurofibroma since 2020, with the label expanded to adults in 2025. Its value is the opposite of novelty: an unguided engine, ranking by its own internal scoring over curated evidence, independently placed a *correct, approved* gene→drug pairing at the very top of its highest-quality hunt. That is the single most reassuring result in the entire body of work, because it means the scoring is not producing noise — it tracks the same biology a pharmacologist would. Everything more speculative in this catalog earns its credibility from the fact that the engine got this one right. P(useful) as a *discovery* is ~2% only because the discovery already exists.
+**NF1 → plexiform neurofibroma → selumetinib (the calibration win).** This is not a discovery and should not be sold as one. Selumetinib (Koselugo) has been FDA-approved for NF1-associated plexiform neurofibroma since 2020, with the label expanded to adults in 2025. Its value is the opposite of novelty: an unguided engine, ranking by its own internal scoring over curated evidence, independently placed a *correct, approved* gene→drug pairing at the top of its highest-quality hunt. That is one of the more reassuring results in this body of work, because it suggests the scoring is not just producing noise — here it tracked the same biology a pharmacologist would. Everything more speculative in this catalog earns its credibility from the fact that the engine got this one right. P(useful) as a *discovery* is ~2% only because the discovery already exists.
 
 **IGF1R → breast cancer → metformin + exemestane (a real frontier).** Metformin's role in breast-cancer biology — via the IGF-1/insulin axis and AMPK signaling — is a genuine, actively-studied translational question, and combining it with an aromatase inhibitor like exemestane in ER-positive disease is exactly the kind of metabolic-oncology strategy under investigation. The engine landed on a plausible, live hypothesis without being told it was interesting. It is not established, hence the frontier tag and ~12%.
 

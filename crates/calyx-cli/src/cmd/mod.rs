@@ -24,6 +24,7 @@ mod intelligence;
 mod kernel_build;
 mod lens;
 mod lincs_reversal;
+pub(crate) mod mechanistic_direction;
 mod molecular_vault;
 mod novelty_split;
 mod panel_templates;

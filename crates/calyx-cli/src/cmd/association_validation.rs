@@ -66,6 +66,7 @@ struct AssociationValidationCliSummary {
     known_positive_count: usize,
     known_negative_count: usize,
     time_split_count: usize,
+    mechanistic_direction_blocked_count: usize,
     scored_output_count: usize,
     readback: model::ReadbackSummary,
 }
@@ -168,6 +169,9 @@ pub(crate) fn run(command: Subcommand) -> CliResult {
         known_positive_count: report.benchmark_counts.known_positive,
         known_negative_count: report.benchmark_counts.known_negative,
         time_split_count: report.benchmark_counts.time_split,
+        mechanistic_direction_blocked_count: report
+            .mechanistic_direction_counts
+            .blocked_direction_rows,
         scored_output_count: report.scored_outputs.len(),
         readback,
     })

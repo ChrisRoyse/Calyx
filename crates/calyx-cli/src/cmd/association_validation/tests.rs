@@ -93,11 +93,52 @@ fn validation_gate_persists_readback_artifacts() {
     let _ = fs::remove_dir_all(root);
 }
 
+#[test]
+fn open_targets_rows_without_direction_fail_gate_with_blocked_readback() {
+    let root = temp_root("association-validation-direction-block");
+    let typed = root.join("typed");
+    let open_targets = root.join("open_targets");
+    let pubtator = root.join("pubtator");
+    let clinical = root.join("clinical");
+    let dgidb = root.join("dgidb");
+    let out = root.join("out");
+    seed_fixture(&typed, &open_targets, &pubtator, &clinical, &dgidb);
+    write(
+        open_targets.join("open_targets_validation_edges.jsonl"),
+        r#"{"edge_id":"ot1","target_name":"TNF","disease_name":"psoriasis","score":0.8,"overlay_target_concepts":["concept:hgnc:11892"],"overlay_disease_concepts":["concept:mesh:D011565"]}"#,
+    );
+
+    let args = AssociationValidationArgs {
+        typed_root: typed,
+        open_targets_root: open_targets,
+        pubtator_root: pubtator,
+        clinicaltrials_root: clinical,
+        dgidb_root: dgidb,
+        out_dir: out.clone(),
+        cutoff_year: 2016,
+        ..AssociationValidationArgs::default()
+    };
+
+    let report = super::build_report(&args).expect("build report");
+    assert!(!report.gate_passed);
+    assert_eq!(
+        report.mechanistic_direction_counts.blocked_direction_rows,
+        1
+    );
+    assert!(report.gate_decision.reasons.iter().any(|reason| {
+        reason.contains("Open Targets rows lacked usable mechanistic direction")
+    }));
+    let readback = super::model::persist_report_set(&out, &report).expect("persist report");
+    assert_eq!(readback.mechanistic_direction_blocked_rows, 1);
+
+    let _ = fs::remove_dir_all(root);
+}
+
 fn seed_fixture(typed: &Path, open: &Path, pubtator: &Path, clinical: &Path, dgidb: &Path) {
     write(typed.join("typed_graph_summary.json"), "{}\n");
     write(
         open.join("open_targets_validation_edges.jsonl"),
-        r#"{"edge_id":"ot1","target_name":"TNF","disease_name":"psoriasis","score":0.8,"overlay_target_concepts":["concept:hgnc:11892"],"overlay_disease_concepts":["concept:mesh:D011565"]}"#,
+        r#"{"edge_id":"ot1","target_name":"TNF","disease_name":"psoriasis","score":0.8,"overlay_target_concepts":["concept:hgnc:11892"],"overlay_disease_concepts":["concept:mesh:D011565"],"directionOnTarget":"Gain of Function","directionOnTrait":"Risk"}"#,
     );
     write(
         pubtator.join("parsed/association_evidence_edges.jsonl"),

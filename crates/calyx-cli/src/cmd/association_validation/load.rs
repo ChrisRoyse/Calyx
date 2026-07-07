@@ -6,12 +6,17 @@ use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
 use super::AssociationValidationArgs;
-use super::model::{BenchmarkSourceRow, GateParams, SourceManifest, TimeSplitRow, sha256_hex};
+use super::model::{
+    BenchmarkSourceRow, GateParams, MechanisticDirectionBlockedRow, SourceManifest, TimeSplitRow,
+    sha256_hex,
+};
+use crate::cmd::mechanistic_direction::infer_required_target_modulation;
 use crate::error::{CliError, CliResult};
 
 pub(crate) struct LoadedSources {
     pub manifests: Vec<SourceManifest>,
     pub benchmark_rows: Vec<BenchmarkSourceRow>,
+    pub mechanistic_direction_blocked_rows: Vec<MechanisticDirectionBlockedRow>,
     pub time_split_rows: Vec<TimeSplitRow>,
 }
 
@@ -64,11 +69,13 @@ pub(crate) fn load_sources(
     let dgidb_positive_seeds = load_dgidb_positive(&args.dgidb_root, &mut rows)?;
     load_dgidb_negative(&args.dgidb_root, &dgidb_positive_seeds, &mut rows)?;
     load_clinical_summaries(&args.clinicaltrials_root, &mut rows)?;
-    load_open_targets(&args.open_targets_root, &mut rows)?;
+    let mut blocked = Vec::new();
+    load_open_targets(&args.open_targets_root, &mut rows, &mut blocked)?;
     let time_split_rows = load_time_split(&args.clinicaltrials_root, params.cutoff_year)?;
     Ok(LoadedSources {
         manifests,
         benchmark_rows: rows,
+        mechanistic_direction_blocked_rows: blocked,
         time_split_rows,
     })
 }
@@ -100,6 +107,7 @@ fn load_pubtator(root: &Path, rows: &mut Vec<BenchmarkSourceRow>) -> CliResult {
                 "relation_endpoint_exact_match_count": exact,
                 "export_docs_with_both_entities": exported,
             }),
+            mechanistic_direction: None,
             raw: row.value,
         });
     }
@@ -136,6 +144,7 @@ fn load_dgidb_positive(
             label: Some(true),
             source_year: Some(2024),
             features: json!({ "max_interaction_score": max_score }),
+            mechanistic_direction: None,
             raw: row.value,
         });
     }
@@ -169,6 +178,7 @@ fn load_dgidb_negative(
             label: Some(false),
             source_year: Some(2024),
             features: json!({ "exact_pair_total_count": number(&row.value, "total_count") }),
+            mechanistic_direction: None,
             raw: row.value,
         });
     }
@@ -203,19 +213,39 @@ fn load_clinical_summaries(root: &Path, rows: &mut Vec<BenchmarkSourceRow>) -> C
                 "stopped_status_count": number(&row.value, "stopped_status_count"),
                 "max_trial_evidence_score": number(&row.value, "max_trial_evidence_score"),
             }),
+            mechanistic_direction: None,
             raw: row.value,
         });
     }
     Ok(())
 }
 
-fn load_open_targets(root: &Path, rows: &mut Vec<BenchmarkSourceRow>) -> CliResult {
+fn load_open_targets(
+    root: &Path,
+    rows: &mut Vec<BenchmarkSourceRow>,
+    blocked: &mut Vec<MechanisticDirectionBlockedRow>,
+) -> CliResult {
     let rel = "open_targets_validation_edges.jsonl";
     for row in read_jsonl(root, rel)? {
         let target_mapped = array_len(&row.value, "overlay_target_concepts") > 0;
         let disease_mapped = array_len(&row.value, "overlay_disease_concepts") > 0;
         let score = number(&row.value, "score");
         if !target_mapped || !disease_mapped || score <= 0.05 {
+            continue;
+        }
+        let direction = infer_required_target_modulation(&row.value);
+        if !direction.is_required_direction_known() {
+            blocked.push(MechanisticDirectionBlockedRow {
+                source_system: "open_targets".to_string(),
+                source_path: row.rel,
+                source_line: Some(row.line_no),
+                source_row_sha256: row.line_sha256,
+                target_name: str_field(&row.value, "target_name"),
+                disease_name: str_field(&row.value, "disease_name"),
+                reason_codes: direction.reason_codes.clone(),
+                mechanistic_direction: direction,
+                raw: row.value,
+            });
             continue;
         }
         let seed = format!(
@@ -235,7 +265,11 @@ fn load_open_targets(root: &Path, rows: &mut Vec<BenchmarkSourceRow>) -> CliResu
             object: str_field(&row.value, "disease_name"),
             label: Some(true),
             source_year: Some(2026),
-            features: json!({ "open_targets_score": score }),
+            features: json!({
+                "open_targets_score": score,
+                "required_target_modulation": direction.required_target_modulation_name(),
+            }),
+            mechanistic_direction: Some(direction),
             raw: row.value,
         });
     }

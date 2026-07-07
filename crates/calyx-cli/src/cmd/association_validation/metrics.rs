@@ -1,7 +1,8 @@
 use super::load::LoadedSources;
 use super::model::{
-    AssociationValidationReport, BenchmarkCounts, GateDecision, GateParams, MetricBlock,
-    REPORT_SCHEMA_VERSION, ScoredOutput, ValidationMetrics,
+    AssociationValidationReport, BenchmarkCounts, GateDecision, GateParams,
+    MechanisticDirectionCounts, MetricBlock, REPORT_SCHEMA_VERSION, ScoredOutput,
+    ValidationMetrics,
 };
 use crate::error::{CliError, CliResult};
 
@@ -62,7 +63,21 @@ pub(crate) fn score_and_report(
         time_split: time_rows.len(),
         source_rows: loaded.benchmark_rows.len(),
     };
-    let decision = gate_decision(&params, &counts, &known_metrics, &time_metrics);
+    let direction_counts = MechanisticDirectionCounts {
+        inferred_required_direction_rows: loaded
+            .benchmark_rows
+            .iter()
+            .filter(|row| row.mechanistic_direction.is_some())
+            .count(),
+        blocked_direction_rows: loaded.mechanistic_direction_blocked_rows.len(),
+    };
+    let decision = gate_decision(
+        &params,
+        &counts,
+        &direction_counts,
+        &known_metrics,
+        &time_metrics,
+    );
     Ok(AssociationValidationReport {
         schema_version: REPORT_SCHEMA_VERSION,
         status: if decision.passed { "ok" } else { "failed" }.to_string(),
@@ -70,7 +85,9 @@ pub(crate) fn score_and_report(
         params,
         source_manifests: loaded.manifests,
         benchmark_counts: counts,
+        mechanistic_direction_counts: direction_counts,
         benchmark_source_rows: loaded.benchmark_rows,
+        mechanistic_direction_blocked_rows: loaded.mechanistic_direction_blocked_rows,
         train_test_split: loaded.time_split_rows,
         scored_outputs: scored,
         metrics: ValidationMetrics {
@@ -86,6 +103,7 @@ pub(crate) fn score_and_report(
 fn gate_decision(
     params: &GateParams,
     counts: &BenchmarkCounts,
+    direction_counts: &MechanisticDirectionCounts,
     known: &MetricBlock,
     time: &MetricBlock,
 ) -> GateDecision {
@@ -98,6 +116,12 @@ fn gate_decision(
     }
     if counts.time_split == 0 {
         reasons.push("no time-split benchmark rows".to_string());
+    }
+    if direction_counts.blocked_direction_rows > 0 {
+        reasons.push(format!(
+            "{} Open Targets rows lacked usable mechanistic direction",
+            direction_counts.blocked_direction_rows
+        ));
     }
     if known.auroc < params.min_auroc {
         reasons.push(format!(

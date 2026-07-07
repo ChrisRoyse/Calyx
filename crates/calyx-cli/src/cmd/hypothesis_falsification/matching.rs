@@ -6,14 +6,14 @@ pub(super) const UNSTRUCTURED_ROW: &str = "CALYX_FALSIFY_UNSTRUCTURED_ROW";
 
 pub(super) fn source_applicable(system: &str, hypothesis: &InputHypothesis) -> bool {
     match system {
-        "clinicaltrials" => has_pair_types(hypothesis, "chemical", "disease"),
+        "clinicaltrials" => has_ordered_pair_types(hypothesis, "chemical", "disease"),
         "dgidb" => {
-            has_pair_types(hypothesis, "chemical", "gene")
-                || has_pair_types(hypothesis, "chemical", "gene_protein")
+            has_ordered_pair_types(hypothesis, "chemical", "gene")
+                || has_ordered_pair_types(hypothesis, "chemical", "gene_protein")
         }
         "open_targets" => {
-            has_pair_types(hypothesis, "gene", "disease")
-                || has_pair_types(hypothesis, "gene_protein", "disease")
+            has_ordered_pair_types(hypothesis, "gene", "disease")
+                || has_ordered_pair_types(hypothesis, "gene_protein", "disease")
         }
         _ => true,
     }
@@ -65,7 +65,7 @@ pub(super) fn asserted_relation(
 }
 
 pub(super) fn relation_matches(hypothesis: &InputHypothesis, relation: &AssertedRelation) -> bool {
-    let forward = endpoint_matches(
+    endpoint_matches(
         &relation.left,
         &hypothesis.source_name,
         &hypothesis.source_id,
@@ -73,26 +73,15 @@ pub(super) fn relation_matches(hypothesis: &InputHypothesis, relation: &Asserted
         &relation.right,
         &hypothesis.target_name,
         &hypothesis.target_id,
-    );
-    let reverse = endpoint_matches(
-        &relation.right,
-        &hypothesis.source_name,
-        &hypothesis.source_id,
-    ) && endpoint_matches(
-        &relation.left,
-        &hypothesis.target_name,
-        &hypothesis.target_id,
-    );
-    forward || reverse
+    )
 }
 
 pub(super) fn needs_safety_triage(hypothesis: &InputHypothesis) -> bool {
     hypothesis.source_type == "chemical" || hypothesis.target_type == "chemical"
 }
 
-fn has_pair_types(hypothesis: &InputHypothesis, left: &str, right: &str) -> bool {
-    (hypothesis.source_type == left && hypothesis.target_type == right)
-        || (hypothesis.source_type == right && hypothesis.target_type == left)
+fn has_ordered_pair_types(hypothesis: &InputHypothesis, left: &str, right: &str) -> bool {
+    hypothesis.source_type == left && hypothesis.target_type == right
 }
 
 fn endpoints_from_fields(

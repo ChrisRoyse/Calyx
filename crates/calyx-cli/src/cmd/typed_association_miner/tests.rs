@@ -90,6 +90,75 @@ fn miner_deduplicates_reversed_edges_into_filtered_orientation() {
     let _ = fs::remove_dir_all(root);
 }
 
+#[test]
+fn gene_disease_edge_without_direction_is_blocked_not_emitted() {
+    let root = temp_root("typed-miner-direction-block");
+    seed_gene_disease_typed(&root.join("typed"), None);
+    write(
+        root.join("validation.json"),
+        r#"{"gate_passed":true,"schema_version":2}"#,
+    );
+    let args = TypedAssociationMinerArgs {
+        typed_root: root.join("typed"),
+        validation_report: root.join("validation.json"),
+        out_dir: root.join("out"),
+        source_type: Some("gene".to_string()),
+        target_type: Some("disease".to_string()),
+        min_support: 1,
+        ..TypedAssociationMinerArgs::default()
+    };
+    let report = build_report(&args).expect("build blocked report");
+    assert_eq!(report.emitted_hypothesis_count, 0);
+    assert_eq!(report.blocked_candidate_count, 1);
+    assert_eq!(
+        report.blocked_candidates[0].reason_codes,
+        vec![
+            "CALYX_MECH_TARGET_CONSEQUENCE_MISSING".to_string(),
+            "CALYX_MECH_TRAIT_EFFECT_MISSING".to_string()
+        ]
+    );
+    let readback = persist(&args.out_dir, &report).expect("persist blocked report");
+    assert_eq!(readback.hypothesis_count, 0);
+    assert_eq!(readback.blocked_candidate_count, 1);
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn gene_disease_direction_is_preserved_and_emitted() {
+    let root = temp_root("typed-miner-direction-ok");
+    seed_gene_disease_typed(
+        &root.join("typed"),
+        Some(r#","directionOnTarget":"Gain of Function","directionOnTrait":"Risk""#),
+    );
+    write(
+        root.join("validation.json"),
+        r#"{"gate_passed":true,"schema_version":2}"#,
+    );
+    let args = TypedAssociationMinerArgs {
+        typed_root: root.join("typed"),
+        validation_report: root.join("validation.json"),
+        out_dir: root.join("out"),
+        source_type: Some("gene".to_string()),
+        target_type: Some("disease".to_string()),
+        min_support: 1,
+        ..TypedAssociationMinerArgs::default()
+    };
+    let report = build_report(&args).expect("build direction report");
+    assert_eq!(report.emitted_hypothesis_count, 1);
+    assert_eq!(report.blocked_candidate_count, 0);
+    assert_eq!(
+        serde_json::to_value(report.hypotheses[0].required_target_modulation)
+            .unwrap()
+            .as_str(),
+        Some("inhibit")
+    );
+    assert_eq!(
+        report.hypotheses[0].mechanistic_direction_status,
+        "direction_inferred"
+    );
+    let _ = fs::remove_dir_all(root);
+}
+
 fn args(root: &Path) -> TypedAssociationMinerArgs {
     TypedAssociationMinerArgs {
         typed_root: root.join("typed"),
@@ -135,6 +204,25 @@ fn seed_reversed_typed(root: &Path) {
             "\n",
             r#"{"edge_id":"edge:2","edge_type":"associated_with","source":"concept:disease","target":"concept:drug","source_issue":1173,"support_count":2,"source_hash":["def"],"support_cx_ids":["cx2"]}"#,
             "\n"
+        ),
+    );
+}
+
+fn seed_gene_disease_typed(root: &Path, direction_json_suffix: Option<&str>) {
+    write(
+        root.join("typed_nodes.jsonl"),
+        concat!(
+            r#"{"node_id":"concept:gene:TNF","node_type":"concept","normalized_name":"TNF","concept_type":"gene"}"#,
+            "\n",
+            r#"{"node_id":"concept:disease:psoriasis","node_type":"concept","normalized_name":"psoriasis","concept_type":"disease"}"#,
+            "\n"
+        ),
+    );
+    let suffix = direction_json_suffix.unwrap_or_default();
+    write(
+        root.join("typed_edges.jsonl"),
+        &format!(
+            r#"{{"edge_id":"edge:gene-disease","edge_type":"associated_with","source":"concept:gene:TNF","target":"concept:disease:psoriasis","support_count":3,"source_hash":["abc"],"support_cx_ids":["cx1"]{suffix}}}"#
         ),
     );
 }

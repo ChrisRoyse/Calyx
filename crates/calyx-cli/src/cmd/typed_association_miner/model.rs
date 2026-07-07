@@ -4,6 +4,9 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::cmd::discovery_run_preflight::DiscoveryRunPreflightArgs;
+use crate::cmd::mechanistic_direction::{
+    MechanisticDirectionEvidence, MutationConsequence, TargetModulation,
+};
 
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct TypedAssociationMinerArgs {
@@ -55,6 +58,7 @@ pub(super) struct TypedPath {
     pub source_issue: Option<u64>,
     pub source_hashes: Vec<String>,
     pub support_cx_ids: Vec<String>,
+    pub mechanistic_direction: Option<MechanisticDirectionEvidence>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -71,9 +75,27 @@ pub(super) struct AssociationHypothesis {
     pub support_count: usize,
     pub score: f64,
     pub novelty_score: f64,
+    pub mechanistic_direction_status: String,
+    pub required_target_modulation: Option<TargetModulation>,
+    pub observed_target_modulation: Option<TargetModulation>,
+    pub mutation_consequence: Option<MutationConsequence>,
+    pub direction_reason_codes: Vec<String>,
     pub validation_gate_report_sha256: String,
     pub counter_evidence_hooks: Vec<String>,
     pub clinical_boundary: String,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub(super) struct BlockedAssociationCandidate {
+    pub edge_id: String,
+    pub source_id: String,
+    pub source_name: String,
+    pub source_type: String,
+    pub target_id: String,
+    pub target_name: String,
+    pub target_type: String,
+    pub reason_codes: Vec<String>,
+    pub mechanistic_direction: MechanisticDirectionEvidence,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -88,9 +110,11 @@ pub(super) struct MinerReport {
     pub input_edge_count: usize,
     pub scan_limit_reached: bool,
     pub candidate_pair_count: usize,
+    pub blocked_candidate_count: usize,
     pub emitted_hypothesis_count: usize,
     pub filters: Value,
     pub hypotheses: Vec<AssociationHypothesis>,
+    pub blocked_candidates: Vec<BlockedAssociationCandidate>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -101,11 +125,15 @@ pub(super) struct MinerCliSummary {
     pub report_sha256: String,
     pub hypotheses_jsonl: String,
     pub hypotheses_sha256: String,
+    pub blocked_candidates_jsonl: String,
+    pub blocked_candidates_sha256: String,
     pub score_summary_json: String,
     pub score_summary_sha256: String,
     pub emitted_hypothesis_count: usize,
     pub candidate_pair_count: usize,
+    pub blocked_candidate_count: usize,
     pub readback_hypothesis_count: usize,
+    pub readback_blocked_candidate_count: usize,
     pub scan_limit_reached: bool,
 }
 
@@ -114,6 +142,7 @@ pub(super) struct ScanOutput {
     pub limit_reached: bool,
     pub max_support: usize,
     pub candidates: Vec<AssociationHypothesis>,
+    pub blocked_candidates: Vec<BlockedAssociationCandidate>,
 }
 
 pub(super) fn new_hypothesis(source: &ConceptNode, target: &ConceptNode) -> AssociationHypothesis {
@@ -130,6 +159,11 @@ pub(super) fn new_hypothesis(source: &ConceptNode, target: &ConceptNode) -> Asso
         support_count: 0,
         score: 0.0,
         novelty_score: 0.0,
+        mechanistic_direction_status: "not_mechanistic".to_string(),
+        required_target_modulation: None,
+        observed_target_modulation: None,
+        mutation_consequence: None,
+        direction_reason_codes: Vec::new(),
         validation_gate_report_sha256: String::new(),
         counter_evidence_hooks: vec![
             "requires_1184_falsification_sweep".to_string(),

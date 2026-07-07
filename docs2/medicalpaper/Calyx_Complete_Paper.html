@@ -1,0 +1,1704 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<title>Calyx — An Association-Native Engine for Biomedical Hypothesis Generation</title>
+<style>
+@page { size: Letter; margin: 0.8in 0.8in 0.9in 0.8in; }
+* { box-sizing: border-box; }
+html { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+body {
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 10.5pt; line-height: 1.5; color: #1a1a1a;
+  margin: 0; padding: 0;
+}
+.titlepage {
+  text-align: center; padding: 2.2in 0.4in 0 0.4in; page-break-after: always;
+}
+.titlepage .maintitle { font-size: 27pt; font-weight: 700; line-height: 1.18; margin: 0 0 0.35in 0; color: #10243e; }
+.titlepage .subtitle { font-size: 13pt; font-style: italic; color: #33475b; line-height: 1.4; margin: 0 auto 0.6in auto; max-width: 6in; }
+.titlepage .author { font-size: 15pt; font-weight: 700; color: #10243e; margin: 0.15in 0 0.06in 0; }
+.titlepage .email { font-size: 11pt; color: #33475b; margin: 0 0 0.04in 0; }
+.titlepage .email a { color: #1a4d80; }
+.titlepage .links { font-size: 10.5pt; color: #55606b; margin: 0.02in 0; }
+.titlepage .links a { color: #1a4d80; }
+.titlepage .meta { font-size: 11pt; color: #55606b; margin-top: 1.15in; }
+.titlepage .rule { width: 2.2in; border: none; border-top: 2px solid #b9c2cc; margin: 0.5in auto; }
+
+h1 { font-size: 17pt; color: #10243e; line-height: 1.25; margin: 0.5em 0 0.35em 0;
+     border-bottom: 2px solid #d3dae1; padding-bottom: 0.12em; }
+h1.part {
+  page-break-before: always; text-align: left; font-size: 22pt; color: #10243e;
+  border-bottom: 3px solid #10243e; padding-bottom: 0.18em; margin-top: 0.2in;
+}
+h1.part + p em, h1.part + p { color: #445; font-size: 11pt; }
+h2 { font-size: 14pt; color: #16375d; margin: 1.1em 0 0.3em 0; border-bottom: 1px solid #e2e7ec; padding-bottom: 0.08em; page-break-after: avoid; }
+h3 { font-size: 12pt; color: #234; margin: 0.9em 0 0.25em 0; page-break-after: avoid; }
+h4 { font-size: 10.8pt; color: #345; margin: 0.7em 0 0.2em 0; page-break-after: avoid; }
+p { margin: 0.42em 0; text-align: justify; }
+strong { color: #10243e; }
+em { color: #2a2a2a; }
+a { color: #1a4d80; text-decoration: none; }
+
+/* Table of contents */
+.toc { font-size: 10pt; }
+.toc ul { list-style: none; margin: 0.2em 0; padding-left: 1.1em; }
+.toc > ul { padding-left: 0; }
+.toc > ul > li { margin-top: 0.5em; font-weight: 700; color: #10243e; }
+.toc > ul > li > ul > li { font-weight: 400; color: #333; }
+.toc a { color: #223; }
+
+/* Tables — allow long tables to break at row boundaries with a repeated header,
+   so a large table never forces a big blank gap by jumping wholesale to the next page */
+table { border-collapse: collapse; width: 100%; margin: 0.6em 0; font-size: 8.4pt; line-height: 1.32; }
+thead { display: table-header-group; }
+tr { page-break-inside: avoid; }
+th, td { border: 1px solid #cfd6dd; padding: 2px 6px; text-align: left; vertical-align: top;
+         word-break: normal; overflow-wrap: anywhere; }
+th { background: #eef2f6; color: #10243e; font-weight: 700; overflow-wrap: normal; word-break: keep-all; }
+tr:nth-child(even) td { background: #f7f9fb; }
+
+/* Code */
+code { font-family: "Consolas", "Courier New", monospace; font-size: 8.6pt; background: #f2f4f6;
+       padding: 0.5px 3px; border-radius: 3px; overflow-wrap: anywhere; }
+pre { background: #f5f7f9; border: 1px solid #e0e5ea; border-radius: 4px; padding: 8px 10px;
+      overflow-x: auto; page-break-inside: avoid; }
+pre code { background: none; padding: 0; font-size: 8.4pt; white-space: pre-wrap; word-break: break-word; }
+
+blockquote { border-left: 3px solid #c3ccd5; margin: 0.6em 0; padding: 0.1em 0.9em; color: #3a4550; font-style: italic; }
+ul, ol { margin: 0.4em 0; padding-left: 1.4em; }
+li { margin: 0.16em 0; }
+hr { border: none; border-top: 1px solid #dde3e8; margin: 1.1em 0; }
+h1, h2, h3, h4 { -webkit-column-break-after: avoid; }
+</style>
+</head><body>
+<div class="titlepage">
+  <div class="maintitle">Calyx — An Association-Native Engine for Biomedical Hypothesis Generation</div>
+  <div class="subtitle">Mining a clinical knowledge corpus into 726 falsification-screened, provenance-traceable hypotheses and 1,750 ranked drug-combination candidates — engine, complete lead catalog, and rejection ledger</div>
+  <hr class="rule">
+  <div class="author">Chris Royse</div>
+  <div class="email"><a href="mailto:chrisroyseai@gmail.com">chrisroyseai@gmail.com</a></div>
+  <div class="links">
+    Projects: <a href="https://github.com/calyx">github.com/calyx</a>
+    &nbsp;&middot;&nbsp;
+    <a href="https://github.com/synapse">github.com/synapse</a>
+  </div>
+  <div class="meta">Complete Report &middot; Parts I&ndash;III &middot; Working paper</div>
+</div>
+<p><strong>Chris Royse</strong> &middot; <a href="mailto:chrisroyseai@gmail.com">chrisroyseai@gmail.com</a>
+<br>Projects: <a href="https://github.com/calyx">github.com/calyx</a> &middot; <a href="https://github.com/synapse">github.com/synapse</a></p>
+<hr />
+<h1 class="no_toc" id="abstract">Abstract</h1>
+<p>Early-stage drug discovery is bottlenecked not at the bench but <em>before</em> it: at the generation and prioritization of hypotheses worth testing. Widely cited estimates put the capitalized cost of bringing a single drug to approval near <strong>US$2.6 billion</strong>, over <strong>10–15 years</strong>, with end-to-end success probabilities in the low single digits. Much of that cost is failure, and much of that failure traces to weak, poorly-prioritized starting hypotheses. If a computational system can generate <em>more</em>, <em>better-prioritized</em>, <em>pre-screened</em>, and <em>fully traceable</em> hypotheses — and, just as importantly, <em>reject</em> the wrong and dangerous ones before anyone acts on them — the potential benefit to the pipeline is substantial.</p>
+<p>This report describes such a system and everything it produced. <strong>Calyx</strong> is an association-native knowledge engine. From a corpus of 198,993 anchored clinical records it builds a directed association graph (≈2.44 million edges over 13.1 million cross-signal agreement terms), grounds a compact reasoning kernel, and runs a complete discovery pipeline — novelty detection, Swanson-style bridge mining, spectral community bridges, gated multi-hop association walks, AI-scored A–B–C hypotheses, concept normalization, a typed relationship graph, and cross-validation against a dozen external biomedical databases. Every generated hypothesis then passes a counter-evidence falsification sweep and a safety triage before it reaches a review queue.</p>
+<p>The pipeline produced a <strong>human-review atlas of 1,877 hypotheses</strong> across five disease areas — of which <strong>726 cleared screening and are marked ready for experimental review</strong>, 69 are known-positive calibration references that prove the machinery recovers real biology, and 1,082 were held back as incomplete pending more data or a human decision — plus a separate <strong>1,750 ranked drug-combination hypotheses.</strong> None has been experimentally validated, and that is by design: the engine advances each candidate as far as computation can take it and then stops at the human handoff.</p>
+<p>This document combines three works into one report. <strong>Part I</strong> presents the engine, the methods, the leads, the economics, and an honest account of validation status, speculation, and blindspots. <strong>Part II</strong> is a lead-by-lead catalog of every named hypothesis, what makes each distinctive, and a candid probability that pursuing it would prove useful. <strong>Part III</strong> is the rejection ledger: every hypothesis, drug pairing, and safety signal the engine ruled out — including a lead that would have harmed a patient — and why catching those is as important as generating the good ones.</p>
+<h1 class="no_toc" id="how-to-read-this-document">How to read this document</h1>
+<p>The three parts are self-contained but complementary, and are best read in order.</p>
+<ul>
+<li><strong>Part I — The Calyx Hypothesis Engine.</strong> The main paper: what the system is, how it works, what it found, and what it all means. Start here.</li>
+<li><strong>Part II — The Hypothesis Catalog and the Odds of Usefulness.</strong> Goes lead by lead through every named hypothesis, grading each on validity, novelty, and a subjective probability of usefulness. Read it to understand <em>which specific leads matter and why.</em></li>
+<li><strong>Part III — The Rejection Ledger.</strong> The safety story: every lead the engine refused, the mechanism behind each rejection, and the human stakes. Read it to understand <em>why an engine's "no" is what makes it safe to use.</em></li>
+</ul>
+<p>Two conventions apply throughout. First, section numbers restart within each part; a reference like "(§6)" means section 6 <em>of the part you are reading</em>. Second, and most importantly: <strong>nothing in this report is medical advice.</strong> Every hypothesis is a computational lead awaiting expert review, and several named entries — especially in Part III — are included specifically as examples of ideas that must be <em>rejected</em>. Numbers presented as probabilities are subjective priors, not experimental results.</p>
+<h1 class="no_toc" id="contents">Contents</h1>
+<div class="toc">
+<ul>
+<li><a href="#abstract">Abstract</a></li>
+<li><a href="#how-to-read-this-document">How to read this document</a></li>
+<li><a href="#contents">Contents</a></li>
+<li><a href="#part-i-the-calyx-hypothesis-engine">Part I — The Calyx Hypothesis Engine</a><ul>
+<li><a href="#1-the-problem-hypothesis-generation-is-the-bottleneck">1. The problem: hypothesis generation is the bottleneck</a></li>
+<li><a href="#2-the-idea-mine-associations-then-hand-off-to-human-review">2. The idea: mine associations, then hand off to human review</a></li>
+<li><a href="#3-related-work">3. Related work</a></li>
+<li><a href="#4-the-calyx-engine">4. The Calyx engine</a></li>
+<li><a href="#5-methodology-the-generation-pipeline">5. Methodology: the generation pipeline</a></li>
+<li><a href="#6-the-screening-discipline-why-every-hypothesis-is-pre-filtered-and-traceable">6. The screening discipline: why every hypothesis is pre-filtered and traceable</a></li>
+<li><a href="#7-results-i-the-substrate-the-engine-reasons-over">7. Results I — the substrate the engine reasons over</a></li>
+<li><a href="#8-results-ii-calibration-the-engine-recovers-known-biology">8. Results II — calibration: the engine recovers known biology</a></li>
+<li><a href="#9-results-iii-the-five-disease-area-hypothesis-hunts">9. Results III — the five disease-area hypothesis hunts</a></li>
+<li><a href="#10-results-iv-the-human-review-atlas-726-hypotheses-ready-to-test">10. Results IV — the human-review atlas: 726 hypotheses ready to test</a></li>
+<li><a href="#11-results-v-1750-ranked-drug-combination-hypotheses">11. Results V — 1,750 ranked drug-combination hypotheses</a></li>
+<li><a href="#12-results-vi-the-filter-working-a-false-safety-lead-correctly-demoted">12. Results VI — the filter working: a false safety lead, correctly demoted</a></li>
+<li><a href="#13-discussion-what-this-means-for-the-economics-of-discovery">13. Discussion — what this means for the economics of discovery</a></li>
+<li><a href="#14-why-these-hypotheses-may-carry-a-higher-prior-of-success">14. Why these hypotheses may carry a higher prior of success</a></li>
+<li><a href="#15-speculation-novelty-value-and-the-odds-of-usefulness">15. Speculation: novelty, value, and the odds of usefulness</a></li>
+<li><a href="#16-blindspots-and-the-questions-we-should-be-asking">16. Blindspots and the questions we should be asking</a></li>
+<li><a href="#17-validation-status-and-honest-limitations">17. Validation status and honest limitations</a></li>
+<li><a href="#18-the-handoff-what-a-wet-lab-does-with-this-output">18. The handoff: what a wet lab does with this output</a></li>
+<li><a href="#19-future-work">19. Future work</a></li>
+<li><a href="#20-conclusion">20. Conclusion</a></li>
+<li><a href="#appendix-a-glossary">Appendix A — glossary</a></li>
+<li><a href="#appendix-b-the-validation-runway">Appendix B — the validation runway</a></li>
+<li><a href="#appendix-c-summary-of-pipeline-outputs">Appendix C — summary of pipeline outputs</a></li>
+<li><a href="#appendix-d-methodological-integrity">Appendix D — methodological integrity</a></li>
+</ul>
+</li>
+<li><a href="#part-ii-the-hypothesis-catalog-and-the-odds-of-usefulness">Part II — The Hypothesis Catalog and the Odds of Usefulness</a><ul>
+<li><a href="#1-how-to-read-this-catalog">1. How to read this catalog</a></li>
+<li><a href="#2-the-probability-model-stated-honestly">2. The probability model, stated honestly</a></li>
+<li><a href="#3-oncology-hunt">3. Oncology hunt</a></li>
+<li><a href="#4-rare-disease-hunt">4. Rare-disease hunt</a></li>
+<li><a href="#5-neurodegeneration-neuropsychiatric-hunt">5. Neurodegeneration / neuropsychiatric hunt</a></li>
+<li><a href="#6-infectious-immunology-inflammation-hunt">6. Infectious / immunology / inflammation hunt</a></li>
+<li><a href="#7-metabolic-cardiovascular-renal-hunt">7. Metabolic / cardiovascular / renal hunt</a></li>
+<li><a href="#8-the-human-review-atlas-the-leads-that-rose-to-the-top">8. The human-review atlas: the leads that rose to the top</a></li>
+<li><a href="#9-drug-combination-hypotheses">9. Drug-combination hypotheses</a></li>
+<li><a href="#10-the-portfolio-view-what-the-whole-set-is-worth">10. The portfolio view: what the whole set is worth</a></li>
+<li><a href="#11-honest-caveats-on-every-number-in-this-document">11. Honest caveats on every number in this document</a></li>
+</ul>
+</li>
+<li><a href="#part-iii-the-rejection-ledger">Part III — The Rejection Ledger</a><ul>
+<li><a href="#1-first-a-necessary-distinction-bad-lead-is-not-bad-drug">1. First, a necessary distinction: "bad lead" is not "bad drug"</a></li>
+<li><a href="#2-why-the-rejections-are-the-safety-story">2. Why the rejections are the safety story</a></li>
+<li><a href="#3-category-a-mechanistically-dangerous-leads-that-could-harm-a-patient">3. Category A — Mechanistically dangerous: leads that could harm a patient</a></li>
+<li><a href="#4-category-b-backwards-drugs-that-cause-or-worsen-the-very-condition">4. Category B — Backwards: drugs that cause, or worsen, the very condition</a></li>
+<li><a href="#5-category-c-dead-or-discredited-molecules">5. Category C — Dead or discredited molecules</a></li>
+<li><a href="#6-category-d-the-confounded-safety-signal-correctly-caught">6. Category D — The confounded safety signal, correctly caught</a></li>
+<li><a href="#7-category-e-drug-pair-adverse-interaction-signals">7. Category E — Drug-pair adverse-interaction signals</a></li>
+<li><a href="#8-category-f-high-risk-and-unknown-safety-drugs-held-for-review">8. Category F — High-risk and unknown-safety drugs, held for review</a></li>
+<li><a href="#9-category-g-the-systematic-falsification-sweep-1082-leads-blocked">9. Category G — The systematic falsification sweep: 1,082 leads blocked</a></li>
+<li><a href="#10-category-h-the-combination-miner-all-1750-pairs-blocked">10. Category H — The combination miner: all 1,750 pairs blocked</a></li>
+<li><a href="#11-what-the-rejection-discipline-means-for-humanity">11. What the rejection discipline means for humanity</a></li>
+<li><a href="#12-honest-limits-of-this-ledger">12. Honest limits of this ledger</a></li>
+</ul>
+</li>
+</ul>
+</div>
+<h1 class="part" id="part-i-the-calyx-hypothesis-engine">Part I — The Calyx Hypothesis Engine</h1>
+<p><em>The main paper: architecture, methodology, results across five disease hunts, the economics of discovery, and an honest account of validation status, speculation, and open questions.</em></p>
+<h2 id="1-the-problem-hypothesis-generation-is-the-bottleneck">1. The problem: hypothesis generation is the bottleneck</h2>
+<p>The public conversation about drug discovery fixates on clinical trials, but the economic problem starts much earlier. A candidate that reaches Phase I has already survived years of target selection, hit identification, and lead optimization — and most never get that far. Widely cited figures frame the stakes:</p>
+<ul>
+<li>The capitalized cost per approved drug is estimated at roughly <strong>US$2.6 billion</strong>, with some analyses higher.</li>
+<li>End-to-end timelines run <strong>10–15 years</strong>.</li>
+<li>Clinical-phase success (Phase I → approval) is around <strong>~10%</strong>; once preclinical and target-validation attrition are folded in, the <em>hit-to-drug</em> success rate sits in the <strong>low single digits</strong>.</li>
+</ul>
+<p>The dominant driver of that cost is <strong>failure</strong>, and a large share of failure is set in motion at the very front of the funnel: by <em>which hypotheses were chosen to pursue in the first place</em>. Choosing better starting hypotheses — targets, repurposing opportunities, combinations — has outsized leverage precisely because it multiplies through every downstream stage.</p>
+<p>Yet hypothesis generation is still overwhelmingly manual. A domain expert reads literature, notices an implicit connection, and proposes an experiment. This scales linearly with human attention, is biased toward the already-famous, and leaves the vast majority of the association space in any large corpus completely unexplored. The question this program set out to answer is simple: <strong>can that generation-and-prioritization step be automated at scale, without the automation quietly manufacturing garbage?</strong></p>
+<hr />
+<h2 id="2-the-idea-mine-associations-then-hand-off-to-human-review">2. The idea: mine associations, then hand off to human review</h2>
+<p>The design has two halves.</p>
+<p><strong>Generate aggressively.</strong> Treat a knowledge corpus as an <em>association space</em> and mine it exhaustively — not one hypothesis at a time as a human would, but every record, every cross-signal agreement, every graph bridge, every multi-hop chain. Literature-based discovery has always been able to <em>generate</em> associations cheaply; the historical problem is that it generates far too many, most of them noise.</p>
+<p><strong>Filter ruthlessly, then stop at the human boundary.</strong> So the second half of the design is a stack of screens that reject a hypothesis unless it earns its place. Each generated hypothesis must survive: source-provenance verification, biomedical concept typing, external corroboration (where the source is applicable), a counter-evidence falsification sweep with relation-specific (not keyword) matching, a drug-safety triage, and a calibrated statistical sufficiency check. If a hypothesis cannot pass a screen — usually because the required experimental or outcome evidence <em>does not exist in any database, because no one has run the experiment yet</em> — it is not silently dropped and it is not falsely promoted. It is held in an explicit, reasoned state and routed either to the human review queue (if it cleared falsification) or to a held backlog (if it needs data a human must supply).</p>
+<p>This is the crucial reframe for reading this paper's numbers. When the pipeline reports "1,750 combination hypotheses, 0 promoted," that does <strong>not</strong> mean the science failed. It means the software correctly advanced 1,750 candidates as far as <em>computation alone</em> can take them and then handed off. Promotion beyond a research lead requires a laboratory. <strong>The pipeline's job is to fill the top of a wet lab's funnel with pre-screened, prioritized, traceable candidates — and that is exactly what it did.</strong> The boundary the engine stops at is not a limitation of the method but the correct division of labor between machine and human.</p>
+<hr />
+<h2 id="3-related-work">3. Related work</h2>
+<p>The program builds on several established lines:</p>
+<ul>
+<li><strong>Literature-based discovery / Swanson A–B–C.</strong> The implicit A→C-through-shared-B paradigm, and the modern consensus that raw bridge-term counts are not robust and must be ranked by statistical and graph/network properties — motivating aggressive gating.</li>
+<li><strong>Knowledge-graph drug repurposing</strong> (typed-path modeling in the Hetionet / Project Rephetio tradition), motivating the typed relationship graph.</li>
+<li><strong>Target–disease prioritization</strong> via Open Targets, used as the external validation layer.</li>
+<li><strong>Connectivity Map / LINCS transcriptomic reversal</strong>, where anti-correlated disease/perturbation signatures are treated as leads.</li>
+<li><strong>Automated biomedical entity and relation extraction</strong> (PubTator-style) for concept normalization.</li>
+<li><strong>Information-theoretic sufficiency</strong>: mutual-information estimation between a record's representation and its outcome, using established estimators with a mixed discrete–continuous correction and resampled confidence intervals.</li>
+<li><strong>Spectral graph methods</strong> (Fiedler bisection, matrix-free Lanczos) and <strong>minimum-feedback-vertex-set coreset selection</strong> for the grounded reasoning kernel.</li>
+</ul>
+<p>The novelty here is not a single algorithm but the <strong>composition</strong> of these methods behind one provenance-and-sufficiency discipline, run at whole-corpus scale, producing a large, screened, ready-to-test hypothesis backlog.</p>
+<hr />
+<h2 id="4-the-calyx-engine">4. The Calyx engine</h2>
+<h3 id="41-data-model">4.1 Data model</h3>
+<p>Calyx represents knowledge as <strong>records</strong> measured through a <strong>panel</strong> of <strong>signals</strong>. Each signal is a sensor — a text embedder, a structured encoder, or a computed scalar — producing one view of the record. A record's meaning is not any single view but the <em>agreement structure across views</em> — the pairwise cross-signal agreement scalars that form its signature. Records carry typed <strong>anchors</strong>: provenance-bearing labels (the correct answer for a clinical question, the source dataset, a verification flag) that <em>ground</em> a record. A record is grounded when it can reach an anchor within a bounded distance in the graph.</p>
+<p>The engine keeps four things durably and verifiably: the <strong>directed association graph</strong> over all records, the <strong>cross-signal agreement signatures</strong> that define each record, the <strong>statistical sufficiency measurements</strong> used to decide when a claim is adequately supported, and the compact <strong>grounded kernel</strong> distilled from the graph. Every one of these is written durably, checksummed, and independently re-read before any result derived from it is trusted.</p>
+<h3 id="42-operating-principles">4.2 Operating principles</h3>
+<p>A small set of principles makes the outputs trustworthy:</p>
+<ul>
+<li>The reasoning method is: assemble atoms → form all base associations → differentiate them → distill a grounded kernel → compose hypotheses from it.</li>
+<li>Bounded runs must declare their scope and never imply full coverage.</li>
+<li>Association evidence stays <em>typed</em>: co-mention, drug–target, target–disease, transcriptomic reversal, safety, trial, and literature are distinct kinds of evidence and are never conflated.</li>
+<li>Missing data creates an explicit, named gap — never a silent skip or an assumed value.</li>
+<li>Biomedical outputs travel a <strong>validation runway</strong> (Appendix B) that computation alone cannot complete; the engine advances a candidate only to the point where laboratory work must take over.</li>
+</ul>
+<h3 id="43-scale-and-compute">4.3 Scale and compute</h3>
+<p>The pipeline runs on commodity GPU-equipped hardware. After the association graph is compiled into a compact binary form, a full spectral analysis over all ~199,000 records completes in seconds, and the complete generation-and-screening program over the whole corpus runs in days rather than the years a manual equivalent would require.</p>
+<hr />
+<h2 id="5-methodology-the-generation-pipeline">5. Methodology: the generation pipeline</h2>
+<p>The pipeline is a generation spine with a validation crossbar. Every stage produces a durable, checksummed output that is independently re-read before use.</p>
+<pre><code>ingest → anchored corpus: 198,993 clinical records
+weave  → cross-signal agreement signatures (13.1M) + directed association graph (2.44M edges)
+kernel → grounded reasoning kernel + recall gate
+        ├ blind-spot novelty sweep
+generate├ Swanson bridge mining
+        ├ spectral community bridges
+        ├ gated multi-hop discovery chains
+        └ grounded chain walks → A–B–C hypotheses
+evaluate→ AI multi-prompt scoring → ranking
+expand → identifiers → source text → concept normalization → typed relationship graph
+validate→ Open Targets · PubTator/PubMed · ClinicalTrials · DGIdb · LINCS/CMap · CIViC
+        → external validation gate
+mine   → all-pair typed miner → falsification sweep
+hunt   → oncology · metabolic · neuro · infectious · rare disease
+triage → drug safety · novelty/calibration split · generated-candidate falsification
+atlas  → 1,877-hypothesis human-review atlas   ← 726 ready to test
+combos → 1,750 drug-pair hypotheses + external evidence cross-check
+</code></pre>
+<h3 id="51-anchored-corpus">5.1 Anchored corpus</h3>
+<p>Four clinical question-answer datasets — <strong>PubMedQA (1,000), MedXpertQA (2,455), MedQA (12,723), MedMCQA (182,815)</strong> — were ingested with provenance anchors attached to each record (correct answer, source dataset, verification flag). After deduplication the corpus held <strong>198,993 records</strong>, integrity-verified end to end.</p>
+<h3 id="52-the-association-graph">5.2 The association graph</h3>
+<p>Two structures are built in one pass over the corpus:</p>
+<ol>
+<li><strong>Cross-signal agreement signatures.</strong> For each record, the agreement among its content signals is measured and stored, yielding <strong>13,133,538</strong> agreement terms — the machine-readable "meaning" of each record.</li>
+<li><strong>A directed association graph.</strong> An edge from Y to X encodes "X is definable from Y by association," realized as each record's nearest neighbors in the fused representation above a confidence threshold — <strong>198,993 nodes and ≈2,435,817 directed edges</strong>. Because every record is anchored, the graph is fully grounded.</li>
+</ol>
+<h3 id="53-the-grounded-kernel">5.3 The grounded kernel</h3>
+<p>A compact grounded subgraph is distilled from the full graph by combining graph centrality with a minimum-feedback-vertex-set selection, then augmented so it faithfully reproduces the full graph's nearest-neighbor structure. The result is a <strong>21,954-record kernel</strong> that reproduces the full graph's top-k neighbors with perfect recall over held-out queries — a small, trustworthy reasoning core. The kernel is only accepted if it passes this recall test.</p>
+<h3 id="54-generation-surfaces">5.4 Generation surfaces</h3>
+<ul>
+<li><strong>Blind-spot sweep</strong>: cross-signal disagreement as a novelty signal; scanning <strong>10,064,934 observations</strong> returned 128 novelty candidates that passed gating.</li>
+<li><strong>Bridge mining</strong>: Swanson-style B-term bridge candidates between scoped domains, graph-ranked.</li>
+<li><strong>Spectral communities</strong>: the graph partitions into two large communities (33,871 and 165,122 records, a clean spectral gap of 0.94), with 32 inter-community bridge proposers.</li>
+<li><strong>Discovery chains</strong>: a 100-hop grounded walk inspected <strong>25,472 candidates, passed 21,936 gate checks, and accepted 1,600 hops</strong>.</li>
+<li><strong>Chain walks</strong>: six seeds produced <strong>48 terminal A–B–C hypotheses</strong>, each fully traceable back to source records.</li>
+</ul>
+<h3 id="55-ai-evaluation-and-expansion">5.5 AI evaluation and expansion</h3>
+<p>The 48 chain-walk hypotheses were scored by an AI evaluator across two prompt/temperature settings with mandatory cited evidence (44 of 48 retained). Every candidate identifier was resolved back to its physical source text, concepts were normalized to standard biomedical identifiers, and the whole was joined into a typed relationship graph of <strong>7,928 concept nodes and 116,753 typed edges</strong>.</p>
+<hr />
+<h2 id="6-the-screening-discipline-why-every-hypothesis-is-pre-filtered-and-traceable">6. The screening discipline: why every hypothesis is pre-filtered and traceable</h2>
+<p>The most important part of the design is the set of screens that stand between raw generation and the review queue. These are what make the output a <em>credible</em> backlog rather than a noise dump. Each is a guarantee:</p>
+<ul>
+<li><strong>Sufficiency, not proximity.</strong> A hypothesis cannot be called "grounded" on graph proximity alone; it needs a calibrated statistical <em>lower bound</em> showing the evidence carries enough information about the outcome. Topology can rank and explain a candidate; it cannot certify it.</li>
+<li><strong>Honest statistical estimation.</strong> The information measures use a corrected estimator for mixed discrete/continuous data and resampled confidence intervals, avoiding a common over-optimism where a naive estimate reports more certainty than the data support.</li>
+<li><strong>Relation-specific evidence.</strong> Support and counter-evidence attach to a hypothesis only when <em>both</em> of its endpoints appear in the same structured relationship in a source — not on loose keyword co-occurrence anywhere in a document. The result is conservative, relationship-backed evidence rather than the noise that loose co-occurrence would admit.</li>
+<li><strong>Provenance everywhere.</strong> No record enters the system without a source dataset, a checksum, a license, a retrieval time, and a locator. Every downstream claim is reducible to the exact source it came from.</li>
+<li><strong>Calibrated novelty.</strong> Novelty is measured as a statistical surprise relative to each pair of signals' own distribution, so novelty scores are comparable across heterogeneous similarity scales rather than being read off a single arbitrary threshold.</li>
+</ul>
+<p>The consequence: a hypothesis that reaches the review queue has already been (a) generated from a real, grounded association; (b) typed to biomedical concepts; (c) cross-checked against external databases; (d) swept for counter-evidence under strict matching; (e) safety-triaged if it names a drug; and (f) checked against a calibrated statistical bound. <strong>That is a substantial amount of screening a human would otherwise do by hand, applied uniformly to every one of nearly 1,900 candidates.</strong></p>
+<hr />
+<h2 id="7-results-i-the-substrate-the-engine-reasons-over">7. Results I — the substrate the engine reasons over</h2>
+<table>
+<thead>
+<tr>
+<th>Quantity</th>
+<th style="text-align: right;">Value</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Clinical records ingested</td>
+<td style="text-align: right;">~199,000</td>
+</tr>
+<tr>
+<td>Anchored records in the corpus</td>
+<td style="text-align: right;"><strong>198,993</strong></td>
+</tr>
+<tr>
+<td>Directed association graph edges</td>
+<td style="text-align: right;">≈2,435,817</td>
+</tr>
+<tr>
+<td>Cross-signal agreement terms</td>
+<td style="text-align: right;">13,133,538</td>
+</tr>
+<tr>
+<td>Grounded kernel size</td>
+<td style="text-align: right;">21,954 records</td>
+</tr>
+<tr>
+<td>Kernel neighbor-recall</td>
+<td style="text-align: right;">perfect (held-out queries)</td>
+</tr>
+</tbody>
+</table>
+<p>This is the reasoning substrate: a durable, integrity-verified, checksummed association graph over a large clinical corpus. Every hypothesis in this paper is a path or pattern <em>in this object</em>, not a free-floating assertion.</p>
+<hr />
+<h2 id="8-results-ii-calibration-the-engine-recovers-known-biology">8. Results II — calibration: the engine recovers known biology</h2>
+<p>Before trusting novel output, the program verified that the engine finds <em>real</em> biology. It does — strongly. This is the single most important sanity result: a hypothesis engine that could not recover established associations would be untrustworthy on novel ones.</p>
+<ul>
+<li><strong>Planted-signal calibration:</strong> the known pair metformin → type-2 diabetes was recovered at the expected information content, and a no-signal control correctly recovered zero and failed the sufficiency check.</li>
+<li><strong>Chain-walk convergence:</strong> the 48 top hypotheses converged, on expansion to source text, onto coherent asthma pharmacology (β-agonists, leukotriene modifiers, steroids) — textbook-correct relationships.</li>
+<li><strong>Top concept pairs:</strong> zafirlukast↔montelukast, ipratropium↔theophylline, tiotropium↔ipratropium — canonical relationships, recovered automatically.</li>
+<li><strong>Immunology recovery:</strong> the top infectious/immunology hypotheses were TNF-inhibitors (golimumab, certolizumab, infliximab) for psoriatic arthritis/psoriasis and CD4-targeting agents for HIV — established biology the engine rediscovered unaided.</li>
+<li><strong>Oncology recovery:</strong> NF1/selumetinib for plexiform neurofibroma surfaced with top-tier curated evidence — a trial-backed, real pairing.</li>
+<li><strong>External validation:</strong> on a benchmark of known positives, the association scorer achieved perfect ranking (AUROC 1.0), with a time-split test (train on the past, test on the future) AUROC of 0.86.</li>
+</ul>
+<p>These are <em>calibration wins</em>: proof the engine's scoring aligns with ground-truth biology. They tell us the same machinery, pointed at less-explored corners of the association space, is producing candidates worth taking seriously — not artifacts.</p>
+<hr />
+<h2 id="9-results-iii-the-five-disease-area-hypothesis-hunts">9. Results III — the five disease-area hypothesis hunts</h2>
+<p>Five bounded disease-area hunts mined the typed graph plus external validation into ranked, screened hypothesis sets. By design the engine surfaces <em>target–disease and drug–target–disease associations</em>, each carrying its evidence path, falsification status, and safety flags.</p>
+<h3 id="91-metabolic-cardiovascular-renal-35-hypotheses">9.1 Metabolic / cardiovascular / renal — 35 hypotheses</h3>
+<p>Top leads were target–disease associations: <strong>TNF → Proteinuria</strong>, <strong>CD4 → Proteinuria</strong>, <strong>CD8A → Proteinuria</strong>, plus drug–disease leads (Nifedipine/Hypertension, Verapamil/Hypertension). The TNF/CD4/CD8A→proteinuria cluster is a genuinely interesting, immunology-flavored renal hypothesis set worth an outcome-backed assay.</p>
+<h3 id="92-neurodegeneration-neuropsychiatric-77-131-hypotheses">9.2 Neurodegeneration / neuropsychiatric — 77 → 131 hypotheses</h3>
+<p>Beyond expected neurogenetic signals (NF1, and microcephaly genes such as KIF11), the engine surfaced <strong>DPP4-inhibitor and metformin bridges to schizophrenia</strong> as weak-to-moderate research leads — a metabolic–psychiatric axis that is an active area of genuine interest. A druggability expansion turned this into <strong>1,494 drug-target-disease bridge candidates</strong> across dopamine (DRD2/3/4), serotonin (HTR1A/2A/4), and opioid receptor families.</p>
+<h3 id="93-infectious-immunology-inflammation-209-hypotheses">9.3 Infectious / immunology / inflammation — 209 hypotheses</h3>
+<p>Led by the calibration wins above (TNF/psoriatic arthritis, CD4/HIV), with antimicrobial and pathogen-cluster leads lower in the ranking.</p>
+<h3 id="94-rare-disease-1491-hypotheses">9.4 Rare disease — 1,491 hypotheses</h3>
+<p>The largest and, arguably, most valuable hunt for translational purposes, composing standard rare-disease phenotype ontologies (284,871 phenotype annotations; 12,654 disease–gene phenotype links) with the engine's substrate. Rare diseases are exactly where a scalable hypothesis engine has the most leverage — too many diseases, too few researchers. Top phenotype/gene/drug leads:</p>
+<table>
+<thead>
+<tr>
+<th>Disease</th>
+<th>Gene</th>
+<th>Candidate drug</th>
+<th style="text-align: right;">Score</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Cerebral arteriopathy (CADASIL-type)</td>
+<td><strong>NOTCH3</strong></td>
+<td>Tarextumab</td>
+<td style="text-align: right;">13.8</td>
+</tr>
+<tr>
+<td>Cardiofaciocutaneous syndrome 1</td>
+<td><strong>BRAF</strong></td>
+<td>Dabrafenib / Trametinib</td>
+<td style="text-align: right;">13.5</td>
+</tr>
+<tr>
+<td>Melnick–Needles syndrome</td>
+<td><strong>FLNA</strong></td>
+<td>Simufilam</td>
+<td style="text-align: right;">13.5</td>
+</tr>
+<tr>
+<td>Fanconi anemia</td>
+<td><strong>BRCA2</strong></td>
+<td>Olaparib</td>
+<td style="text-align: right;">13.4</td>
+</tr>
+<tr>
+<td>Meningioma</td>
+<td><strong>PIK3CA</strong></td>
+<td>Alpelisib</td>
+<td style="text-align: right;">13.4</td>
+</tr>
+</tbody>
+</table>
+<p>Each is a gene→phenotype-plus-drug-target mapping grounded in curated ontology data — a starting hypothesis a rare-disease researcher could pick up and design an experiment around. These five leads are also a useful stress test: §15 assesses how novel they really are, and §16 uses several of them to expose the pipeline's most important weakness — the target-match fallacy — so they should be read alongside those sections rather than taken at face value.</p>
+<h3 id="95-oncology-19-hypotheses">9.5 Oncology — 19 hypotheses</h3>
+<p>Composed from curated precision-oncology evidence and the typed miner: NF1/selumetinib (plexiform neurofibroma, low-grade glioma), IGF1R/metformin+exemestane (breast cancer context), NRAS/metformin+trametinib (cancer context), and meningioma prognostic markers (PTTG1, LEPR).</p>
+<p>Across all five hunts, <strong>every drug-bearing hypothesis was correctly flagged for safety review</strong>, and none was presented as an efficacy claim — the screening discipline (§6) applied uniformly.</p>
+<hr />
+<h2 id="10-results-iv-the-human-review-atlas-726-hypotheses-ready-to-test">10. Results IV — the human-review atlas: 726 hypotheses ready to test</h2>
+<p>The five hunts converge into a single <strong>human-review hypothesis atlas</strong>: 1,885 raw candidates, 1,877 after deduplication, each carrying a normalized hypothesis statement, a source snippet, an evidence bundle, a support/counter overlay, safety/trial flags, source checksums, and — critically — a <strong>"next validation experiment" field</strong>.</p>
+<table>
+<thead>
+<tr>
+<th>Review status</th>
+<th style="text-align: right;">Count</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Ready for hypothesis review</strong></td>
+<td style="text-align: right;"><strong>726</strong></td>
+<td>Cleared falsification screening; awaiting human/experimental validation</td>
+</tr>
+<tr>
+<td>Held before review</td>
+<td style="text-align: right;">1,082</td>
+<td>Awaiting data a human must supply (missing trial/safety/outcome evidence)</td>
+</tr>
+<tr>
+<td>Calibration / known-positive reference</td>
+<td style="text-align: right;">69</td>
+<td>Recovered known biology; proof the screening works, not novelty</td>
+</tr>
+</tbody>
+</table>
+<table>
+<thead>
+<tr>
+<th>Disease area</th>
+<th style="text-align: right;">Hypotheses</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Rare disease</td>
+<td style="text-align: right;">1,491</td>
+</tr>
+<tr>
+<td>Infectious / immunology / inflammation</td>
+<td style="text-align: right;">203</td>
+</tr>
+<tr>
+<td>Neurodegeneration / neuropsychiatric</td>
+<td style="text-align: right;">129</td>
+</tr>
+<tr>
+<td>Metabolic / cardiovascular / renal</td>
+<td style="text-align: right;">35</td>
+</tr>
+<tr>
+<td>Oncology</td>
+<td style="text-align: right;">19</td>
+</tr>
+</tbody>
+</table>
+<p><strong>726 falsification-screened, provenance-traceable hypotheses ready for experimental review is the headline result of this program.</strong> To put that in perspective: assembling, typing, cross-validating, and counter-evidence-screening even a few dozen such hypotheses by hand is months of expert work. This pipeline produced 726 in a single automated run, each reducible to its source and each carrying an explicit falsification status. The top ready-for-review rows — TNF/CD4/CD8A→proteinuria target leads and disease-cluster associations — each ship with the recommended next step: <em>validate the target–disease association in an outcome-backed assay before drug inference.</em> That is a hypothesis backlog, ordered and screened, handed to whoever has the lab.</p>
+<hr />
+<h2 id="11-results-v-1750-ranked-drug-combination-hypotheses">11. Results V — 1,750 ranked drug-combination hypotheses</h2>
+<p>Drug combinations are a high-value, combinatorially explosive frontier where computational prioritization is especially valuable. The combination miner extracted drug-bearing components from the atlas, paired them by disease context, and scored each pair for complementary-target/convergent-pathway rationale — producing <strong>1,750 ranked drug-pair hypotheses</strong>, then cross-checking them against preclinical synergy and combination databases:</p>
+<ul>
+<li><strong>DrugComb</strong> (a preclinical synergy resource): 28 candidate pairs matched exact synergy keys.</li>
+<li>An external-evidence cross-check added <strong>NCI ALMANAC</strong>, <strong>CDCDB</strong> (43,082 documented combinations), a <strong>current ClinicalTrials.gov</strong> recheck (over 1,600 records of registry data), and <strong>FDA/PubMed</strong> literature mining — each attaching source-attributed context to the candidate pairs.</li>
+</ul>
+<p>The top-ranked pairs name concrete, testable combinations in specific disease contexts (e.g., metformin+gliptin pairs in Type 2 Diabetes; Sunitinib+Everolimus in pheochromocytoma-paraganglioma; metformin+trametinib in RAS/MAPK-pathway syndromes). Each pair carries its component-safety status, its interaction evidence, and its synergy-source status.</p>
+<p>The engine deliberately did not "promote" any pair to an actionable recommendation — because promotion requires wet-lab synergy testing and drug–drug interaction studies that only a laboratory can perform. <strong>The deliverable is the 1,750-candidate prioritized combination backlog itself</strong>: a screened, ranked, source-attributed worklist for a combination-screening lab, with every "what evidence is still needed" gap named explicitly. Given that combination space is effectively infinite and lab throughput is finite, a ranked shortlist of 1,750 pre-screened pairs is precisely the artifact a screening program needs.</p>
+<hr />
+<h2 id="12-results-vi-the-filter-working-a-false-safety-lead-correctly-demoted">12. Results VI — the filter working: a false safety lead, correctly demoted</h2>
+<p>A hypothesis engine is only as trustworthy as its ability to <em>reject</em> a tempting-but-wrong lead. The program produced a clean demonstration.</p>
+<p>Independent pharmacovigilance mining surfaced exactly one serious safety signal — a co-report for <strong>metformin + trametinib</strong> (serious, with reported reactions "off-label use" and "lower gastrointestinal haemorrhage," and a high pharmacovigilance disproportionality score). A naive pipeline would flag this as a real interaction signal.</p>
+<p>Case-level validation re-fetched the exact adverse-event report and found:</p>
+<ul>
+<li>the report describes a patient on <strong>19 drugs</strong>;</li>
+<li>metformin and trametinib are present but <strong>incidental (concomitant)</strong>, not the suspected cause;</li>
+<li>the <strong>primary suspected drug is an anticoagulant (apixaban)</strong>, listed twice;</li>
+<li>the hemorrhage matches the anticoagulant's well-known bleeding profile, not a metformin–trametinib interaction.</li>
+</ul>
+<p>The engine classified the case as a confounded report and — rather than discard it — used the confounder finding to down-weight the metformin/trametinib family in the combination ranking. <strong>This is the filter working exactly as intended: catching a plausible false positive, explaining precisely why it is confounded, and learning from it.</strong> For a discovery pipeline, correctly <em>rejecting</em> a bad lead is as valuable as surfacing a good one — it is wasted lab budget avoided.</p>
+<hr />
+<h2 id="13-discussion-what-this-means-for-the-economics-of-discovery">13. Discussion — what this means for the economics of discovery</h2>
+<p>The value proposition follows directly from where drug-discovery money is lost. If the front of the funnel — hypothesis generation and prioritization — can be automated to produce <em>more</em> candidates that are <em>better screened</em> and <em>fully traceable</em>, the benefit carries through to the downstream stages.</p>
+<p>Consider the arithmetic informally. If a program can only afford to experimentally test tens of hypotheses per year, then the <em>quality of the shortlist</em> is everything. A hypothesis engine that (a) mines the entire association space rather than the famous corners, (b) applies uniform falsification and safety screening that a human applies inconsistently, and (c) attaches full provenance so a reviewer can adjudicate in minutes rather than days, changes what a small team can attempt. <strong>726 pre-screened hypotheses and 1,750 ranked combinations is not a year of committee meetings — it is one automated run.</strong></p>
+<p>Three properties make this economically interesting rather than merely voluminous:</p>
+<ol>
+<li><strong>Scale without proportional cost.</strong> The marginal cost of the 727th hypothesis is near zero; the pipeline mined ~199,000 records into ≈2.44M associations and screened nearly 1,900 candidates in days.</li>
+<li><strong>Prioritization, not just enumeration.</strong> Every candidate is ranked, and the falsification/safety/novelty screens <em>remove</em> the low-value tail — the exact failure mode (unbounded noisy enumeration) that historically sank literature-based discovery.</li>
+<li><strong>Traceability that makes review fast.</strong> Because every claim reduces to its source and a sufficiency check, a human expert reviews an <em>evidence bundle</em>, not a bare assertion. This is what makes 726 hypotheses reviewable at all.</li>
+</ol>
+<p>The metformin+trametinib case (§12) sharpens the point: the pipeline's ability to <em>reject</em> a confounded signal, with a mechanistic explanation, directly protects the most expensive resource — laboratory time — from being spent on a false lead.</p>
+<p>None of this asserts that any specific hypothesis will succeed clinically. It asserts something narrower and defensible: <strong>the engine changes the throughput and quality of the hypothesis-generation step, which is where a large share of discovery cost and failure originates.</strong></p>
+<hr />
+<h2 id="14-why-these-hypotheses-may-carry-a-higher-prior-of-success">14. Why these hypotheses may carry a higher prior of success</h2>
+<p>An unfiltered starting hypothesis inherits the base rate — the low-single-digit hit-to-drug probability. There is reason to expect a hypothesis that <em>survives this pipeline</em> to carry a materially better prior, for structural reasons:</p>
+<ul>
+<li><strong>It is a real association, not a hunch.</strong> It corresponds to an actual path in an integrity-verified graph built from curated clinical knowledge — not a spurious keyword co-occurrence.</li>
+<li><strong>It survived counter-evidence.</strong> The falsification sweep actively searched external databases for contradicting literature, stopped or withdrawn trials, and low target–disease scores under strict relationship matching. Candidates with hard counter-evidence were <em>demoted</em>; the survivors have no known contradiction in the searched sources.</li>
+<li><strong>It is externally corroborated where corroboration exists.</strong> Applicable Open Targets / DGIdb / curated-oncology / trial context is attached, and calibration proves this corroboration layer aligns with real biology (perfect ranking on known positives).</li>
+<li><strong>It is safety-screened.</strong> Drug-bearing hypotheses carry regulatory-label and adverse-event context; missing safety data is flagged, not assumed benign.</li>
+<li><strong>Its novelty is calibrated.</strong> The engine explicitly separates the 69 known-positive calibration references from the genuinely under-explored leads, so a reviewer is not misled by familiar biology dressed up as discovery.</li>
+</ul>
+<p>We state this as a <em>hypothesis about the pipeline</em> — one that is itself testable: a prospective study comparing the experimental success rate of pipeline-surfaced hypotheses against a matched unfiltered set would quantify the lift. That study is exactly the kind of validation the human side of the handoff would run.</p>
+<hr />
+<h2 id="15-speculation-novelty-value-and-the-odds-of-usefulness">15. Speculation: novelty, value, and the odds of usefulness</h2>
+<p>This section steps beyond what the pipeline strictly demonstrates and asks the harder questions: <em>Are these associations things humans have never seen? What are they actually worth? What are the odds any of them matters?</em> To answer honestly rather than optimistically, we checked the highest-ranked leads against the current state of the published science.</p>
+<h3 id="151-are-these-novel-a-spectrum-from-textbook-to-frontier-to-fraught">15.1 Are these novel? A spectrum from textbook to frontier to fraught</h3>
+<p>The blunt answer is: <strong>the engine operates at the edge of known science, not beyond it</strong> — and that is exactly what an honest reading of the corpus predicts. The leads fall into three tiers.</p>
+<p><strong>Tier 1 — Already known and approved (the engine rediscovered them).</strong> The single highest-confidence oncology lead, <em>NF1 / selumetinib for plexiform neurofibroma</em>, is an FDA-approved therapy — selumetinib (Koselugo) has been approved for this exact indication since 2020, with the label expanded to adults in 2025. Likewise TNF-inhibitors for psoriatic arthritis and CD4-targeting agents for HIV are established, approved biology. These are not discoveries. They are <em>calibration</em>: the fact that an unguided engine independently ranked approved, correct pairings at the top is the strongest possible evidence that its scoring tracks real therapeutic biology — the prerequisite for trusting anything it says about less-charted territory.</p>
+<p><strong>Tier 2 — Genuine active research frontiers (the engine landed on real, emerging science without being told).</strong> Several leads are not yet standard of care but are exactly where translational researchers are currently working:</p>
+<ul>
+<li><em>MEK inhibitors (trametinib/selumetinib) for RASopathies including cardiofaciocutaneous and Noonan syndromes</em> — a real, active off-label repurposing effort, with published case series and review literature documenting benefit in life-threatening RASopathy manifestations. The engine's BRAF-driven CFC-syndrome lead points squarely at this frontier.</li>
+<li><em>Metformin for schizophrenia</em> — supported by multiple randomized controlled trials for cognitive and metabolic outcomes, and active systematic-review interest. (The engine's more specific <em>DPP4-inhibitor</em>/schizophrenia extrapolation is thinner and appears to be the engine generalizing from the metformin signal.)</li>
+<li><em>Alpelisib for PIK3CA-mutant meningioma</em> — mechanistically coherent precision oncology: alpelisib is approved for PIK3CA-mutant breast cancer and is being explored across PIK3CA-mutant tumors, and PIK3CA mutations do occur in a subset of meningiomas. This is a plausible, not-yet-established repurposing hypothesis of exactly the kind precision oncology pursues.</li>
+</ul>
+<p>That the engine surfaced these <em>without being told they were hot</em> is a meaningful validation — it is reasoning at the research frontier. But it also means the top of the list is largely <em>rediscovery and recombination of things humans are already pursuing</em>, not sui-generis novelty.</p>
+<p><strong>Tier 3 — Mechanistically fraught matches (the cautionary tail).</strong> Some leads look striking but reveal a systematic weakness (dissected in §16):</p>
+<ul>
+<li><em>NOTCH3 / tarextumab for CADASIL-type cerebral arteriopathy</em> — the association is by target name (tarextumab is an anti-Notch2/3 antibody; NOTCH3 causes CADASIL), but tarextumab is a <strong>discontinued</strong> oncology drug that failed in pancreatic and small-cell lung cancer, and blocking Notch3 is of unproven and uncertain direction for a disease of mutant-Notch3 vascular accumulation.</li>
+<li><em>FLNA / simufilam for Melnick-Needles syndrome</em> — simufilam targets filamin A and Melnick-Needles is an FLNA disorder, but simufilam is the <strong>scientifically discredited</strong> Cassava Sciences Alzheimer's candidate that failed Phase 3 in 2024 amid a federal fraud indictment of its co-developer.</li>
+<li><em>BRCA2 / olaparib for Fanconi anemia</em> — the most instructive: olaparib is <em>selectively toxic</em> to BRCA2-deficient cells (this is why it treats BRCA-mutant cancers), so pairing it with a germline BRCA2/Fanconi disease inverts the logic — the drug exploits the very defect the patient carries in every cell, and would likely be harmful, not therapeutic.</li>
+</ul>
+<p>Genuinely never-before-seen discovery — a connection no human has considered — would live in the long tail and, more importantly, would require corpora <em>at or past the research frontier</em> (full-text primary literature, molecular assay data, transcriptomics at scale). The corpus here is clinical exam knowledge, which encodes <em>taught consensus</em>; it can recombine and rediscover, but it structurally caps how far past the known edge the engine can reach. This is not a criticism of the run — it is the honest ceiling of the input, and the highest-leverage thing to change (§17).</p>
+<h3 id="152-where-the-real-value-is">15.2 Where the real value is</h3>
+<p>If most top leads are frontier-or-known, what is this worth? The value is not a single eureka. It is four things:</p>
+<ol>
+<li><strong>Systematic coverage of a space no human reads exhaustively.</strong> A person notices connections near what they already study. The engine enumerated ~2.44 million associations and screened nearly 1,900 candidates uniformly. Even if novelty concentrates in the tail, <em>the tail is large and normally unexplored</em>.</li>
+<li><strong>The rare-disease long tail is the highest-leverage target.</strong> The 1,491 rare-disease hypotheses matter disproportionately because rare diseases are systematically under-researched — there is little commercial incentive to fund manual hypothesis generation for a disease affecting a few thousand people. A near-zero-marginal-cost engine that proposes screened gene→target→drug hypotheses for thousands of rare diseases at once is doing work the market otherwise leaves undone. This is arguably the most socially valuable output.</li>
+<li><strong>Drug repurposing of off-patent compounds</strong> — where, again, commercial incentive is weakest and a systematic, cheap hypothesis generator has the most room to contribute.</li>
+<li><strong>Triage-ready packaging.</strong> Each survivor arrives with an evidence bundle, provenance, falsification status, and a suggested next experiment — turning a reviewer's job from days of assembly into minutes of judgment.</li>
+</ol>
+<h3 id="153-the-odds-of-usefulness-calibrated-not-hyped">15.3 The odds of usefulness — calibrated, not hyped</h3>
+<p>Honest expectation-setting requires the base rates. A fresh target–disease hypothesis inherits roughly the industry base rate: single-digit-percent odds of ever becoming an approved drug, against a ~US$2.6 billion capitalized cost and a decade-plus timeline. Screening of the kind here can plausibly <em>raise the prior</em> — a lead that is a real graph association, survived counter-evidence, is externally corroborated, and is safety-flagged should beat a random starting hypothesis — but the Tier-3 cases prove screening is imperfect and cannot replace expert mechanistic judgment.</p>
+<p>The broader field offers a sobering calibration. As of 2026 there are on the order of <em>173 AI-originated drug programs</em> in clinical development, and the most advanced (e.g., Insilico Medicine's rentosertib) is approaching Phase III — yet <strong>no fully AI-originated drug has completed all trial phases and won approval</strong>, with the first such approval only projected for 2026–2027 at roughly even odds, and documented setbacks along the way. AI has compressed the <em>early</em> timeline and expanded the <em>number</em> of shots on goal; it has not yet been shown to change the <em>finish-line</em> success rate. This engine belongs to the same story: its demonstrated contribution is throughput and prioritization at the front of the funnel, and its effect on ultimate success is a <em>reasonable hope, not a proven fact</em>.</p>
+<p>The intellectually honest way to state the value is therefore probabilistic and portfolio-shaped: <em>most of these 726 hypotheses will not pan out; the point is that generating and pre-screening 726 of them cost essentially one automated run, so even if only a handful clear the bench — especially in rare and neglected diseases where nothing else was searching — the low cost of producing them makes the exercise worthwhile.</em></p>
+<h3 id="154-what-this-means-for-humanity-stated-plainly">15.4 What this means for humanity, stated plainly</h3>
+<p>The realistic vision is not "AI cures diseases." It is <strong>"AI fills the funnel; humans empty it."</strong> The step this engine automates — generating, screening, ranking, and explaining biomedical hypotheses — is a real bottleneck, and automating it cheaply has three plausible benefits: it lets under-resourced rare-disease and academic groups do more with limited resources; it surfaces repurposing opportunities for cheap, off-patent drugs that no company is incentivized to hunt for; and it makes the reasoning behind every proposal auditable rather than a black box. None of that shortens a clinical trial or removes biological uncertainty. Moving the front of discovery from artisanal toward industrial — without sacrificing traceability — is a useful contribution, and this run is a concrete demonstration that it can be done at scale in a single pass.</p>
+<p><strong>A deliberately modest account of the near-term impact.</strong> It is worth stating plainly, because the temptation to overclaim here is strong. This run did not produce a therapy, a validated target, or a result that changes any clinical decision today — it produced a screened backlog of <em>unvalidated</em> hypotheses, most of which will not pan out, and whose top-ranked members are largely already-known or already-being-researched (§15.1). Its realistic near-term uses are correspondingly bounded: a specialist could take a few of the frontier leads (the MEK-inhibitor RASopathy and PIK3CA-meningioma hypotheses are the strongest) and design experiments; a rare-disease group could triage the long tail for cheap starting points; and the rejection record (the companion rejection ledger) could spare others from chasing leads that are already known to fail. Whether <em>any</em> of it reaches a patient depends entirely on wet-lab and clinical work that has not been done and that this project cannot do. So the honest societal claim is narrow: not that this changes medicine, but that it shows one expensive step of the discovery process can be automated, scaled, and screened cheaply while staying traceable and honest about its own limits. That is a useful capability to have demonstrated — no more, and no less.</p>
+<hr />
+<h2 id="16-blindspots-and-the-questions-we-should-be-asking">16. Blindspots and the questions we should be asking</h2>
+<p>A paper that only lists what a system does is marketing. The following are the questions a skeptical reviewer — or the author — should press hardest, several of which the Tier-3 leads (§15.1) expose directly. They are recorded here so they are not quietly skipped.</p>
+<h3 id="161-the-target-match-fallacy-the-single-biggest-weakness">16.1 The target-match fallacy — the single biggest weakness</h3>
+<p>The engine's rare-disease and repurposing leads are frequently built on a heuristic: <em>if a drug acts on the protein product of the gene that causes a disease, propose the drug for the disease.</em> This is a reasonable starting filter and a terrible stopping point, because it ignores four things a pharmacologist checks reflexively:</p>
+<ul>
+<li><strong>Direction.</strong> Does the disease need the target <em>inhibited</em> or <em>activated</em>? A drug that antagonizes a target is worthless — or harmful — if the disease needs it agonized.</li>
+<li><strong>Loss- vs gain-of-function.</strong> A mutation that <em>destroys</em> a protein and one that makes it <em>hyperactive</em> call for opposite interventions; the gene name alone does not say which.</li>
+<li><strong>Germline vs somatic — the olaparib/Fanconi trap.</strong> A drug that is therapeutic because it <em>selectively kills cells carrying a defect</em> (olaparib against BRCA2-mutant tumors) can be <em>toxic</em> when the patient carries that defect in <em>every</em> cell (germline BRCA2 / Fanconi anemia). Same gene, opposite clinical meaning.</li>
+<li><strong>Drug viability.</strong> Is the drug even alive? Tarextumab is discontinued; simufilam is discredited. A target match to a dead or disgraced molecule is not a lead.</li>
+</ul>
+<p><strong>The open question:</strong> how many of the 726 ready hypotheses rest on a bare target match that would not survive this four-point pharmacological check? That number should be measured, and the pipeline should ideally encode these checks as additional screens.</p>
+<h3 id="162-the-questions-the-author-should-be-asking-and-their-status">16.2 The questions the author should be asking (and their status)</h3>
+<table>
+<thead>
+<tr>
+<th>Question</th>
+<th>Why it matters</th>
+<th>Current status</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>How many leads are genuinely novel vs. already in the literature?</strong></td>
+<td>"AI found new biology" is only true for the novel fraction; the top ranks are largely rediscovery.</td>
+<td>Unmeasured. Needs a systematic novelty audit against literature, not the engine's internal novelty score.</td>
+</tr>
+<tr>
+<td><strong>Does the engine's novelty score correlate with <em>actual</em> literature novelty?</strong></td>
+<td>If not, "novelty-prioritized" is mislabeled.</td>
+<td>Untested.</td>
+</tr>
+<tr>
+<td><strong>What fraction survives a mechanistic (direction/LoF/germline) check?</strong></td>
+<td>Directly bounds how many leads are real (§16.1).</td>
+<td>Not yet a screen; must be added or done by reviewers.</td>
+</tr>
+<tr>
+<td><strong>Would a different corpus or random seed produce the same leads?</strong></td>
+<td>Stability is a precondition for trusting any single lead.</td>
+<td>Untested; sensitivity/reproducibility analysis needed.</td>
+</tr>
+<tr>
+<td><strong>How does this compare to existing repurposing platforms</strong> (Open Targets, Hetionet/Rephetio, commercial AI platforms)?</td>
+<td>Without a benchmark, "high-throughput" is unquantified relative to the state of the art.</td>
+<td>No head-to-head evaluation done.</td>
+</tr>
+<tr>
+<td><strong>Who actually validates 726 hypotheses, and at what cost?</strong></td>
+<td>The bottleneck moves downstream; a list no one tests has no value. Triage and assays are themselves expensive.</td>
+<td>The engine assumes a human/lab consumer that must still be found and funded.</td>
+</tr>
+<tr>
+<td><strong>Who owns an AI-generated hypothesis, and can it be patented?</strong></td>
+<td>Investment to test a lead often depends on defensible IP; AI-generated inventorship is legally unsettled.</td>
+<td>Out of scope of the engine; a real barrier to translation.</td>
+</tr>
+<tr>
+<td><strong>Does provenance create false confidence?</strong></td>
+<td>A rigorous-looking evidence bundle can make a <em>dangerous</em> lead (olaparib/Fanconi) look credible — automation bias.</td>
+<td>A live risk; the safety framing (§16.3) is the partial mitigation.</td>
+</tr>
+<tr>
+<td><strong>Is the central economic claim — that screened hypotheses beat unscreened ones — actually true?</strong></td>
+<td>It is the paper's core value proposition and it is currently a <em>hypothesis about the pipeline</em>, not a result.</td>
+<td>Requires the prospective lift study (§14): experimentally test matched screened vs. unscreened sets and compare hit rates.</td>
+</tr>
+</tbody>
+</table>
+<h3 id="163-safety-dual-use-and-the-responsibility-of-publishing-leads">16.3 Safety, dual-use, and the responsibility of publishing leads</h3>
+<p>Publishing unvalidated biomedical hypotheses carries its own risk: a desperate patient or an unscrupulous actor could treat a ranked, official-looking lead as advice. The olaparib/Fanconi example is not academic — acting on it could actively harm. Two safeguards follow. First, every lead must travel with an unmistakable statement that it is a computational hypothesis, not medical advice, and that some leads are mechanistically wrong or dangerous. Second, the engine's output is properly an input to <em>qualified researchers</em>, not a consumer product; the traceability that makes it auditable for an expert is precisely what a layperson lacks the context to interrogate. The engine's honesty discipline helps here — it never claims efficacy — but honesty in the machine does not guarantee honesty in how its output is used.</p>
+<h3 id="164-the-absence-of-evidence-surfaces">16.4 The absence-of-evidence surfaces</h3>
+<p>Not every generation surface produced sharp leads. The transcriptomic-reversal screen, for instance, returned generic mechanism-class hits (broad HDAC/CDK/HSP90/MEK-inhibitor signatures) rather than specific, actionable candidates — a reminder that some methods yield low-specificity signal that should be read as a weak prior, not a lead. Reporting these honestly is part of not overselling the sharp results.</p>
+<h3 id="165-the-deepest-question">16.5 The deepest question</h3>
+<p>Underneath all of the above sits one question worth stating plainly: <em>does raising the quality and quantity of starting hypotheses actually move the needle on drugs approved, or is the true bottleneck entirely downstream in trials and biology?</em> If discovery failure is dominated by clinical-stage biology that no amount of better hypothesis generation can fix, then even a perfect front-of-funnel engine yields modest end-to-end gains. If, instead, a meaningful share of failure traces to poorly-chosen starting points, the leverage is large. The honest position is that this is <em>unresolved</em>, that the truth is probably "some of both," and that the only way to know is to run the prospective study and measure it. This paper makes the case that the front-of-funnel bottleneck is real and worth attacking; it does not claim to have proven the size of the prize.</p>
+<h3 id="sources-for-1516">Sources for §15–§16</h3>
+<p>Selumetinib (Koselugo) FDA approvals for NF1 plexiform neurofibroma (2020, expanded 2025) — U.S. FDA. · MEK-inhibitor repurposing in RASopathies (trametinib/selumetinib), review and case series — PMC (PMC11204468) and pediatric cardiology case reports. · Metformin in schizophrenia (cognition/metabolic RCTs and systematic reviews) — <em>Translational Psychiatry</em> (2023) and Frontiers/PMC systematic reviews. · Alpelisib in PIK3CA-mutant tumors (approved in breast cancer; explored across PIK3CA-mutant solid tumors) — JCO Precision Oncology and <em>Gynecologic Oncology</em>. · Tarextumab (anti-Notch2/3) development discontinued after Phase 2 failures in pancreatic and small-cell lung cancer — BioPharma Dive / BioCentury / <em>Annals of Oncology</em>. · Simufilam (filamin-A-targeting) Phase 3 failure (Nov 2024) and fraud indictment of co-developer — SEC filings and press coverage. · Olaparib synthetic-lethal selectivity for BRCA1/2-deficient cells — PARP-inhibitor mechanism literature (NEJM; PMC). · State of AI drug discovery (≈173 clinical-stage AI programs in 2026; Insilico Medicine rentosertib approaching Phase III; first fully AI-originated approval projected 2026–2027) — 2025–2026 industry landscape analyses. · Drug-development cost (~US$2.6B capitalized) and clinical success (~10% Phase I→approval) — DiMasi et al. and BIO/industry attrition analyses.</p>
+<hr />
+<h2 id="17-validation-status-and-honest-limitations">17. Validation status and honest limitations</h2>
+<p>It must be said plainly, because it is the truth and because it is the correct scientific posture: <strong>none of these hypotheses has been experimentally validated.</strong> They are computational hypotheses — ranked, screened, and traceable, but unproven. Each requires experimental confirmation, and the paper makes no efficacy, safety, dosing, or clinical claim. The honest boundaries:</p>
+<ol>
+<li><strong>Corpus scope.</strong> The graph is built from clinical question-answer corpora, which encode <em>taught consensus</em>; this is why calibration signal is so strong. Genuinely novel leads live at the edges of this space and in corpora only partially incorporated here (full-text literature, molecular assays, large-scale transcriptomics). Broadening the corpus is the highest-leverage next step.</li>
+<li><strong>Bounded external queries.</strong> External database passes were rate-limited and paginated; "no hit in a bounded query" is not "no evidence exists anywhere."</li>
+<li><strong>Normalization coverage.</strong> A first pass normalized a fraction of candidate terms, with the remainder explicitly queued; further passes improved specific areas but the concept overlay is still small relative to the source databases.</li>
+<li><strong>Co-mention versus mechanism.</strong> Even after relationship-specific matching, many candidate edges remain candidate relationships until a source exposes a structured mechanism.</li>
+<li><strong>The screens must stay honest.</strong> The trust guarantees (§6) are load-bearing; degrading the sufficiency, matching, or provenance screens would degrade downstream trust. They are implemented and independently verified, but they must remain so.</li>
+</ol>
+<p>These are not hidden; each corresponds to a planned follow-up. The right reading is that the limitations bound <em>how far the leads can be trusted today</em>, not whether the generation-and-screening capability is real. It is real, and it is durable.</p>
+<hr />
+<h2 id="18-the-handoff-what-a-wet-lab-does-with-this-output">18. The handoff: what a wet lab does with this output</h2>
+<p>The pipeline stops where a laboratory begins. Concretely, a research group receiving this output would:</p>
+<ol>
+<li><strong>Triage the 726 ready-for-review hypotheses</strong> by disease-area fit and available assays; the atlas ships each with an evidence bundle and a suggested next experiment.</li>
+<li><strong>For a target–disease lead</strong> (e.g., TNF/CD4/CD8A → proteinuria), run an outcome-backed assay or model to test the association <em>before</em> any drug inference — exactly the next step the atlas prescribes.</li>
+<li><strong>For a rare-disease gene/drug mapping</strong> (e.g., PIK3CA/alpelisib in meningioma, BRCA2/olaparib in Fanconi anemia), check mechanistic plausibility against known biology and design a targeted validation.</li>
+<li><strong>For a combination candidate</strong> from the 1,750-pair backlog, run a preclinical synergy screen and a drug–drug interaction assessment; the pipeline already names which external databases supplied context and which evidence is still missing.</li>
+<li><strong>Feed results back</strong> — confirmed and refuted outcomes both improve the engine's priors, closing the loop the metformin+trametinib case demonstrated in miniature.</li>
+</ol>
+<p>The division of labor is clean: the machine generates, screens, ranks, and explains at scale; the human tests, confirms, and decides.</p>
+<hr />
+<h2 id="19-future-work">19. Future work</h2>
+<ol>
+<li><strong>Broaden the corpus</strong> beyond clinical question-answer data to full-text literature and molecular/assay data, so the engine mines less-explored association space where novel leads concentrate.</li>
+<li><strong>Run the prospective lift study</strong> (§14): compare experimental success of pipeline-surfaced versus matched unfiltered hypotheses to quantify the improvement in prior probability.</li>
+<li><strong>Expand concept normalization and the safety knowledge base</strong> so fewer hypotheses are held for want of data.</li>
+<li><strong>Human expert review of the 726 ready hypotheses</strong>, converting the highest-priority leads into designed experiments.</li>
+<li><strong>Close the feedback loop</strong>: incorporate experimental outcomes to continuously recalibrate the engine's priors.</li>
+</ol>
+<hr />
+<h2 id="20-conclusion">20. Conclusion</h2>
+<p>We built an association-native engine that mines a large clinical knowledge corpus into biomedical hypotheses, screens each one through a stack of filters — provenance, typing, external corroboration, counter-evidence falsification, safety triage, and a calibrated statistical bound — and hands the survivors to human review. From ~199,000 records and a 2.44-million-edge association graph, one automated run produced a <strong>1,877-hypothesis atlas with 726 candidates cleared for experimental review</strong>, a <strong>1,750-pair drug-combination backlog</strong>, and a clean demonstration that the filter correctly rejects a confounded false lead.</p>
+<p>None of it is experimentally validated, and that is the point: the engine advances every candidate as far as computation can, then stops at the wet-lab boundary where a software program — however capable — must yield to human experiment. Against a discovery pipeline where hypothesis generation and prioritization is a dominant, expensive bottleneck, an engine that produces hundreds of screened, ranked, traceable hypotheses in a single run is not a null result. It is a throughput result — and if even a small fraction of these leads survives the bench, the payoff on the economics of discovery would be meaningful. Whether that happens is unknown and untested; the claim here is confined to what was actually demonstrated: the generation and screening step, done at scale and cheaply.</p>
+<p>A hypothesis surfaced here is a <strong>ranked, screened, traceable starting point for experiment</strong> — a genuinely useful thing to hand a scientist, and the thing the engine was built to produce at scale. It is a starting point, not a finding.</p>
+<hr />
+<h2 id="appendix-a-glossary">Appendix A — glossary</h2>
+<table>
+<thead>
+<tr>
+<th>Term</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Record</strong></td>
+<td>A single unit of knowledge (here, a clinical question-answer item); a node in the association graph.</td>
+</tr>
+<tr>
+<td><strong>Panel / signal</strong></td>
+<td>The array of sensors (text embedders, structured encoders, computed scalars) that measure each record from multiple angles.</td>
+</tr>
+<tr>
+<td><strong>Anchor</strong></td>
+<td>A provenance-bearing label that grounds a record (its correct answer, source, or verification flag).</td>
+</tr>
+<tr>
+<td><strong>Cross-signal agreement</strong></td>
+<td>The pattern of agreement among a record's sensor views; the record's machine-readable signature.</td>
+</tr>
+<tr>
+<td><strong>Association graph</strong></td>
+<td>The directed graph of "definable-by-association" relationships the engine reasons over.</td>
+</tr>
+<tr>
+<td><strong>Grounded kernel</strong></td>
+<td>A compact, trustworthy reasoning core distilled from the full graph.</td>
+</tr>
+<tr>
+<td><strong>Sufficiency check</strong></td>
+<td>A calibrated statistical test that the evidence carries enough information about the outcome to be called grounded.</td>
+</tr>
+<tr>
+<td><strong>Falsification sweep</strong></td>
+<td>A search for counter-evidence — contradicting literature, failed trials, low scores — under strict relationship matching.</td>
+</tr>
+<tr>
+<td><strong>Ready for review</strong></td>
+<td>A hypothesis that cleared falsification screening and awaits human/experimental validation.</td>
+</tr>
+<tr>
+<td><strong>Held</strong></td>
+<td>A hypothesis awaiting data a human must supply — a work item, not a rejection.</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="appendix-b-the-validation-runway">Appendix B — the validation runway</h2>
+<p>Each hypothesis travels a runway from raw association to clinical action. Computation covers the early rungs; humans and laboratories cover the rest. The engine takes candidates to roughly rung 5 and hands off.</p>
+<ol>
+<li><strong>Association candidate</strong> — a real graph relationship (every generated hypothesis starts here).</li>
+<li><strong>Typed association</strong> — endpoints normalized to biomedical concepts; relationship typed.</li>
+<li><strong>Externally contextualized</strong> — corroborating records from external databases, where applicable.</li>
+<li><strong>Falsification-screened</strong> — support and counter-evidence gathered under strict relationship matching; survivors advance.</li>
+<li><strong>Safety-triaged and sufficiency-checked</strong> — drug labels and adverse-event context attached; the calibrated statistical bound evaluated. <strong>← the engine hands off here (the 726 ready hypotheses).</strong></li>
+<li><strong>Experimentally tested</strong> — assay, model, or animal validation. <em>(wet lab)</em></li>
+<li><strong>Clinically evaluated</strong> — trials. <em>(clinic)</em></li>
+<li><strong>Clinically actionable</strong> — approved use. <em>(regulatory)</em></li>
+</ol>
+<p>The engine's contribution is to fill rungs 1–5 automatically, at scale, so human effort concentrates on rungs 6–8 where it is irreplaceable.</p>
+<hr />
+<h2 id="appendix-c-summary-of-pipeline-outputs">Appendix C — summary of pipeline outputs</h2>
+<table>
+<thead>
+<tr>
+<th>Stage</th>
+<th>Result</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Anchored corpus</td>
+<td>198,993 integrity-verified clinical records</td>
+</tr>
+<tr>
+<td>Association graph</td>
+<td>2,435,817 directed edges over 13,133,538 agreement terms</td>
+</tr>
+<tr>
+<td>Grounded kernel</td>
+<td>21,954 records; perfect neighbor-recall</td>
+</tr>
+<tr>
+<td>Novelty sweep</td>
+<td>128 gate-passing candidates from 10,064,934 observations</td>
+</tr>
+<tr>
+<td>Spectral communities</td>
+<td>2 communities (33,871 / 165,122); 32 bridge proposers</td>
+</tr>
+<tr>
+<td>Discovery chains</td>
+<td>25,472 candidates inspected; 21,936 gate-passes; 1,600 hops accepted</td>
+</tr>
+<tr>
+<td>Chain walks</td>
+<td>48 A–B–C hypotheses</td>
+</tr>
+<tr>
+<td>AI evaluation</td>
+<td>48 evaluated; 44 retained</td>
+</tr>
+<tr>
+<td>Typed relationship graph</td>
+<td>7,928 concept nodes; 116,753 typed edges</td>
+</tr>
+<tr>
+<td>External validation</td>
+<td>perfect ranking on known positives (AUROC 1.0); time-split AUROC 0.86</td>
+</tr>
+<tr>
+<td>Falsification sweep</td>
+<td>conservative, relationship-backed support; hard-counter candidates demoted</td>
+</tr>
+<tr>
+<td>Oncology hunt</td>
+<td>19 hypotheses</td>
+</tr>
+<tr>
+<td>Metabolic / cardiovascular / renal hunt</td>
+<td>35 hypotheses</td>
+</tr>
+<tr>
+<td>Neuro hunt (+ druggability)</td>
+<td>77 → 131 hypotheses; 1,494 bridge candidates</td>
+</tr>
+<tr>
+<td>Infectious / immunology hunt</td>
+<td>209 hypotheses</td>
+</tr>
+<tr>
+<td>Rare-disease hunt</td>
+<td>1,491 hypotheses</td>
+</tr>
+<tr>
+<td><strong>Human-review atlas</strong></td>
+<td><strong>1,877 total — 726 ready to test · 1,082 held · 69 calibration</strong></td>
+</tr>
+<tr>
+<td><strong>Combination miner</strong></td>
+<td><strong>1,750 ranked drug-pair hypotheses</strong></td>
+</tr>
+<tr>
+<td>Safety demonstration</td>
+<td>one serious signal identified, validated as confounded, correctly demoted</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="appendix-d-methodological-integrity">Appendix D — methodological integrity</h2>
+<p>Every result in this paper follows one binding rule: a discovered association is a <strong>ranked, traceable hypothesis, never a verdict</strong>. It carries its full provenance chain and a sufficiency check, and it still requires experimental confirmation. A result is only recorded as "grounded" if it passed the engine's calibrated sufficiency check; no capability or finding is asserted that was not actually run and verified against stored data. Every quantity in this paper was re-read and checksummed from the durable output that produced it, rather than trusted as a transient computed value.</p>
+<p><strong>This paper makes no treatment, efficacy, safety, dosing, or clinical-actionability claim. Every hypothesis it describes is a computational research lead requiring experimental confirmation and expert review. The contribution is the engine that generates and screens those leads at scale — and the prioritized, traceable backlog it hands to the scientists and laboratories that will test them.</strong></p>
+<h1 class="part" id="part-ii-the-hypothesis-catalog-and-the-odds-of-usefulness">Part II — The Hypothesis Catalog and the Odds of Usefulness</h1>
+<p><em>A lead-by-lead companion. For every hypothesis the engine surfaced by name: what it is, what makes it special or unique, and a candid, subjective probability that pursuing it would produce something genuinely useful.</em></p>
+<h2 id="1-how-to-read-this-catalog">1. How to read this catalog</h2>
+<p>The engine produced far more hypotheses than any human would read: 726 leads marked ready for review, 1,082 more held behind evidence gates, 69 calibration references, and a separate 1,750 ranked drug-combination pairs. Cataloging literally <em>every one</em> of several thousand rows individually would be neither honest nor useful — most of the large rare-disease and combination buckets are variations on a theme, and the source only ever enumerated the top-ranked members of each.</p>
+<p>So this catalog does two things. For every hypothesis the engine surfaced <strong>by name</strong> — every lead that appears explicitly in the ranked outputs — it gives a full entry. For the large buckets where only the top rows were named, it details every named row and then characterizes the remainder statistically. Nothing here is invented; every lead below came out of the engine's own ranked tables.</p>
+<p>Each hunt section has the same shape: a table covering all its named leads, followed by prose deep-dives on the handful that genuinely matter. The tables carry three judgment columns, defined next.</p>
+<hr />
+<h2 id="2-the-probability-model-stated-honestly">2. The probability model, stated honestly</h2>
+<p>Three columns appear throughout. They are <strong>subjective priors, not experimental results.</strong> They encode my best reading of each lead against the current published science and against drug-discovery base rates — nothing in this engine has been tested at a bench.</p>
+<p><strong>Validity</strong> — is the underlying association <em>real</em>? Does the gene actually relate to the disease, does the drug actually act on the target? Graded High / Medium / Low.</p>
+<p><strong>Novelty</strong> — is it <em>new</em>? Three states:</p>
+<ul>
+<li><em>Known</em> — already established, often already approved. Zero discovery value; maximum calibration value (it proves the engine's scoring tracks real biology).</li>
+<li><em>Frontier</em> — real, plausible, and actively being researched but not yet standard of care. This is where genuine value concentrates.</li>
+<li><em>Fraught</em> — the association is a surface match (drug hits the disease gene's product) that a pharmacologist would reject on mechanism. Often <em>negative</em> value: pursuing it wastes resources or, in a few cases, would be actively harmful.</li>
+</ul>
+<p><strong>P(useful)</strong> — a single number: my estimate of the probability that pursuing this specific lead yields a <strong>real, non-obvious, translationally useful result.</strong> This deliberately scores already-approved pairings <em>low</em> (the biology is real but there is no new value) and scores mechanistically-broken matches <em>low</em> (they will not validate). It rewards only leads that are both plausibly real <strong>and</strong> not yet established. The anchor points:</p>
+<table>
+<thead>
+<tr>
+<th>Band</th>
+<th>Meaning</th>
+<th>Typical members</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>~1–3%</strong></td>
+<td>Already known, or mechanistically broken — little/no new value</td>
+<td>Approved pairings; dead-drug target matches; known disease-gene rediscoveries</td>
+</tr>
+<tr>
+<td><strong>~5–10%</strong></td>
+<td>Real but vague, or a known relationship dressed as a lead</td>
+<td>Broad inflammation/co-mention associations</td>
+</tr>
+<tr>
+<td><strong>~10–30%</strong></td>
+<td>Genuine research frontier: plausible, active, not yet established</td>
+<td>Repurposing leads with mechanistic logic and some external corroboration</td>
+</tr>
+<tr>
+<td><strong>&gt;30%</strong></td>
+<td>Reserved — nothing here earns it; the engine works at the edge of known science, not past it</td>
+<td>(none)</td>
+</tr>
+</tbody>
+</table>
+<p>For calibration against reality: a <em>randomly chosen</em> fresh target–disease hypothesis has low-single-digit-percent odds of ever becoming an approved therapy, against a ~US$2.6 billion capitalized cost and a decade-plus timeline. As of 2026 there are roughly 173 AI-originated drug programs in clinical development and <strong>not one has yet completed all trials and won approval.</strong> These P(useful) numbers are therefore small on purpose. A lead at 20% is, in this catalog, a <em>strong</em> lead.</p>
+<hr />
+<h2 id="3-oncology-hunt">3. Oncology hunt</h2>
+<p>The smallest and most rigorously-sourced hunt: 19 candidates, most drawn from curated precision-oncology evidence with formal evidence levels (A = strongest). This is the hunt where the engine's top pick is a fully approved therapy — the single best evidence that its ranking is anchored in real biology.</p>
+<table>
+<thead>
+<tr>
+<th>Lead (gene → cancer → drug)</th>
+<th>Evidence</th>
+<th>What makes it notable</th>
+<th>Validity</th>
+<th>Novelty</th>
+<th style="text-align: right;">P(useful)</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>NF1 → plexiform neurofibroma → <strong>selumetinib</strong></td>
+<td>Level A</td>
+<td>The engine's top oncology pick is an FDA-approved therapy for this exact indication</td>
+<td>High</td>
+<td>Known</td>
+<td style="text-align: right;">~2%</td>
+</tr>
+<tr>
+<td>NF1 → childhood low-grade glioma → selumetinib</td>
+<td>Level B</td>
+<td>Same drug, active/emerging pediatric indication</td>
+<td>High</td>
+<td>Frontier</td>
+<td style="text-align: right;">~15%</td>
+</tr>
+<tr>
+<td>IGF1R → breast cancer → <strong>metformin + exemestane</strong></td>
+<td>Level B</td>
+<td>Real IGF-axis + metabolic oncology research direction</td>
+<td>Medium</td>
+<td>Frontier</td>
+<td style="text-align: right;">~12%</td>
+</tr>
+<tr>
+<td>PTTG1 (overexpr.) → meningioma</td>
+<td>Level B</td>
+<td>Prognostic marker, not a therapy — biomarker lead</td>
+<td>Medium</td>
+<td>Frontier</td>
+<td style="text-align: right;">~8%</td>
+</tr>
+<tr>
+<td>LEPR (underexpr.) → meningioma</td>
+<td>Level B</td>
+<td>Prognostic marker; leptin-receptor biology in meningioma is under-studied</td>
+<td>Medium</td>
+<td>Frontier</td>
+<td style="text-align: right;">~8%</td>
+</tr>
+<tr>
+<td>NF1 → skin melanoma → vemurafenib</td>
+<td>Level C</td>
+<td><em>Cautionary:</em> NF1 loss is a known driver of BRAF-inhibitor <strong>resistance</strong></td>
+<td>Medium</td>
+<td>Fraught</td>
+<td style="text-align: right;">~4%</td>
+</tr>
+<tr>
+<td>NRAS → cancer → metformin + trametinib</td>
+<td>Level D</td>
+<td><em>Cautionary:</em> the exact pair the engine later flagged as confounded in a safety-signal check</td>
+<td>Low</td>
+<td>Fraught</td>
+<td style="text-align: right;">~3%</td>
+</tr>
+<tr>
+<td>NF1 → skin melanoma → sirolimus + mirdametinib</td>
+<td>Level D</td>
+<td>mTOR + MEK vertical-pathway combination logic</td>
+<td>Medium</td>
+<td>Frontier</td>
+<td style="text-align: right;">~10%</td>
+</tr>
+<tr>
+<td>NF1 (loss) → malignant peripheral nerve sheath tumor → JQ1</td>
+<td>Level D</td>
+<td>BET-bromodomain inhibitor; real preclinical MPNST research line</td>
+<td>Medium</td>
+<td>Frontier</td>
+<td style="text-align: right;">~9%</td>
+</tr>
+</tbody>
+</table>
+<p><strong>The deep dives:</strong></p>
+<p><strong>NF1 → plexiform neurofibroma → selumetinib (the calibration win).</strong> This is not a discovery and should not be sold as one. Selumetinib (Koselugo) has been FDA-approved for NF1-associated plexiform neurofibroma since 2020, with the label expanded to adults in 2025. Its value is the opposite of novelty: an unguided engine, ranking by its own internal scoring over curated evidence, independently placed a <em>correct, approved</em> gene→drug pairing at the top of its highest-quality hunt. That is one of the more reassuring results in this body of work, because it suggests the scoring is not just producing noise — here it tracked the same biology a pharmacologist would. Everything more speculative in this catalog earns its credibility from the fact that the engine got this one right. P(useful) as a <em>discovery</em> is ~2% only because the discovery already exists.</p>
+<p><strong>IGF1R → breast cancer → metformin + exemestane (a real frontier).</strong> Metformin's role in breast-cancer biology — via the IGF-1/insulin axis and AMPK signaling — is a genuine, actively-studied translational question, and combining it with an aromatase inhibitor like exemestane in ER-positive disease is exactly the kind of metabolic-oncology strategy under investigation. The engine landed on a plausible, live hypothesis without being told it was interesting. It is not established, hence the frontier tag and ~12%.</p>
+<p><strong>NF1 → melanoma → vemurafenib (the instructive mistake).</strong> This lead looks reasonable — NF1 is a melanoma driver, vemurafenib is an approved melanoma drug — but the mechanism runs the wrong way: loss of NF1 is a well-documented route to <em>resistance</em> against BRAF inhibitors like vemurafenib. The engine's own evidence layer flagged "predictive resistance" rows for the NF1/vemurafenib relationship. This is the target-match fallacy in miniature: a real gene, a real drug, a real cancer, and a pairing a specialist would reject. It earns its place in the catalog precisely as a worked example of why the P(useful) column has to be skeptical.</p>
+<hr />
+<h2 id="4-rare-disease-hunt">4. Rare-disease hunt</h2>
+<p>The largest and, for translational leverage, the most valuable hunt: 1,491 candidates built by composing standard rare-disease phenotype ontologies with the engine's substrate. Rare diseases are systematically under-researched — too many diseases, too few researchers, little commercial incentive — so a cheap engine that proposes thousands of screened gene→target→drug hypotheses at once is doing work the market otherwise leaves undone. That is the good news. The bad news is that the top of this list is where the <strong>target-match fallacy</strong> shows up most starkly, because the ranking rewards a bare "drug hits the protein made by the disease gene" match.</p>
+<table>
+<thead>
+<tr>
+<th>Lead (gene → disease → drug)</th>
+<th>Score</th>
+<th>What makes it notable</th>
+<th>Validity</th>
+<th>Novelty</th>
+<th style="text-align: right;">P(useful)</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>NOTCH3 → CADASIL cerebral arteriopathy → <strong>tarextumab</strong></td>
+<td>13.83</td>
+<td>Ranked #1 overall — but the drug is discontinued and the direction is unproven</td>
+<td>Low</td>
+<td>Fraught</td>
+<td style="text-align: right;">~1%</td>
+</tr>
+<tr>
+<td>BRAF → cardiofaciocutaneous syndrome → <strong>trametinib</strong></td>
+<td>13.51</td>
+<td>The genuine gem: MEK inhibition for a RASopathy is a real, active repurposing frontier</td>
+<td>Medium</td>
+<td>Frontier</td>
+<td style="text-align: right;">~20%</td>
+</tr>
+<tr>
+<td>BRAF → cardiofaciocutaneous syndrome → dabrafenib</td>
+<td>13.51</td>
+<td><em>Cautionary:</em> BRAF inhibitors can paradoxically activate MAPK in non-V600 RAS/RAF states</td>
+<td>Low</td>
+<td>Fraught</td>
+<td style="text-align: right;">~4%</td>
+</tr>
+<tr>
+<td>BRAF → cardiofaciocutaneous syndrome → cetuximab / panitumumab</td>
+<td>13.51</td>
+<td><em>Cautionary:</em> anti-EGFR antibodies — weak mechanistic rationale for a germline RASopathy</td>
+<td>Low</td>
+<td>Fraught</td>
+<td style="text-align: right;">~2%</td>
+</tr>
+<tr>
+<td>FLNA → Melnick–Needles syndrome → <strong>simufilam</strong></td>
+<td>13.47</td>
+<td><em>Cautionary:</em> the drug is scientifically discredited (failed Phase 3; fraud-tainted)</td>
+<td>Low</td>
+<td>Fraught</td>
+<td style="text-align: right;">&lt;1%</td>
+</tr>
+<tr>
+<td>BRCA2 → Fanconi anemia → <strong>olaparib</strong></td>
+<td>13.37</td>
+<td><em>Dangerous:</em> olaparib is selectively <strong>toxic</strong> to BRCA2-deficient cells</td>
+<td>Low</td>
+<td>Fraught</td>
+<td style="text-align: right;">~1%</td>
+</tr>
+<tr>
+<td>PIK3CA → meningioma → <strong>alpelisib</strong></td>
+<td>13.37</td>
+<td>Coherent precision-oncology repurposing: alpelisib targets mutant PIK3CA</td>
+<td>Medium</td>
+<td>Frontier</td>
+<td style="text-align: right;">~15%</td>
+</tr>
+</tbody>
+</table>
+<p><strong>The deep dives:</strong></p>
+<p><strong>BRAF → cardiofaciocutaneous syndrome → trametinib (the one genuinely worth chasing).</strong> Cardiofaciocutaneous (CFC) syndrome is a RASopathy — a developmental disorder of over-active RAS/MAPK signaling, frequently BRAF-driven. Trametinib is a MEK inhibitor that damps exactly that pathway <em>downstream</em> of BRAF. Off-label MEK inhibition (trametinib, selumetinib) for severe, life-threatening RASopathy manifestations is a real and active clinical-research effort, with published case series describing benefit in otherwise untreatable presentations. The engine reached this frontier from phenotype ontology data alone. Of every lead in this catalog, this is among the most defensible — a real disease mechanism, a mechanistically-correct drug, and an existing research community already moving in the same direction. Hence the ~20%, the highest single number in the document. Note the contrast with its own siblings: the <em>same</em> disease paired with dabrafenib (a BRAF inhibitor, which can paradoxically <em>activate</em> the pathway in these states) or with anti-EGFR antibodies is far weaker — the engine found the right disease but ranked right and wrong drugs identically, because it scored on target-name overlap, not mechanism direction.</p>
+<p><strong>NOTCH3 → CADASIL → tarextumab (ranked #1, and a trap).</strong> CADASIL is caused by mutations in NOTCH3 that lead to pathological accumulation of the receptor in small cerebral vessels. Tarextumab is an anti-Notch2/3 antibody — so on a pure target-name basis, the match is perfect, and the engine ranked it first overall. Two things sink it. First, tarextumab is a <em>discontinued</em> oncology drug that failed in pancreatic and small-cell lung cancer; it is not an available therapy. Second, whether blocking Notch3 helps, harms, or does nothing in a disease of <em>mutant</em> Notch3 vascular deposition is genuinely unknown and mechanistically fraught — the disease is not simply "too much Notch3 signaling." A #1 rank built entirely on nomenclature overlap is the clearest single illustration of why this catalog's probability column cannot follow the engine's own score.</p>
+<p><strong>BRCA2 → Fanconi anemia → olaparib (the dangerous one).</strong> This is the most important cautionary entry in the whole catalog, because acting on it could hurt someone. Olaparib is a PARP inhibitor whose entire therapeutic logic is <em>synthetic lethality</em>: it selectively kills cells that are already BRCA-deficient, which is why it treats BRCA-mutant cancers. Fanconi anemia patients carry that deficiency in <em>every cell in their body</em> (biallelic BRCA2/FANCD1 disease). Giving them a drug engineered to kill BRCA2-deficient cells inverts the entire rationale — it is far more likely to be toxic than therapeutic. Same gene name, opposite clinical meaning. The engine cannot tell the difference between "the tumor has this defect" (exploit it) and "the patient has this defect everywhere" (never exploit it). P(useful) ~1%, and flagged red for safety.</p>
+<p><strong>FLNA → Melnick–Needles syndrome → simufilam.</strong> Melnick–Needles is an FLNA (filamin A) disorder; simufilam was promoted as a filamin-A-modulating drug, so the names line up. But simufilam is the discredited Cassava Sciences Alzheimer's candidate that failed Phase 3 in 2024 amid a federal fraud indictment of its co-developer. A target match to a scientifically-repudiated molecule is not a lead. &lt;1%.</p>
+<p><strong>PIK3CA → meningioma → alpelisib.</strong> The cleanest frontier lead in this hunt. Alpelisib is an approved inhibitor of mutant PIK3CA (in breast cancer), PIK3CA mutations occur in a subset of meningiomas, and precision-oncology practice actively explores PIK3CA inhibitors across PIK3CA-mutant tumors. Mechanistically coherent, not yet established: ~15%.</p>
+<p><strong>On the other 1,483 rare-disease rows.</strong> Below the named top, the hunt is dominated by two structural patterns. 891 rows are gene→disease→drug bridges (like the ones above), and 600 are pure target-prioritization rows with no drug attached. The same rules apply at scale: a large fraction will be bare target matches that fail the direction/loss-vs-gain/germline check, a meaningful minority will be mechanistically coherent repurposing leads worth a specialist's afternoon, and the <em>aggregate</em> value is the long tail — thousands of screened starting points for diseases nobody else is systematically searching. If even 1–3% of the novel rare-disease rows are both real and non-obvious, that is dozens of genuine leads from a single automated run.</p>
+<hr />
+<h2 id="5-neurodegeneration-neuropsychiatric-hunt">5. Neurodegeneration / neuropsychiatric hunt</h2>
+<p>77 ranked rows (later normalized/expanded to 131). The top of this hunt is dominated by <em>known neurogenetics</em> — the engine rediscovering the causative-gene lists for neurofibromatosis and microcephaly — which is calibration, not discovery. The interesting material is lower down: a metformin/DPP4/schizophrenia bridge that maps onto a real research frontier.</p>
+<table>
+<thead>
+<tr>
+<th>Lead</th>
+<th>Score</th>
+<th>What makes it notable</th>
+<th>Validity</th>
+<th>Novelty</th>
+<th style="text-align: right;">P(useful)</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>NF1 → neurofibromatosis type 1</td>
+<td>0.95</td>
+<td>Textbook causative gene — pure calibration</td>
+<td>High</td>
+<td>Known</td>
+<td style="text-align: right;">~1%</td>
+</tr>
+<tr>
+<td>NF1 → neurofibromatosis-Noonan syndrome</td>
+<td>0.92</td>
+<td>Known RASopathy overlap</td>
+<td>High</td>
+<td>Known</td>
+<td style="text-align: right;">~2%</td>
+</tr>
+<tr>
+<td>KIF11 / PCNT / WDR62 / MCPH1 / CDK5RAP2 / NDE1 → microcephaly</td>
+<td>0.89–0.90</td>
+<td>All six are <em>established</em> microcephaly genes — the engine recovered the known panel</td>
+<td>High</td>
+<td>Known</td>
+<td style="text-align: right;">~1%</td>
+</tr>
+<tr>
+<td><strong>Metformin → DPP4 → schizophrenia</strong></td>
+<td>0.83</td>
+<td>Maps to real RCT-backed research on metformin in schizophrenia</td>
+<td>Medium</td>
+<td>Frontier</td>
+<td style="text-align: right;">~15%</td>
+</tr>
+<tr>
+<td>Saxagliptin / anagliptin / omarigliptin / … → DPP4 → schizophrenia</td>
+<td>0.87–0.83</td>
+<td>Engine over-generalizing from the metformin signal to the whole gliptin class</td>
+<td>Low</td>
+<td>Fraught</td>
+<td style="text-align: right;">~4%</td>
+</tr>
+<tr>
+<td>Proteinuria ↔ diffuse neurofibrillary tangles w/ calcification</td>
+<td>0.95</td>
+<td>Disease–disease co-mention cluster, not a mechanism</td>
+<td>Low</td>
+<td>Fraught</td>
+<td style="text-align: right;">~3%</td>
+</tr>
+<tr>
+<td>Meningitis (bacterial) ↔ subarachnoid hemorrhage</td>
+<td>0.89</td>
+<td>Co-mention cluster; plausibly a shared-presentation artifact</td>
+<td>Low</td>
+<td>Known</td>
+<td style="text-align: right;">~3%</td>
+</tr>
+<tr>
+<td>Tinnitus ↔ vertigo; otosclerosis ↔ tinnitus</td>
+<td>0.73–0.78</td>
+<td>Known clinical co-occurrence, no new content</td>
+<td>High</td>
+<td>Known</td>
+<td style="text-align: right;">~2%</td>
+</tr>
+<tr>
+<td>Quinidine / kanamycin / streptomycin / phenytoin → tinnitus</td>
+<td>(co-mention)</td>
+<td><em>Inverted:</em> these are known <em>causes</em> of ototoxic tinnitus, not treatments</td>
+<td>High</td>
+<td>Fraught</td>
+<td style="text-align: right;">~1%</td>
+</tr>
+</tbody>
+</table>
+<p><strong>The deep dives:</strong></p>
+<p><strong>Metformin → DPP4 → schizophrenia (the real signal in the noise).</strong> This is the one lead in the neuro hunt worth taking seriously as a research direction, and notably the engine itself scored it as only a <em>weak-to-moderate</em> bridge — an honest self-assessment. Metformin has multiple randomized controlled trials in schizophrenia, mostly targeting the metabolic side-effects of antipsychotics but with signals on cognitive and weight outcomes, and it is an active systematic-review topic. The engine surfaced a genuine, live question. The ~15% reflects that this is real and frontier, tempered by the fact that the specific <em>mechanistic framing</em> here (routing it through DPP4) is thinner than the metformin evidence itself.</p>
+<p><strong>The gliptin/schizophrenia fan-out (over-generalization).</strong> Having found the metformin/schizophrenia signal, the engine proposed the entire DPP4-inhibitor class — saxagliptin, anagliptin, omarigliptin, prusogliptin, bisegliptin, even valacyclovir (whose DPP4 link it flagged as "mechanistically ambiguous") — for schizophrenia. This is a characteristic failure mode: a real signal for one drug gets extrapolated to a target class without independent evidence for each member. These are marked Fraught not because they are impossible but because they inherit their entire plausibility from a single neighbor. ~4% each.</p>
+<p><strong>The microcephaly gene panel (calibration, mislabeled as leads).</strong> Ranks 4–10 are KIF11, PCNT, WDR62, MCPH1, CDK5RAP2, and NDE1 against microcephaly. Every one of these is a <em>textbook causative microcephaly gene</em>. The engine recovered the known panel — excellent evidence that its target-disease scoring is sound, but zero discovery value and no drug attached. These belong in the calibration column alongside NF1, not in a leads worklist.</p>
+<p><strong>The tinnitus drugs (a direction inversion worth noting).</strong> Quinidine, kanamycin, streptomycin, and phenytoin all appear associated with tinnitus. But these are classic <em>ototoxic</em> agents — they are known <em>causes</em> of tinnitus, not candidate treatments. The engine surfaced a real, strong association and got its <em>sign</em> wrong, exactly as in the melanoma/vemurafenib and olaparib/Fanconi cases. A useful reminder that a high association score is direction-blind.</p>
+<hr />
+<h2 id="6-infectious-immunology-inflammation-hunt">6. Infectious / immunology / inflammation hunt</h2>
+<p>The largest non-rare hunt: 209 ranked rows. Its top is almost entirely <em>known-positive immunology</em> — the engine recovering approved biologic therapies — which is why the source itself flagged that calibration rows were crowding out novelty. As a discovery worklist the top is low-value; as proof the scoring works, it is excellent.</p>
+<table>
+<thead>
+<tr>
+<th>Lead (drug → target → disease)</th>
+<th>Score</th>
+<th>What makes it notable</th>
+<th>Validity</th>
+<th>Novelty</th>
+<th style="text-align: right;">P(useful)</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Golimumab / certolizumab → TNF → psoriatic arthritis</td>
+<td>1.40</td>
+<td>Approved anti-TNF biologics for the exact disease — calibration</td>
+<td>High</td>
+<td>Known</td>
+<td style="text-align: right;">~2%</td>
+</tr>
+<tr>
+<td>Infliximab → IL12B → psoriasis</td>
+<td>1.24</td>
+<td>Established biologic-target-disease immunology</td>
+<td>High</td>
+<td>Known</td>
+<td style="text-align: right;">~2%</td>
+</tr>
+<tr>
+<td>Ibalizumab → CD4 → HIV</td>
+<td>1.18</td>
+<td>Approved CD4-directed antibody for HIV — calibration</td>
+<td>High</td>
+<td>Known</td>
+<td style="text-align: right;">~2%</td>
+</tr>
+<tr>
+<td>Tregalizumab / zanolimumab → CD4 → HIV</td>
+<td>1.20–1.28</td>
+<td><em>Cautionary:</em> discontinued/non-HIV CD4 antibodies matched by target name</td>
+<td>Low</td>
+<td>Fraught</td>
+<td style="text-align: right;">~2%</td>
+</tr>
+<tr>
+<td>Placulumab / cefotaxime → TNF → psoriatic arthritis</td>
+<td>1.25–1.27</td>
+<td><em>Noise:</em> a non-anti-TNF antibody and an antibiotic mis-bridged onto TNF</td>
+<td>Low</td>
+<td>Fraught</td>
+<td style="text-align: right;">~1%</td>
+</tr>
+<tr>
+<td>Ipratropium ↔ steroids; steroids ↔ theophylline</td>
+<td>1.24</td>
+<td>Asthma co-prescription co-mentions, not new biology</td>
+<td>High</td>
+<td>Known</td>
+<td style="text-align: right;">~2%</td>
+</tr>
+<tr>
+<td>Streptomycin → Klebsiella infections / rhinoscleroma</td>
+<td>0.95–0.98</td>
+<td>Actually a <em>correct</em> known antimicrobial indication (rhinoscleroma)</td>
+<td>High</td>
+<td>Known</td>
+<td style="text-align: right;">~3%</td>
+</tr>
+<tr>
+<td>Thalassemia ↔ Salmonella infections</td>
+<td>0.91</td>
+<td>Real, textbook susceptibility association</td>
+<td>High</td>
+<td>Known</td>
+<td style="text-align: right;">~3%</td>
+</tr>
+<tr>
+<td>TNF / CD4 / CD8A → proteinuria</td>
+<td>1.20–1.25</td>
+<td>Broad inflammation-in-kidney-disease association; vague as a lead</td>
+<td>Medium</td>
+<td>Frontier</td>
+<td style="text-align: right;">~7%</td>
+</tr>
+</tbody>
+</table>
+<p><strong>The deep dives:</strong></p>
+<p><strong>The anti-TNF / anti-CD4 top block (calibration, and a mixed bag underneath).</strong> Golimumab and certolizumab for TNF-driven psoriatic arthritis, infliximab for IL12B in psoriasis, and ibalizumab for CD4 in HIV are all <em>approved, correct</em> pairings. The engine ranking them at the top is a clean calibration win. But immediately beneath them sit target-name look-alikes that do <em>not</em> carry the same weight: tregalizumab and zanolimumab are anti-CD4 antibodies developed for other indications (and discontinued/repurposed), and placulumab (an antibody) and cefotaxime (an antibiotic) landed on the psoriatic-arthritis list only because they touched "TNF" in the source graph. This is the calibration-vs-noise problem: correct approved biology and mechanistically-empty name matches receive nearly identical scores.</p>
+<p><strong>The pathogen associations that are actually right.</strong> Two low-glamour rows deserve credit. Streptomycin against <em>Klebsiella</em>/rhinoscleroma is a <em>correct</em> known indication — rhinoscleroma (chronic <em>Klebsiella rhinoscleromatis</em> infection) really is treated with aminoglycosides. And thalassemia's association with <em>Salmonella</em> susceptibility is textbook. The engine recovered real infectious-disease knowledge. Zero novelty, but these are the reassuring "it isn't hallucinating" rows.</p>
+<p><strong>TNF / CD4 / CD8A → proteinuria (real but shapeless).</strong> These immune targets genuinely relate to kidney inflammation and proteinuria — the biology is real. But "TNF associates with proteinuria" is not, by itself, an actionable therapeutic hypothesis; it is a broad, well-known relationship with no drug and no direction. It scores as Frontier/Medium and ~7% because a specialist <em>could</em> build something from it, but the engine has not done that work.</p>
+<hr />
+<h2 id="7-metabolic-cardiovascular-renal-hunt">7. Metabolic / cardiovascular / renal hunt</h2>
+<p>The most tightly-bounded hunt: 35 rows, with metformin/DPP4 material explicitly carried as <em>known context</em> rather than claimed discovery. The top is target-context (associations without a drug); the drug-bearing rows are conventional antihypertensives.</p>
+<table>
+<thead>
+<tr>
+<th>Lead</th>
+<th>Score</th>
+<th>What makes it notable</th>
+<th>Validity</th>
+<th>Novelty</th>
+<th style="text-align: right;">P(useful)</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>TNF → proteinuria (target-disease)</td>
+<td>6.80</td>
+<td>Highest-scored row; broad inflammation association, no drug</td>
+<td>Medium</td>
+<td>Frontier</td>
+<td style="text-align: right;">~7%</td>
+</tr>
+<tr>
+<td>CD4 → proteinuria</td>
+<td>6.51</td>
+<td>Same class of immune-renal association</td>
+<td>Medium</td>
+<td>Frontier</td>
+<td style="text-align: right;">~6%</td>
+</tr>
+<tr>
+<td>CD8A → proteinuria</td>
+<td>5.40</td>
+<td>Same class</td>
+<td>Medium</td>
+<td>Frontier</td>
+<td style="text-align: right;">~5%</td>
+</tr>
+<tr>
+<td>Steroids → proteinuria</td>
+<td>4.94</td>
+<td>Steroids in proteinuric kidney disease is standard care — known</td>
+<td>High</td>
+<td>Known</td>
+<td style="text-align: right;">~2%</td>
+</tr>
+<tr>
+<td>Nifedipine → hypertension</td>
+<td>4.80</td>
+<td>Approved antihypertensive — pure calibration</td>
+<td>High</td>
+<td>Known</td>
+<td style="text-align: right;">~1%</td>
+</tr>
+<tr>
+<td>Verapamil → hypertension</td>
+<td>4.80</td>
+<td>Approved antihypertensive — pure calibration</td>
+<td>High</td>
+<td>Known</td>
+<td style="text-align: right;">~1%</td>
+</tr>
+<tr>
+<td>Alogliptin / linagliptin / saxagliptin / sitagliptin / vildagliptin → DPP4 → type 2 diabetes</td>
+<td>4.0–4.4</td>
+<td>Approved gliptins for diabetes — explicitly flagged as known context</td>
+<td>High</td>
+<td>Known</td>
+<td style="text-align: right;">~1%</td>
+</tr>
+</tbody>
+</table>
+<p><strong>The deep dive:</strong></p>
+<p>This hunt is mostly a calibration exercise, and usefully so. Nifedipine and verapamil for hypertension, and the gliptin class for type 2 diabetes, are all approved, correct, and were <em>labeled as known context by the engine itself</em> rather than dressed up as findings — an honest touch. The only rows with any research texture are the immune-target→proteinuria associations (TNF, CD4, CD8A), which are real inflammation-in-nephropathy biology but, as in the infectious hunt, too broad to be a lead without a specialist attaching a mechanism and a molecule. Nothing in this hunt is novel; its worth is as further evidence that the scoring recovers established cardiometabolic biology.</p>
+<hr />
+<h2 id="8-the-human-review-atlas-the-leads-that-rose-to-the-top">8. The human-review atlas: the leads that rose to the top</h2>
+<p>When all five hunts were consolidated, deduplicated, and re-ranked by a blended confidence×novelty score into the 726-lead review atlas, these rose to the very top. Tellingly, the atlas's top is <em>not</em> the same as any single hunt's top — the combined novelty weighting pushed the broad renal-inflammation and disease-cluster associations up, and pushed the known-approved calibration pairings down (they were routed to the 69-row calibration set instead). That reranking is the atlas working as intended.</p>
+<table>
+<thead>
+<tr>
+<th style="text-align: right;">Atlas rank</th>
+<th>Lead</th>
+<th>Area</th>
+<th style="text-align: right;">Confidence</th>
+<th style="text-align: right;">Novelty</th>
+<th>What makes it notable</th>
+<th style="text-align: right;">P(useful)</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: right;">1</td>
+<td>TNF → proteinuria</td>
+<td>metabolic/renal</td>
+<td style="text-align: right;">0.56</td>
+<td style="text-align: right;">0.75</td>
+<td>Highest combined score; real immune-renal biology, no drug/direction yet</td>
+<td style="text-align: right;">~7%</td>
+</tr>
+<tr>
+<td style="text-align: right;">2</td>
+<td>Diffuse neurofibrillary tangles w/ calcification ↔ proteinuria</td>
+<td>neuro</td>
+<td style="text-align: right;">0.44</td>
+<td style="text-align: right;">0.73</td>
+<td>High-novelty <em>because</em> it is an odd cross-domain co-mention — novelty score rewards strangeness, not correctness</td>
+<td style="text-align: right;">~3%</td>
+</tr>
+<tr>
+<td style="text-align: right;">3</td>
+<td>CD4 → proteinuria</td>
+<td>metabolic/renal</td>
+<td style="text-align: right;">0.55</td>
+<td style="text-align: right;">0.72</td>
+<td>Immune-renal association</td>
+<td style="text-align: right;">~6%</td>
+</tr>
+<tr>
+<td style="text-align: right;">4</td>
+<td>CD8A → proteinuria</td>
+<td>metabolic/renal</td>
+<td style="text-align: right;">0.54</td>
+<td style="text-align: right;">0.70</td>
+<td>Immune-renal association</td>
+<td style="text-align: right;">~5%</td>
+</tr>
+<tr>
+<td style="text-align: right;">5</td>
+<td>Subarachnoid hemorrhage ↔ bacterial meningitis</td>
+<td>neuro</td>
+<td style="text-align: right;">0.40</td>
+<td style="text-align: right;">0.64</td>
+<td>Cross-domain cluster; plausibly shared acute-presentation artifact</td>
+<td style="text-align: right;">~3%</td>
+</tr>
+</tbody>
+</table>
+<p><strong>What the atlas top actually teaches.</strong> Rank 1 is a real but shapeless association; ranks 2 and 5 are <em>disease–disease co-mention clusters</em> that scored high on novelty precisely because they are unusual pairings — and unusual is not the same as correct. This exposes a structural point the main paper's blindspot section makes: the engine's novelty score measures <em>surprise within its own graph</em>, not <em>novelty against the literature</em>, and surprise is exactly what artifactual co-mentions produce. The genuinely promising frontier leads from the individual hunts (BRAF/CFC/trametinib, PIK3CA/meningioma/alpelisib, metformin/schizophrenia) sit <em>below</em> these in the blended atlas ranking. A human reviewer working the atlas top-down would hit noise before signal — which is itself a useful finding about how to weight the ranking.</p>
+<hr />
+<h2 id="9-drug-combination-hypotheses">9. Drug-combination hypotheses</h2>
+<p>A separate miner generated 1,750 ranked drug-pair hypotheses from the atlas components. Every single one is <em>blocked</em> — not because the pairs are bad, but because the miner is fail-closed: it refuses to promote any pair missing component safety data, pair-interaction evidence, or external synergy evidence, and the safety substrate covered only 14 of 1,023 drug components. So the 1,750 are best read as a <em>structured worklist naming exactly what evidence each pair still needs</em>, not as ranked bets.</p>
+<table>
+<thead>
+<tr>
+<th style="text-align: right;">Rank</th>
+<th>Pair</th>
+<th>Context</th>
+<th>What makes it notable</th>
+<th style="text-align: right;">P(useful)</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: right;">1</td>
+<td>Metformin + sitagliptin</td>
+<td>type 2 diabetes</td>
+<td>Already a marketed fixed-dose combination — pure calibration</td>
+<td style="text-align: right;">~1%</td>
+</tr>
+<tr>
+<td style="text-align: right;">2</td>
+<td>Metformin + saxagliptin</td>
+<td>type 2 diabetes</td>
+<td>Already marketed together — calibration</td>
+<td style="text-align: right;">~1%</td>
+</tr>
+<tr>
+<td style="text-align: right;">3</td>
+<td>Metformin + alogliptin</td>
+<td>type 2 diabetes</td>
+<td>Already marketed together — calibration</td>
+<td style="text-align: right;">~1%</td>
+</tr>
+<tr>
+<td style="text-align: right;">4</td>
+<td>Metformin + linagliptin</td>
+<td>type 2 diabetes</td>
+<td>Already marketed together — calibration</td>
+<td style="text-align: right;">~1%</td>
+</tr>
+<tr>
+<td style="text-align: right;">5</td>
+<td>Sunitinib + everolimus</td>
+<td>hereditary pheochromocytoma-paraganglioma</td>
+<td>Both are real agents studied in PPGL; genuine frontier combination</td>
+<td style="text-align: right;">~12%</td>
+</tr>
+</tbody>
+</table>
+<p><strong>The one external-evidence hook.</strong> The miner cross-checked all pairs against DrugComb, a preclinical cell-line synergy database, and got 28 exact pair-key matches covering 47 rows. Those pairs carry independent <em>preclinical</em> corroboration that their combination does something measurable in cells — the only rows in the entire combination set with outside support. That corroboration does not clear the safety/interaction blocks and is not clinical efficacy, but it is the right place for a reviewer to start.</p>
+<p><strong>Reading the top honestly.</strong> The top four combination "hypotheses" are metformin+gliptin pairs that are <em>already sold as single pills</em> — the miner rediscovered marketed combination products, which is calibration, not discovery. The first genuinely interesting row is sunitinib + everolimus for hereditary pheochromocytoma-paraganglioma: both drugs are individually studied in PPGL, the combination has a real angiogenesis-plus-mTOR rationale, and it is not established. That is the combination lead worth a specialist's attention. As with the single-agent hunts, the useful signal sits just below a layer of already-known material at the top.</p>
+<hr />
+<h2 id="10-the-portfolio-view-what-the-whole-set-is-worth">10. The portfolio view: what the whole set is worth</h2>
+<p>Putting the individual numbers together, the honest shape of the value is a portfolio, not a jackpot:</p>
+<ul>
+<li>
+<p><strong>Calibration tier (~10–15% of named leads, and the 69-row reference set):</strong> approved pairings and known disease-gene panels — NF1/selumetinib, the anti-TNF and anti-CD4 biologics, the antihypertensives, the gliptins, the microcephaly genes. Discovery value ≈ 0. Their worth is that they <em>validate the machine</em>: an unguided engine that keeps placing correct, approved biology at the top of independent hunts is an engine whose scoring can be trusted on the harder rows.</p>
+</li>
+<li>
+<p><strong>Frontier tier (a minority of named leads):</strong> BRAF/CFC-syndrome → trametinib (~20%), PIK3CA/meningioma → alpelisib (~15%), metformin → schizophrenia (~15%), IGF1R/breast → metformin+exemestane (~12%), sunitinib+everolimus → PPGL (~12%), NF1/MPNST → JQ1 (~9%). These are the actual bets. Each is plausible, mechanistically defensible, not yet established, and — crucially — the engine reached each one <em>unprompted</em>. None is a sure thing; a 15–20% lead is, against industry base rates, a strong one.</p>
+</li>
+<li>
+<p><strong>Fraught tier (a meaningful slice of the top-ranked rare-disease and class-extrapolation rows):</strong> tarextumab/CADASIL, simufilam/Melnick-Needles, olaparib/Fanconi, the dabrafenib and anti-EGFR siblings, the gliptin/schizophrenia fan-out, the ototoxic "tinnitus treatments." These have low or <em>negative</em> expected value and, in the olaparib/Fanconi case, real safety risk. They are the price of a scoring function that rewards target-name overlap without a mechanism-direction check.</p>
+</li>
+<li>
+<p><strong>The long tail (the bulk of the 726 ready + 1,082 held):</strong> individually low-probability, collectively the point. If just 1–3% of the <em>novel</em> leads across all hunts turn out to be both real and non-obvious, that is on the order of <strong>10–30 genuine, useful contributions</strong> from a single automated run — most of them in rare and neglected diseases where nothing else was systematically searching. That is the number that justifies the whole exercise.</p>
+</li>
+</ul>
+<p>The realistic expected value of this specific run is therefore: a handful of frontier leads worth a specialist's serious time (led by the MEK-inhibitor RASopathy and PIK3CA-meningioma hypotheses), a larger set of screened rare-disease starting points worth cheap triage, a clear demonstration that the scoring recovers known biology, and a concrete, worked catalog of the failure mode (target-match without mechanism) that the next version of the engine should screen out. <strong>AI filled the funnel; a human still has to empty it — but the funnel is real, and a few things in it are worth carrying downstream.</strong></p>
+<hr />
+<h2 id="11-honest-caveats-on-every-number-in-this-document">11. Honest caveats on every number in this document</h2>
+<ul>
+<li><strong>The probabilities are subjective priors, not measurements.</strong> No hypothesis here has been tested at a bench. Every P(useful) is my judgment, anchored to a literature check and to industry base rates, and a different expert would move individual numbers by 5–10 points. Treat them as <em>relative</em> rankings and rough magnitudes, not precise odds.</li>
+<li><strong>"Useful" is defined narrowly and deliberately harshly:</strong> real, non-obvious, <em>and</em> translationally actionable. That is why approved, correct biology scores <em>low</em> — there is no new value in rediscovering it — even though those are the rows we are <em>most</em> certain are true. Do not read a low number on a calibration row as "the engine got it wrong"; it got it exactly right, which is the point.</li>
+<li><strong>The novelty judgments are against the published literature as I checked it, not against the engine's internal novelty score.</strong> The two disagree, and where they do (the atlas top), the literature check is the one to trust.</li>
+<li><strong>The fraught-tier leads are not merely "less good" — several would fail on mechanism or, in one case, could harm a patient.</strong> The olaparib/Fanconi row in particular must never be read as a treatment suggestion.</li>
+<li><strong>The large-bucket estimates (the rare-disease tail, the held rows) are statistical characterizations, not row-by-row verdicts.</strong> Only the named leads received individual judgment; the rest are described by pattern.</li>
+<li><strong>Nothing here is medical advice.</strong> Every entry is a computational hypothesis awaiting expert review, and some of the named entries are included specifically as examples of hypotheses that should be <em>rejected</em>.</li>
+</ul>
+<h3 id="sources-consulted-for-the-novelty-and-mechanism-judgments">Sources consulted for the novelty and mechanism judgments</h3>
+<p>Selumetinib (Koselugo) FDA approval for NF1 plexiform neurofibroma (2020; adult expansion 2025). · MEK-inhibitor repurposing in RASopathies (trametinib/selumetinib) — review and case-series literature. · Metformin in schizophrenia — randomized controlled trials and systematic reviews. · Alpelisib in PIK3CA-mutant tumors (approved in breast cancer; explored across PIK3CA-mutant solid tumors). · Tarextumab (anti-Notch2/3) development discontinued after Phase 2 oncology failures. · Simufilam Phase 3 failure (2024) and fraud indictment of its co-developer. · Olaparib synthetic-lethal selectivity for BRCA-deficient cells (PARP-inhibitor mechanism). · NF1 loss as a mechanism of BRAF-inhibitor resistance in melanoma. · Aminoglycoside (streptomycin) treatment of rhinoscleroma; thalassemia–Salmonella susceptibility. · Drug-development cost (~US$2.6B capitalized) and clinical success rates (~10% Phase I→approval); 2026 AI-drug-discovery landscape (~173 clinical-stage AI programs, no fully AI-originated approval yet).</p>
+<h1 class="part" id="part-iii-the-rejection-ledger">Part III — The Rejection Ledger</h1>
+<p><em>The safety story. Every hypothesis, drug pairing, and safety signal the engine identified as wrong, dangerous, confounded, or unproven — with the reason and the human stakes. Rejecting a bad idea before anyone acts on it is quieter than proposing a good one, but for a system meant to feed real medicine it is at least as important.</em></p>
+<h2 id="1-first-a-necessary-distinction-bad-lead-is-not-bad-drug">1. First, a necessary distinction: "bad lead" is not "bad drug"</h2>
+<p>This document must open with a clarification, because the phrase "drugs the system proved weren't good" is easy to misread.</p>
+<p>The engine did <strong>not</strong> discover that any medicine is bad. Almost every drug named in this ledger is a legitimate, often life-saving therapy: doxorubicin and cytarabine are cornerstone chemotherapies, olaparib is a highly effective cancer drug, metformin is one of the most widely-used and safest medicines on earth. Nothing here overturns that.</p>
+<p>What the engine flagged is narrower and more useful: <strong>specific proposed uses, pairings, and signals that are wrong, unproven, or dangerous.</strong> A drug that is excellent for one purpose can be useless — or lethal — when pointed at the wrong disease, combined with the wrong partner, or matched to a gene by name without regard to mechanism. Every "rejection" below is a rejection of a <em>hypothesis about a drug</em>, not a verdict on the drug itself. Read every entry as "this <strong>idea</strong> is bad," never "this <strong>medicine</strong> is bad." Where a distinction matters for a real person's safety, this document makes it explicit.</p>
+<hr />
+<h2 id="2-why-the-rejections-are-the-safety-story">2. Why the rejections are the safety story</h2>
+<p>Generating hypotheses is only half of a discovery engine's job. The other half — the half that decides whether the engine is safe to connect to real medicine — is refusing the ones that should not move forward. There are two reasons this matters a great deal.</p>
+<p><strong>The economic reason.</strong> Drug development is brutally expensive: roughly a decade and ~US$2.6 billion of capitalized cost per approved drug, against low-single-digit success odds. The most expensive resource in that pipeline is not the hypothesis — it is the wet-lab time, animal studies, and eventually human trials spent testing it. An engine that can <em>reject</em> a plausible-looking but wrong lead before a single experiment is run protects exactly that resource. A correct "no" can be worth more than a speculative "maybe."</p>
+<p><strong>The human reason.</strong> Some wrong leads are not merely wasteful — they are hazardous. A hypothesis engine that produces a confident, evidence-decorated recommendation to give a patient a drug that would harm them is worse than useless. The engine's fail-closed discipline — <em>when in doubt, block</em> — exists precisely so that a dangerous idea (like the headline case in Category A) is stopped at the machine, not at the bedside.</p>
+<p>The design principle throughout is <strong>fail-closed</strong>: a lead is blocked unless it has affirmatively cleared its evidence, safety, and counter-evidence gates. Missing data is treated as a block, never as a pass. That is why the numbers in this ledger are large: of 1,877 total generated hypotheses, <strong>1,082 were blocked or demoted before ever reaching a human reviewer</strong>, and of 1,750 drug-combination hypotheses, <strong>all 1,750 were blocked.</strong> The following categories break down what was caught and why.</p>
+<hr />
+<h2 id="3-category-a-mechanistically-dangerous-leads-that-could-harm-a-patient">3. Category A — Mechanistically dangerous: leads that could harm a patient</h2>
+<p>These are the most important rejections in the entire body of work, because acting on them could hurt someone. In each, the engine's own scoring initially ranked the lead <em>highly</em> — the danger is exactly why a downstream rejection discipline is non-negotiable.</p>
+<h3 id="a1-olaparib-for-fanconi-anemia-the-drug-would-attack-the-patients-own-cells">A1. Olaparib for Fanconi anemia — the drug would attack the patient's own cells</h3>
+<p><strong>The lead:</strong> Fanconi anemia is (in one genetic subtype) a disorder of biallelic <em>BRCA2</em> deficiency. Olaparib is a PARP inhibitor that acts on the BRCA/DNA-repair axis. On a pure target-name basis, the match looked strong enough to rank near the very top of the rare-disease hunt.</p>
+<p><strong>Why it is dangerous:</strong> Olaparib's entire therapeutic logic is <em>synthetic lethality</em> — it works in cancer precisely because it <strong>selectively kills cells that are already BRCA-deficient.</strong> In a BRCA2-mutant tumor, that is a feature: the drug kills the cancer and spares normal cells. But a Fanconi anemia patient carries the BRCA2 deficiency in <strong>every cell of their body.</strong> Giving them a drug engineered to kill BRCA2-deficient cells inverts the entire rationale — it would be expected to be broadly toxic, not therapeutic. The same gene name means "exploit this" in cancer and "never exploit this" in the germline disease. An automated system that scores on target overlap cannot, by itself, tell those two situations apart.</p>
+<p><strong>Human impact:</strong> This is the clearest illustration of why a hypothesis engine must never be a consumer-facing recommender. A desperate family reading a confident, well-formatted lead pairing a real cancer drug with their child's rare disease could be catastrophically misled. The value of the engine here is entirely in the <em>rejection</em>: the lead is flagged, held behind review, and travels with the warning that it is a computational hypothesis — several of which are wrong or harmful. <strong>Severity: Dangerous. Status: blocked, flagged as a worked example of the failure mode.</strong></p>
+<h3 id="a2-dabrafenib-for-cardiofaciocutaneous-syndrome-the-right-disease-a-drug-that-can-make-it-worse">A2. Dabrafenib for cardiofaciocutaneous syndrome — the right disease, a drug that can make it worse</h3>
+<p><strong>The lead:</strong> Cardiofaciocutaneous (CFC) syndrome is a RASopathy driven by over-active RAS/MAPK signaling, frequently through <em>BRAF</em>. Dabrafenib is a BRAF inhibitor. The engine paired them — and, tellingly, scored dabrafenib <em>identically</em> to the mechanistically-correct MEK inhibitor trametinib for the same disease.</p>
+<p><strong>Why it is wrong:</strong> BRAF inhibitors like dabrafenib can cause <strong>paradoxical activation</strong> of the MAPK pathway in cells with certain upstream RAS/RAF states — the opposite of the intended effect. In a developmental disorder of pathway over-activity, a drug that can <em>further</em> activate the pathway is not a benign miss; it is a mechanistically plausible way to make things worse. The engine found the correct disease and the correct pathway but could not distinguish a drug that <em>dampens</em> it (trametinib — a genuine research frontier) from one that can <em>inflame</em> it (dabrafenib). <strong>Severity: Wrong-direction. Status: separated from the viable sibling lead in review.</strong></p>
+<hr />
+<h2 id="4-category-b-backwards-drugs-that-cause-or-worsen-the-very-condition">4. Category B — Backwards: drugs that cause, or worsen, the very condition</h2>
+<p>A recurring, instructive failure the engine surfaced is the <strong>direction inversion</strong>: a strong, real association between a drug and a condition, where the drug is the <em>cause</em> of the condition or a driver of <em>resistance</em> — not a treatment. A high association score is direction-blind; catching these is a core rejection function.</p>
+<table>
+<thead>
+<tr>
+<th>Rejected lead</th>
+<th>What the engine "saw"</th>
+<th>The actual relationship</th>
+<th>Severity</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Quinidine → tinnitus</td>
+<td>Strong drug–symptom association</td>
+<td>Quinidine is <strong>ototoxic</strong> — a known <em>cause</em> of tinnitus</td>
+<td>Wrong-direction</td>
+</tr>
+<tr>
+<td>Kanamycin → tinnitus</td>
+<td>Strong drug–symptom association</td>
+<td>Aminoglycoside ototoxicity — a <em>cause</em> of tinnitus/hearing loss</td>
+<td>Wrong-direction</td>
+</tr>
+<tr>
+<td>Streptomycin → tinnitus</td>
+<td>Strong drug–symptom association</td>
+<td>Aminoglycoside ototoxicity — a <em>cause</em> of tinnitus</td>
+<td>Wrong-direction</td>
+</tr>
+<tr>
+<td>Phenytoin → tinnitus</td>
+<td>Strong drug–symptom association</td>
+<td>Phenytoin toxicity can <em>cause</em> tinnitus/ototoxic effects</td>
+<td>Wrong-direction</td>
+</tr>
+<tr>
+<td>NF1-mutant melanoma → vemurafenib</td>
+<td>Real gene–drug–cancer association</td>
+<td>NF1 loss is a documented mechanism of <strong>resistance</strong> to BRAF inhibitors like vemurafenib</td>
+<td>Wrong-direction</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Why these matter:</strong> Each is a case where the raw data is <em>correct</em> — quinidine really is strongly associated with tinnitus — but the clinically meaningful direction is the reverse of a treatment. If an engine surfaced "quinidine for tinnitus" as a lead and a reviewer took the association at face value, the proposal would be to treat a symptom with one of its causes. The rejection discipline (and the engine's own note that these were co-mention associations, not causal treatment claims) is what keeps a strong-but-inverted signal from being read as a therapy.</p>
+<p><strong>Human impact:</strong> Direction-blindness is one of the most general risks of association-based discovery, and this ledger's value is partly in naming it concretely. A downstream user now knows that the engine can rank an ototoxic drug against the very symptom it causes — and that mechanism-direction screening, not raw association strength, is what separates a lead from its mirror image.</p>
+<hr />
+<h2 id="5-category-c-dead-or-discredited-molecules">5. Category C — Dead or discredited molecules</h2>
+<p>Some leads matched a disease's gene to a drug that no longer exists as a viable therapy — because it failed, was withdrawn, or was scientifically repudiated. A target match to a dead molecule is not a lead.</p>
+<h3 id="c1-tarextumab-for-cadasil-cerebral-arteriopathy">C1. Tarextumab for CADASIL cerebral arteriopathy</h3>
+<p><strong>The lead:</strong> CADASIL is caused by <em>NOTCH3</em> mutations. Tarextumab is an anti-Notch2/3 antibody. The names align so cleanly that the engine ranked this <strong>#1 in the entire rare-disease hunt.</strong></p>
+<p><strong>Why it is not a lead:</strong> Two independent problems. First, tarextumab is a <strong>discontinued</strong> oncology drug — it failed in pancreatic and small-cell lung cancer and is not an available therapy. Second, even mechanistically, whether <em>blocking</em> Notch3 helps, harms, or does nothing in a disease of <em>mutant Notch3 accumulation</em> in blood-vessel walls is genuinely unknown; CADASIL is not simply "too much Notch3 signaling." A #1 ranking built entirely on nomenclature overlap is the sharpest single demonstration of why the engine's internal score cannot be trusted without a mechanism-and-viability check. <strong>Severity: Dead-drug + unproven mechanism. Status: blocked.</strong></p>
+<h3 id="c2-simufilam-for-melnickneedles-syndrome">C2. Simufilam for Melnick–Needles syndrome</h3>
+<p><strong>The lead:</strong> Melnick–Needles syndrome is an <em>FLNA</em> (filamin A) disorder. Simufilam was promoted as a filamin-A–modulating drug, so the target names line up.</p>
+<p><strong>Why it is not a lead:</strong> Simufilam is the <strong>scientifically discredited</strong> Cassava Sciences Alzheimer's candidate. It failed its Phase 3 trials in 2024, and its development was shadowed by a federal fraud indictment of its co-developer over manipulated research data. A target match to a repudiated, fraud-tainted molecule carries negative value — pursuing it would chase a compound the scientific community has already rejected on integrity grounds. <strong>Severity: Discredited drug. Status: blocked.</strong></p>
+<hr />
+<h2 id="6-category-d-the-confounded-safety-signal-correctly-caught">6. Category D — The confounded safety signal, correctly caught</h2>
+<p>This is the ledger's best example of the engine catching a <em>statistical</em> trap rather than a mechanistic one — and it is worth telling in full, because it is exactly the kind of false alarm that naive data-mining produces and confident systems get wrong.</p>
+<p><strong>The signal:</strong> In an adverse-event database screen, the pair <strong>metformin + trametinib</strong> threw a serious safety signal — a real, serious report in the FDA's public FAERS adverse-event system, with reactions including a lower-gastrointestinal hemorrhage. A naive reading would conclude: "these two drugs together cause dangerous bleeding — flag the combination as unsafe."</p>
+<p><strong>Why that reading is wrong:</strong> The engine pulled and dissected the actual underlying case report instead of trusting the aggregate signal. What it found:</p>
+<ul>
+<li>The report listed <strong>19 concomitant drugs</strong>, not two — a classic polypharmacy case.</li>
+<li>Metformin and trametinib were present but only as <strong>concomitant</strong> medications, not the reported cause.</li>
+<li>The <strong>primary suspect drug was the anticoagulant apixaban (Eliquis)</strong> — a blood thinner whose association with gastrointestinal bleeding is well established and entirely sufficient to explain the reported reaction.</li>
+</ul>
+<p>The engine therefore classified the signal as <strong>confounded</strong> — a serious event correctly attributed to an anticoagulant in a many-drug report, <em>not</em> evidence that metformin and trametinib interact dangerously — and kept the pair blocked pending human review rather than either clearing it or falsely condemning it.</p>
+<p><strong>Human impact:</strong> This cuts both ways, and both are valuable. A system that <em>manufactured</em> a metformin–trametinib interaction warning from this report would inject a false safety scare into the literature. A system that <em>ignored</em> the signal entirely would be reckless. The engine did neither: it isolated the confounder, named apixaban as the real primary suspect, explained the polypharmacy structure, and held the pair for review. That is precisely the judgment that protects both patients (from a fabricated warning) and researchers (from wasting time chasing a phantom interaction). <strong>Severity: Confounded signal, correctly demoted. Status: blocked with mechanistic explanation.</strong></p>
+<hr />
+<h2 id="7-category-e-drug-pair-adverse-interaction-signals">7. Category E — Drug-pair adverse-interaction signals</h2>
+<p>Separately, a screen against a large curated drug-drug interaction resource surfaced seven drug pairs carrying elevated adverse-event association ratios (a proportional reporting-ratio, or PRR, is how strongly two drugs co-occur with adverse reports relative to chance). These are <strong>not</strong> proposed therapies — they are <em>interaction warnings</em>: pairs that the data suggests may not be safe together. The engine kept every one blocked, and — importantly — refused to treat the raw statistical signal as confirmed without independent corroboration.</p>
+<table>
+<thead>
+<tr>
+<th>Drug pair</th>
+<th style="text-align: right;">Adverse-signal strength (max PRR)</th>
+<th>Independent confirmation?</th>
+<th>Status</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Saxagliptin + sitagliptin</td>
+<td style="text-align: right;">60</td>
+<td>none found</td>
+<td>blocked, unconfirmed</td>
+</tr>
+<tr>
+<td>Etanercept + ribavirin</td>
+<td style="text-align: right;">40</td>
+<td>none found</td>
+<td>blocked, unconfirmed</td>
+</tr>
+<tr>
+<td>Infliximab + sitagliptin</td>
+<td style="text-align: right;">40</td>
+<td>none found</td>
+<td>blocked, unconfirmed</td>
+</tr>
+<tr>
+<td>Sitagliptin + valacyclovir</td>
+<td style="text-align: right;">40</td>
+<td>none found</td>
+<td>blocked, unconfirmed</td>
+</tr>
+<tr>
+<td>Metformin + trametinib</td>
+<td style="text-align: right;">40</td>
+<td>one FAERS report — confounded (see Category D)</td>
+<td>blocked, confounded</td>
+</tr>
+<tr>
+<td>Etanercept + sitagliptin</td>
+<td style="text-align: right;">30</td>
+<td>none found</td>
+<td>blocked, unconfirmed</td>
+</tr>
+</tbody>
+</table>
+<p><strong>What the engine did right here:</strong> For six of the seven pairs, the interaction signal existed <em>only</em> in the statistical resource, with <strong>no independent confirmation</strong> from regulatory labels or literature — so the engine explicitly marked them "signal present, not independently confirmed, still blocked" rather than promoting them to warnings. A note on the top row: saxagliptin and sitagliptin are <em>both DPP-4 inhibitors</em>, so a co-reporting signal for the two together most plausibly reflects redundant/duplicative prescribing rather than a novel toxic interaction — another reason the raw ratio needed context, not blind trust.</p>
+<p><strong>Human impact:</strong> Adverse-event databases are noisy; unfiltered, they generate false interaction scares that can frighten patients off useful drugs. The engine's discipline — surface the signal, demand independent confirmation, block until you have it — is the correct posture for turning noisy pharmacovigilance data into something a human can safely review.</p>
+<hr />
+<h2 id="8-category-f-high-risk-and-unknown-safety-drugs-held-for-review">8. Category F — High-risk and unknown-safety drugs, held for review</h2>
+<p>Every drug-bearing therapeutic lead the engine produced was automatically blocked from promotion until a safety review completed. Two sub-groups are worth naming.</p>
+<p><strong>F1. Real drugs with serious known toxicity, flagged for mandatory review.</strong> These are essential medicines — nobody is calling them "bad" — but the engine correctly attached their known danger profile so no lead using them could be treated as casually safe:</p>
+<table>
+<thead>
+<tr>
+<th>Drug (in an oncology lead)</th>
+<th>Known risk profile the engine attached</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Doxorubicin</td>
+<td>Boxed warning; contraindications; serious/fatal adverse reports</td>
+</tr>
+<tr>
+<td>Cytarabine</td>
+<td>Boxed warning; contraindications; serious/fatal adverse reports</td>
+</tr>
+<tr>
+<td>Sirolimus</td>
+<td>Boxed warning; contraindications; serious/fatal adverse reports</td>
+</tr>
+<tr>
+<td>Metformin</td>
+<td>Boxed warning (lactic acidosis); contraindications; large adverse-report volume</td>
+</tr>
+<tr>
+<td>Gemcitabine</td>
+<td>Contraindications; warnings; serious/fatal adverse reports</td>
+</tr>
+<tr>
+<td>Vemurafenib</td>
+<td>Contraindications; interactions; serious/fatal adverse reports</td>
+</tr>
+<tr>
+<td>Selumetinib</td>
+<td>Contraindications; interactions; serious/fatal adverse reports</td>
+</tr>
+<tr>
+<td>Trametinib / mirdametinib</td>
+<td>Contraindications; warnings; serious adverse reports</td>
+</tr>
+</tbody>
+</table>
+<p>The point is not that these drugs are disqualified — it is that the engine refused to let a hypothesis using a boxed-warning chemotherapy be ranked as though it were harmless. Each is held under a standing rule: no clinical promotion until a safety review is complete.</p>
+<p><strong>F2. Research compounds with <em>no</em> safety data — blocked because nothing is known.</strong> Three leads relied on early research chemicals with no FDA label and no adverse-event record at all: <strong>AZ628</strong>, <strong>JQ1 (a BET-bromodomain tool compound)</strong>, and <strong>VTX-11e</strong>. The engine did not treat "no data" as "no risk." It failed these closed — <em>safety source unavailable</em> — precisely because an absence of safety information is itself a reason to stop, not a green light. <strong>Severity: Unknown-safety. Status: blocked, fail-closed.</strong></p>
+<p><strong>Human impact:</strong> The uniform rule — every drug lead blocked until safety is reviewed, and unknown safety treated as a block — is what keeps the engine from ever silently implying that a hypothesis is safe to try. For a tool meant to feed real medicine, "we don't know yet, so stop" is the ethically correct default.</p>
+<hr />
+<h2 id="9-category-g-the-systematic-falsification-sweep-1082-leads-blocked">9. Category G — The systematic falsification sweep: 1,082 leads blocked</h2>
+<p>Beyond the marquee cases, the engine ran a fail-closed counter-evidence sweep across all 1,877 generated hypotheses. The outcome is the quantitative backbone of this ledger:</p>
+<table>
+<thead>
+<tr>
+<th>Outcome</th>
+<th style="text-align: right;">Count</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Blocked or demoted before human review</strong></td>
+<td style="text-align: right;"><strong>1,082</strong></td>
+<td>Failed a required-evidence or counter-evidence gate</td>
+</tr>
+<tr>
+<td>Blocked — missing required evidence/safety</td>
+<td style="text-align: right;">1,066</td>
+<td>Fail-closed: needed trial or safety data was absent</td>
+</tr>
+<tr>
+<td>Demoted — hard counter-evidence found</td>
+<td style="text-align: right;">16</td>
+<td>The literature/data actively <em>contradicted</em> the lead</td>
+</tr>
+<tr>
+<td>Demoted — an associated clinical trial was <strong>stopped</strong></td>
+<td style="text-align: right;">1</td>
+<td>A halted trial is a real-world negative signal</td>
+</tr>
+<tr>
+<td>Passed the sweep with no counter-evidence (still not cleared)</td>
+<td style="text-align: right;">795</td>
+<td>No contradiction found — but <em>not</em> proof of correctness</td>
+</tr>
+</tbody>
+</table>
+<p>The dominant blockers, by reason:</p>
+<ul>
+<li><strong>~1,028 leads</strong> blocked because no clinical-trial evidence existed for the proposed drug–disease pairing.</li>
+<li><strong>~991 leads</strong> blocked because required safety data was missing (fail-closed).</li>
+<li><strong>~90 leads</strong> blocked because the drug carried a high-risk/boxed-warning label section.</li>
+<li><strong>16 leads</strong> actively contradicted by counter-evidence, and <strong>1</strong> attached to a stopped trial.</li>
+</ul>
+<p><strong>Two honest points about these numbers.</strong> First, most of the 1,082 were blocked for <em>missing</em> evidence, not <em>disproving</em> evidence — the engine is saying "not shown," not "shown false." That is the correct, conservative reading. Second, the 795 that passed with no counter-evidence are <strong>not</strong> validated; "we found nothing against it in the current sources" is a long way from "it works." The sweep's job is to <em>remove</em> the clearly-unsupported, not to bless the remainder.</p>
+<p><strong>Human impact:</strong> This is triage at a scale no human could do by hand — nearly 1,900 hypotheses each checked against literature, trials, drug-gene evidence, target data, and safety records, with a documented reason for every block. It means a human reviewer inherits a worklist that has already had its clearly-unsupported and actively-contradicted members filtered out, each with the receipts for <em>why</em>.</p>
+<hr />
+<h2 id="10-category-h-the-combination-miner-all-1750-pairs-blocked">10. Category H — The combination miner: all 1,750 pairs blocked</h2>
+<p>The drug-combination miner generated 1,750 ranked drug-pair hypotheses — and blocked <strong>every single one.</strong> This is not a failure of the miner; it is the fail-closed rule working at full strength. A combination cannot be promoted unless <em>all three</em> of component safety, pair-interaction evidence, and external synergy evidence are present, and the available safety substrate covered only a handful of the drug components.</p>
+<table>
+<thead>
+<tr>
+<th>Blocking reason</th>
+<th style="text-align: right;">Pairs affected</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>A component was already blocked/demoted upstream</td>
+<td style="text-align: right;">1,750 (all)</td>
+</tr>
+<tr>
+<td>Pair-interaction evidence missing (fail-closed)</td>
+<td style="text-align: right;">~1,745</td>
+</tr>
+<tr>
+<td>External synergy evidence missing (fail-closed)</td>
+<td style="text-align: right;">~1,703</td>
+</tr>
+<tr>
+<td>Component safety data missing (fail-closed)</td>
+<td style="text-align: right;">~1,727</td>
+</tr>
+<tr>
+<td>Overlapping component safety flags — review required</td>
+<td style="text-align: right;">17</td>
+</tr>
+</tbody>
+</table>
+<p>Even the top-ranked "hypotheses" here are instructive rejections. The four highest — metformin + sitagliptin, + saxagliptin, + alogliptin, + linagliptin, all for type 2 diabetes — are combinations <strong>already sold as fixed-dose products</strong>; the miner rediscovered marketed pills rather than proposing anything new, and blocked them anyway for missing its evidence gates. Only a preclinical-synergy cross-check added any outside support: 28 pairs matched a cell-line synergy database, the sole rows with independent (and merely <em>preclinical</em>, non-clinical) corroboration.</p>
+<p><strong>Human impact:</strong> Drug combinations are where danger multiplies — two individually-tolerable drugs can interact badly, and the space of possible pairs is enormous. An engine that generates 1,750 combination ideas and then <em>refuses to promote any of them without safety and interaction evidence</em> is modeling exactly the caution the domain demands. The 1,750 are best read not as recommendations but as a <strong>worklist that names, for each pair, precisely which evidence must be gathered before anyone considers it.</strong></p>
+<hr />
+<h2 id="11-what-the-rejection-discipline-means-for-humanity">11. What the rejection discipline means for humanity</h2>
+<p>Step back from the individual cases and the shape of the contribution becomes clear.</p>
+<p><strong>A discovery engine is only as trustworthy as its "no."</strong> It is easy to build a system that spits out plausible-sounding drug ideas; the value — and the safety — is entirely in whether it can also recognize which of its own ideas are wrong, unproven, or dangerous, and say so plainly. This engine caught a drug that would attack a patient's own cells (olaparib/Fanconi), drugs pointed at symptoms they actually cause (the ototoxic "tinnitus treatments"), dead and discredited molecules ranked #1 by name overlap (tarextumab, simufilam), a scary-looking safety signal that was really an anticoagulant in disguise (metformin/trametinib), and roughly 1,082 of its own hypotheses that could not clear their evidence gates. Every one of those is a mistake that <em>did not</em> propagate downstream.</p>
+<p><strong>It protects the two scarcest resources in medicine: lab time and patient safety.</strong> Every correct rejection is wet-lab time not wasted on a doomed lead and — in the dangerous cases — a harmful idea stopped at the machine rather than the bedside. Against a backdrop where a single drug program costs ~US$2.6 billion and a decade, and where naive data-mining routinely produces false safety scares, a <em>systematic, explainable, fail-closed</em> rejection layer is a real, if unglamorous, contribution.</p>
+<p><strong>It makes automated discovery honest.</strong> The engine never claimed efficacy, never treated missing data as safety, and attached a documented reason to every block. That transparency is the opposite of a black box: a human expert can read <em>why</em> each lead was rejected and overrule it if they disagree. In an era of confident AI systems that rarely show their reasoning, an engine whose most-repeated output is a well-justified "not yet, and here is exactly what's missing" is modeling the right behavior.</p>
+<p>The realistic statement of value is therefore symmetrical to the hypothesis catalog. There, the message was "AI fills the funnel; humans empty it." Here it is the necessary complement: <strong>AI can also help guard the funnel — catching the wrong, the backwards, the dead, and the dangerous before a human, or a patient, acts on them.</strong> For a technology meant to touch real medicine, that guarding function is not a lesser one than the generating; it is part of what would make the generating safe to use at all. None of it removes the need for expert review — the dangerous cases in this ledger were caught by mechanistic reasoning applied <em>to</em> the engine's output, not by the engine's own scoring (§12) — but a screening layer that filters the clearly-wrong before a human ever sees it is a sensible and useful default.</p>
+<hr />
+<h2 id="12-honest-limits-of-this-ledger">12. Honest limits of this ledger</h2>
+<ul>
+<li><strong>The engine's rejections are as bounded as its knowledge.</strong> A lead marked "no counter-evidence found" only means none was found <em>in the current sources</em>; a broader search could contradict it. Absence of a rejection is not a clearance.</li>
+<li><strong>Missing-evidence blocks are not disproofs.</strong> The overwhelming majority of the 1,082 blocked leads failed for <em>absent</em> data, not <em>contradicting</em> data. Many could become viable once the missing trial or safety evidence exists. Blocked ≠ wrong.</li>
+<li><strong>The dangerous cases were caught by human-supplied mechanistic reasoning applied to the output, not by the engine's raw scoring.</strong> The engine <em>ranked</em> olaparib/Fanconi near the top; it is the rejection layer and expert review that flag it. The scoring function itself still needs mechanism-direction, loss-vs-gain, and germline-vs-somatic screens it does not yet have. The rejections in this ledger are the argument <em>for</em> adding them.</li>
+<li><strong>These are computational judgments, not clinical rulings.</strong> Nothing here is medical advice. Some entries — the ototoxic drugs, olaparib/Fanconi — are included specifically as examples of ideas that must be rejected, and none should be read as guidance to do anything to a patient.</li>
+<li><strong>The severity and reason labels are interpretive.</strong> The raw block statuses and counts come from the engine's own outputs; the plain-language "why it's wrong" and severity tags are my reading of them against the published science.</li>
+</ul>
+<h3 id="sources-consulted-for-the-mechanism-and-status-judgments">Sources consulted for the mechanism and status judgments</h3>
+<p>Olaparib synthetic-lethal selectivity for BRCA-deficient cells (PARP-inhibitor mechanism). · BRAF-inhibitor paradoxical MAPK activation in RAS/non-V600 states; MEK inhibition as the mechanistically-correct RASopathy strategy. · NF1 loss as a mechanism of BRAF-inhibitor resistance in melanoma. · Aminoglycoside (streptomycin, kanamycin) and quinidine/phenytoin ototoxicity as <em>causes</em> of tinnitus/hearing loss. · Tarextumab (anti-Notch2/3) discontinuation after Phase 2 oncology failures. · Simufilam Phase 3 failure (2024) and fraud indictment of its co-developer. · Apixaban (Eliquis) association with gastrointestinal bleeding. · FDA boxed-warning / adverse-event context via openFDA drug label and FAERS. · Drug-development cost (~US$2.6B capitalized) and clinical success rates.</p>
+</body></html>

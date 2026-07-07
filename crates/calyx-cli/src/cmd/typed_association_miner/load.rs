@@ -6,8 +6,13 @@ use std::path::Path;
 use serde_json::Value;
 
 use super::model::{
-    AssociationHypothesis, ConceptNode, ScanOutput, TypedAssociationMinerArgs, TypedPath,
-    new_hypothesis,
+    AssociationHypothesis, BlockedAssociationCandidate, ConceptNode, ScanOutput,
+    TypedAssociationMinerArgs, TypedPath, new_hypothesis,
+};
+use crate::cmd::mechanistic_direction::{
+    MechanisticDirectionEvidence, MutationConsequence, TargetModulation,
+    infer_observed_target_modulation, infer_required_target_modulation, modulation_name,
+    mutation_consequence_name,
 };
 use crate::error::{CliError, CliResult};
 
@@ -36,13 +41,14 @@ pub(super) fn scan_edges(
     nodes: &BTreeMap<String, ConceptNode>,
 ) -> CliResult<ScanOutput> {
     let mut grouped = BTreeMap::<(String, String), AssociationHypothesis>::new();
+    let mut blocked_candidates = Vec::new();
     let mut scanned = 0_usize;
     let limit_reached = for_jsonl(
         &args.typed_root.join("typed_edges.jsonl"),
         args.max_input_edges,
         |row, _| {
             scanned += 1;
-            absorb_edge(args, nodes, row, &mut grouped)
+            absorb_edge(args, nodes, row, &mut grouped, &mut blocked_candidates)
         },
     )?;
     let max_support = grouped
@@ -55,6 +61,7 @@ pub(super) fn scan_edges(
         limit_reached,
         max_support,
         candidates: grouped.into_values().collect(),
+        blocked_candidates,
     })
 }
 
@@ -63,6 +70,7 @@ fn absorb_edge(
     nodes: &BTreeMap<String, ConceptNode>,
     row: &Value,
     grouped: &mut BTreeMap<(String, String), AssociationHypothesis>,
+    blocked: &mut Vec<BlockedAssociationCandidate>,
 ) -> CliResult {
     if str_field(row, "edge_type") != "associated_with" {
         return Ok(());
@@ -83,20 +91,41 @@ fn absorb_edge(
     let Some(target) = nodes.get(&str_field(row, "target")) else {
         return Ok(());
     };
-    let Some((source, target)) = oriented_pair(args, source, target) else {
+    let mechanistic = is_mechanistic_unordered_pair(source, target);
+    let Some((source, target)) = oriented_pair(args, source, target, mechanistic) else {
         return Ok(());
     };
-    let (source, target) = canonicalize_unscoped_pair(args, source, target);
+    let (source, target) = canonicalize_unscoped_pair(args, source, target, mechanistic);
+    let direction = if is_mechanistic_pair(source, target) {
+        let direction = direction_for_pair(row, source, target);
+        if !direction_accepted(source, target, &direction) {
+            blocked.push(blocked_candidate(row, source, target, direction));
+            return Ok(());
+        }
+        Some(direction)
+    } else if mechanistic {
+        let direction = unsupported_mechanistic_orientation();
+        blocked.push(blocked_candidate(row, source, target, direction));
+        return Ok(());
+    } else {
+        None
+    };
     let key = (source.node_id.clone(), target.node_id.clone());
     let entry = grouped
         .entry(key)
         .or_insert_with(|| new_hypothesis(source, target));
+    if let Some(direction) = &direction
+        && !merge_direction(entry, direction)
+    {
+        blocked.push(blocked_candidate(row, source, target, direction.clone()));
+        return Ok(());
+    }
     entry.support_count += support;
     entry.path_count += 1;
     if entry.typed_paths.len() < args.max_paths_per_pair {
         entry
             .typed_paths
-            .push(path(row, support, args.max_paths_per_pair));
+            .push(path(row, support, args.max_paths_per_pair, direction));
     }
     Ok(())
 }
@@ -105,10 +134,11 @@ fn oriented_pair<'a>(
     args: &TypedAssociationMinerArgs,
     source: &'a ConceptNode,
     target: &'a ConceptNode,
+    mechanistic: bool,
 ) -> Option<(&'a ConceptNode, &'a ConceptNode)> {
     if pair_matches(args, source, target) {
         Some((source, target))
-    } else if pair_matches(args, target, source) {
+    } else if !mechanistic && pair_matches(args, target, source) {
         Some((target, source))
     } else {
         None
@@ -119,8 +149,13 @@ fn canonicalize_unscoped_pair<'a>(
     args: &TypedAssociationMinerArgs,
     source: &'a ConceptNode,
     target: &'a ConceptNode,
+    mechanistic: bool,
 ) -> (&'a ConceptNode, &'a ConceptNode) {
-    if args.source_type.is_none() && args.target_type.is_none() && source.node_id > target.node_id {
+    if !mechanistic
+        && args.source_type.is_none()
+        && args.target_type.is_none()
+        && source.node_id > target.node_id
+    {
         (target, source)
     } else {
         (source, target)
@@ -137,7 +172,12 @@ fn pair_matches(
         && name_match(args.name_contains.as_deref(), source, target)
 }
 
-fn path(row: &Value, support: usize, max_paths: usize) -> TypedPath {
+fn path(
+    row: &Value,
+    support: usize,
+    max_paths: usize,
+    direction: Option<MechanisticDirectionEvidence>,
+) -> TypedPath {
     TypedPath {
         edge_id: str_field(row, "edge_id"),
         edge_type: str_field(row, "edge_type"),
@@ -145,6 +185,129 @@ fn path(row: &Value, support: usize, max_paths: usize) -> TypedPath {
         source_issue: u64_field(row, "source_issue"),
         source_hashes: string_array(row, "source_hash", max_paths),
         support_cx_ids: string_array(row, "support_cx_ids", max_paths),
+        mechanistic_direction: direction,
+    }
+}
+
+fn is_mechanistic_pair(source: &ConceptNode, target: &ConceptNode) -> bool {
+    is_gene_like(source) && target.concept_type == "disease"
+        || source.concept_type == "chemical" && is_gene_like(target)
+}
+
+fn is_mechanistic_unordered_pair(source: &ConceptNode, target: &ConceptNode) -> bool {
+    (is_gene_like(source) && target.concept_type == "disease")
+        || (source.concept_type == "disease" && is_gene_like(target))
+        || (source.concept_type == "chemical" && is_gene_like(target))
+        || (is_gene_like(source) && target.concept_type == "chemical")
+}
+
+fn is_gene_like(node: &ConceptNode) -> bool {
+    matches!(node.concept_type.as_str(), "gene" | "gene_protein")
+}
+
+fn unsupported_mechanistic_orientation() -> MechanisticDirectionEvidence {
+    MechanisticDirectionEvidence {
+        status: "direction_blocked".to_string(),
+        reason_codes: vec!["CALYX_MECH_UNSUPPORTED_ASSERTED_ORIENTATION".to_string()],
+        ..MechanisticDirectionEvidence::default()
+    }
+}
+
+fn direction_for_pair(
+    row: &Value,
+    source: &ConceptNode,
+    target: &ConceptNode,
+) -> MechanisticDirectionEvidence {
+    if is_gene_like(source) && target.concept_type == "disease" {
+        infer_required_target_modulation(row)
+    } else if source.concept_type == "chemical" && is_gene_like(target) {
+        infer_observed_target_modulation(row)
+    } else {
+        MechanisticDirectionEvidence {
+            status: "not_mechanistic".to_string(),
+            ..MechanisticDirectionEvidence::default()
+        }
+    }
+}
+
+fn direction_accepted(
+    source: &ConceptNode,
+    target: &ConceptNode,
+    direction: &MechanisticDirectionEvidence,
+) -> bool {
+    if is_gene_like(source) && target.concept_type == "disease" {
+        direction.is_required_direction_known()
+    } else if source.concept_type == "chemical" && is_gene_like(target) {
+        direction.is_observed_action_known()
+    } else {
+        true
+    }
+}
+
+fn merge_direction(
+    hypothesis: &mut AssociationHypothesis,
+    direction: &MechanisticDirectionEvidence,
+) -> bool {
+    if let Some(required) = direction.required_target_modulation_name() {
+        if let Some(existing) = hypothesis.required_target_modulation
+            && modulation_name(existing) != Some(required.as_str())
+        {
+            return false;
+        }
+        hypothesis.required_target_modulation = Some(direction.required_target_modulation);
+        hypothesis.mutation_consequence = Some(direction.mutation_consequence);
+        hypothesis.mechanistic_direction_status = direction.status.clone();
+    }
+    if let Some(observed) = direction.observed_target_modulation_name() {
+        if let Some(existing) = hypothesis.observed_target_modulation
+            && modulation_name(existing) != Some(observed.as_str())
+        {
+            return false;
+        }
+        hypothesis.observed_target_modulation = Some(direction.observed_target_modulation);
+        hypothesis.mechanistic_direction_status = direction.status.clone();
+    }
+    hypothesis
+        .direction_reason_codes
+        .extend(direction.reason_codes.iter().cloned());
+    if direction.mutation_consequence != MutationConsequence::Unknown {
+        hypothesis
+            .direction_reason_codes
+            .extend(mutation_consequence_name(direction.mutation_consequence).map(str::to_string));
+    }
+    if direction.required_target_modulation != TargetModulation::Unknown {
+        hypothesis.direction_reason_codes.extend(
+            modulation_name(direction.required_target_modulation)
+                .map(|value| format!("required_target_modulation:{value}")),
+        );
+    }
+    if direction.observed_target_modulation != TargetModulation::Unknown {
+        hypothesis.direction_reason_codes.extend(
+            modulation_name(direction.observed_target_modulation)
+                .map(|value| format!("observed_target_modulation:{value}")),
+        );
+    }
+    hypothesis.direction_reason_codes.sort();
+    hypothesis.direction_reason_codes.dedup();
+    true
+}
+
+fn blocked_candidate(
+    row: &Value,
+    source: &ConceptNode,
+    target: &ConceptNode,
+    direction: MechanisticDirectionEvidence,
+) -> BlockedAssociationCandidate {
+    BlockedAssociationCandidate {
+        edge_id: str_field(row, "edge_id"),
+        source_id: source.node_id.clone(),
+        source_name: source.normalized_name.clone(),
+        source_type: source.concept_type.clone(),
+        target_id: target.node_id.clone(),
+        target_name: target.normalized_name.clone(),
+        target_type: target.concept_type.clone(),
+        reason_codes: direction.reason_codes.clone(),
+        mechanistic_direction: direction,
     }
 }
 
