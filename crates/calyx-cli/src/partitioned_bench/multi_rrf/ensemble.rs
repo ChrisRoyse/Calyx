@@ -402,6 +402,7 @@ mod tests {
             bits_about: Some(0.1),
             vault: PathBuf::from(format!("vault-{slot}")),
             queries: PathBuf::from(format!("queries-{slot}.i8bin")),
+            query_start_row: 0,
             corpus: PathBuf::from(format!("corpus-{slot}.i8bin")),
         }
     }

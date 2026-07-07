@@ -59,6 +59,24 @@ struct OpenSlot {
     distance_metric: calyx_sextant::index::PartitionDistanceMetric,
 }
 
+impl OpenSlot {
+    fn query_row(&self, query_idx: usize) -> u64 {
+        self.spec.query_start_row + query_idx as u64
+    }
+
+    fn query_capacity(&self) -> CliResult<usize> {
+        let count = self.queries.count();
+        if self.spec.query_start_row > count {
+            return Err(CliError::usage(format!(
+                "slot {} query_start_row={} exceeds query rows {}",
+                self.spec.slot, self.spec.query_start_row, count
+            )));
+        }
+        usize::try_from(count - self.spec.query_start_row)
+            .map_err(|_| CliError::usage("query row count exceeds usize"))
+    }
+}
+
 pub(crate) fn run(raw: &[String]) -> CliResult {
     let args = args::Args::parse(raw)?;
     let loaded_plan = load_plan(&args)?;
@@ -83,9 +101,9 @@ pub(crate) fn run(raw: &[String]) -> CliResult {
         args.recall_floor.is_some() && a37_admission_readback.is_none(),
     )?;
     let slots = open_slots(plan, &loaded_plan.base_dir)?;
-    let n = slots
-        .iter()
-        .fold(args.n, |acc, slot| acc.min(slot.queries.count() as usize));
+    let n = slots.iter().try_fold(args.n, |acc, slot| {
+        Ok::<usize, CliError>(acc.min(slot.query_capacity()?))
+    })?;
     let corpus_rows = slots
         .iter()
         .fold(u64::MAX, |acc, slot| acc.min(slot.corpus.count())) as usize;
@@ -226,7 +244,11 @@ pub(crate) fn run(raw: &[String]) -> CliResult {
         let slot_hits = slots
             .par_iter()
             .map(|slot| {
-                let query = row_for_metric(&slot.queries, query_idx as u64, slot.distance_metric);
+                let query = row_for_metric(
+                    &slot.queries,
+                    slot.query_row(query_idx),
+                    slot.distance_metric,
+                );
                 let raw_hits = slot
                     .search
                     .search_with_readback_opts(&query, truth_depth, search_opts)

@@ -146,9 +146,10 @@ fn render_counts(out: &mut Vec<String>, report: &Value, limit_slots: usize) {
             let name = scalar(&slot["name"]);
             let n_regions = scalar(&slot["n_regions"]);
             let dim = scalar(&slot["dim"]);
+            let query_start_row = scalar(&slot["query_start_row"]);
             out.push(format!(
-                "slot slot={} name={} dim={} n_regions={}",
-                slot_id, name, dim, n_regions
+                "slot slot={} name={} dim={} n_regions={} query_start_row={}",
+                slot_id, name, dim, n_regions, query_start_row
             ));
         }
     }
@@ -337,7 +338,7 @@ mod tests {
         assert!(text.contains("latency_p99_us=24000\n"));
         assert!(text.contains("lens_roster_len=2\n"));
         assert!(text.contains("slots_shown=1\n"));
-        assert!(text.contains("slot slot=0 name=semantic dim=768 n_regions=12"));
+        assert!(text.contains("slot slot=0 name=semantic dim=768 n_regions=12 query_start_row=9"));
         assert!(text.contains("a37_gate_passed=true\n"));
         assert!(text.contains("temporal_active_count=1000\n"));
         assert!(!text.contains('{'));
@@ -363,8 +364,8 @@ mod tests {
             "lens_roster": [{"slot": 0}, {"slot": 1}],
             "per_lens_bits": [{"slot": 0}, {"slot": 1}],
             "slots": [
-                {"slot": 0, "name": "semantic", "dim": 768, "n_regions": 12},
-                {"slot": 1, "name": "lexical", "dim": 512, "n_regions": 9}
+                {"slot": 0, "name": "semantic", "dim": 768, "n_regions": 12, "query_start_row": 9},
+                {"slot": 1, "name": "lexical", "dim": 512, "n_regions": 9, "query_start_row": 9}
             ],
             "queries": 1000,
             "k": 10,

@@ -279,6 +279,7 @@ mod tests {
             bits_about: Some(0.05 + f32::from(idx) * 0.01),
             vault: PathBuf::from(format!("vault-{idx}")),
             queries: PathBuf::from(format!("queries-{idx}.fbin")),
+            query_start_row: 0,
             corpus: PathBuf::from(format!("corpus-{idx}.fbin")),
         }
     }

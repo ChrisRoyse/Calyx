@@ -27,15 +27,20 @@ pub(crate) fn run(raw: &[String]) -> CliResult {
                 "queries",
             )?;
         }
+        if let Some(query_start_row) = args.query_start_row {
+            slot.query_start_row = query_start_row;
+        }
         slot.vault = new_vault;
     }
     if let Some(base_dir) = args.base_dir {
         record.base_dir = base_dir;
     }
+    record.imported_plan_sha256 =
+        rrf_plan::plan_identity_sha256(&record.base_dir, &record.plan).map_err(CliError::Calyx)?;
     let written =
         rrf_plan::write(&args.cf_root, &args.plan_key, &record).map_err(CliError::Calyx)?;
     println!(
-        "partitioned_rrf_plan_remap_db from_cf_root={} from_plan_key={} source_value_sha256={} cf_root={} plan_key={} slot_count={} vault_root={} queries_from_corpus={} value_bytes={} value_sha256={} readback_matches={}",
+        "partitioned_rrf_plan_remap_db from_cf_root={} from_plan_key={} source_value_sha256={} cf_root={} plan_key={} slot_count={} vault_root={} queries_from_corpus={} query_start_row={} plan_sha256={} value_bytes={} value_sha256={} readback_matches={}",
         args.from_cf_root.display(),
         args.from_plan_key,
         source_readback.value_sha256,
@@ -44,6 +49,8 @@ pub(crate) fn run(raw: &[String]) -> CliResult {
         record.plan.slots.len(),
         args.vault_root.display(),
         args.queries_from_corpus,
+        args.query_start_row.unwrap_or(0),
+        record.imported_plan_sha256,
         written.value_bytes,
         written.value_sha256,
         written.readback_matches
@@ -60,6 +67,7 @@ struct Args {
     vault_root: PathBuf,
     base_dir: Option<PathBuf>,
     queries_from_corpus: bool,
+    query_start_row: Option<u64>,
 }
 
 impl Args {
@@ -71,6 +79,7 @@ impl Args {
         let mut vault_root = None;
         let mut base_dir = None;
         let mut queries_from_corpus = false;
+        let mut query_start_row = None;
         let mut it = raw.iter();
         while let Some(flag) = it.next() {
             let mut next = || {
@@ -86,6 +95,9 @@ impl Args {
                 "--vault-root" => vault_root = Some(PathBuf::from(next()?)),
                 "--base-dir" => base_dir = Some(PathBuf::from(next()?)),
                 "--queries-from-corpus" => queries_from_corpus = true,
+                "--query-start-row" => {
+                    query_start_row = Some(super::parse(&next()?, "--query-start-row")?)
+                }
                 other => return Err(CliError::usage(format!("unknown flag: {other}"))),
             }
         }
@@ -101,6 +113,7 @@ impl Args {
                 .ok_or_else(|| CliError::usage("--vault-root <dir> is required"))?,
             base_dir,
             queries_from_corpus,
+            query_start_row,
         })
     }
 }
@@ -246,6 +259,44 @@ mod tests {
         let _ = fs::remove_dir_all(root);
     }
 
+    #[test]
+    fn remap_persists_query_start_row_in_db_plan() {
+        let root = temp_root("partitioned-rrf-plan-remap-query-start");
+        let base = root.join("source-base");
+        let old_vault = base.join("old-vault-a");
+        let corpus = base.join("c.i8bin");
+        let new_vault_root = root.join("new-vaults");
+        let new_vault = new_vault_root.join("old-vault-a");
+        fs::create_dir_all(&old_vault).unwrap();
+        fs::create_dir_all(&new_vault).unwrap();
+        fs::write(&corpus, b"corpus").unwrap();
+        let source_cf = root.join("source-cf");
+        let dest_cf = root.join("dest-cf");
+        rrf_plan::write(&source_cf, "source", &record(&base)).unwrap();
+
+        run(&strings([
+            "--from-cf-root",
+            source_cf.to_str().unwrap(),
+            "--from-plan-key",
+            "source",
+            "--cf-root",
+            dest_cf.to_str().unwrap(),
+            "--plan-key",
+            "dest",
+            "--vault-root",
+            new_vault_root.to_str().unwrap(),
+            "--queries-from-corpus",
+            "--query-start-row",
+            "7",
+        ]))
+        .unwrap();
+
+        let (written, _) = rrf_plan::read(&dest_cf, "dest").unwrap();
+        assert_eq!(written.plan.slots[0].query_start_row, 7);
+        assert_ne!(written.imported_plan_sha256, "00".repeat(32));
+        let _ = fs::remove_dir_all(root);
+    }
+
     fn record(base: &Path) -> PartitionedRrfPlanRecord {
         PartitionedRrfPlanRecord {
             format: FORMAT.to_string(),
@@ -263,6 +314,7 @@ mod tests {
                     bits_about: Some(0.1),
                     vault: PathBuf::from("old-vault-a"),
                     queries: PathBuf::from("q.i8bin"),
+                    query_start_row: 0,
                     corpus: PathBuf::from("c.i8bin"),
                 }],
             },

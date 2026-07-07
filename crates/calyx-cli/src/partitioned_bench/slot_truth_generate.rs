@@ -37,6 +37,7 @@ struct SlotEvidence {
     width: usize,
     corpus: String,
     queries: String,
+    query_start_row: u64,
     dim: usize,
     chunks: usize,
     elapsed_ms: u128,
@@ -171,8 +172,15 @@ fn generate_slot(
     let query_path = rrf_plan::resolve(plan_base, &slot.queries);
     let corpus = DenseVectorFile::open(&corpus_path).map_err(CliError::Calyx)?;
     let queries = DenseVectorFile::open(&query_path).map_err(CliError::Calyx)?;
-    validate_files(&corpus, &queries, args, corpus_rows, slot.slot)?;
-    let mut query_rows = load_rows(&queries, 0, args.query_count)?;
+    let query_start = usize::try_from(slot.query_start_row).map_err(|_| {
+        st_error(
+            "CALYX_FSV_PARTITIONED_RRF_SLOT_TRUTH_INVALID",
+            "query_start_row exceeds usize",
+            "use a query selector within the supported row-id range",
+        )
+    })?;
+    validate_files(&corpus, &queries, args, corpus_rows, slot, query_start)?;
+    let mut query_rows = load_rows(&queries, query_start, args.query_count)?;
     let mut merged = vec![Vec::<(u64, f32)>::new(); args.query_count];
     let mut chunks = 0usize;
     let mut base = 0usize;
@@ -221,6 +229,7 @@ fn generate_slot(
         width: args.truth_depth,
         corpus: corpus_path.display().to_string(),
         queries: query_path.display().to_string(),
+        query_start_row: slot.query_start_row,
         dim: corpus.dim(),
         chunks,
         elapsed_ms: started.elapsed().as_millis(),
@@ -299,18 +308,28 @@ fn validate_files(
     queries: &DenseVectorFile,
     args: &Args,
     corpus_rows: usize,
-    slot: u16,
+    slot: &PlanSlot,
+    query_start: usize,
 ) -> CliResult {
+    let needed_queries = query_start.checked_add(args.query_count).ok_or_else(|| {
+        st_error(
+            "CALYX_FSV_PARTITIONED_RRF_SLOT_TRUTH_MISMATCH",
+            "query_start_row + query_count overflows",
+            "choose a bounded query selector",
+        )
+    })?;
     if corpus.count() as usize != corpus_rows
-        || queries.count() < args.query_count as u64
+        || queries.count() < needed_queries as u64
         || corpus.dim() != queries.dim()
     {
         return Err(st_error(
             "CALYX_FSV_PARTITIONED_RRF_SLOT_TRUTH_MISMATCH",
             format!(
-                "slot {slot} corpus_rows={} expected={corpus_rows} queries={} needs={} corpus_dim={} query_dim={}",
+                "slot {} corpus_rows={} expected={corpus_rows} queries={} start={} needs={} corpus_dim={} query_dim={}",
+                slot.slot,
                 corpus.count(),
                 queries.count(),
+                slot.query_start_row,
                 args.query_count,
                 corpus.dim(),
                 queries.dim()
@@ -379,6 +398,7 @@ fn manifest(args: &Args, plan_sha256: &str, corpus_rows: usize, slots: &[SlotEvi
             "file_sha256": slot.file_sha256,
             "rows": slot.rows,
             "width": slot.width,
+            "query_start_row": slot.query_start_row,
         })).collect::<Vec<_>>(),
     })
 }
@@ -395,6 +415,7 @@ fn slot_report(slot: &SlotEvidence) -> Value {
         "width": slot.width,
         "corpus": slot.corpus,
         "queries": slot.queries,
+        "query_start_row": slot.query_start_row,
         "dim": slot.dim,
         "chunks": slot.chunks,
         "elapsed_ms": slot.elapsed_ms,

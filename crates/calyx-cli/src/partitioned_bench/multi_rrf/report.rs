@@ -19,6 +19,7 @@ pub(super) fn slot_report(slots: &[OpenSlot]) -> Vec<Value> {
                 "bits_about": slot.spec.bits_about.expect("A35 validated"),
                 "vault": slot.spec.vault,
                 "queries": slot.spec.queries,
+                "query_start_row": slot.spec.query_start_row,
                 "corpus": slot.spec.corpus,
                 "n_cx": slot.search.manifest().n_cx,
                 "dim": slot.search.dim(),

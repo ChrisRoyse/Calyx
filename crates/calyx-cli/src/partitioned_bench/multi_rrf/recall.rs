@@ -130,7 +130,11 @@ fn exact_truth_for_query(req: &Request<'_>, query_idx: usize) -> (Vec<u64>, Vec<
     let mut exact_per_slot = BTreeMap::new();
     let mut exact_slot_rows = Vec::new();
     for slot in req.slots {
-        let query = row_for_metric(&slot.queries, query_idx as u64, slot.distance_metric);
+        let query = row_for_metric(
+            &slot.queries,
+            slot.query_row(query_idx),
+            slot.distance_metric,
+        );
         let exact = brute_force_topk_vecfile_ranked(
             &slot.corpus,
             &[query],
@@ -242,7 +246,11 @@ fn tie_aware_rrf_scores(
         let slot_id = slot_id(slot.spec.slot);
         let rows = slot_truth_rows(req, slot_id, query_idx);
         let truth_distances = truth_distances(slot, query_idx, &rows);
-        let query = row_for_metric(&slot.queries, query_idx as u64, slot.distance_metric);
+        let query = row_for_metric(
+            &slot.queries,
+            slot.query_row(query_idx),
+            slot.distance_metric,
+        );
         for row_id in candidates {
             let row = row_for_metric(&slot.corpus, *row_id, slot.distance_metric);
             let candidate_distance = distance(&query, &row, slot.distance_metric);
@@ -265,7 +273,11 @@ fn slot_truth_rows(req: &Request<'_>, slot: SlotId, query_idx: usize) -> Vec<u64
 }
 
 fn truth_distances(slot: &OpenSlot, query_idx: usize, rows: &[u64]) -> Vec<(u64, f32)> {
-    let query = row_for_metric(&slot.queries, query_idx as u64, slot.distance_metric);
+    let query = row_for_metric(
+        &slot.queries,
+        slot.query_row(query_idx),
+        slot.distance_metric,
+    );
     rows.iter()
         .copied()
         .map(|row_id| {

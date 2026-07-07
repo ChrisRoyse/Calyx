@@ -95,6 +95,7 @@ fn plan(names: &[&str]) -> Plan {
                 bits_about: Some(0.1),
                 vault: path(idx, "vault"),
                 queries: path(idx, "queries.fbin"),
+                query_start_row: 0,
                 corpus: path(idx, "corpus.fbin"),
             })
             .collect(),

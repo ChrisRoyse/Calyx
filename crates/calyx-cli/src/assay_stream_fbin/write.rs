@@ -415,6 +415,7 @@ fn write_plan(
                 bits_about: Some(lens.bits_about),
                 vault: PathBuf::from(&lens.vault_path),
                 queries: PathBuf::from(&lens.queries_path),
+                query_start_row: 0,
                 corpus: PathBuf::from(&lens.corpus_path),
             })
             .collect(),

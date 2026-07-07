@@ -34,6 +34,8 @@ pub(crate) struct PlanSlot {
     pub(crate) bits_about: Option<f32>,
     pub(crate) vault: PathBuf,
     pub(crate) queries: PathBuf,
+    #[serde(default)]
+    pub(crate) query_start_row: u64,
     pub(crate) corpus: PathBuf,
 }
 
@@ -183,11 +185,22 @@ pub(crate) fn read(
             "partitioned RRF plan row missing in Graph CF",
         )
     })?;
-    let record = decode(&value)?;
+    let record = decode_plan_record(&value)?;
     Ok((
         record,
         readback_report(cf_root, association_key, &row_key, &value, true),
     ))
+}
+
+pub(crate) fn plan_identity_sha256(base_dir: &Path, plan: &Plan) -> Result<String> {
+    let payload =
+        bincode::serde::encode_to_vec((base_dir, plan), config::standard()).map_err(|err| {
+            error(
+                "CALYX_FSV_PARTITIONED_RRF_PLAN_DB_ENCODE",
+                format!("encode partitioned RRF plan identity failed: {err}"),
+            )
+        })?;
+    Ok(hex_sha256(&payload))
 }
 
 fn validate_unique_slots(plan: &Plan) -> CliResult {
@@ -249,6 +262,80 @@ fn decode<T: for<'de> Deserialize<'de>>(bytes: &[u8]) -> Result<T> {
         ));
     }
     Ok(record)
+}
+
+fn decode_plan_record(bytes: &[u8]) -> Result<PartitionedRrfPlanRecord> {
+    match decode(bytes) {
+        Ok(record) => Ok(record),
+        Err(_) => decode::<LegacyPartitionedRrfPlanRecord>(bytes).map(Into::into),
+    }
+}
+
+#[derive(Deserialize)]
+struct LegacyPlan {
+    #[serde(default)]
+    timeline: Option<PathBuf>,
+    slots: Vec<LegacyPlanSlot>,
+}
+
+#[derive(Deserialize)]
+struct LegacyPlanSlot {
+    slot: u16,
+    name: Option<String>,
+    lens_id: Option<String>,
+    weights_sha256: Option<String>,
+    signal_kind: Option<String>,
+    bits_about: Option<f32>,
+    vault: PathBuf,
+    queries: PathBuf,
+    corpus: PathBuf,
+}
+
+#[derive(Deserialize)]
+struct LegacyPartitionedRrfPlanRecord {
+    format: String,
+    mode: String,
+    imported_plan_sha256: String,
+    base_dir: PathBuf,
+    plan: LegacyPlan,
+}
+
+impl From<LegacyPlan> for Plan {
+    fn from(value: LegacyPlan) -> Self {
+        Self {
+            timeline: value.timeline,
+            slots: value.slots.into_iter().map(Into::into).collect(),
+        }
+    }
+}
+
+impl From<LegacyPlanSlot> for PlanSlot {
+    fn from(value: LegacyPlanSlot) -> Self {
+        Self {
+            slot: value.slot,
+            name: value.name,
+            lens_id: value.lens_id,
+            weights_sha256: value.weights_sha256,
+            signal_kind: value.signal_kind,
+            bits_about: value.bits_about,
+            vault: value.vault,
+            queries: value.queries,
+            query_start_row: 0,
+            corpus: value.corpus,
+        }
+    }
+}
+
+impl From<LegacyPartitionedRrfPlanRecord> for PartitionedRrfPlanRecord {
+    fn from(value: LegacyPartitionedRrfPlanRecord) -> Self {
+        Self {
+            format: value.format,
+            mode: value.mode,
+            imported_plan_sha256: value.imported_plan_sha256,
+            base_dir: value.base_dir,
+            plan: value.plan.into(),
+        }
+    }
 }
 
 fn readback_report(
@@ -372,6 +459,7 @@ mod tests {
                     bits_about: Some(0.1),
                     vault: PathBuf::from("slot_00.ann"),
                     queries: PathBuf::from("slot_00_queries.fbin"),
+                    query_start_row: 0,
                     corpus: PathBuf::from("slot_00_corpus.fbin"),
                 }],
             },
