@@ -10,3 +10,9 @@ c6a4556309b6e0e523b2c30fd9e20b024133b9cd:crates/calyx-aster/src/dedup/audit_test
 
 # Same fixture in the first public sync before the test stopped using a string literal.
 a8ad85dc9078b342b099b809c455dcae23a67f35:crates/calyx-aster/src/dedup/audit_tests.rs:generic-api-key:58
+
+# Historical public false positives from CLI option names / redaction fixtures,
+# not credential values.
+42ecc3ead0417cb2891020200b8fa4294b5f096c:crates/calyx-cli/src/assay_stream_fbin/args.rs:generic-api-key:91
+5b2ef03fb80084e0bcda0de85c5562a055f65032:crates/calyx-cli/src/assay_multi_anchor_card.rs:generic-api-key:76
+5b2ef03fb80084e0bcda0de85c5562a055f65032:crates/calyx-cli/src/partitioned_bench/multi_rrf/args.rs:generic-api-key:83
