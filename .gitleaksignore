@@ -16,3 +16,24 @@ a8ad85dc9078b342b099b809c455dcae23a67f35:crates/calyx-aster/src/dedup/audit_test
 42ecc3ead0417cb2891020200b8fa4294b5f096c:crates/calyx-cli/src/assay_stream_fbin/args.rs:generic-api-key:91
 5b2ef03fb80084e0bcda0de85c5562a055f65032:crates/calyx-cli/src/assay_multi_anchor_card.rs:generic-api-key:76
 5b2ef03fb80084e0bcda0de85c5562a055f65032:crates/calyx-cli/src/partitioned_bench/multi_rrf/args.rs:generic-api-key:83
+
+# Issue #1291: exact historical fingerprints classified from a redacted report
+# and sanitized commit context. These are false positives over CLI option names,
+# deterministic test/hash identifiers, documentation hashes, and a non-sensitive
+# Infisical Universal Auth client_id. If a future finding is a real credential,
+# rotate/revoke it first and perform a coordinated history rewrite instead of
+# adding it here.
+9b8657ebb538ccf6e8f7273353f0d516b668d288:crates/calyx-cli/src/assay_stream_fbin/args.rs:generic-api-key:91
+f0966c34c53f6c2b2de0ab2d5003e7754035e327:crates/calyx-cli/src/assay_multi_anchor_card.rs:generic-api-key:76
+f0966c34c53f6c2b2de0ab2d5003e7754035e327:crates/calyx-cli/src/partitioned_bench/multi_rrf/args.rs:generic-api-key:83
+
+# Deterministic Poly seed/test metadata and test-only provider metadata.
+db5ebab3d1ba1d1b12f5c1c29dc34724ca4749b4:crates/calyx-poly/src/seed_registry.rs:generic-api-key:114
+db5ebab3d1ba1d1b12f5c1c29dc34724ca4749b4:crates/calyx-poly/tests/issue135_reproducibility_fsv.rs:generic-api-key:358
+db5ebab3d1ba1d1b12f5c1c29dc34724ca4749b4:crates/calyx-poly/tests/issue184_confidence_ceiling_fsv.rs:generic-api-key:246
+
+# Documentation prose/hashes from restored private development materials.
+8552fd3b19c4f78eaff6128032a760d41b4e9f9c:docs/dbprdplans/23_ARRAY_MATH_STORAGE_COMPRESSION.md:generic-api-key:35
+8552fd3b19c4f78eaff6128032a760d41b4e9f9c:docs/implementation/17_STAGE7_LEDGER.md:generic-api-key:145
+8552fd3b19c4f78eaff6128032a760d41b4e9f9c:docs/implementation/PH39-identity-locked-generation/T03-style-lens-adapter.md:generic-api-key:124
+8552fd3b19c4f78eaff6128032a760d41b4e9f9c:docs2/infisical-secrets-guide.md:generic-api-key:142

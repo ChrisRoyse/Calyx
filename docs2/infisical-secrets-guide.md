@@ -89,7 +89,12 @@
    names (e.g. `stripe_secret_key`) or the literal placeholder
    `<REDACTED:LABEL>`. The 2026-04-24 incident leaked 8+ live keys this
    way; installed `.githooks/pre-commit` runs `scripts/secret-scan.sh --staged`
-   with gitleaks, and `.githooks/pre-push` runs `scripts/secret-scan.sh --git-history`.
+   with gitleaks, and `.githooks/pre-push` scans only the outgoing commit
+   ranges. Full-history audits are manual:
+   `bash scripts/secret-scan.sh --git-history --no-banner --no-color --report-format json --report-path tmp/history-gitleaks-report.json`.
+   Treat that report JSON as the source of truth: rotate/revoke and rewrite
+   history for real credentials; add only exact `.gitleaksignore` fingerprints
+   for confirmed non-secret false positives.
 2. **Live credentials reach this codebase only through the loader or
    the Infisical CLI/REST/SDK.** No env files committed, no
    `.env.example` with non-placeholder values, no hardcoded fallback
