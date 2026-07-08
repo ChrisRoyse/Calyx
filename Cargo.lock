@@ -655,6 +655,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "calyx-leapable"
+version = "0.1.0"
+dependencies = [
+ "calyx-aster",
+ "calyx-buildinfo",
+ "calyx-core",
+ "calyx-mcp",
+ "serde",
+ "serde_json",
+ "ulid",
+]
+
+[[package]]
 name = "calyx-ledger"
 version = "0.1.0"
 dependencies = [
