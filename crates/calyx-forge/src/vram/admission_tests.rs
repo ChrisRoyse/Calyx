@@ -117,29 +117,50 @@ fn oversized_request_splits_and_runner_assembles_all_items() {
 }
 
 #[test]
-fn queue_when_min_split_and_capacity() {
+fn min_split_without_capacity_fails_closed_without_hidden_queue() {
     let budgeter = VramBudgeter::with_soft_cap(MIB, StaticProbe { free: 64 * GIB });
     let ctl = controller(&budgeter, RecordingDealloc::default(), 1, 2);
     let deadline = Instant::now() + Duration::from_secs(1);
+    let before = budgeter.stats();
+
+    println!(
+        "admission-before: queue_len={} queued_total={} failed_total={}",
+        ctl.queue_len(),
+        before.queued_total,
+        before.failed_total
+    );
 
     let decision = ctl.decide(2 * MIB, 2, deadline);
 
-    assert_eq!(decision, AdmitDecision::Queue { deadline });
-    assert_eq!(ctl.queue_len(), 1);
-    assert_eq!(ctl.queued_snapshot()[0].requested_bytes, 2 * MIB);
-    assert_eq!(budgeter.stats().queued_total, 1);
+    assert_eq!(decision, AdmitDecision::Fail);
+    assert_eq!(ctl.queue_len(), 0);
+    assert!(ctl.queued_snapshot().is_empty());
+    let stats = budgeter.stats();
+    println!(
+        "admission-after: decision={decision:?} queue_len={} queued_snapshot_len={} queued_total={} failed_total={}",
+        ctl.queue_len(),
+        ctl.queued_snapshot().len(),
+        stats.queued_total,
+        stats.failed_total
+    );
+    assert_eq!(stats.queued_total, 0);
+    assert_eq!(stats.failed_total, 1);
 }
 
 #[test]
-fn queue_full_fails_closed_from_runner() {
+fn runner_fails_closed_without_mutating_hidden_queue() {
     let budgeter = VramBudgeter::with_soft_cap(MIB, StaticProbe { free: 64 * GIB });
     let ctl = controller(&budgeter, RecordingDealloc::default(), 1, 2);
     let deadline = Instant::now() + Duration::from_secs(1);
+    let before = budgeter.stats();
 
-    assert_eq!(
-        ctl.decide(2 * MIB, 2, deadline),
-        AdmitDecision::Queue { deadline }
+    println!(
+        "runner-before: queue_len={} queued_total={} failed_total={}",
+        ctl.queue_len(),
+        before.queued_total,
+        before.failed_total
     );
+
     let err = ctl
         .run_with_admission(
             2 * MIB,
@@ -147,12 +168,22 @@ fn queue_full_fails_closed_from_runner() {
             deadline,
             |_offset, _len| Ok(Vec::<usize>::new()),
         )
-        .expect_err("queue is full, so sync runner fails closed");
+        .expect_err("sync runner fails closed without queuing hidden work");
 
     assert_eq!(err.code(), CODE);
     let stats = budgeter.stats();
-    assert_eq!(stats.queued_total, 1);
+    println!(
+        "runner-after: err_code={} queue_len={} queued_snapshot_len={} queued_total={} failed_total={}",
+        err.code(),
+        ctl.queue_len(),
+        ctl.queued_snapshot().len(),
+        stats.queued_total,
+        stats.failed_total
+    );
+    assert_eq!(stats.queued_total, 0);
     assert_eq!(stats.failed_total, 1);
+    assert_eq!(ctl.queue_len(), 0);
+    assert!(ctl.queued_snapshot().is_empty());
 }
 
 #[test]

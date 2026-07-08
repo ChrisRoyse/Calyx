@@ -55,6 +55,62 @@ fn ttl_expiry_via_advancing_clock() {
 }
 
 #[test]
+fn insert_removes_only_expired_lru_tail_not_full_ttl_sweep() {
+    use std::sync::Mutex;
+
+    struct MovableClock(Mutex<Ts>);
+    impl Clock for MovableClock {
+        fn now(&self) -> Ts {
+            *self.0.lock().unwrap()
+        }
+    }
+
+    let clock = Arc::new(MovableClock(Mutex::new(1000)));
+    let mut c: LruTtlCache<u32, u32> =
+        LruTtlCache::new(300, Duration::from_millis(50), clock.clone()).expect("cache");
+    c.insert(1, 1, 100).expect("insert");
+    c.insert(2, 2, 100).expect("insert");
+    c.insert(3, 3, 100).expect("insert");
+    println!(
+        "cache-before: len={} used_bytes={} expired_total={} evictions={}",
+        c.len(),
+        c.used_bytes(),
+        c.expired_total(),
+        c.evictions()
+    );
+
+    *clock.0.lock().unwrap() = 1051;
+    let result = c.insert(4, 4, 100).expect("insert after expiry");
+    println!(
+        "cache-after-insert: inserted=4 evicted={} len={} used_bytes={} expired_total={} evictions={}",
+        result.evicted,
+        c.len(),
+        c.used_bytes(),
+        c.expired_total(),
+        c.evictions()
+    );
+
+    assert_eq!(
+        result.evicted, 0,
+        "expired tail is not counted as LRU eviction"
+    );
+    assert_eq!(
+        c.expired_total(),
+        1,
+        "insert removed only the expired LRU tail"
+    );
+    assert_eq!(c.evictions(), 0);
+    assert_eq!(c.used_bytes(), 300);
+    assert_eq!(
+        c.len(),
+        3,
+        "other expired entries remain lazy until touched or swept"
+    );
+    assert!(c.get(&1).is_none(), "tail entry was removed");
+    assert!(c.get(&4).is_some(), "new entry physically resides in cache");
+}
+
+#[test]
 fn lru_order_promotes_on_get() {
     let mut c = cache_at(0, 300, 60_000);
     c.insert(b'A'.into(), 1, 100).unwrap();

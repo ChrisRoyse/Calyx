@@ -3,9 +3,10 @@
 //! [`LruTtlCache`] bounds itself three ways: a hard byte cap (sum of entry sizes
 //! never exceeds it), LRU eviction when the cap is hit, and a per-entry TTL
 //! measured against an injected [`Clock`](crate::Clock). Recency order is an
-//! intrusive doubly-linked list over a node arena (O(1) get/insert/evict) — no
-//! external map crate, no `SystemTime::now()` in logic. Optional TTL jitter
-//! de-synchronizes expiry to avoid a cache-stampede herd (hazard 15).
+//! intrusive doubly-linked list over a node arena (O(1) get/hot-path
+//! insert/LRU-evict; explicit TTL sweeps are O(N)) — no external map crate, no
+//! `SystemTime::now()` in logic. Optional TTL jitter de-synchronizes expiry to
+//! avoid a cache-stampede herd (hazard 15).
 
 use std::collections::HashMap;
 use std::hash::Hash;
@@ -127,8 +128,10 @@ where
         Some(&self.node(idx).value)
     }
 
-    /// Inserts `key -> value` accounted at `size_bytes`. Evicts LRU entries (and
-    /// any TTL-expired entries) so `used_bytes` never exceeds the cap.
+    /// Inserts `key -> value` accounted at `size_bytes`. Evicts from the LRU
+    /// tail so `used_bytes` never exceeds the cap. Expired entries are removed
+    /// lazily on access, by this capacity path when they reach the LRU tail, or
+    /// by an explicit [`evict_expired`](Self::evict_expired) maintenance sweep.
     ///
     /// # Errors
     /// [`CALYX_ALLOC_CAP_EXCEEDED`](crate::alloc::CALYX_ALLOC_CAP_EXCEEDED) if a
@@ -140,20 +143,24 @@ where
                 self.byte_cap
             )));
         }
-        self.evict_expired();
         // Replacing an existing key: drop the old entry first (not an eviction).
         if let Some(old) = self.map.get(&key).copied() {
             self.remove_index(old);
         }
         let mut evicted = 0;
+        let now = self.clock.now();
         while self.used_bytes + size_bytes > self.byte_cap {
             let lru = self.tail.expect("over-cap cache must have a tail");
-            self.emit_evicted(lru);
+            let expired = self.node(lru).expires_at <= now;
+            if expired {
+                self.expired += 1;
+            } else {
+                self.emit_evicted(lru);
+                self.evictions += 1;
+                evicted += 1;
+            }
             self.remove_index(lru);
-            self.evictions += 1;
-            evicted += 1;
         }
-        let now = self.clock.now();
         let expires_at = self.compute_expiry(now);
         let idx = self.alloc_node(Node {
             key: key.clone(),

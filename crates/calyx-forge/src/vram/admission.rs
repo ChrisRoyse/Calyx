@@ -2,10 +2,8 @@
 //!
 //! The controller is the coordination layer over the T01 budgeter and T02 LRU
 //! registry: try immediate execution, evict and retry, split into smaller
-//! batches, queue bounded work with a deadline, or fail closed with
-//! `CALYX_FORGE_VRAM_BUDGET`.
+//! batches, or fail closed with `CALYX_FORGE_VRAM_BUDGET`.
 
-use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
@@ -126,8 +124,6 @@ impl<T> AdmissionOutput for Vec<T> {
 pub struct AdmissionController<'b, P: VramProbe, D: BlockDeallocator> {
     budgeter: &'b VramBudgeter<P>,
     registry: Arc<Mutex<GpuBlockRegistry<'b, P, D>>>,
-    queue: Mutex<VecDeque<QueuedDispatch>>,
-    queue_cap: usize,
     split_min_batch: usize,
 }
 
@@ -135,14 +131,12 @@ impl<'b, P: VramProbe, D: BlockDeallocator> AdmissionController<'b, P, D> {
     pub fn new(
         budgeter: &'b VramBudgeter<P>,
         registry: Arc<Mutex<GpuBlockRegistry<'b, P, D>>>,
-        queue_cap: usize,
+        _queue_cap: usize,
         split_min_batch: usize,
     ) -> Self {
         Self {
             budgeter,
             registry,
-            queue: Mutex::new(VecDeque::with_capacity(queue_cap)),
-            queue_cap,
             split_min_batch: split_min_batch.max(1),
         }
     }
@@ -171,7 +165,7 @@ impl<'b, P: VramProbe, D: BlockDeallocator> AdmissionController<'b, P, D> {
         if let Some(sub_batch_size) = self.next_split(batch_size) {
             return self.split(sub_batch_size);
         }
-        self.queue_or_fail(requested_bytes, batch_size, deadline)
+        self.fail()
     }
 
     pub fn run_with_admission<F, R>(
@@ -189,14 +183,11 @@ impl<'b, P: VramProbe, D: BlockDeallocator> AdmissionController<'b, P, D> {
     }
 
     pub fn queue_len(&self) -> usize {
-        self.queue.lock().map(|queue| queue.len()).unwrap_or(0)
+        0
     }
 
     pub fn queued_snapshot(&self) -> Vec<QueuedDispatch> {
-        self.queue
-            .lock()
-            .map(|queue| queue.iter().copied().collect())
-            .unwrap_or_default()
+        Vec::new()
     }
 
     fn run_range<F, R>(
@@ -226,11 +217,9 @@ impl<'b, P: VramProbe, D: BlockDeallocator> AdmissionController<'b, P, D> {
                     self.run_range(right_bytes, right_batch, offset + left_batch, deadline, f)?;
                 Ok(R::merge(vec![left, right]))
             }
-            AdmitDecision::Queue { .. } => Err(self.budget_error(
-                bytes,
-                batch,
-                "dispatch queued; synchronous run_with_admission has no completed result",
-            )),
+            AdmitDecision::Queue { .. } => {
+                Err(self.budget_error(bytes, batch, "admission queue is disabled"))
+            }
             AdmitDecision::Fail => Err(self.budget_error(bytes, batch, "admission failed closed")),
         }
     }
@@ -249,28 +238,6 @@ impl<'b, P: VramProbe, D: BlockDeallocator> AdmissionController<'b, P, D> {
         }
         let sub_batch_size = (batch_size / 2).max(self.split_min_batch);
         (sub_batch_size < batch_size).then_some(sub_batch_size)
-    }
-
-    fn queue_or_fail(
-        &self,
-        requested_bytes: usize,
-        batch_size: usize,
-        deadline: Instant,
-    ) -> AdmitDecision {
-        let Ok(mut queue) = self.queue.lock() else {
-            return self.fail();
-        };
-        if queue.len() >= self.queue_cap {
-            return self.fail();
-        }
-        queue.push_back(QueuedDispatch {
-            requested_bytes,
-            batch_size,
-            deadline,
-            enqueued_at: Instant::now(),
-        });
-        self.budgeter.record_admission_queued();
-        AdmitDecision::Queue { deadline }
     }
 
     fn split(&self, sub_batch_size: usize) -> AdmitDecision {

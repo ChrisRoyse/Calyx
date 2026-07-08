@@ -47,7 +47,6 @@ pub struct VramBudgeter<P: VramProbe> {
     serving_allocated_bytes: AtomicUsize,
     anneal_allocated_bytes: AtomicUsize,
     admission_splits_total: AtomicU64,
-    admission_queued_total: AtomicU64,
     admission_failed_total: AtomicU64,
     oom_intercepts_total: AtomicU64,
     oom_batch_reductions_total: AtomicU64,
@@ -66,7 +65,6 @@ impl<P: VramProbe> VramBudgeter<P> {
             serving_allocated_bytes: AtomicUsize::new(0),
             anneal_allocated_bytes: AtomicUsize::new(0),
             admission_splits_total: AtomicU64::new(0),
-            admission_queued_total: AtomicU64::new(0),
             admission_failed_total: AtomicU64::new(0),
             oom_intercepts_total: AtomicU64::new(0),
             oom_batch_reductions_total: AtomicU64::new(0),
@@ -187,7 +185,7 @@ impl<P: VramProbe> VramBudgeter<P> {
             anneal_allocated_bytes: self.allocated_bytes_for(Category::Anneal),
             device_free_bytes,
             splits_total: self.admission_splits_total.load(Ordering::Acquire),
-            queued_total: self.admission_queued_total.load(Ordering::Acquire),
+            queued_total: 0,
             failed_total: self.admission_failed_total.load(Ordering::Acquire),
             oom_guard: crate::vram::OomGuardStats {
                 oom_intercepts: self.oom_intercepts_total.load(Ordering::Acquire),
@@ -203,10 +201,6 @@ impl<P: VramProbe> VramBudgeter<P> {
 
     pub(crate) fn record_admission_split(&self) {
         self.admission_splits_total.fetch_add(1, Ordering::AcqRel);
-    }
-
-    pub(crate) fn record_admission_queued(&self) {
-        self.admission_queued_total.fetch_add(1, Ordering::AcqRel);
     }
 
     pub(crate) fn record_admission_failed(&self) {

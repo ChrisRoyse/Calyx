@@ -226,14 +226,16 @@ pub fn guard_health(monitor: &DriftMonitor, guard_id: GuardId) -> GuardHealth {
 }
 
 fn calibration_maps(profile: &GuardProfile) -> (BTreeMap<SlotId, f32>, BTreeMap<SlotId, f32>, i64) {
-    let profile_meta = profile.calibration.as_ref();
-    let far = profile_meta.map_or(0.0, |meta| meta.far);
-    let frr = profile_meta.map_or(0.0, |meta| meta.frr);
-    let last_calibrated = profile_meta.map_or(0, |meta| meta.ts);
+    let Some(profile_meta) = profile.calibration.as_ref() else {
+        return (BTreeMap::new(), BTreeMap::new(), 0);
+    };
+    let far = profile_meta.far;
+    let frr = profile_meta.frr;
+    let last_calibrated = profile_meta.ts;
     let mut calibrated_far_bound = BTreeMap::new();
     let mut calibrated_frr = BTreeMap::new();
     for slot in profile.tau.keys() {
-        if let Some(slot_meta) = profile_meta.and_then(|meta| meta.per_slot.get(slot)) {
+        if let Some(slot_meta) = profile_meta.per_slot.get(slot) {
             calibrated_far_bound.insert(*slot, slot_meta.far);
             calibrated_frr.insert(*slot, slot_meta.frr);
         } else {

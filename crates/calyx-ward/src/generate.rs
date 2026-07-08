@@ -86,35 +86,45 @@ where
     S: LedgerCfStore,
     C: Clock,
 {
-    match guard_generate(
-        identity_profile,
-        input,
-        speaker_lens,
-        style_lens,
-        novelty_handler,
+    reject_inert_identity_profile(identity_profile)?;
+    if high_stakes && !identity_profile.is_calibrated() {
+        return Err(WardError::Provisional {
+            guard_id: identity_profile.guard_profile.guard_id,
+        }
+        .into());
+    }
+
+    let produced = produced_slots(identity_profile, input, speaker_lens, style_lens)?;
+    let verdict = guard(
+        &identity_profile.guard_profile,
+        &produced,
+        &identity_profile.matched_slot_cache,
         high_stakes,
-    )? {
+    )?;
+    let output = route_verdict(
+        identity_profile,
+        verdict.clone(),
+        &produced,
+        novelty_handler,
+    )?;
+    let ledger_ref = append_guard_verdict(appender, input.matched_cx_id, &verdict)?;
+
+    match output {
         GenerateOutput::Accepted {
             verdict,
             provenance_tag,
             ..
-        } => {
-            let ledger_ref = append_guard_verdict(appender, input.matched_cx_id, &verdict)?;
-            Ok(GenerateOutput::Accepted {
-                verdict,
-                provenance_tag,
-                ledger_ref: Some(ledger_ref),
-            })
-        }
-        GenerateOutput::Rejected { verdict, .. } => {
-            let ledger_ref = append_guard_verdict(appender, input.matched_cx_id, &verdict)?;
-            Ok(GenerateOutput::Rejected {
-                verdict,
-                provenance_tag: GUARDED_REJECT_TAG.to_string(),
-                ledger_ref: Some(ledger_ref),
-            })
-        }
-        other => Ok(other),
+        } => Ok(GenerateOutput::Accepted {
+            verdict,
+            provenance_tag,
+            ledger_ref: Some(ledger_ref),
+        }),
+        GenerateOutput::Rejected { verdict, .. } => Ok(GenerateOutput::Rejected {
+            verdict,
+            provenance_tag: GUARDED_REJECT_TAG.to_string(),
+            ledger_ref: Some(ledger_ref),
+        }),
+        GenerateOutput::Novel { record } => Ok(GenerateOutput::Novel { record }),
     }
 }
 

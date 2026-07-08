@@ -9,11 +9,11 @@ use crate::{
 };
 
 #[cfg(feature = "cuda")]
-use crate::{
-    CudaContext, GemmProblem, build_grouped_gemm_plan,
-    cuda::{cosine_batch_gpu, gemm_cublas},
-    execute_grouped_gemm,
-};
+mod cuda_bench;
+#[cfg(feature = "cuda")]
+use self::cuda_bench::{bench_cuda_cosine, bench_cuda_gemm, bench_grouped_gemm};
+#[cfg(feature = "cuda")]
+use crate::CudaContext;
 
 #[cfg(feature = "cuda")]
 pub type BenchCudaContext = CudaContext;
@@ -126,42 +126,6 @@ fn bench_turboquant_encode(
     })
 }
 
-#[cfg(feature = "cuda")]
-#[allow(clippy::too_many_arguments)]
-fn bench_cuda_gemm(
-    op: &str,
-    ctx: Option<&BenchCudaContext>,
-    iters: u32,
-    flops: f64,
-    a: &[f32],
-    b: &[f32],
-    m: usize,
-    k: usize,
-    n: usize,
-    out: &mut [f32],
-) -> Result<BenchResult> {
-    let ctx = ctx.ok_or_else(|| cuda_required(op))?;
-    let stream = ctx.inner().default_stream();
-    let a_dev = stream
-        .clone_htod(a)
-        .map_err(|err| cuda_device_error(ctx, op, format!("copy GEMM A failed: {err}")))?;
-    let b_dev = stream
-        .clone_htod(b)
-        .map_err(|err| cuda_device_error(ctx, op, format!("copy GEMM B failed: {err}")))?;
-    let mut out_dev = stream
-        .alloc_zeros(out.len())
-        .map_err(|err| cuda_device_error(ctx, op, format!("allocate GEMM C failed: {err}")))?;
-    let result = time_op(op, iters, flops, || {
-        gemm_cublas(ctx, &a_dev, &b_dev, m, k, n, &mut out_dev)?;
-        sync_cuda(ctx, op)
-    })?;
-    let values = stream
-        .clone_dtoh(&out_dev)
-        .map_err(|err| cuda_device_error(ctx, op, format!("read GEMM C failed: {err}")))?;
-    out.copy_from_slice(&values);
-    Ok(result)
-}
-
 #[cfg(not(feature = "cuda"))]
 #[allow(clippy::too_many_arguments)]
 fn bench_cuda_gemm(
@@ -179,47 +143,6 @@ fn bench_cuda_gemm(
     Err(cuda_required(op))
 }
 
-#[cfg(feature = "cuda")]
-#[allow(clippy::too_many_arguments)]
-fn bench_cuda_cosine(
-    op: &str,
-    ctx: Option<&BenchCudaContext>,
-    iters: u32,
-    flops: f64,
-    query: &[f32],
-    candidates: &[f32],
-    dim: usize,
-    out: &mut [f32],
-) -> Result<BenchResult> {
-    let ctx = ctx.ok_or_else(|| cuda_required(op))?;
-    let stream = ctx.inner().default_stream();
-    let query_dev = stream
-        .clone_htod(query)
-        .map_err(|err| cuda_device_error(ctx, op, format!("copy cosine query failed: {err}")))?;
-    let candidates_dev = stream.clone_htod(candidates).map_err(|err| {
-        cuda_device_error(ctx, op, format!("copy cosine candidates failed: {err}"))
-    })?;
-    let mut out_dev = stream.alloc_zeros(out.len()).map_err(|err| {
-        cuda_device_error(ctx, op, format!("allocate cosine output failed: {err}"))
-    })?;
-    let result = time_op(op, iters, flops, || {
-        cosine_batch_gpu(
-            ctx,
-            &query_dev,
-            &candidates_dev,
-            dim,
-            out.len(),
-            &mut out_dev,
-        )?;
-        sync_cuda(ctx, op)
-    })?;
-    let values = stream
-        .clone_dtoh(&out_dev)
-        .map_err(|err| cuda_device_error(ctx, op, format!("read cosine output failed: {err}")))?;
-    out.copy_from_slice(&values);
-    Ok(result)
-}
-
 #[cfg(not(feature = "cuda"))]
 #[allow(clippy::too_many_arguments)]
 fn bench_cuda_cosine(
@@ -233,56 +156,6 @@ fn bench_cuda_cosine(
     _out: &mut [f32],
 ) -> Result<BenchResult> {
     Err(cuda_required(op))
-}
-
-#[cfg(feature = "cuda")]
-fn bench_grouped_gemm(
-    op: &str,
-    config: &BestConfig,
-    shape: &[usize],
-    ctx: Option<&BenchCudaContext>,
-    iters: u32,
-) -> Result<BenchResult> {
-    if config.backend != BackendKind::Cuda {
-        return Err(cuda_required(op));
-    }
-    let ctx = ctx.ok_or_else(|| cuda_required(op))?;
-    let (groups, m, k, n) = grouped_shape(shape)?;
-    let a_len = matrix_len(
-        groups,
-        matrix_len(m, k, "grouped A matrix")?,
-        "grouped A slab",
-    )?;
-    let b_len = matrix_len(
-        groups,
-        matrix_len(k, n, "grouped B matrix")?,
-        "grouped B slab",
-    )?;
-    let c_len = matrix_len(
-        groups,
-        matrix_len(m, n, "grouped C matrix")?,
-        "grouped C slab",
-    )?;
-    let a = random_values(a_len, 0x6173);
-    let b = random_values(b_len, 0xB17E);
-    let c = vec![0.0; c_len];
-    let mut problems = Vec::with_capacity(groups);
-    for group in 0..groups {
-        problems.push(Some(GemmProblem {
-            m,
-            k,
-            n,
-            a_offset: group * m * k,
-            b_offset: group * k * n,
-            c_offset: group * m * n,
-        }));
-    }
-    let mut plan = build_grouped_gemm_plan(ctx, problems, &a, &b, &c)?;
-    let flops = 2.0 * groups as f64 * m as f64 * k as f64 * n as f64;
-    time_op(op, iters, flops, || {
-        execute_grouped_gemm(ctx, &mut plan)?;
-        sync_cuda(ctx, op)
-    })
 }
 
 #[cfg(not(feature = "cuda"))]
@@ -363,7 +236,13 @@ fn summarize(op: &str, flops_per_iter: f64, timings_ms: &[f64]) -> Result<BenchR
     let median_ms = sorted[sorted.len() / 2];
     let gflops = flops_per_iter / (median_ms / 1_000.0) / 1_000_000_000.0;
     if cv_pct > CV_WARN_PCT {
-        println!("cargo:warning=microbench CV {cv_pct:.1}% > 20% for op={op}; result may be noisy");
+        tracing::warn!(
+            target: "calyx::forge::autotune",
+            op,
+            cv_pct,
+            threshold_pct = CV_WARN_PCT,
+            "microbench result may be noisy"
+        );
     }
     Ok(BenchResult {
         gflops,
@@ -386,21 +265,6 @@ fn cosine_shape(shape: &[usize]) -> Result<(usize, usize)> {
     }
     ensure_nonzero("cosine", shape)?;
     Ok((shape[0], shape[1]))
-}
-
-#[cfg(feature = "cuda")]
-fn grouped_shape(shape: &[usize]) -> Result<(usize, usize, usize, usize)> {
-    match shape {
-        [m, k, n] => {
-            ensure_nonzero("grouped_gemm", shape)?;
-            Ok((1, *m, *k, *n))
-        }
-        [groups, m, k, n] => {
-            ensure_nonzero("grouped_gemm", shape)?;
-            Ok((*groups, *m, *k, *n))
-        }
-        _ => Err(shape_error("grouped_gemm", 4, shape)),
-    }
 }
 
 fn turboquant_shape(shape: &[usize]) -> Result<(usize, usize)> {
@@ -448,23 +312,6 @@ fn quant_level(config: &BestConfig) -> QuantLevel {
     }
 }
 
-#[cfg(feature = "cuda")]
-fn sync_cuda(ctx: &BenchCudaContext, op: &str) -> Result<()> {
-    ctx.inner()
-        .default_stream()
-        .synchronize()
-        .map_err(|err| cuda_device_error(ctx, op, format!("microbench sync failed: {err}")))
-}
-
-#[cfg(feature = "cuda")]
-fn cuda_device_error(ctx: &BenchCudaContext, op: &str, detail: String) -> ForgeError {
-    ForgeError::DeviceUnavailable {
-        device: format!("cuda:{}", ctx.device_idx()),
-        detail: format!("{op} {detail}"),
-        remediation: CUDA_REQUIRED_REMEDIATION.to_string(),
-    }
-}
-
 fn shape_error(op: &str, expected_rank: usize, shape: &[usize]) -> ForgeError {
     ForgeError::ShapeMismatch {
         expected: vec![expected_rank],
@@ -493,6 +340,6 @@ fn unimplemented_op(op: &str) -> ForgeError {
     ForgeError::Unimplemented {
         op: op.to_string(),
         remediation: "Implement this Forge microbench op before enabling autotune exploration"
-            .to_string(),
+            .into(),
     }
 }

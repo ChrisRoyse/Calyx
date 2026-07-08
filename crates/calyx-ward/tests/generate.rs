@@ -114,6 +114,49 @@ fn rejected_generation_can_append_guard_ledger_row() {
 }
 
 #[test]
+fn novel_generation_can_append_guard_ledger_row() {
+    let mut appender =
+        LedgerAppender::open(MemoryLedgerStore::default(), FixedClock::new(27_202)).unwrap();
+    let before_rows = appender.store().scan().unwrap();
+    println!("novel-ledger-before: rows={}", before_rows.len());
+    let output = guard_generate_with_ledger(
+        &mut appender,
+        &identity_profile(NoveltyAction::Quarantine, true),
+        &generate_input(true, true),
+        &MockLens::audio(cos_vector(0.90)),
+        &MockLens::text(cos_vector(0.20)),
+        &handler_for(MemorySink::default()),
+        true,
+    )
+    .unwrap();
+    let rows = appender.store().scan().unwrap();
+    println!("novel-ledger-after: rows={}", rows.len());
+
+    match output {
+        GenerateOutput::Novel { record } => {
+            assert_eq!(record.status, NoveltyStatus::Quarantined);
+            assert_eq!(record.action_taken, NoveltyAction::Quarantine);
+            assert_eq!(record.failing_verdicts[0].slot, STYLE_SLOT);
+        }
+        other => panic!("expected novel output, got {other:?}"),
+    }
+    assert_eq!(rows.len(), 1);
+    let entry = decode(&rows[0].bytes).unwrap();
+    let payload: Value = serde_json::from_slice(&entry.payload).unwrap();
+    println!(
+        "novel-ledger-payload: provenance={:?} overall_pass={:?} action={:?} per_slot_len={}",
+        payload["ward_provenance"],
+        payload["overall_pass"],
+        payload["action"],
+        payload["per_slot"].as_array().unwrap().len()
+    );
+    assert_eq!(payload["ward_provenance"], "ward_guard_verdict_v1");
+    assert_eq!(payload["overall_pass"], false);
+    assert_eq!(payload["action"], "quarantine");
+    assert_eq!(payload["per_slot"].as_array().unwrap().len(), 2);
+}
+
+#[test]
 fn out_of_region_new_region_routes_to_novelty_record() {
     let sink = MemorySink::default();
     let output = guard_generate(

@@ -55,11 +55,21 @@ impl PreparedLedgerEntry {
 }
 
 /// Minimal append-only `ledger` CF contract used by `LedgerAppender`.
+///
+/// The `scan`-backed default [`read_seq`](Self::read_seq) and absent
+/// [`head_anchor`](Self::head_anchor) are correctness-only defaults for tiny
+/// stores and tests. Any durable or non-trivial store must override
+/// `read_seq`, `head_anchor`, and `put_head_anchor` so appends recover from a
+/// monotonic head witness instead of decode-scanning the full ledger on every
+/// append.
 pub trait LedgerCfStore {
     /// Returns all rows sorted by sequence number.
     fn scan(&self) -> Result<Vec<LedgerRow>>;
 
     /// Reads one ledger row by sequence number.
+    ///
+    /// The default full-scans [`scan`](Self::scan). Override this for any store
+    /// that can grow beyond a small deterministic fixture.
     fn read_seq(&self, seq: u64) -> Result<Option<LedgerRow>> {
         Ok(self.scan()?.into_iter().find(|row| row.seq == seq))
     }
@@ -78,11 +88,17 @@ pub trait LedgerCfStore {
     }
 
     /// External monotonic head witness, if this store has one.
+    ///
+    /// Durable stores must override this and [`put_head_anchor`](Self::put_head_anchor).
+    /// Returning `None` forces recovery through a complete ledger scan.
     fn head_anchor(&self) -> Result<Option<LedgerHeadAnchor>> {
         Ok(None)
     }
 
     /// Persists the newest committed head witness.
+    ///
+    /// Durable stores must persist this witness; the default no-op is only for
+    /// scan-only test stores.
     fn put_head_anchor(&mut self, _anchor: &LedgerHeadAnchor) -> Result<()> {
         Ok(())
     }

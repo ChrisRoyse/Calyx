@@ -81,7 +81,8 @@ pub struct VramStats {
     /// Cumulative admission decisions that proceeded immediately. A full-batch
     /// admission is recorded as a no-op split with `sub_batch_size == batch`.
     pub splits_total: u64,
-    /// Cumulative admission decisions placed in the bounded queue.
+    /// Legacy queue counter retained for metrics compatibility. The hidden
+    /// admission queue is disabled, so this value is always zero.
     pub queued_total: u64,
     /// Cumulative admission decisions that failed closed with
     /// `CALYX_FORGE_VRAM_BUDGET`.
@@ -115,7 +116,7 @@ impl VramStats {
                 "# HELP forge_vram_anneal_allocated_bytes Anneal VRAM bytes currently reserved by Forge.\n",
                 "# TYPE forge_vram_anneal_allocated_bytes gauge\n",
                 "forge_vram_anneal_allocated_bytes {}\n",
-                "# HELP calyx_forge_vram_admission_queued_total Forge VRAM dispatches placed in the bounded queue.\n",
+                "# HELP calyx_forge_vram_admission_queued_total Legacy queue counter; hidden admission queue is disabled.\n",
                 "# TYPE calyx_forge_vram_admission_queued_total counter\n",
                 "calyx_forge_vram_admission_queued_total {}\n",
                 "# HELP calyx_forge_vram_budget_exceeded_total Forge VRAM dispatches failed closed by CALYX_FORGE_VRAM_BUDGET.\n",
