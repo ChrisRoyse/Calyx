@@ -8,12 +8,17 @@ $ErrorActionPreference = "Stop"
 
 $ScriptDir = Split-Path -Parent $PSCommandPath
 if ([string]::IsNullOrWhiteSpace($RepoRoot)) {
-    $ResolvedRepoRoot = Resolve-Path (Join-Path $ScriptDir "..")
+    $ResolvedRepoRoot = (Resolve-Path (Join-Path $ScriptDir "..")).ProviderPath
 } else {
     if (-not (Test-Path -LiteralPath $RepoRoot -PathType Container)) {
         throw "cargo-fmt-workspace: ERROR repo root does not exist or is not a directory: $RepoRoot"
     }
-    $ResolvedRepoRoot = Resolve-Path $RepoRoot
+    $ResolvedRepoRoot = (Resolve-Path $RepoRoot).ProviderPath
+}
+
+$CargoTomlPath = Join-Path $ResolvedRepoRoot "Cargo.toml"
+if (-not (Test-Path -LiteralPath $CargoTomlPath -PathType Leaf)) {
+    throw "cargo-fmt-workspace: ERROR repo root is not a Cargo workspace root (missing Cargo.toml): $ResolvedRepoRoot"
 }
 Set-Location $ResolvedRepoRoot
 

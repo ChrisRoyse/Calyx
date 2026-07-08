@@ -49,7 +49,18 @@ if [[ -n "$repo_root_arg" ]]; then
 else
   repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 fi
+if [[ ! -f "$repo_root/Cargo.toml" ]]; then
+  echo "cargo-fmt-workspace: ERROR repo root is not a Cargo workspace root (missing Cargo.toml): $repo_root" >&2
+  exit 2
+fi
 cd "$repo_root"
+
+if [[ -f "$HOME/.cargo/env" ]]; then
+  # Direct script invocations from WSL are non-login shells; source rustup's
+  # environment so the same command works outside scripts/check.sh.
+  # shellcheck source=/dev/null
+  source "$HOME/.cargo/env"
+fi
 
 if ! command -v cargo >/dev/null 2>&1; then
   echo "cargo-fmt-workspace: ERROR cargo not found on PATH" >&2
