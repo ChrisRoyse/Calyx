@@ -1,13 +1,21 @@
 [CmdletBinding()]
 param(
-    [switch]$Write
+    [switch]$Write,
+    [string]$RepoRoot
 )
 
 $ErrorActionPreference = "Stop"
 
 $ScriptDir = Split-Path -Parent $PSCommandPath
-$RepoRoot = Resolve-Path (Join-Path $ScriptDir "..")
-Set-Location $RepoRoot
+if ([string]::IsNullOrWhiteSpace($RepoRoot)) {
+    $ResolvedRepoRoot = Resolve-Path (Join-Path $ScriptDir "..")
+} else {
+    if (-not (Test-Path -LiteralPath $RepoRoot -PathType Container)) {
+        throw "cargo-fmt-workspace: ERROR repo root does not exist or is not a directory: $RepoRoot"
+    }
+    $ResolvedRepoRoot = Resolve-Path $RepoRoot
+}
+Set-Location $ResolvedRepoRoot
 
 if (-not (Get-Command cargo -ErrorAction SilentlyContinue)) {
     throw "cargo-fmt-workspace: ERROR cargo not found on PATH"
@@ -37,7 +45,7 @@ if ($Packages.Count -eq 0) {
     throw "cargo-fmt-workspace: ERROR cargo metadata returned zero workspace packages"
 }
 
-Write-Host "cargo-fmt-workspace: mode=$Mode package_count=$($Packages.Count)"
+Write-Host "cargo-fmt-workspace: repo=$ResolvedRepoRoot mode=$Mode package_count=$($Packages.Count)"
 foreach ($Package in $Packages) {
     $Args = @("fmt", "-p", $Package)
     if (-not $Write) {

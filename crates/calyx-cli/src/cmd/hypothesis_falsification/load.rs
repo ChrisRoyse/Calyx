@@ -14,12 +14,16 @@ use super::model::{
     RawQueryManifestRow, SkippedEvidenceRow,
 };
 use crate::cmd::discovery_run_preflight::{PreflightInput, preflight_input_files};
-use crate::cmd::mechanistic_direction::{
-    MechanisticDirectionEvidence, MutationConsequence, TargetModulation,
-    infer_observed_target_modulation, infer_required_target_modulation, modulation_compatible,
-    modulation_name,
-};
+use crate::cmd::mechanistic_direction::{MutationConsequence, TargetModulation};
 use crate::error::{CliError, CliResult};
+
+mod classify;
+
+use classify::{
+    MechanismClassDecision, SourceClass, classify_dgidb_interaction, classify_dgidb_unmapped,
+    classify_open_targets_edge, classify_pubtator_negative, classify_pubtator_support,
+    classify_trial_row, classify_trial_summary, mechanism_checked_classes,
+};
 
 pub(super) struct HypothesisLoad {
     pub input_count: usize,
@@ -331,282 +335,6 @@ fn scan_source(
     Ok(())
 }
 
-#[derive(Clone)]
-struct SourceClass {
-    kind: &'static str,
-    reason: &'static str,
-    weight: f64,
-    summary: String,
-    mechanistic_direction: Option<MechanisticDirectionEvidence>,
-}
-
-enum MechanismClassDecision {
-    Use(Vec<SourceClass>),
-    Skip {
-        reason_code: String,
-        summary: String,
-        direction: MechanisticDirectionEvidence,
-    },
-}
-
-fn mechanism_checked_classes(
-    system: &str,
-    role: &str,
-    row: &Value,
-    hypothesis: &InputHypothesis,
-    classes: &[SourceClass],
-) -> MechanismClassDecision {
-    if system == "open_targets" && is_target_disease_hypothesis(hypothesis) {
-        return open_targets_direction_decision(row, hypothesis, classes);
-    }
-    if system == "dgidb"
-        && role == "seed_pair_interactions"
-        && is_drug_target_hypothesis(hypothesis)
-    {
-        return dgidb_action_direction_decision(row, hypothesis, classes);
-    }
-    MechanismClassDecision::Use(classes.to_vec())
-}
-
-fn open_targets_direction_decision(
-    row: &Value,
-    hypothesis: &InputHypothesis,
-    classes: &[SourceClass],
-) -> MechanismClassDecision {
-    if classes
-        .iter()
-        .all(|class| class.reason == "open_targets_low_score_exact_pair")
-    {
-        return MechanismClassDecision::Use(classes.to_vec());
-    }
-    let direction = infer_required_target_modulation(row);
-    if !direction.is_required_direction_known() {
-        return MechanismClassDecision::Skip {
-            reason_code: "CALYX_MECH_OPEN_TARGETS_DIRECTION_MISSING".to_string(),
-            summary: "Open Targets row matched endpoints but lacked usable direction-on-target/trait fields"
-                .to_string(),
-            direction,
-        };
-    }
-    let Some(required) = hypothesis.required_target_modulation else {
-        return MechanismClassDecision::Skip {
-            reason_code: "CALYX_MECH_HYPOTHESIS_REQUIRED_DIRECTION_MISSING".to_string(),
-            summary:
-                "target-disease hypothesis lacked required target modulation from the miner report"
-                    .to_string(),
-            direction,
-        };
-    };
-    if !modulation_compatible(required, direction.required_target_modulation) {
-        let expected = modulation_name(required).unwrap_or("unknown");
-        let observed = modulation_name(direction.required_target_modulation).unwrap_or("unknown");
-        return MechanismClassDecision::Use(vec![SourceClass {
-            kind: "counter",
-            reason: "mechanistic_required_direction_conflict",
-            weight: 4.0,
-            summary: format!(
-                "Open Targets direction conflict: hypothesis requires {expected}, source implies {observed}"
-            ),
-            mechanistic_direction: Some(direction),
-        }]);
-    }
-    let mut out = classes.to_vec();
-    for class in &mut out {
-        class.mechanistic_direction = Some(direction.clone());
-    }
-    MechanismClassDecision::Use(out)
-}
-
-fn dgidb_action_direction_decision(
-    row: &Value,
-    hypothesis: &InputHypothesis,
-    classes: &[SourceClass],
-) -> MechanismClassDecision {
-    let direction = infer_observed_target_modulation(row);
-    if !direction.is_observed_action_known() {
-        return MechanismClassDecision::Skip {
-            reason_code: "CALYX_MECH_DGIDB_ACTION_DIRECTION_MISSING".to_string(),
-            summary: "DGIdb interaction matched endpoints but lacked usable action direction"
-                .to_string(),
-            direction,
-        };
-    }
-    if let Some(observed) = hypothesis.observed_target_modulation
-        && !modulation_compatible(observed, direction.observed_target_modulation)
-    {
-        let expected = modulation_name(observed).unwrap_or("unknown");
-        let source = modulation_name(direction.observed_target_modulation).unwrap_or("unknown");
-        return MechanismClassDecision::Use(vec![SourceClass {
-            kind: "counter",
-            reason: "mechanistic_drug_action_direction_conflict",
-            weight: 4.0,
-            summary: format!(
-                "DGIdb action conflict: hypothesis action {expected}, source action {source}"
-            ),
-            mechanistic_direction: Some(direction),
-        }]);
-    }
-    let mut out = classes.to_vec();
-    for class in &mut out {
-        class.mechanistic_direction = Some(direction.clone());
-    }
-    MechanismClassDecision::Use(out)
-}
-
-fn classify_pubtator_support(row: &Value) -> Vec<SourceClass> {
-    vec![SourceClass {
-        kind: "support",
-        reason: "pubtator_supporting_literature",
-        weight: 1.0 + f64_field(row, "relation_count").unwrap_or(0.0).min(10.0) / 10.0,
-        summary: format!(
-            "PMID {} relation_count {} support_basis {}",
-            str_field(row, "pmid"),
-            usize_field(row, "relation_count").unwrap_or(0),
-            str_field(row, "support_basis")
-        ),
-        mechanistic_direction: None,
-    }]
-}
-
-fn classify_pubtator_negative(row: &Value) -> Vec<SourceClass> {
-    vec![SourceClass {
-        kind: "counter",
-        reason: "pubtator_negative_text_signal",
-        weight: 2.5,
-        summary: format!(
-            "PMID {} negative signal {:?}",
-            str_field(row, "pmid"),
-            row.get("negative_signal_match").and_then(Value::as_str)
-        ),
-        mechanistic_direction: None,
-    }]
-}
-
-fn classify_trial_summary(row: &Value) -> Vec<SourceClass> {
-    let mut out = Vec::new();
-    let total = usize_field(row, "total_count").unwrap_or(0);
-    if total > 0 {
-        out.push(SourceClass {
-            kind: "support",
-            reason: "clinicaltrials_registry_hits",
-            weight: 0.5
-                + f64_field(row, "with_results_count")
-                    .unwrap_or(0.0)
-                    .min(10.0)
-                    / 10.0,
-            summary: format!(
-                "ClinicalTrials.gov total_count {} results {} exact_intervention {}",
-                total,
-                usize_field(row, "with_results_count").unwrap_or(0),
-                usize_field(row, "exact_intervention_match_count").unwrap_or(0)
-            ),
-            mechanistic_direction: None,
-        });
-    }
-    let stopped = usize_field(row, "stopped_status_count").unwrap_or(0);
-    if stopped > 0 {
-        out.push(SourceClass {
-            kind: "counter",
-            reason: "clinicaltrials_stopped_status_count",
-            weight: (stopped as f64 * 0.5).clamp(0.5, 3.0),
-            summary: format!("ClinicalTrials.gov stopped_status_count {stopped}"),
-            mechanistic_direction: None,
-        });
-    }
-    out
-}
-
-fn classify_trial_row(row: &Value) -> Vec<SourceClass> {
-    let status = str_field(row, "overall_status");
-    if matches!(status.as_str(), "TERMINATED" | "WITHDRAWN" | "SUSPENDED") {
-        return vec![SourceClass {
-            kind: "counter",
-            reason: "clinicaltrials_stopped_trial",
-            weight: 1.0,
-            summary: format!(
-                "{} {} why_stopped {:?}",
-                str_field(row, "nct_id"),
-                status,
-                row.get("why_stopped").and_then(Value::as_str)
-            ),
-            mechanistic_direction: None,
-        }];
-    }
-    if row
-        .get("has_results")
-        .and_then(Value::as_bool)
-        .unwrap_or(false)
-        || status == "COMPLETED"
-    {
-        return vec![SourceClass {
-            kind: "support",
-            reason: "clinicaltrials_completed_or_results_trial",
-            weight: 0.5,
-            summary: format!("{} {} has_results", str_field(row, "nct_id"), status),
-            mechanistic_direction: None,
-        }];
-    }
-    Vec::new()
-}
-
-fn classify_dgidb_interaction(row: &Value) -> Vec<SourceClass> {
-    vec![SourceClass {
-        kind: "support",
-        reason: "dgidb_exact_pair_interaction",
-        weight: 1.0 + f64_field(row, "interaction_score").unwrap_or(0.0).min(2.0),
-        summary: format!(
-            "DGIdb {}-{} interaction_score {} source_dbs {}",
-            str_field(row, "drug"),
-            str_field(row, "gene"),
-            f64_field(row, "interaction_score").unwrap_or(0.0),
-            array_len(row, "source_dbs")
-        ),
-        mechanistic_direction: None,
-    }]
-}
-
-fn classify_dgidb_unmapped(row: &Value) -> Vec<SourceClass> {
-    vec![SourceClass {
-        kind: "counter",
-        reason: "dgidb_exact_pair_no_hit",
-        weight: 1.5,
-        summary: format!(
-            "DGIdb no-hit {}-{} reason {}",
-            str_field(row, "drug"),
-            str_field(row, "gene"),
-            str_field(row, "reason")
-        ),
-        mechanistic_direction: None,
-    }]
-}
-
-fn classify_open_targets_edge(row: &Value) -> Vec<SourceClass> {
-    let score = f64_field(row, "score").unwrap_or(0.0);
-    if score >= 0.05 {
-        vec![SourceClass {
-            kind: "support",
-            reason: "open_targets_association_score",
-            weight: score.min(1.0),
-            summary: format!(
-                "Open Targets {} score {} disease {} target {}",
-                str_field(row, "open_targets_data_version"),
-                score,
-                str_field(row, "disease_name"),
-                str_field(row, "target_name")
-            ),
-            mechanistic_direction: None,
-        }]
-    } else {
-        vec![SourceClass {
-            kind: "counter",
-            reason: "open_targets_low_score_exact_pair",
-            weight: 0.5,
-            summary: format!("Open Targets low score {score}"),
-            mechanistic_direction: None,
-        }]
-    }
-}
-
 fn evidence_for<'a>(rows: &'a [EvidenceRow], hypothesis_id: &str) -> Vec<&'a EvidenceRow> {
     rows.iter()
         .filter(|row| row.hypothesis_id == hypothesis_id)
@@ -634,7 +362,7 @@ fn read_jsonl(path: &Path) -> CliResult<Vec<Value>> {
     Ok(out)
 }
 
-fn str_field(value: &Value, key: &str) -> String {
+pub(super) fn str_field(value: &Value, key: &str) -> String {
     value
         .get(key)
         .and_then(Value::as_str)
@@ -642,21 +370,21 @@ fn str_field(value: &Value, key: &str) -> String {
         .to_string()
 }
 
-fn usize_field(value: &Value, key: &str) -> Option<usize> {
+pub(super) fn usize_field(value: &Value, key: &str) -> Option<usize> {
     value
         .get(key)
         .and_then(|raw| raw.as_u64())
         .and_then(|raw| usize::try_from(raw).ok())
 }
 
-fn f64_field(value: &Value, key: &str) -> Option<f64> {
+pub(super) fn f64_field(value: &Value, key: &str) -> Option<f64> {
     value.get(key).and_then(|raw| {
         raw.as_f64()
             .or_else(|| raw.as_u64().map(|value| value as f64))
     })
 }
 
-fn array_len(value: &Value, key: &str) -> usize {
+pub(super) fn array_len(value: &Value, key: &str) -> usize {
     value.get(key).and_then(Value::as_array).map_or(0, Vec::len)
 }
 
@@ -683,12 +411,12 @@ fn optional_mutation_consequence(value: &Value, key: &str) -> Option<MutationCon
     serde_json::from_value(raw.clone()).ok().flatten()
 }
 
-fn is_target_disease_hypothesis(hypothesis: &InputHypothesis) -> bool {
+pub(super) fn is_target_disease_hypothesis(hypothesis: &InputHypothesis) -> bool {
     matches!(hypothesis.source_type.as_str(), "gene" | "gene_protein")
         && hypothesis.target_type == "disease"
 }
 
-fn is_drug_target_hypothesis(hypothesis: &InputHypothesis) -> bool {
+pub(super) fn is_drug_target_hypothesis(hypothesis: &InputHypothesis) -> bool {
     hypothesis.source_type == "chemical"
         && matches!(hypothesis.target_type.as_str(), "gene" | "gene_protein")
 }

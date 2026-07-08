@@ -3,7 +3,7 @@ set -euo pipefail
 
 usage() {
   cat >&2 <<'USAGE'
-Usage: bash scripts/cargo-fmt-workspace.sh [--check|--write]
+Usage: bash scripts/cargo-fmt-workspace.sh [--check|--write] [--repo-root <path>]
 
 Formats every Cargo workspace package one package at a time. This avoids the
 native Windows command-line expansion failure that can happen with
@@ -13,14 +13,20 @@ USAGE
 }
 
 mode="check"
-if [[ $# -gt 1 ]]; then
-  usage
-  exit 2
-fi
-if [[ $# -eq 1 ]]; then
+repo_root_arg=""
+while [[ $# -gt 0 ]]; do
   case "$1" in
     --check) mode="check" ;;
     --write) mode="write" ;;
+    --repo-root)
+      if [[ $# -lt 2 ]]; then
+        echo "cargo-fmt-workspace: ERROR --repo-root requires a path" >&2
+        usage
+        exit 2
+      fi
+      repo_root_arg="$2"
+      shift
+      ;;
     -h|--help)
       usage
       exit 0
@@ -31,9 +37,18 @@ if [[ $# -eq 1 ]]; then
       exit 2
       ;;
   esac
-fi
+  shift
+done
 
-repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+if [[ -n "$repo_root_arg" ]]; then
+  if [[ ! -d "$repo_root_arg" ]]; then
+    echo "cargo-fmt-workspace: ERROR repo root does not exist or is not a directory: $repo_root_arg" >&2
+    exit 2
+  fi
+  repo_root="$(cd "$repo_root_arg" && pwd)"
+else
+  repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+fi
 cd "$repo_root"
 
 if ! command -v cargo >/dev/null 2>&1; then
@@ -64,7 +79,7 @@ for name in names:
     tr -d '\r'
 )
 
-echo "cargo-fmt-workspace: mode=$mode package_count=${#packages[@]}" >&2
+echo "cargo-fmt-workspace: repo=$repo_root mode=$mode package_count=${#packages[@]}" >&2
 for package in "${packages[@]}"; do
   if [[ "$mode" == "check" ]]; then
     echo "cargo-fmt-workspace: package=$package command=cargo fmt -p $package -- --check" >&2
