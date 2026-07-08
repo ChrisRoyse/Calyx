@@ -125,7 +125,7 @@ fn issue_calyx_native_forecast_fsv() {
 /// high, calibration stretches it, the ceiling holds it < 1, all six tiers pass → admissible. Persist
 /// and read back.
 fn happy_admissible_forecast(root: &Path, clock: &FixedClock) -> f64 {
-    let sc = scenario(210_85, 160);
+    let sc = scenario(21_085, 160);
 
     // #81 kNN base rate: a live up-market query near the YES cluster.
     let knn = knn_base_rate(&sc.exemplars, &[2.2, 0.0], 15).expect("knn base rate");
@@ -276,7 +276,7 @@ fn happy_admissible_forecast(root: &Path, clock: &FixedClock) -> f64 {
 /// Edge: the same strong forecast but the kernel-recall tier fails → non-admissible, and the on-disk
 /// record proves the refusal.
 fn edge_failing_tier_refuses(root: &Path, clock: &FixedClock, _admitted_p: &f64) {
-    let sc = scenario(210_86, 160);
+    let sc = scenario(21_086, 160);
     let knn = knn_base_rate(&sc.exemplars, &[2.2, 0.0], 15).unwrap();
     let components = vec![
         ForecastComponent::new(
@@ -395,7 +395,7 @@ fn computed_fvs_kernel_artifact(root: &Path) {
 
 /// #89: mispricing flag from the kNN neighbor consensus vs a divergent market price.
 fn mispricing_artifact(root: &Path) {
-    let sc = scenario(210_89, 160);
+    let sc = scenario(21_089, 160);
     // A live "down" market (neighbors resolve NO) but priced high → overpriced.
     let knn = knn_base_rate(&sc.exemplars, &[-2.2, 0.0], 15).unwrap();
     let flag = detect_mispricing(&knn, 0.80, 0.15).unwrap();

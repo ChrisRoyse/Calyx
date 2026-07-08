@@ -88,9 +88,8 @@
    `tmp/`, into chat, into commits, or into any docs. Use Infisical key
    names (e.g. `stripe_secret_key`) or the literal placeholder
    `<REDACTED:LABEL>`. The 2026-04-24 incident leaked 8+ live keys this
-   way; pre-commit secret scan + history rewrite are now in place. See
-   auto-memory `feedback_no_live_tokens_in_memory.md` and the repo
-   pre-commit hook at `.githooks/pre-commit`.
+   way; installed `.githooks/pre-commit` runs `scripts/secret-scan.sh --staged`
+   with gitleaks, and `.githooks/pre-push` runs `scripts/secret-scan.sh --git-history`.
 2. **Live credentials reach this codebase only through the loader or
    the Infisical CLI/REST/SDK.** No env files committed, no
    `.env.example` with non-placeholder values, no hardcoded fallback

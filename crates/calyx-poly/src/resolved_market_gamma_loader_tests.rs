@@ -16,18 +16,18 @@ fn issue223_loader_admits_known_truth_pre_resolution_gamma_row() {
         input.join("page-000000.json"),
         serde_json::to_vec_pretty(&json!({
             "data": [
-                gamma_market(
-                    "0xclean",
-                    &["No", "Yes"],
-                    &["0.00", "1.00"],
-                    &["no-token", "yes-token"],
-                    "0.61",
-                    "0.08",
-                    "500.0",
-                    "2000.0",
-                    "2026-01-01T00:00:00Z",
-                    "2026-01-02T00:00:00Z",
-                )
+                gamma_market(GammaMarketFixture {
+                    condition_id: "0xclean",
+                    outcomes: &["No", "Yes"],
+                    outcome_prices: &["0.00", "1.00"],
+                    tokens: &["no-token", "yes-token"],
+                    last_trade_price: "0.61",
+                    spread: "0.08",
+                    volume_24h: "500.0",
+                    liquidity: "2000.0",
+                    created_at: "2026-01-01T00:00:00Z",
+                    closed_time: "2026-01-02T00:00:00Z",
+                })
             ]
         }))
         .expect("encode page"),
@@ -76,42 +76,42 @@ fn issue223_loader_rejects_degenerate_lookahead_and_unresolved_rows_loud() {
     fs::write(
         input.join("page-000000.json"),
         serde_json::to_vec_pretty(&json!([
-            gamma_market(
-                "0xdegenerate",
-                &["No", "Yes"],
-                &["0.00", "1.00"],
-                &["no-token", "yes-token"],
-                "1.00",
-                "1.00",
-                "0",
-                "0",
-                "2026-01-01T00:00:00Z",
-                "2026-01-02T00:00:00Z",
-            ),
-            gamma_market(
-                "0xlookahead",
-                &["No", "Yes"],
-                &["0.00", "1.00"],
-                &["no-token", "yes-token"],
-                "0.61",
-                "0.08",
-                "500.0",
-                "2000.0",
-                "2026-01-03T00:00:00Z",
-                "2026-01-02T00:00:00Z",
-            ),
-            gamma_market(
-                "0xunresolved",
-                &["No", "Yes"],
-                &["0.40", "0.60"],
-                &["no-token", "yes-token"],
-                "0.61",
-                "0.08",
-                "500.0",
-                "2000.0",
-                "2026-01-01T00:00:00Z",
-                "2026-01-02T00:00:00Z",
-            )
+            gamma_market(GammaMarketFixture {
+                condition_id: "0xdegenerate",
+                outcomes: &["No", "Yes"],
+                outcome_prices: &["0.00", "1.00"],
+                tokens: &["no-token", "yes-token"],
+                last_trade_price: "1.00",
+                spread: "1.00",
+                volume_24h: "0",
+                liquidity: "0",
+                created_at: "2026-01-01T00:00:00Z",
+                closed_time: "2026-01-02T00:00:00Z",
+            }),
+            gamma_market(GammaMarketFixture {
+                condition_id: "0xlookahead",
+                outcomes: &["No", "Yes"],
+                outcome_prices: &["0.00", "1.00"],
+                tokens: &["no-token", "yes-token"],
+                last_trade_price: "0.61",
+                spread: "0.08",
+                volume_24h: "500.0",
+                liquidity: "2000.0",
+                created_at: "2026-01-03T00:00:00Z",
+                closed_time: "2026-01-02T00:00:00Z",
+            }),
+            gamma_market(GammaMarketFixture {
+                condition_id: "0xunresolved",
+                outcomes: &["No", "Yes"],
+                outcome_prices: &["0.40", "0.60"],
+                tokens: &["no-token", "yes-token"],
+                last_trade_price: "0.61",
+                spread: "0.08",
+                volume_24h: "500.0",
+                liquidity: "2000.0",
+                created_at: "2026-01-01T00:00:00Z",
+                closed_time: "2026-01-02T00:00:00Z",
+            })
         ]))
         .expect("encode page"),
     )
@@ -130,33 +130,35 @@ fn issue223_loader_rejects_degenerate_lookahead_and_unresolved_rows_loud() {
     let _ = fs::remove_dir_all(root);
 }
 
-fn gamma_market(
-    condition_id: &str,
-    outcomes: &[&str],
-    outcome_prices: &[&str],
-    tokens: &[&str],
-    last_trade_price: &str,
-    spread: &str,
-    volume_24h: &str,
-    liquidity: &str,
-    created_at: &str,
-    closed_time: &str,
-) -> Value {
+struct GammaMarketFixture<'a> {
+    condition_id: &'a str,
+    outcomes: &'a [&'a str],
+    outcome_prices: &'a [&'a str],
+    tokens: &'a [&'a str],
+    last_trade_price: &'a str,
+    spread: &'a str,
+    volume_24h: &'a str,
+    liquidity: &'a str,
+    created_at: &'a str,
+    closed_time: &'a str,
+}
+
+fn gamma_market(fixture: GammaMarketFixture<'_>) -> Value {
     json!({
-        "conditionId": condition_id,
-        "slug": format!("known-truth-{condition_id}"),
+        "conditionId": fixture.condition_id,
+        "slug": format!("known-truth-{}", fixture.condition_id),
         "category": "Crypto",
-        "outcomes": serde_json::to_string(&outcomes).expect("outcomes"),
-        "outcomePrices": serde_json::to_string(&outcome_prices).expect("prices"),
-        "clobTokenIds": serde_json::to_string(&tokens).expect("tokens"),
-        "spread": spread,
-        "volume24hr": volume_24h,
-        "liquidityNum": liquidity,
+        "outcomes": serde_json::to_string(&fixture.outcomes).expect("outcomes"),
+        "outcomePrices": serde_json::to_string(&fixture.outcome_prices).expect("prices"),
+        "clobTokenIds": serde_json::to_string(&fixture.tokens).expect("tokens"),
+        "spread": fixture.spread,
+        "volume24hr": fixture.volume_24h,
+        "liquidityNum": fixture.liquidity,
         "bestBid": "0.57",
         "bestAsk": "0.65",
-        "lastTradePrice": last_trade_price,
-        "createdAt": created_at,
-        "closedTime": closed_time,
+        "lastTradePrice": fixture.last_trade_price,
+        "createdAt": fixture.created_at,
+        "closedTime": fixture.closed_time,
     })
 }
 

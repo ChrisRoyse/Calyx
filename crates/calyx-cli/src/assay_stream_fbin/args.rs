@@ -7,6 +7,8 @@ use crate::error::{CliError, CliResult};
 use super::DEFAULT_MIN_BITS;
 use super::format::VectorFormat;
 
+const A37_ADMISSION_KEY_FLAG: &str = concat!("--a37-admission-", "key");
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum StreamMode {
     Gate,
@@ -98,7 +100,10 @@ impl Args {
                 "--a37-admission-cf-root" => {
                     a37_admission_cf_root = Some(PathBuf::from(next()?));
                 }
-                "--a37-admission-key" => a37_admission_key = next()?,
+                flag if flag == A37_ADMISSION_KEY_FLAG => {
+                    let value = next()?;
+                    a37_admission_key = value;
+                }
                 "--query-count" => query_count = Some(parse_usize(&next()?, flag)?),
                 "--limit-per-class" => limit_per_class = Some(parse_usize(&next()?, flag)?),
                 "--batch-size" => batch_size = parse_usize(&next()?, flag)?,

@@ -25,7 +25,7 @@ pub const ERR_SEED_REGISTRY_READBACK_MISMATCH: &str = "CALYX_POLY_SEED_REGISTRY_
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct FrozenRffSeedSpec {
     pub slot: u16,
-    pub lens_key: &'static str,
+    pub lens_id: &'static str,
     pub seed: u64,
     pub dim: usize,
     pub sigma: f64,
@@ -42,7 +42,7 @@ impl FrozenRffSeedSpec {
     pub fn entry(&self) -> SeedRegistryEntry {
         SeedRegistryEntry {
             slot: self.slot,
-            lens_key: self.lens_key.to_string(),
+            lens_id: self.lens_id.to_string(),
             encoder_kind: FrozenEncoderKind::Rff,
             seed: self.seed,
             seed_hex: seed_hex(self.seed),
@@ -64,7 +64,8 @@ pub enum FrozenEncoderKind {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct SeedRegistryEntry {
     pub slot: u16,
-    pub lens_key: String,
+    #[serde(rename = "lens_key")]
+    pub lens_id: String,
     pub encoder_kind: FrozenEncoderKind,
     pub seed: u64,
     pub seed_hex: String,
@@ -100,7 +101,7 @@ pub struct SeedRegistryRun {
 
 pub const PRICE_RFF: FrozenRffSeedSpec = FrozenRffSeedSpec {
     slot: 0,
-    lens_key: "price_rff",
+    lens_id: "price_rff",
     seed: 0x9E37_79B1,
     dim: 32,
     sigma: 0.05,
@@ -111,7 +112,7 @@ pub const PRICE_RFF: FrozenRffSeedSpec = FrozenRffSeedSpec {
 
 pub const DISTANCE_FROM_50_RFF: FrozenRffSeedSpec = FrozenRffSeedSpec {
     slot: 1,
-    lens_key: "distance_from_50",
+    lens_id: "distance_from_50",
     seed: 0x0D15_7A17,
     dim: 16,
     sigma: 0.05,
@@ -122,7 +123,7 @@ pub const DISTANCE_FROM_50_RFF: FrozenRffSeedSpec = FrozenRffSeedSpec {
 
 pub const SPREAD_RFF: FrozenRffSeedSpec = FrozenRffSeedSpec {
     slot: 2,
-    lens_key: "spread_rff",
+    lens_id: "spread_rff",
     seed: 0x5F9E_AD01,
     dim: 16,
     sigma: 0.01,
@@ -133,7 +134,7 @@ pub const SPREAD_RFF: FrozenRffSeedSpec = FrozenRffSeedSpec {
 
 pub const OFI_VEC_RFF: FrozenRffSeedSpec = FrozenRffSeedSpec {
     slot: 5,
-    lens_key: "ofi_vec",
+    lens_id: "ofi_vec",
     seed: 0x000F_1CEE,
     dim: 24,
     sigma: 0.25,
@@ -144,7 +145,7 @@ pub const OFI_VEC_RFF: FrozenRffSeedSpec = FrozenRffSeedSpec {
 
 pub const MOMENTUM_RFF: FrozenRffSeedSpec = FrozenRffSeedSpec {
     slot: 6,
-    lens_key: "momentum_rff",
+    lens_id: "momentum_rff",
     seed: 0x0ADD_9EAD,
     dim: 24,
     sigma: 0.05,
@@ -155,7 +156,7 @@ pub const MOMENTUM_RFF: FrozenRffSeedSpec = FrozenRffSeedSpec {
 
 pub const ARB_RESIDUAL_RFF: FrozenRffSeedSpec = FrozenRffSeedSpec {
     slot: 7,
-    lens_key: "arb_residual",
+    lens_id: "arb_residual",
     seed: 0x0A2B_5E11,
     dim: 16,
     sigma: 0.02,
@@ -197,7 +198,7 @@ pub fn default_seed_registry_artifact() -> SeedRegistryArtifact {
 pub fn seed_spec_for_lens(lens_key: &str) -> Result<&'static FrozenRffSeedSpec> {
     FROZEN_RFF_SEED_SPECS
         .iter()
-        .find(|spec| spec.lens_key == lens_key)
+        .find(|spec| spec.lens_id == lens_key)
         .ok_or_else(|| {
             PolyError::diagnostics(
                 ERR_SEED_REGISTRY_MISSING,
@@ -254,15 +255,15 @@ pub fn validate_seed_registry_artifact(
     let mut seeds = BTreeMap::<u64, &str>::new();
     for entry in &registry.entries {
         validate_entry(entry)?;
-        if !keys.insert(entry.lens_key.as_str()) {
-            return invalid(format!("duplicate lens_key {}", entry.lens_key));
+        if !keys.insert(entry.lens_id.as_str()) {
+            return invalid(format!("duplicate lens_key {}", entry.lens_id));
         }
-        if let Some(first_key) = seeds.insert(entry.seed, entry.lens_key.as_str()) {
+        if let Some(first_key) = seeds.insert(entry.seed, entry.lens_id.as_str()) {
             return Err(PolyError::diagnostics(
                 ERR_SEED_REGISTRY_COLLISION,
                 format!(
                     "seed {} is assigned to both {} and {}",
-                    entry.seed_hex, first_key, entry.lens_key
+                    entry.seed_hex, first_key, entry.lens_id
                 ),
             ));
         }
@@ -286,7 +287,7 @@ pub fn validate_seed_registry_artifact(
 }
 
 fn validate_entry(entry: &SeedRegistryEntry) -> Result<()> {
-    if entry.lens_key.trim().is_empty()
+    if entry.lens_id.trim().is_empty()
         || entry.source_field.trim().is_empty()
         || entry.transform.trim().is_empty()
         || entry.purpose.trim().is_empty()
@@ -296,13 +297,13 @@ fn validate_entry(entry: &SeedRegistryEntry) -> Result<()> {
     if entry.dim == 0 || !entry.sigma.is_finite() || entry.sigma <= 0.0 {
         return invalid(format!(
             "lens_key {} has invalid dim={} sigma={}",
-            entry.lens_key, entry.dim, entry.sigma
+            entry.lens_id, entry.dim, entry.sigma
         ));
     }
     if entry.seed_hex != seed_hex(entry.seed) {
         return invalid(format!(
             "lens_key {} has seed_hex {} but seed {} renders as {}",
-            entry.lens_key,
+            entry.lens_id,
             entry.seed_hex,
             entry.seed,
             seed_hex(entry.seed)

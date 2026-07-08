@@ -517,6 +517,9 @@ A25 "measured intelligence preservation" contract from planning doc 23.
   centi-units for key equality. Promotion/exploration helpers (`Explorer`,
   `should_promote`, `promote_if_winner`, `rollback_promotion`, A/B `autotune`)
   live alongside; constants `EPSILON`, `MIN_PROMOTE_MARGIN`, `MIN_PROMOTE_TRIALS`.
+  Promotion and rollback audit records are appended to the hash-chained
+  `calyx-ledger` as `calyx.forge.autotune.promotion.v1`; JSONL output is an
+  optional export mirror, not the source of truth.
   This is the mechanism by which a backend/config is *selected per (op, shape,
   device)* — but selection is recorded, not auto-applied within `Backend` calls.
 

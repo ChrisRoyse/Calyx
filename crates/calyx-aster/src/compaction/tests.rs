@@ -276,6 +276,143 @@ fn scheduler_compacts_debt_and_stops_cleanly() {
     cleanup(dir);
 }
 
+#[test]
+fn adaptive_schedule_backs_off_quiet_periods_and_accelerates_debt() {
+    let hook = AdaptiveCompactionSchedule;
+    let quiet = hook.decide(&CompactionScheduleState {
+        current_interval_ms: 10,
+        min_interval_ms: 10,
+        max_interval_ms: 80,
+        debt_trigger_score_milli: 100,
+        max_debt_score_milli: 0,
+        max_write_amp_milli: 2_000,
+        observed_write_amp_milli: None,
+        backoff_factor: 2,
+        debt_acceleration_factor: 2,
+        compaction_attempts: 0,
+        compacted_cfs: 0,
+        io_budget_bytes: None,
+        io_budget_limited: false,
+    });
+    assert_eq!(quiet.next_interval_ms, 20);
+
+    let debt = hook.decide(&CompactionScheduleState {
+        current_interval_ms: 80,
+        min_interval_ms: 10,
+        max_interval_ms: 80,
+        debt_trigger_score_milli: 100,
+        max_debt_score_milli: 250,
+        max_write_amp_milli: 2_000,
+        observed_write_amp_milli: Some(1_000),
+        backoff_factor: 2,
+        debt_acceleration_factor: 2,
+        compaction_attempts: 1,
+        compacted_cfs: 1,
+        io_budget_bytes: Some(4096),
+        io_budget_limited: false,
+    });
+    assert_eq!(debt.next_interval_ms, 40);
+    assert_eq!(debt.io_budget_bytes, Some(4096));
+    if let Some(root) = calyx_fsv::fsv_root("CALYX_FSV_ROOT") {
+        fs::create_dir_all(&root).unwrap();
+        fs::write(
+            root.join("compaction-adaptive-scheduler-readback.json"),
+            serde_json::to_vec_pretty(&serde_json::json!({
+                "source_of_truth": "AdaptiveCompactionSchedule decision output",
+                "quiet_before": {"current_interval_ms": 10, "max_debt_score_milli": 0},
+                "quiet_after": {
+                    "next_interval_ms": quiet.next_interval_ms,
+                    "io_budget_bytes": quiet.io_budget_bytes,
+                },
+                "debt_before": {"current_interval_ms": 80, "max_debt_score_milli": 250, "io_budget_bytes": 4096},
+                "debt_after": {
+                    "next_interval_ms": debt.next_interval_ms,
+                    "io_budget_bytes": debt.io_budget_bytes,
+                },
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+    }
+}
+
+#[test]
+fn scheduler_io_budget_limits_compaction_and_reports_to_hook() {
+    let dir = test_dir("scheduler-io-budget");
+    let first = dir.join("00000000000000000001.sst");
+    let second = dir.join("00000000000000000002.sst");
+    write_sst(&first, [(b"a".as_slice(), b"one".as_slice())]).expect("write first");
+    write_sst(&second, [(b"b".as_slice(), b"two".as_slice())]).expect("write second");
+    let catalog = Arc::new(CompactionCatalog::new(vec![
+        SstShard::new(ColumnFamily::Base, &first, 0).unwrap(),
+        SstShard::new(ColumnFamily::Base, &second, 0).unwrap(),
+    ]));
+    let hook = Arc::new(RecordingScheduleHook {
+        calls: AtomicU64::new(0),
+        saw_budget_limit: AtomicBool::new(false),
+    });
+    let options = CompactionSchedulerOptions {
+        interval_ms: 1,
+        min_interval_ms: 1,
+        debt_trigger_score_milli: 0,
+        io_budget_bytes: Some(1),
+        output_root: dir.join("scheduled"),
+        schedule_hook: hook.clone(),
+        ..CompactionSchedulerOptions::default()
+    };
+
+    let scheduler = CompactionScheduler::start(catalog.clone(), options);
+    let deadline = Instant::now() + Duration::from_secs(2);
+    while hook.calls.load(Ordering::Acquire) == 0 {
+        assert!(
+            Instant::now() < deadline,
+            "scheduler did not reach adaptive hook before deadline"
+        );
+        thread::yield_now();
+    }
+    scheduler.stop().expect("scheduler joins");
+
+    assert!(hook.saw_budget_limit.load(Ordering::Acquire));
+    assert_eq!(catalog.shard_count_for_cf(ColumnFamily::Base), 2);
+    let output_ssts = maybe_sst_names(&dir.join("scheduled/base"));
+    assert!(output_ssts.is_empty());
+    if let Some(root) = calyx_fsv::fsv_root("CALYX_FSV_ROOT") {
+        fs::create_dir_all(&root).unwrap();
+        fs::write(
+            root.join("compaction-scheduler-io-budget-readback.json"),
+            serde_json::to_vec_pretty(&serde_json::json!({
+                "source_of_truth": "CompactionCatalog active shard set and scheduler output directory",
+                "before": {"base_shards": 2, "io_budget_bytes": 1},
+                "after": {
+                    "hook_calls": hook.calls.load(Ordering::Acquire),
+                    "saw_budget_limit": hook.saw_budget_limit.load(Ordering::Acquire),
+                    "base_shards": catalog.shard_count_for_cf(ColumnFamily::Base),
+                    "output_ssts": output_ssts,
+                },
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+    }
+    cleanup(dir);
+}
+
+#[derive(Debug)]
+struct RecordingScheduleHook {
+    calls: AtomicU64,
+    saw_budget_limit: AtomicBool,
+}
+
+impl CompactionScheduleHook for RecordingScheduleHook {
+    fn decide(&self, state: &CompactionScheduleState) -> CompactionScheduleDecision {
+        self.calls.fetch_add(1, Ordering::AcqRel);
+        if state.io_budget_limited && state.io_budget_bytes == Some(1) {
+            self.saw_budget_limit.store(true, Ordering::Release);
+        }
+        AdaptiveCompactionSchedule.decide(state)
+    }
+}
+
 fn test_dir(name: &str) -> PathBuf {
     let dir = std::env::temp_dir().join(format!(
         "calyx-aster-compaction-{name}-{}",
@@ -284,6 +421,19 @@ fn test_dir(name: &str) -> PathBuf {
     let _ = fs::remove_dir_all(&dir);
     fs::create_dir_all(&dir).expect("create test dir");
     dir
+}
+
+fn maybe_sst_names(dir: &std::path::Path) -> Vec<String> {
+    if !dir.exists() {
+        return Vec::new();
+    }
+    let mut names = fs::read_dir(dir)
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name().to_string_lossy().to_string())
+        .filter(|name| name.ends_with(".sst"))
+        .collect::<Vec<_>>();
+    names.sort();
+    names
 }
 
 fn cleanup(dir: PathBuf) {

@@ -30,10 +30,11 @@ where
             torn_tail: recovery.torn_tail.clone(),
         };
         let router = match &options.selected_cfs {
-            Some(cfs) => CfRouter::open_selected_cfs(
+            Some(cfs) => CfRouter::open_selected_cfs_with_tiering(
                 vault_dir.as_ref(),
                 options.memtable_byte_cap,
                 cfs.iter().copied(),
+                options.tiering_policy.clone(),
             )?,
             None => CfRouter::open_with_tiering(
                 vault_dir.as_ref(),

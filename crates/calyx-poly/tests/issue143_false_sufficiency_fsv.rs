@@ -165,7 +165,7 @@ where
 fn setup_fixture(root: &Path) -> Fixture {
     reset_dir(root);
     let vault = AsterVault::new_durable(
-        &root.join("vault"),
+        root.join("vault"),
         vault_id(),
         VAULT_SALT.to_vec(),
         VaultOptions::default(),
@@ -176,7 +176,7 @@ fn setup_fixture(root: &Path) -> Fixture {
         .expect("ingest candidate");
     let evidence_dir = root.join("evidence");
     std::fs::create_dir_all(&evidence_dir).expect("create evidence dir");
-    let refs = vec![
+    let refs = [
         evidence_dir.join("market-source.json"),
         evidence_dir.join("outcome-source.json"),
     ];

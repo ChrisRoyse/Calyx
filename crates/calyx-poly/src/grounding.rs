@@ -451,7 +451,7 @@ mod tests {
         };
         let proxy = proxy_anchor(ProxyKind::Up1h, true, 0.6, 1).unwrap();
         assert_eq!(
-            rollup_trust(&[resolved.clone()]).unwrap(),
+            rollup_trust(std::slice::from_ref(&resolved)).unwrap(),
             TrustTag::Trusted
         );
         assert_eq!(

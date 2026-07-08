@@ -21,9 +21,11 @@ pub mod vram;
 
 pub use autotune::{
     AbHook, AutotuneCache, AutotuneKey, BenchCudaContext, BenchResult, EPSILON, Explorer,
-    ExplorerPolicy, MIN_PROMOTE_MARGIN, MIN_PROMOTE_TRIALS, PromotionAction, PromotionEvent,
-    autotune, log_promotion, microbench, next_candidate, promote_if_winner, record_trial,
-    rollback_promotion, should_promote, should_use_challenger,
+    ExplorerPolicy, MIN_PROMOTE_MARGIN, MIN_PROMOTE_TRIALS, PROMOTION_LEDGER_SCHEMA_VERSION,
+    PromotionAction, PromotionEvent, autotune, decode_promotion_ledger_payload, log_promotion,
+    microbench, next_candidate, promote_if_winner, promotion_ledger_events,
+    promotion_ledger_subject, record_trial, rollback_promotion, should_promote,
+    should_use_challenger,
 };
 pub use backend::{
     Backend, BackendKind, BestConfig, CUDA_EXACT_TOPK_MAX_K, DeviceInfo,

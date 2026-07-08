@@ -117,10 +117,10 @@ echo "[setup] done. Verify a build produces the expected binary:"
 echo "        cd $CALYX_HOME/repo && scripts/build-verified-calyx.sh --require-string calyx"
 
 # ----------------------------------------------------------------------------
-#  4. Install the repo pre-push hook (cargo fmt --check gate). Version-controlled
+#  4. Install the repo hooks (gitleaks/public leak/fmt gates). Version-controlled
 #     in .githooks/; core.hooksPath is per-clone local config, so wire it here.
 #     Idempotent. Prevents the fmt-dirty-merge class of breakage that bit
 #     PRs #530/#517/#475/#453 when the manual gate was skipped.
 # ----------------------------------------------------------------------------
 git -C "$repo_root" config core.hooksPath .githooks
-echo "setup: core.hooksPath set to .githooks (pre-push fmt gate active)"
+echo "setup: core.hooksPath set to .githooks (pre-commit secret/public scans and pre-push secret/public/fmt gates active)"

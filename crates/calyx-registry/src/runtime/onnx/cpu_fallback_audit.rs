@@ -22,7 +22,8 @@
 //!   not `off`, ORT profiling is enabled at session build and the audit runs
 //!   once after the first successful inference. `warn` logs the per-provider
 //!   counts; `fail` additionally errors when a GPU-policy session is over the
-//!   CPU-node fraction. Default `off` keeps the hot path unchanged.
+//!   CPU-node fraction. Default `off` keeps the hot path unchanged; CudaFailLoud
+//!   is still protected at build time by `session.disable_cpu_ep_fallback=1`.
 //! - `CALYX_ONNX_MAX_CPU_NODE_FRACTION` — CPU compute-node fraction a GPU-policy
 //!   session may reach before `fail` refuses it (default 0.10, range [0,1]).
 

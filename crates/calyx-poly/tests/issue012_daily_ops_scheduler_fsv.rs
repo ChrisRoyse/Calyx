@@ -5,6 +5,10 @@
 
 #[path = "daily_ops_scheduler_fixture.rs"]
 mod fixture;
+#[allow(
+    clippy::duplicate_mod,
+    reason = "integration test fixture and FSV driver both include the same helper file"
+)]
 #[path = "fsv_support.rs"]
 mod support;
 

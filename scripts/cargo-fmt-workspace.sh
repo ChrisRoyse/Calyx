@@ -60,7 +60,8 @@ if not names:
     sys.stderr.write("cargo-fmt-workspace: ERROR cargo metadata returned zero workspace packages\n")
     sys.exit(1)
 for name in names:
-    print(name)'
+    print(name)' |
+    tr -d '\r'
 )
 
 echo "cargo-fmt-workspace: mode=$mode package_count=${#packages[@]}" >&2

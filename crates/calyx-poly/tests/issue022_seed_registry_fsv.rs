@@ -117,7 +117,7 @@ fn edge_missing_required_lens_fails_closed(root: &Path) -> Value {
     let mut artifact = default_seed_registry_artifact();
     artifact
         .entries
-        .retain(|entry| entry.lens_key != "arb_residual");
+        .retain(|entry| entry.lens_id != "arb_residual");
     persisted_validation_error(root, "edge-missing", artifact, ERR_SEED_REGISTRY_MISSING)
 }
 

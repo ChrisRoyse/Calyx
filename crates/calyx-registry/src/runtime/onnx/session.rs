@@ -58,8 +58,18 @@ pub(super) fn configured_cuda_device() -> Result<i32> {
         })
 }
 
-pub(super) fn cpu_ep_fallback_disabled() -> bool {
-    env_flag(DISABLE_CPU_EP_FALLBACK_ENV)
+pub(super) fn cpu_ep_fallback_disabled_for_policy(policy: OnnxProviderPolicy) -> Result<bool> {
+    let env_requested = env_flag(DISABLE_CPU_EP_FALLBACK_ENV);
+    if env_requested && policy == OnnxProviderPolicy::CpuExplicit {
+        return Err(CalyxError {
+            code: "CALYX_ONNX_CPU_EP_FALLBACK_POLICY_INVALID",
+            message: format!(
+                "{DISABLE_CPU_EP_FALLBACK_ENV}=1 is invalid for an explicit CPU ONNX session"
+            ),
+            remediation: "unset CALYX_ONNX_DISABLE_CPU_EP_FALLBACK for CPU-policy sessions, or use CudaFailLoud when every node must stay off CPU",
+        });
+    }
+    Ok(matches!(policy, OnnxProviderPolicy::CudaFailLoud) || env_requested)
 }
 
 pub(super) fn configured_cuda_graphs() -> Result<bool> {
@@ -93,7 +103,7 @@ pub(super) fn build_session(
                 policy.as_str()
             ))
         })?;
-    if cpu_ep_fallback_disabled() {
+    if cpu_ep_fallback_disabled_for_policy(policy)? {
         builder = builder
             .with_config_entry("session.disable_cpu_ep_fallback", "1")
             .map_err(|err| {

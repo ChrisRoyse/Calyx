@@ -67,7 +67,7 @@ fn issue078_anchor_floor_tracker_fsv() {
 
 fn happy_exact_floor_passes(root: &Path) -> Value {
     let rows = (0..MIN_RESOLVED_ANCHOR_FLOOR)
-        .map(|idx| target_row(idx))
+        .map(target_row)
         .collect::<Vec<_>>();
     let paths = write_rows(root, "happy/rows", &rows);
     let run = run_tracker(root, "happy/report", paths);
@@ -107,7 +107,7 @@ fn edge_zero_anchors_refuses(root: &Path) -> Value {
 
 fn edge_duplicate_anchor_excluded(root: &Path) -> Value {
     let mut rows = (0..(MIN_RESOLVED_ANCHOR_FLOOR - 1))
-        .map(|idx| target_row(idx))
+        .map(target_row)
         .collect::<Vec<_>>();
     rows.push(target_row(0));
     let paths = write_rows(root, "edge-duplicate/rows", &rows);
@@ -132,7 +132,7 @@ fn edge_duplicate_anchor_excluded(root: &Path) -> Value {
 
 fn edge_cross_domain_anchor_excluded(root: &Path) -> Value {
     let mut rows = (0..(MIN_RESOLVED_ANCHOR_FLOOR - 1))
-        .map(|idx| target_row(idx))
+        .map(target_row)
         .collect::<Vec<_>>();
     rows.push(cross_domain_row(999));
     let paths = write_rows(root, "edge-cross-domain/rows", &rows);
@@ -207,7 +207,7 @@ fn row(domain: &str, idx: usize) -> AnchorFloorRow {
 fn resolved_anchor(idx: usize) -> Anchor {
     Anchor {
         kind: AnchorKind::TestPass,
-        value: AnchorValue::Bool(idx % 2 == 0),
+        value: AnchorValue::Bool(idx.is_multiple_of(2)),
         source: format!("uma:{DOMAIN}:{AXIS}:{idx:03}"),
         observed_at: 1_785_800_000 + idx as u64,
         confidence: 1.0,

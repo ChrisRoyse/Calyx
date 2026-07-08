@@ -221,16 +221,56 @@ fn artifact(path: &Path, value: Value) -> MistakeClosureArtifactRef {
 
 fn rows(prefix: &str) -> Vec<MistakeClosureScoreRow> {
     vec![
-        row(prefix, "a", 1_000, true, 0.10, 0.70, 1, 1, 1),
-        row(prefix, "b", 1_100, false, 0.90, 0.30, 1, 1, 1),
-        row(prefix, "c", 1_200, true, 0.20, 0.75, 1, 1, 1),
-        row(prefix, "d", 1_300, false, 0.80, 0.25, 1, 1, 1),
+        row(ScoreRowInput {
+            prefix,
+            suffix: "a",
+            forecast_ts: 1_000,
+            actual_win: true,
+            probability: 0.10,
+            closure_probability: 0.70,
+            missing_evidence_count: 1,
+            weak_association_count: 1,
+            prompt_pattern_count: 1,
+        }),
+        row(ScoreRowInput {
+            prefix,
+            suffix: "b",
+            forecast_ts: 1_100,
+            actual_win: false,
+            probability: 0.90,
+            closure_probability: 0.30,
+            missing_evidence_count: 1,
+            weak_association_count: 1,
+            prompt_pattern_count: 1,
+        }),
+        row(ScoreRowInput {
+            prefix,
+            suffix: "c",
+            forecast_ts: 1_200,
+            actual_win: true,
+            probability: 0.20,
+            closure_probability: 0.75,
+            missing_evidence_count: 1,
+            weak_association_count: 1,
+            prompt_pattern_count: 1,
+        }),
+        row(ScoreRowInput {
+            prefix,
+            suffix: "d",
+            forecast_ts: 1_300,
+            actual_win: false,
+            probability: 0.80,
+            closure_probability: 0.25,
+            missing_evidence_count: 1,
+            weak_association_count: 1,
+            prompt_pattern_count: 1,
+        }),
     ]
 }
 
-fn row(
-    prefix: &str,
-    suffix: &str,
+struct ScoreRowInput<'a> {
+    prefix: &'a str,
+    suffix: &'a str,
     forecast_ts: u64,
     actual_win: bool,
     probability: f64,
@@ -238,26 +278,29 @@ fn row(
     missing_evidence_count: usize,
     weak_association_count: usize,
     prompt_pattern_count: usize,
-) -> MistakeClosureScoreRow {
+}
+
+fn row(input: ScoreRowInput<'_>) -> MistakeClosureScoreRow {
     MistakeClosureScoreRow {
-        forecast_id: format!("{prefix}-{suffix}"),
-        forecast_ts,
-        resolved_ts: Some(forecast_ts + 100),
-        scored_ts: forecast_ts + 200,
-        source_snapshot_ts: forecast_ts - 10,
-        actual_win: Some(actual_win),
-        probability,
-        closure_probability,
+        forecast_id: format!("{}-{}", input.prefix, input.suffix),
+        forecast_ts: input.forecast_ts,
+        resolved_ts: Some(input.forecast_ts + 100),
+        scored_ts: input.forecast_ts + 200,
+        source_snapshot_ts: input.forecast_ts - 10,
+        actual_win: Some(input.actual_win),
+        probability: input.probability,
+        closure_probability: input.closure_probability,
         sufficiency_bits: 0.40,
         closure_sufficiency_bits: 0.70,
         association_recall_ratio: 0.70,
         closure_association_recall_ratio: 0.90,
-        calibration_abs_error: (probability - if actual_win { 1.0 } else { 0.0 }).abs(),
-        closure_calibration_abs_error: (closure_probability - if actual_win { 1.0 } else { 0.0 })
-            .abs(),
-        missing_evidence_count,
-        weak_association_count,
-        prompt_pattern_count,
+        calibration_abs_error: (input.probability - if input.actual_win { 1.0 } else { 0.0 }).abs(),
+        closure_calibration_abs_error: (input.closure_probability
+            - if input.actual_win { 1.0 } else { 0.0 })
+        .abs(),
+        missing_evidence_count: input.missing_evidence_count,
+        weak_association_count: input.weak_association_count,
+        prompt_pattern_count: input.prompt_pattern_count,
         forecast_artifact: empty_artifact(),
         outcome_anchor: None,
         source_snapshot: empty_artifact(),

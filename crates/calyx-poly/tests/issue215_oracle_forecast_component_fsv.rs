@@ -243,7 +243,7 @@ impl Outcome {
 
 fn outcomes(yes_count: usize, no_count: usize) -> Vec<Outcome> {
     let mut v = vec![Outcome::Yes; yes_count];
-    v.extend(std::iter::repeat(Outcome::No).take(no_count));
+    v.extend(std::iter::repeat_n(Outcome::No, no_count));
     v
 }
 

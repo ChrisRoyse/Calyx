@@ -12,9 +12,11 @@ use calyx_core::FixedClock;
 #[cfg(feature = "cuda")]
 use calyx_forge::{
     BenchCudaContext, BenchResult, Explorer, ExplorerPolicy, PromotionAction, PromotionEvent,
-    init_cuda, log_promotion, microbench, next_candidate, promote_if_winner, record_trial,
-    rollback_promotion,
+    init_cuda, log_promotion, microbench, next_candidate, promote_if_winner,
+    promotion_ledger_events, record_trial, rollback_promotion,
 };
+#[cfg(feature = "cuda")]
+use calyx_ledger::{ActorId, DirectoryLedgerStore, LedgerAppender};
 #[cfg(feature = "cuda")]
 use std::{fs, path::Path, sync::Mutex};
 
@@ -63,12 +65,26 @@ fn unique_path(name: &str, ext: &str) -> PathBuf {
 }
 
 #[cfg(feature = "cuda")]
-fn read_events(path: &Path) -> Vec<PromotionEvent> {
+fn actor() -> ActorId {
+    ActorId::Service("calyx-forge-autotune-cuda-test".to_string())
+}
+
+#[cfg(feature = "cuda")]
+fn read_jsonl_events(path: &Path) -> Vec<PromotionEvent> {
     fs::read_to_string(path)
         .expect("read promotion log")
         .lines()
         .map(|line| serde_json::from_str(line).expect("deserialize promotion event"))
         .collect()
+}
+
+#[cfg(feature = "cuda")]
+fn ledger_appender(
+    ledger_dir: &Path,
+    clock_ms: u64,
+) -> LedgerAppender<DirectoryLedgerStore, FixedClock> {
+    let store = DirectoryLedgerStore::open(ledger_dir).expect("open promotion ledger dir");
+    LedgerAppender::open(store, FixedClock::new(clock_ms)).expect("open promotion ledger")
 }
 
 #[test]
@@ -79,6 +95,7 @@ fn autotune_two_shapes_converge() -> Result<()> {
         let run = run_two_shapes(
             artifact_path("autotune_cache_fsv.json"),
             artifact_path("promotion_log.jsonl"),
+            artifact_path("promotion_ledger"),
         )?;
         let loaded = AutotuneCache::load(&run.cache_path)?;
         let loaded_a = autotune(&loaded, &run.key_a);
@@ -111,8 +128,10 @@ fn autotune_promotion_logged() -> Result<()> {
         let run = run_two_shapes(
             unique_path("promotion_logged_cache", "json"),
             unique_path("promotion_logged", "jsonl"),
+            unique_path("promotion_logged_ledger", "dir"),
         )?;
-        let events = read_events(&run.log_path);
+        let ledger = ledger_appender(&run.ledger_dir, 9_999);
+        let events = promotion_ledger_events(&ledger)?;
         let promoted = events
             .iter()
             .filter(|event| event.action == PromotionAction::Promoted)
@@ -120,8 +139,9 @@ fn autotune_promotion_logged() -> Result<()> {
 
         assert!(promoted >= 1);
         println!(
-            "autotune_promotion_logged PASSED Promoted count={} log_path={}",
+            "autotune_promotion_logged PASSED Promoted count={} ledger_dir={} log_path={}",
             promoted,
+            run.ledger_dir.display(),
             run.log_path.display()
         );
     }
@@ -136,6 +156,7 @@ fn autotune_promotion_reversible() -> Result<()> {
         let mut run = run_two_shapes(
             unique_path("promotion_reversible_cache", "json"),
             unique_path("promotion_reversible", "jsonl"),
+            unique_path("promotion_reversible_ledger", "dir"),
         )?;
         let promoted = run
             .promotions
@@ -145,11 +166,13 @@ fn autotune_promotion_reversible() -> Result<()> {
 
         let demoted = rollback_promotion(
             &mut run.cache,
-            &run.log_path,
+            &mut run.ledger,
             &promoted.key,
             &FixedClock::new(1_785_700_000),
+            actor(),
+            Some(&run.log_path),
         )?;
-        let events = read_events(&run.log_path);
+        let events = promotion_ledger_events(&run.ledger)?;
 
         assert_eq!(demoted, Some(promoted.new_config.clone()));
         assert_eq!(run.cache.get(&promoted.key), Some(&promoted.old_config));
@@ -157,6 +180,7 @@ fn autotune_promotion_reversible() -> Result<()> {
             events.last().map(|event| event.action),
             Some(PromotionAction::RolledBack)
         );
+        assert_eq!(read_jsonl_events(&run.log_path), events);
         println!(
             "autotune_promotion_reversible PASSED RolledBack=true demoted_tile={} cache_tile={}",
             promoted.new_config.tile_m,
@@ -234,16 +258,24 @@ struct ConvergenceRun {
     config_b: BestConfig,
     cache_path: PathBuf,
     log_path: PathBuf,
+    ledger_dir: PathBuf,
+    ledger: LedgerAppender<DirectoryLedgerStore, FixedClock>,
     promotions: Vec<PromotionEvent>,
 }
 
 #[cfg(feature = "cuda")]
-fn run_two_shapes(cache_path: PathBuf, log_path: PathBuf) -> Result<ConvergenceRun> {
+fn run_two_shapes(
+    cache_path: PathBuf,
+    log_path: PathBuf,
+    ledger_dir: PathBuf,
+) -> Result<ConvergenceRun> {
     let _guard = CUDA_LOCK.lock().unwrap_or_else(|err| err.into_inner());
     let _ = fs::remove_file(&cache_path);
     let _ = fs::remove_file(&log_path);
+    let _ = fs::remove_dir_all(&ledger_dir);
     let ctx = init_cuda(0, false)?;
     let mut cache = AutotuneCache::load(&cache_path)?;
+    let mut ledger = ledger_appender(&ledger_dir, 1_785_600_000);
     let mut explorer = Explorer::new(ExplorerPolicy::Thompson, 0xCA1A_0016);
     let case_a = shape_a();
     let case_b = shape_b();
@@ -252,6 +284,7 @@ fn run_two_shapes(cache_path: PathBuf, log_path: PathBuf) -> Result<ConvergenceR
         &ctx,
         &mut explorer,
         &mut cache,
+        &mut ledger,
         &log_path,
         &case_a,
         &mut promotions,
@@ -260,6 +293,7 @@ fn run_two_shapes(cache_path: PathBuf, log_path: PathBuf) -> Result<ConvergenceR
         &ctx,
         &mut explorer,
         &mut cache,
+        &mut ledger,
         &log_path,
         &case_b,
         &mut promotions,
@@ -274,6 +308,8 @@ fn run_two_shapes(cache_path: PathBuf, log_path: PathBuf) -> Result<ConvergenceR
         config_b,
         cache_path,
         log_path,
+        ledger_dir,
+        ledger,
         promotions,
     })
 }
@@ -311,6 +347,7 @@ fn run_shape(
     ctx: &BenchCudaContext,
     explorer: &mut Explorer,
     cache: &mut AutotuneCache,
+    ledger: &mut LedgerAppender<DirectoryLedgerStore, FixedClock>,
     log_path: &Path,
     case: &ShapeCase,
     promotions: &mut Vec<PromotionEvent>,
@@ -340,7 +377,7 @@ fn run_shape(
                 timestamp_ns: timestamp_ms.saturating_mul(CLOCK_MS_TO_NS),
                 action: PromotionAction::Promoted,
             };
-            log_promotion(&event, log_path)?;
+            log_promotion(&event, ledger, actor(), Some(log_path))?;
             promotions.push(event);
             incumbent = candidate;
         }

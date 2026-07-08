@@ -295,8 +295,9 @@ ignored tests, CUDA tests, fuzz, soak, or mutation testing.
 
 | Gate | File | What it enforces |
 |---|---|---|
-| pre-push | `.githooks/pre-push` | Rejects any push whose tree is not `cargo fmt --all -- --check` clean. Fail-loud if cargo is missing. Install once: `git config core.hooksPath .githooks` (done by `scripts/aiwonder-build-setup.sh`). |
-| pre-commit | `.pre-commit-config.yaml` | Single local hook `calyx-secret-scan` → `scripts/secret-scan.sh` (`pass_filenames: false`). |
+| pre-commit | `.githooks/pre-commit` | Runs `scripts/secret-scan.sh --staged` against the exact Git index, then `scripts/public-leak-scan.sh --cached`. Install once: `git config core.hooksPath .githooks` (done by `scripts/aiwonder-build-setup.sh`). |
+| pre-push | `.githooks/pre-push` | Runs `scripts/secret-scan.sh --git-history`, public leak scan, then workspace fmt. Fail-loud if gitleaks or cargo is missing. |
+| full gate | `scripts/check.sh` | Runs `scripts/secret-scan.sh` before fmt/check/clippy/tests so the installed hook path and manual gate share one authoritative gitleaks script. |
 
 ### 5.3 Coverage tooling
 

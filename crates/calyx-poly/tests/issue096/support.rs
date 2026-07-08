@@ -92,13 +92,15 @@ pub fn happy_end_to_end_admits_with_full_provenance(root: &Path, fixture: &Fixtu
     .expect("write forecast markdown");
     let ledger_ref = append_admission_ledger(
         fixture,
-        &manifest,
-        &manifest_path,
-        &association,
-        &policy_decision,
-        &decision,
-        &forecast_json,
-        &forecast_md,
+        AdmissionLedgerArtifacts {
+            manifest: &manifest,
+            manifest_path: &manifest_path,
+            association: &association,
+            policy: &policy_decision,
+            decision: &decision,
+            forecast_json: &forecast_json,
+            forecast_md: &forecast_md,
+        },
     );
     fixture.vault.flush().expect("flush #96 ledger");
     let state = source_state(
@@ -257,38 +259,32 @@ fn write_forecast_json(
 
 fn append_admission_ledger(
     fixture: &Fixture,
-    manifest: &AgentForecastManifest,
-    manifest_path: &Path,
-    association: &AssociationArtifact,
-    policy: &calyx_poly::PolicyDecision,
-    decision: &AdmissionDecision,
-    forecast_json: &Path,
-    forecast_md: &Path,
+    artifacts: AdmissionLedgerArtifacts<'_>,
 ) -> calyx_core::LedgerRef {
     let payload = json!({
         "schema_version": "poly.issue096.admission_ledger.v1",
-        "admitted": decision.admitted,
-        "code": decision.code,
-        "reason": decision.reason,
+        "admitted": artifacts.decision.admitted,
+        "code": artifacts.decision.code,
+        "reason": artifacts.decision.reason,
         "source_cx_id": fixture.candidate_id.to_string(),
-        "association": {"file": file_name(&association.path), "hash_prefix": prefix(&association.blake3)},
+        "association": {"file": file_name(&artifacts.association.path), "hash_prefix": prefix(&artifacts.association.blake3)},
         "agent": {
-            "run_id": manifest.run_id,
-            "manifest_file": file_name(manifest_path),
-            "manifest_hash_prefix": prefix(&hash_file(manifest_path)),
-            "probability": manifest.parsed_forecast.probability,
-            "confidence": manifest.parsed_forecast.confidence
+            "run_id": artifacts.manifest.run_id,
+            "manifest_file": file_name(artifacts.manifest_path),
+            "manifest_hash_prefix": prefix(&hash_file(artifacts.manifest_path)),
+            "probability": artifacts.manifest.parsed_forecast.probability,
+            "confidence": artifacts.manifest.parsed_forecast.confidence
         },
         "parser": {
-            "schema_version": manifest.schema_version,
-            "prompt_template_version": manifest.prompt.template_version
+            "schema_version": artifacts.manifest.schema_version,
+            "prompt_template_version": artifacts.manifest.prompt.template_version
         },
-        "policy_code": policy.code,
+        "policy_code": artifacts.policy.code,
         "forecast_files": {
-            "json_file": file_name(forecast_json),
-            "json_hash_prefix": prefix(&hash_file(forecast_json)),
-            "markdown_file": file_name(forecast_md),
-            "markdown_hash_prefix": prefix(&hash_file(forecast_md))
+            "json_file": file_name(artifacts.forecast_json),
+            "json_hash_prefix": prefix(&hash_file(artifacts.forecast_json)),
+            "markdown_file": file_name(artifacts.forecast_md),
+            "markdown_hash_prefix": prefix(&hash_file(artifacts.forecast_md))
         }
     });
     fixture
@@ -300,6 +296,16 @@ fn append_admission_ledger(
             ActorId::Service("calyx-poly-issue096".to_string()),
         )
         .expect("append #96 admission ledger")
+}
+
+struct AdmissionLedgerArtifacts<'a> {
+    manifest: &'a AgentForecastManifest,
+    manifest_path: &'a Path,
+    association: &'a AssociationArtifact,
+    policy: &'a calyx_poly::PolicyDecision,
+    decision: &'a AdmissionDecision,
+    forecast_json: &'a Path,
+    forecast_md: &'a Path,
 }
 
 fn source_state(fixture: &Fixture, ledger_seq: Option<u64>, artifacts: &[&Path]) -> Value {

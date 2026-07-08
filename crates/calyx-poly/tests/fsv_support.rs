@@ -3,7 +3,10 @@ use std::path::{Path, PathBuf};
 
 use serde_json::{Value, json};
 
-#[allow(dead_code)]
+#[allow(
+    dead_code,
+    reason = "shared FSV helper is included by tests that use different subsets"
+)]
 pub fn known_healthy_market_integrity() -> calyx_poly::risk::MarketIntegrityScreen {
     calyx_poly::risk::MarketIntegrityScreen {
         ok: true,
@@ -20,12 +23,18 @@ pub fn known_healthy_market_integrity() -> calyx_poly::risk::MarketIntegrityScre
     }
 }
 
-#[allow(dead_code)]
+#[allow(
+    dead_code,
+    reason = "shared FSV helper is included by tests that use different subsets"
+)]
 pub fn known_healthy_oracle_risk() -> calyx_poly::oracle::OracleRiskScreen {
     known_healthy_oracle_risk_for(0.94)
 }
 
-#[allow(dead_code)]
+#[allow(
+    dead_code,
+    reason = "shared FSV helper is included by tests that use different subsets"
+)]
 pub fn known_healthy_oracle_risk_for(p_win: f64) -> calyx_poly::oracle::OracleRiskScreen {
     calyx_poly::oracle::OracleRiskScreen {
         ok: true,
@@ -43,7 +52,10 @@ pub fn known_healthy_oracle_risk_for(p_win: f64) -> calyx_poly::oracle::OracleRi
     }
 }
 
-#[allow(dead_code)]
+#[allow(
+    dead_code,
+    reason = "shared FSV helper is included by tests that use different subsets"
+)]
 pub fn known_healthy_wash_trade() -> calyx_poly::wash::WashTradeScreen {
     calyx_poly::wash::WashTradeScreen {
         ok: true,
@@ -58,6 +70,10 @@ pub fn known_healthy_wash_trade() -> calyx_poly::wash::WashTradeScreen {
     }
 }
 
+#[allow(
+    dead_code,
+    reason = "shared FSV helper is included by tests that use different subsets"
+)]
 pub fn write_json(path: &Path, value: &Value) {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).expect("create JSON parent directory");
@@ -69,7 +85,10 @@ pub fn write_json(path: &Path, value: &Value) {
     .expect("write JSON evidence");
 }
 
-#[allow(dead_code)]
+#[allow(
+    dead_code,
+    reason = "shared FSV helper is included by tests that use different subsets"
+)]
 pub fn write_blake3sums(root: &Path) {
     let mut paths = Vec::new();
     collect_path_list(root, &mut paths);
@@ -89,7 +108,10 @@ pub fn write_blake3sums(root: &Path) {
     fs::write(root.join("BLAKE3SUMS.txt"), lines.join("\n")).expect("write BLAKE3SUMS");
 }
 
-#[allow(dead_code)]
+#[allow(
+    dead_code,
+    reason = "shared FSV helper is included by tests that use different subsets"
+)]
 pub fn collect_files(dir: &Path, out: &mut Vec<Value>) {
     let mut paths = Vec::new();
     collect_path_list(dir, &mut paths);
@@ -103,7 +125,10 @@ pub fn collect_files(dir: &Path, out: &mut Vec<Value>) {
     }
 }
 
-#[allow(dead_code)]
+#[allow(
+    dead_code,
+    reason = "shared FSV helper is included by tests that use different subsets"
+)]
 fn collect_path_list(dir: &Path, out: &mut Vec<PathBuf>) {
     if !dir.exists() {
         return;
@@ -118,6 +143,10 @@ fn collect_path_list(dir: &Path, out: &mut Vec<PathBuf>) {
     }
 }
 
+#[allow(
+    dead_code,
+    reason = "shared FSV helper is included by tests that use different subsets"
+)]
 pub fn named_fsv_root(env: &str, fallback_name: &str) -> (PathBuf, bool) {
     if let Some(value) = std::env::var_os(env) {
         return (PathBuf::from(value), true);
@@ -128,6 +157,10 @@ pub fn named_fsv_root(env: &str, fallback_name: &str) -> (PathBuf, bool) {
     )
 }
 
+#[allow(
+    dead_code,
+    reason = "shared FSV helper is included by tests that use different subsets"
+)]
 pub fn reset_dir(path: &Path) {
     if path.exists() {
         fs::remove_dir_all(path).expect("remove previous FSV root");
@@ -135,7 +168,10 @@ pub fn reset_dir(path: &Path) {
     fs::create_dir_all(path).expect("create FSV root");
 }
 
-#[allow(dead_code)]
+#[allow(
+    dead_code,
+    reason = "shared FSV helper is included by tests that use different subsets"
+)]
 pub fn hex(bytes: &[u8]) -> String {
     bytes.iter().map(|byte| format!("{byte:02x}")).collect()
 }

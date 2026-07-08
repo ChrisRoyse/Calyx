@@ -422,7 +422,7 @@ mod tests {
     fn resolved(i: usize) -> Anchor {
         Anchor {
             kind: AnchorKind::TestPass,
-            value: AnchorValue::Bool(i % 2 == 0),
+            value: AnchorValue::Bool(i.is_multiple_of(2)),
             source: "uma:test".to_string(),
             observed_at: i as u64,
             confidence: 1.0,

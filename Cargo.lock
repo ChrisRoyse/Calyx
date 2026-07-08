@@ -613,6 +613,7 @@ version = "0.1.0"
 dependencies = [
  "calyx-core",
  "calyx-fsv",
+ "calyx-ledger",
  "criterion",
  "cudarc 0.19.8",
  "nvml-wrapper",

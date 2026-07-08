@@ -4,22 +4,19 @@ use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use calyx_core::FixedClock;
+use calyx_ledger::{ActorId, DirectoryLedgerStore, EntryKind, LedgerAppender, LedgerCfStore};
 use proptest::prelude::*;
 use rand::SeedableRng;
 use rand_chacha::ChaCha8Rng;
 
 use super::{
     AbHook, AutotuneCache, AutotuneKey, PromotionAction, PromotionEvent, autotune, log_promotion,
-    rollback_promotion, should_use_challenger,
+    promotion_ledger_events, promotion_ledger_subject, rollback_promotion, should_use_challenger,
 };
 use crate::{BackendKind, BestConfig, ForgeError, Result};
 
 fn key(op: &str) -> AutotuneKey {
     AutotuneKey::default_for(op, &[1024, 1024, 1024], "f32", "cuda:0")
-}
-
-fn other_key() -> AutotuneKey {
-    AutotuneKey::default_for("cosine", &[1024, 1024], "f32", "cuda:0")
 }
 
 fn config(tile: usize) -> BestConfig {
@@ -61,8 +58,23 @@ fn unique_path(name: &str, ext: &str) -> PathBuf {
     ))
 }
 
-fn fsv_log_path() -> PathBuf {
-    std::env::temp_dir().join("calyx_promotion_test.jsonl")
+fn fsv_paths() -> (PathBuf, PathBuf) {
+    (
+        std::env::temp_dir().join("calyx_promotion_test_ledger"),
+        std::env::temp_dir().join("calyx_promotion_test.jsonl"),
+    )
+}
+
+fn actor() -> ActorId {
+    ActorId::Service("calyx-forge-autotune-test".to_string())
+}
+
+fn ledger_appender(
+    ledger_dir: &Path,
+    clock_ms: u64,
+) -> LedgerAppender<DirectoryLedgerStore, FixedClock> {
+    let store = DirectoryLedgerStore::open(ledger_dir).expect("open promotion ledger dir");
+    LedgerAppender::open(store, FixedClock::new(clock_ms)).expect("open promotion ledger")
 }
 
 fn read_events(path: &Path) -> Vec<PromotionEvent> {
@@ -71,6 +83,19 @@ fn read_events(path: &Path) -> Vec<PromotionEvent> {
         .lines()
         .map(|line| serde_json::from_str(line).expect("deserialize promotion event"))
         .collect()
+}
+
+fn read_ledger_events(path: &Path) -> Vec<PromotionEvent> {
+    let ledger = ledger_appender(path, 9_999);
+    promotion_ledger_events(&ledger).expect("scan promotion ledger")
+}
+
+fn read_ledger_row_count(path: &Path) -> usize {
+    DirectoryLedgerStore::open(path)
+        .expect("open promotion ledger dir")
+        .scan()
+        .expect("scan promotion ledger rows")
+        .len()
 }
 
 fn fsv_error(op: &str, path: &Path, detail: impl ToString) -> ForgeError {
@@ -83,6 +108,7 @@ fn fsv_error(op: &str, path: &Path, detail: impl ToString) -> ForgeError {
 }
 
 fn write_promotion_fsv_readbacks(
+    ledger_dir: &Path,
     log_path: &Path,
     events: &[PromotionEvent],
     demoted: Option<&BestConfig>,
@@ -93,7 +119,8 @@ fn write_promotion_fsv_readbacks(
     };
     fs::create_dir_all(&root).map_err(|err| fsv_error("fsv_mkdir", &root, err))?;
 
-    let log_dest = root.join("promotion-log-readback.jsonl");
+    let ledger_rows = read_ledger_row_count(ledger_dir);
+    let log_dest = root.join("promotion-log-export-readback.jsonl");
     let raw_log = fs::read(log_path).map_err(|err| fsv_error("fsv_read", log_path, err))?;
     fs::write(&log_dest, &raw_log).map_err(|err| fsv_error("fsv_write", &log_dest, err))?;
     let copied_log =
@@ -103,8 +130,9 @@ fn write_promotion_fsv_readbacks(
     let summary = serde_json::json!({
         "issue": 338,
         "case": "promotion_logged_and_reversible",
-        "provenance_surface": "local_jsonl_audit_stub",
-        "ledger_chain_entry": false,
+        "provenance_surface": "calyx_ledger_directory_store",
+        "ledger_chain_entry": true,
+        "ledger_row_count": ledger_rows,
         "event_count": events.len(),
         "actions": events.iter().map(|event| format!("{:?}", event.action)).collect::<Vec<_>>(),
         "demoted_tile": demoted.map(|cfg| cfg.tile_m),
@@ -129,8 +157,10 @@ fn write_promotion_fsv_readbacks(
 
 #[test]
 fn promotion_logged_and_reversible() -> Result<()> {
-    let log_path = fsv_log_path();
+    let (ledger_dir, log_path) = fsv_paths();
+    let _ = fs::remove_dir_all(&ledger_dir);
     let _ = fs::remove_file(&log_path);
+    let mut ledger = ledger_appender(&ledger_dir, 1_000);
     let cache_path = unique_path("cache", "json");
     let mut cache = AutotuneCache::load(&cache_path)?;
     let key = key("gemm");
@@ -139,27 +169,45 @@ fn promotion_logged_and_reversible() -> Result<()> {
     let event = promotion_event(key.clone(), old_config.clone(), new_config.clone(), 111);
 
     cache.insert(key.clone(), new_config.clone());
-    log_promotion(&event, &log_path)?;
-    let first_events = read_events(&log_path);
+    log_promotion(&event, &mut ledger, actor(), Some(&log_path))?;
+    let first_events = promotion_ledger_events(&ledger)?;
 
     assert_eq!(first_events, vec![event]);
 
-    let demoted = rollback_promotion(&mut cache, &log_path, &key, &FixedClock::new(2_000))?;
-    let events = read_events(&log_path);
+    let demoted = rollback_promotion(
+        &mut cache,
+        &mut ledger,
+        &key,
+        &FixedClock::new(2_000),
+        actor(),
+        Some(&log_path),
+    )?;
+    let events = promotion_ledger_events(&ledger)?;
+    let export_events = read_events(&log_path);
 
     assert_eq!(demoted, Some(new_config.clone()));
     assert_eq!(cache.get(&key), Some(&old_config));
     assert_eq!(events.len(), 2);
+    assert_eq!(export_events, events);
+    assert_eq!(read_ledger_events(&ledger_dir), events);
+    assert_eq!(read_ledger_row_count(&ledger_dir), 2);
     assert_eq!(events[0].action, PromotionAction::Promoted);
     assert_eq!(events[1].action, PromotionAction::RolledBack);
     assert_eq!(events[1].old_config, new_config);
     assert_eq!(events[1].new_config, old_config);
     assert_eq!(events[1].timestamp_ns, 2_000_000_000);
-    write_promotion_fsv_readbacks(&log_path, &events, demoted.as_ref(), cache.get(&key))?;
+    write_promotion_fsv_readbacks(
+        &ledger_dir,
+        &log_path,
+        &events,
+        demoted.as_ref(),
+        cache.get(&key),
+    )?;
     println!(
-        "promotion_logged_and_reversible PASSED Promoted old_tile=64 new_tile=128 RolledBack demoted_tile={} cache_tile={} log_path={}",
+        "promotion_logged_and_reversible PASSED Promoted old_tile=64 new_tile=128 RolledBack demoted_tile={} cache_tile={} ledger_dir={} log_path={}",
         demoted.as_ref().map_or(0, |cfg| cfg.tile_m),
         cache.get(&key).map_or(0, |cfg| cfg.tile_m),
+        ledger_dir.display(),
         log_path.display()
     );
     Ok(())
@@ -224,40 +272,60 @@ proptest! {
 
 #[test]
 fn rollback_without_prior_promotion_returns_none() -> Result<()> {
-    let log_path = unique_path("empty_rollback", "jsonl");
+    let ledger_dir = unique_path("empty_rollback_ledger", "dir");
+    let _ = fs::remove_dir_all(&ledger_dir);
+    let mut ledger = ledger_appender(&ledger_dir, 3_000);
+    let log_path = unique_path("empty_rollback_export", "jsonl");
     let cache_path = unique_path("empty_rollback_cache", "json");
     let mut cache = AutotuneCache::load(&cache_path)?;
     let key = key("gemm");
     let current = config(128);
 
     cache.insert(key.clone(), current.clone());
-    let demoted = rollback_promotion(&mut cache, &log_path, &key, &FixedClock::new(3_000))?;
+    let demoted = rollback_promotion(
+        &mut cache,
+        &mut ledger,
+        &key,
+        &FixedClock::new(3_000),
+        actor(),
+        Some(&log_path),
+    )?;
 
     assert_eq!(demoted, None);
     assert_eq!(cache.get(&key), Some(&current));
+    assert_eq!(read_ledger_row_count(&ledger_dir), 0);
     println!(
-        "promotion_no_prior PASSED RolledBack=false cache_tile={} log_exists={}",
+        "promotion_no_prior PASSED RolledBack=false cache_tile={} ledger_rows={} log_exists={}",
         cache.get(&key).map_or(0, |cfg| cfg.tile_m),
+        read_ledger_row_count(&ledger_dir),
         log_path.exists()
     );
     Ok(())
 }
 
 #[test]
-fn log_promotion_missing_directory_fails_closed() {
+fn log_promotion_jsonl_export_missing_directory_fails_closed() {
     let dir = unique_path("missing_dir", "dir");
+    let ledger_dir = unique_path("missing_dir_ledger", "dir");
+    let _ = fs::remove_dir_all(&ledger_dir);
+    let mut ledger = ledger_appender(&ledger_dir, 1_000);
     let log_path = dir.join("promotion.jsonl");
     let event = promotion_event(key("gemm"), config(64), config(128), 111);
 
-    let err = log_promotion(&event, &log_path).expect_err("missing parent must fail closed");
+    let err = log_promotion(&event, &mut ledger, actor(), Some(&log_path))
+        .expect_err("missing export parent must fail closed");
 
     assert!(matches!(err, ForgeError::CacheError { .. }));
     assert!(err.to_string().contains(&log_path.display().to_string()));
-    println!("promotion_missing_dir PASSED {err}");
+    assert_eq!(read_ledger_row_count(&ledger_dir), 1);
+    println!("promotion_missing_export_dir PASSED {err}");
 }
 
 #[test]
 fn rollback_uses_most_recent_promotion() -> Result<()> {
+    let ledger_dir = unique_path("two_promotions_ledger", "dir");
+    let _ = fs::remove_dir_all(&ledger_dir);
+    let mut ledger = ledger_appender(&ledger_dir, 1_000);
     let log_path = unique_path("two_promotions", "jsonl");
     let cache_path = unique_path("two_promotions_cache", "json");
     let mut cache = AutotuneCache::load(&cache_path)?;
@@ -268,16 +336,27 @@ fn rollback_uses_most_recent_promotion() -> Result<()> {
 
     log_promotion(
         &promotion_event(key.clone(), first, second.clone(), 111),
-        &log_path,
+        &mut ledger,
+        actor(),
+        Some(&log_path),
     )?;
     log_promotion(
         &promotion_event(key.clone(), second.clone(), third.clone(), 222),
-        &log_path,
+        &mut ledger,
+        actor(),
+        Some(&log_path),
     )?;
     cache.insert(key.clone(), third.clone());
 
-    let demoted = rollback_promotion(&mut cache, &log_path, &key, &FixedClock::new(4_000))?;
-    let events = read_events(&log_path);
+    let demoted = rollback_promotion(
+        &mut cache,
+        &mut ledger,
+        &key,
+        &FixedClock::new(4_000),
+        actor(),
+        Some(&log_path),
+    )?;
+    let events = promotion_ledger_events(&ledger)?;
 
     assert_eq!(demoted, Some(third));
     assert_eq!(cache.get(&key), Some(&second));
@@ -285,6 +364,8 @@ fn rollback_uses_most_recent_promotion() -> Result<()> {
         events.last().map(|event| event.action),
         Some(PromotionAction::RolledBack)
     );
+    assert_eq!(read_events(&log_path), events);
+    assert_eq!(read_ledger_row_count(&ledger_dir), 3);
     println!(
         "promotion_two_promotions PASSED RolledBack=true demoted_tile=256 cache_tile={}",
         cache.get(&key).map_or(0, |cfg| cfg.tile_m)
@@ -293,19 +374,34 @@ fn rollback_uses_most_recent_promotion() -> Result<()> {
 }
 
 #[test]
-fn rollback_malformed_jsonl_fails_closed() {
-    let log_path = unique_path("malformed", "jsonl");
-    let valid = promotion_event(other_key(), config(64), config(128), 111);
-    let valid_json = serde_json::to_string(&valid).expect("serialize valid event");
-    fs::write(&log_path, format!("{valid_json}\n{{bad-json\n")).expect("write malformed log");
+fn rollback_malformed_ledger_payload_fails_closed() {
+    let ledger_dir = unique_path("malformed_ledger", "dir");
+    let _ = fs::remove_dir_all(&ledger_dir);
+    let mut ledger = ledger_appender(&ledger_dir, 1_000);
+    ledger
+        .append(
+            EntryKind::Anneal,
+            promotion_ledger_subject(&key("gemm")).expect("subject"),
+            b"{bad-json".to_vec(),
+            actor(),
+        )
+        .expect("append malformed payload");
     let cache_path = unique_path("malformed_cache", "json");
     let mut cache = AutotuneCache::load(&cache_path).expect("load cache");
+    let before = cache.get(&key("gemm")).cloned();
 
-    let err = rollback_promotion(&mut cache, &log_path, &key("gemm"), &FixedClock::new(5_000))
-        .expect_err("malformed JSONL must fail closed");
+    let err = rollback_promotion(
+        &mut cache,
+        &mut ledger,
+        &key("gemm"),
+        &FixedClock::new(5_000),
+        actor(),
+        None,
+    )
+    .expect_err("malformed ledger payload must fail closed");
 
-    assert!(matches!(err, ForgeError::CacheError { .. }));
-    assert!(err.to_string().contains("line 2"));
-    assert!(err.to_string().contains("{bad-json"));
-    println!("promotion_malformed_jsonl PASSED {err}");
+    assert!(matches!(err, ForgeError::LedgerError { .. }));
+    assert_eq!(cache.get(&key("gemm")).cloned(), before);
+    assert_eq!(read_ledger_row_count(&ledger_dir), 1);
+    println!("promotion_malformed_ledger_payload PASSED {err}");
 }

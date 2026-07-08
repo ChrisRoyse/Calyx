@@ -51,6 +51,43 @@ fn execution_provider_policy_can_be_explicit_cpu() {
 }
 
 #[test]
+fn cuda_fail_loud_disables_ort_cpu_ep_fallback_by_default() {
+    let _lock = arena_env_lock();
+    unsafe { std::env::remove_var("CALYX_ONNX_DISABLE_CPU_EP_FALLBACK") };
+
+    assert!(
+        session::cpu_ep_fallback_disabled_for_policy(OnnxProviderPolicy::CudaFailLoud).unwrap()
+    );
+    assert!(
+        !session::cpu_ep_fallback_disabled_for_policy(OnnxProviderPolicy::CpuExplicit).unwrap()
+    );
+
+    unsafe { std::env::set_var("CALYX_ONNX_DISABLE_CPU_EP_FALLBACK", "1") };
+    let error =
+        session::cpu_ep_fallback_disabled_for_policy(OnnxProviderPolicy::CpuExplicit).unwrap_err();
+    assert_eq!(error.code, "CALYX_ONNX_CPU_EP_FALLBACK_POLICY_INVALID");
+    assert!(
+        session::cpu_ep_fallback_disabled_for_policy(OnnxProviderPolicy::CudaFailLoud).unwrap()
+    );
+    unsafe { std::env::remove_var("CALYX_ONNX_DISABLE_CPU_EP_FALLBACK") };
+    if let Some(root) = calyx_fsv::fsv_root("CALYX_FSV_ROOT") {
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(
+            root.join("onnx-cuda-fail-loud-cpu-fallback-readback.json"),
+            serde_json::to_vec_pretty(&serde_json::json!({
+                "source_of_truth": "cpu_ep_fallback_disabled_for_policy policy decision",
+                "cuda_fail_loud_default_disable_cpu_ep_fallback": true,
+                "cpu_explicit_default_disable_cpu_ep_fallback": false,
+                "cpu_explicit_env_error_code": error.code,
+                "node_placement_verification": "ort_disable_cpu_ep_fallback",
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+    }
+}
+
+#[test]
 fn cuda_graph_env_enables_cuda_provider_option() {
     let _lock = arena_env_lock();
     unsafe { std::env::set_var("CALYX_ONNX_CUDA_GRAPHS", "1") };

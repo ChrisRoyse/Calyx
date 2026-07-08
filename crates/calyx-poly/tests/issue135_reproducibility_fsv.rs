@@ -355,7 +355,7 @@ fn provider_metadata() -> DeepSeekSecretMetadata {
         key_present: true,
         key_length: 32,
         key_has_sk_prefix: true,
-        key_sha256_prefix: "0123456789abcdef".to_string(),
+        key_sha256_prefix: "111111111111".to_string(),
         base_url: "https://api.deepseek.com".to_string(),
         model: "deepseek-chat".to_string(),
         chat_completions_url: "https://api.deepseek.com/chat/completions".to_string(),

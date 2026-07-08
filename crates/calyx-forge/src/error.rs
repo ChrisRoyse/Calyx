@@ -46,6 +46,11 @@ pub enum ForgeError {
         detail: String,
         remediation: String,
     },
+    LedgerError {
+        op: String,
+        detail: String,
+        remediation: String,
+    },
     /// A GPU allocation would exceed the configured soft VRAM budget, the
     /// live device free-VRAM headroom, or the budget was misconfigured.
     /// Fail-closed: any inability to *prove* an allocation is safe surfaces
@@ -75,6 +80,7 @@ impl ForgeError {
             Self::QuantError { .. } => "CALYX_FORGE_QUANT_ERROR",
             Self::QuantIntelligenceLoss { .. } => "CALYX_QUANT_INTELLIGENCE_LOSS",
             Self::CacheError { .. } => "CALYX_FORGE_CACHE_ERROR",
+            Self::LedgerError { .. } => "CALYX_FORGE_LEDGER_ERROR",
             Self::VramBudget { .. } => "CALYX_FORGE_VRAM_BUDGET",
             Self::LensVramBudget { .. } => "CALYX_VRAM_BUDGET_EXCEEDED",
             Self::SeedVersionMismatch { .. } => "CALYX_FORGE_QUANT_SEED_VERSION",
@@ -91,6 +97,7 @@ impl ForgeError {
             | Self::QuantError { remediation, .. }
             | Self::QuantIntelligenceLoss { remediation, .. }
             | Self::CacheError { remediation, .. }
+            | Self::LedgerError { remediation, .. }
             | Self::VramBudget { remediation, .. }
             | Self::LensVramBudget { remediation, .. } => remediation,
             Self::SeedVersionMismatch { .. } => SEED_VERSION_REMEDIATION,
@@ -130,6 +137,9 @@ impl fmt::Display for ForgeError {
                 op, path, detail, ..
             } => {
                 format!("{} op={} path={} detail={}", self.code(), op, path, detail)
+            }
+            Self::LedgerError { op, detail, .. } => {
+                format!("{} op={} detail={}", self.code(), op, detail)
             }
             Self::VramBudget { detail, .. } => {
                 format!("{} detail={}", self.code(), detail)

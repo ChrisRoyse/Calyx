@@ -17,8 +17,9 @@ pub use explorer::{
 };
 pub use microbench::{BenchCudaContext, BenchResult, microbench};
 pub use promotion::{
-    AbHook, PromotionAction, PromotionEvent, autotune, log_promotion, rollback_promotion,
-    should_use_challenger,
+    AbHook, PROMOTION_LEDGER_SCHEMA_VERSION, PromotionAction, PromotionEvent, autotune,
+    decode_promotion_ledger_payload, log_promotion, promotion_ledger_events,
+    promotion_ledger_subject, rollback_promotion, should_use_challenger,
 };
 
 const CACHE_REMEDIATION: &str = "Use a readable same-filesystem JSON cache path, or discard the corrupt cache and rerun autotune";

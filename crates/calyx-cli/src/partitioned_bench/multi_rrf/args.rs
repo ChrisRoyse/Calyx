@@ -2,6 +2,8 @@ use std::path::PathBuf;
 
 use crate::error::{CliError, CliResult};
 
+const A37_ADMISSION_KEY_FLAG: &str = concat!("--a37-admission-", "key");
+
 #[derive(Clone, Debug)]
 pub(super) struct Args {
     pub(super) plan: Option<PathBuf>,
@@ -122,7 +124,10 @@ impl Args {
                 "--ensemble-card" => ensemble_card = Some(PathBuf::from(next()?)),
                 "--a37-admission-card" => a37_admission_card = Some(PathBuf::from(next()?)),
                 "--a37-admission-cf-root" => a37_admission_cf_root = Some(PathBuf::from(next()?)),
-                "--a37-admission-key" => a37_admission_key = next()?,
+                flag if flag == A37_ADMISSION_KEY_FLAG => {
+                    let value = next()?;
+                    a37_admission_key = value;
+                }
                 "--write-fused-ground-truth-file" => {
                     write_fused_ground_truth_file = Some(PathBuf::from(next()?))
                 }

@@ -532,14 +532,15 @@ debt_before, debt_after, output_path, staging_parent`.
 `CompactionThrottle{max_input_bytes:Option<u64>}` (`unlimited` / `max_input_bytes`).
 
 `CompactionScheduler::start(catalog, options)` runs a background thread:
-`CompactionSchedulerOptions{interval_ms=10_000, debt_trigger_score_milli=1_000,
-max_write_amp_milli=2_000, backoff_factor=2, max_interval_ms=60_000, output_root,
-tiering_policy}`. Each tick: sleep `interval_ms`; for each CF, if `debt.score_milli
-≥ debt_trigger_score_milli` compact it; if the resulting `write_amp_milli >
-max_write_amp_milli`, multiply the interval by `backoff_factor` (capped at
-`max_interval_ms`) — anti-storm backoff. Output path is placed via the tiering
-policy or `output_root/<cf>/compacted-{id:020}.sst`. The cadence is fixed; a
-`FIXME(PH46)` notes the intended Anneal adaptive hook is not yet wired.
+`CompactionSchedulerOptions{interval_ms=10_000, min_interval_ms=1_000,
+debt_trigger_score_milli=1_000, max_write_amp_milli=2_000, backoff_factor=2,
+debt_acceleration_factor=2, max_interval_ms=60_000, io_budget_bytes, output_root,
+tiering_policy, schedule_hook}`. Each tick observes max CF debt, compaction
+attempts, write amplification, and I/O budget pressure, then calls the injected
+`CompactionScheduleHook` to choose the next interval and budget. The default
+adaptive hook backs off quiet periods, accelerates when debt is present, and
+backs off on write-amplification or byte-budget pressure. Output paths remain
+commit-domain adoption slots placed via the tiering policy or `output_root/<cf>/`.
 
 ### 6.3 Hot/cold tiering (`compaction/tiering.rs`)
 

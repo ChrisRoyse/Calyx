@@ -28,8 +28,10 @@
 //!   green-context user stream with an SM slice of at least `n` SMs and balanced
 //!   work queues. Invalid values, CPU-policy sessions, unsupported builds, or
 //!   `CALYX_ONNX_CUDA_GRAPHS=1` fail closed.
-//! - `CALYX_ONNX_DISABLE_CPU_EP_FALLBACK=1` — additionally set the ORT
+//! - `CALYX_ONNX_DISABLE_CPU_EP_FALLBACK=1` — additionally request the ORT
 //!   session config that refuses node-level CPU placement at build time.
+//!   `CudaFailLoud` sets this by default; CPU-policy sessions reject this knob
+//!   because ORT forbids disabling CPU fallback while registering CPU EP.
 //!
 //! Device-arena controls (#1143 — BFC arena growth across dynamic shapes):
 //! - `CALYX_ONNX_GPU_MEM_LIMIT_MIB` — hard cap (MiB) on the CUDA BFC arena;
@@ -63,7 +65,7 @@ use super::cpu_fallback_audit::{
 use super::cuda_graphs::{CUDA_GRAPHS_ENV, CudaGraphRunConfig, CudaGraphRunRequest};
 use super::session::{
     IO_BINDING_ENV, REQUIRE_STATIC_BINDING_ENV, configured_cuda_device, configured_cuda_graphs,
-    cpu_ep_fallback_disabled, env_flag,
+    cpu_ep_fallback_disabled_for_policy, env_flag,
 };
 use super::{OnnxProviderPolicy, config_invalid};
 
@@ -129,7 +131,8 @@ impl OnnxRunPlan {
         let mem_limit = configured_gpu_mem_limit()?;
         let audit_mode = configured_audit_mode()?;
         let max_cpu_fraction = configured_max_cpu_fraction()?;
-        let (allocator, cpu_fallback) = if gpu_policy {
+        let disable_cpu_ep_fallback = cpu_ep_fallback_disabled_for_policy(policy)?;
+        let (allocator, provider_fallback_policy, node_placement_verification) = if gpu_policy {
             (
                 if cuda_graphs {
                     "cuda_graph_static_device_io"
@@ -138,18 +141,24 @@ impl OnnxRunPlan {
                 } else {
                     "ort_default_device_arena"
                 },
-                "refused_by_provider_list",
+                "cuda_provider_error_on_failure",
+                if disable_cpu_ep_fallback {
+                    "ort_disable_cpu_ep_fallback"
+                } else if audit_mode.enabled() {
+                    "profiling_cpu_fallback_audit"
+                } else {
+                    "provider_list_only_unverified"
+                },
             )
         } else {
-            ("host", "cpu_explicit_policy")
+            ("host", "cpu_explicit_policy", "cpu_explicit_policy")
         };
         eprintln!(
-            "CALYX_ONNX_RUNTIME phase=session_ready label={label} provider={} device_id={device_id} io_binding={io_binding} io_binding_env_off={binding_env_off} allocator={allocator} cpu_fallback={cpu_fallback} require_static_binding={require_static} cuda_graphs={cuda_graphs} green_context_sms={} disable_cpu_ep_fallback={} arena_extend=same_as_requested gpu_mem_limit_mib={} arena_shrink={} max_distinct_shapes={max_distinct_shapes} cpu_fallback_audit={} max_cpu_node_fraction={max_cpu_fraction:.4}",
+            "CALYX_ONNX_RUNTIME phase=session_ready label={label} provider={} device_id={device_id} io_binding={io_binding} io_binding_env_off={binding_env_off} allocator={allocator} provider_fallback_policy={provider_fallback_policy} node_placement_verification={node_placement_verification} require_static_binding={require_static} cuda_graphs={cuda_graphs} green_context_sms={} disable_cpu_ep_fallback={disable_cpu_ep_fallback} arena_extend=same_as_requested gpu_mem_limit_mib={} arena_shrink={} max_distinct_shapes={max_distinct_shapes} cpu_fallback_audit={} max_cpu_node_fraction={max_cpu_fraction:.4}",
             policy.as_str(),
             green_context_sms
                 .map(|count| count.to_string())
                 .unwrap_or_else(|| "off".to_string()),
-            cpu_ep_fallback_disabled(),
             mem_limit
                 .map(|bytes| (bytes / (1024 * 1024)).to_string())
                 .unwrap_or_else(|| "none".to_string()),

@@ -1,5 +1,5 @@
 use super::{AsterVault, VaultOptions};
-use crate::cf::ColumnFamily;
+use crate::cf::{ColumnFamily, base_key, slot_key};
 use crate::compaction::{CompactionResult, CompactionSchedulerOptions, TieringPolicy};
 use calyx_core::{
     CxFlags, CxId, InputRef, LedgerRef, Modality, SlotId, SlotVector, VaultId, VaultStore,
@@ -291,6 +291,78 @@ fn tiered_vault_flush_recovery_and_compaction_use_hot_archive_roots() {
             &report.output_path,
             &manifest_bytes,
         );
+    } else {
+        cleanup(dir);
+    }
+}
+
+#[test]
+fn selected_cf_open_uses_tiering_policy_for_archive_readback() {
+    let fsv_root = calyx_fsv::fsv_root("CALYX_FSV_ROOT");
+    let dir = fsv_root.as_ref().map_or_else(
+        || test_dir("selected-tiered-vault"),
+        |root| {
+            let dir = root.join("selected-tiered-vault");
+            let _ = fs::remove_dir_all(&dir);
+            fs::create_dir_all(&dir).unwrap();
+            dir
+        },
+    );
+    let vault_root = dir.join("vault");
+    let hot = dir.join("hot");
+    let archive = dir.join("archive");
+    let options = tiered_options(&hot, &archive);
+    let vault = AsterVault::new_durable(&vault_root, vault_id(), b"salt", options.clone()).unwrap();
+    let mut cx = sample_constellation(0x71);
+    add_inactive_slot(&mut cx, 0x33);
+    let cx_id = cx.cx_id;
+
+    vault.put(cx).unwrap();
+    vault.flush().unwrap();
+    drop(vault);
+
+    let selected_options = VaultOptions {
+        read_only: true,
+        restore_mvcc_rows: false,
+        restore_ledger_hook: false,
+        selected_cfs: Some(vec![ColumnFamily::Base, ColumnFamily::slot(SlotId::new(1))]),
+        tiering_policy: options.tiering_policy.clone(),
+        ..VaultOptions::default()
+    };
+    let selected = AsterVault::open(&vault_root, vault_id(), b"salt", selected_options).unwrap();
+    let snapshot = selected.snapshot();
+    let base = selected
+        .read_cf_at(snapshot, ColumnFamily::Base, &base_key(cx_id))
+        .unwrap();
+    let inactive_slot = selected
+        .read_cf_at(
+            snapshot,
+            ColumnFamily::slot(SlotId::new(1)),
+            &slot_key(cx_id),
+        )
+        .unwrap();
+
+    assert!(base.is_some());
+    assert!(inactive_slot.is_some());
+    assert!(!sst_names(&archive.join("cf/slot_01")).is_empty());
+    assert!(maybe_sst_names(&vault_root.join("cf/slot_01")).is_empty());
+    if let Some(root) = fsv_root {
+        let readback = serde_json::json!({
+            "vault_root": vault_root,
+            "hot_root": hot,
+            "archive_root": archive,
+            "selected_cfs": ["base", "slot_01"],
+            "snapshot": snapshot,
+            "base_present": base.is_some(),
+            "inactive_slot_present": inactive_slot.is_some(),
+            "archive_slot_ssts": sst_names(&archive.join("cf/slot_01")),
+            "vault_slot_ssts": maybe_sst_names(&vault_root.join("cf/slot_01")),
+        });
+        fs::write(
+            root.join("selected-tiered-cf-readback.json"),
+            serde_json::to_vec_pretty(&readback).unwrap(),
+        )
+        .unwrap();
     } else {
         cleanup(dir);
     }

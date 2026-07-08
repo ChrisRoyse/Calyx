@@ -158,13 +158,6 @@ impl DurableVault {
                 remediation: "omit selected_cfs or include every CF required by the read workload",
             });
         }
-        if options.selected_cfs.is_some() && options.tiering_policy.is_some() {
-            return Err(CalyxError {
-                code: "CALYX_VAULT_OPTIONS_INVALID",
-                message: "selected_cfs with tiering_policy is not implemented".to_string(),
-                remediation: "open a full read-only tiered handle or add selected tier-aware CF routing first",
-            });
-        }
         Ok(())
     }
 
