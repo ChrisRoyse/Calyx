@@ -473,21 +473,8 @@ fn record_crc(key: &[u8], value: &[u8]) -> u32 {
     hasher.finalize()
 }
 
-#[cfg(unix)]
 fn sync_parent(path: &Path) -> Result<()> {
-    let parent = path
-        .parent()
-        .ok_or_else(|| CalyxError::disk_pressure("SST path has no parent"))?;
-    File::open(parent)
-        .and_then(|dir| dir.sync_all())
-        .map_err(|error| storage_error("fsync SST directory", error))
-}
-
-#[cfg(not(unix))]
-fn sync_parent(path: &Path) -> Result<()> {
-    path.parent()
-        .ok_or_else(|| CalyxError::disk_pressure("SST path has no parent"))?;
-    Ok(())
+    crate::fsync::sync_parent(path, "SST")
 }
 
 fn storage_error(context: &str, error: io::Error) -> CalyxError {

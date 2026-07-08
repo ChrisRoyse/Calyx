@@ -48,21 +48,8 @@ pub(super) fn remove_path(path: &Path) -> Result<()> {
     }
 }
 
-#[cfg(unix)]
 pub(super) fn sync_parent(path: &Path) -> Result<()> {
-    let parent = path
-        .parent()
-        .ok_or_else(|| CalyxError::disk_pressure("Base page index path has no parent"))?;
-    File::open(parent)
-        .and_then(|dir| dir.sync_all())
-        .map_err(|error| CalyxError::disk_pressure(format!("sync Base page index dir: {error}")))
-}
-
-#[cfg(not(unix))]
-pub(super) fn sync_parent(path: &Path) -> Result<()> {
-    path.parent()
-        .ok_or_else(|| CalyxError::disk_pressure("Base page index path has no parent"))?;
-    Ok(())
+    crate::fsync::sync_parent(path, "Base page index")
 }
 
 pub(super) fn now_ms() -> Result<u128> {

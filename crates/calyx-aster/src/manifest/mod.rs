@@ -414,21 +414,8 @@ fn write_atomic(path: &Path, bytes: &[u8]) -> Result<()> {
     sync_parent(path)
 }
 
-#[cfg(unix)]
 fn sync_parent(path: &Path) -> Result<()> {
-    let parent = path
-        .parent()
-        .ok_or_else(|| CalyxError::disk_pressure("atomic path has no parent"))?;
-    File::open(parent)
-        .and_then(|dir| dir.sync_all())
-        .map_err(|error| storage_error("fsync manifest directory", error))
-}
-
-#[cfg(not(unix))]
-fn sync_parent(path: &Path) -> Result<()> {
-    path.parent()
-        .ok_or_else(|| CalyxError::disk_pressure("atomic path has no parent"))?;
-    Ok(())
+    crate::fsync::sync_parent(path, "manifest")
 }
 
 fn invalid_component(component: Component<'_>) -> bool {
