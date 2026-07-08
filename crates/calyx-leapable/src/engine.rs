@@ -5,12 +5,13 @@ use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::path::PathBuf;
 
 use calyx_aster::vault::{AsterVault, QuotaConfig, VaultContext, VaultOptions};
-use calyx_core::{CalyxError, FixedClock, Ts, VaultId, content_address};
+use calyx_core::{CalyxError, Ts, VaultId};
 use calyx_mcp::{JsonRpcError, JsonRpcRequest, JsonRpcResponse};
 use serde::Deserialize;
 use serde_json::{Value, json};
-use ulid::Ulid;
 
+use self::clock::EngineClock;
+use self::identity::{salt_for, vault_id_for};
 use crate::config::EngineConfig;
 use crate::lifecycle::{
     CALYX_LEAPABLE_VAULT_ALREADY_EXISTS, CALYX_LEAPABLE_VAULT_OPEN, copy_dir_new, lifecycle_error,
@@ -51,8 +52,17 @@ struct VaultHandle {
     opened_at: Ts,
     last_ts: Ts,
     requests: u64,
+    clock: EngineClock,
     context: VaultContext,
-    vault: AsterVault<FixedClock>,
+    vault: AsterVault<EngineClock>,
+}
+
+impl VaultHandle {
+    fn touch(&mut self, ts: Ts) {
+        self.requests += 1;
+        self.last_ts = ts;
+        self.clock.set(ts);
+    }
 }
 
 #[derive(Deserialize)]
@@ -117,6 +127,12 @@ impl Engine {
             "vault.clone" => self.vault_clone(request.params),
             "vault.verify" => self.vault_verify(request.params),
             "vault.stat" => self.vault_stat(request.params),
+            "cx.put" => self.cx_put(request.params),
+            "cx.put_batch" => self.cx_put_batch(request.params),
+            "cx.get" => self.cx_get(request.params),
+            "cx.scan" => self.cx_scan(request.params),
+            "cx.anchor" => self.cx_anchor(request.params),
+            "cx.delete" => self.cx_delete(request.params),
             "engine.panic_probe" => self.panic_probe(),
             other => {
                 return JsonRpcResponse::error(id, JsonRpcError::method_not_found(other));
@@ -172,8 +188,7 @@ impl Engine {
         let params = parse_params::<VaultParams>(params, "vault.open")?;
         let vault_ref = VaultRef::parse(&params.vault_ref)?;
         if let Some(handle) = self.vaults.get_mut(vault_ref.as_str()) {
-            handle.requests += 1;
-            handle.last_ts = params.ts;
+            handle.touch(params.ts);
             return Ok(vault_handle_value("already_open", handle));
         }
         let dir = resolve_existing_vault_dir(&self.config.data_dir, &vault_ref)?;
@@ -189,8 +204,7 @@ impl Engine {
         let Some(mut handle) = self.vaults.remove(vault_ref.as_str()) else {
             return Err(vault_not_open(vault_ref.as_str()).into());
         };
-        handle.requests += 1;
-        handle.last_ts = params.ts;
+        handle.touch(params.ts);
         handle.vault.flush()?;
         Ok(json!({
             "status": "closed",
@@ -242,8 +256,7 @@ impl Engine {
         let snapshot_ref = VaultRef::parse(&params.snapshot_ref)?;
         let (source_dir, latest_seq) = match self.vaults.get_mut(vault_ref.as_str()) {
             Some(handle) => {
-                handle.requests += 1;
-                handle.last_ts = params.ts;
+                handle.touch(params.ts);
                 handle.vault.flush()?;
                 (handle.dir.clone(), Some(handle.vault.latest_seq()))
             }
@@ -315,8 +328,7 @@ impl Engine {
             return Err(vault_open_error(target_vault_ref.as_str()).into());
         }
         if let Some(handle) = self.vaults.get_mut(vault_ref.as_str()) {
-            handle.requests += 1;
-            handle.last_ts = params.ts;
+            handle.touch(params.ts);
             handle.vault.flush()?;
         }
         let source_dir = resolve_existing_vault_dir(&self.config.data_dir, &vault_ref)?;
@@ -342,8 +354,7 @@ impl Engine {
         let vault_ref = VaultRef::parse(&params.vault_ref)?;
         let dir = match self.vaults.get_mut(vault_ref.as_str()) {
             Some(handle) => {
-                handle.requests += 1;
-                handle.last_ts = params.ts;
+                handle.touch(params.ts);
                 handle.vault.flush()?;
                 handle.dir.clone()
             }
@@ -365,8 +376,7 @@ impl Engine {
         let Some(handle) = self.vaults.get_mut(vault_ref.as_str()) else {
             return Err(vault_not_open(vault_ref.as_str()).into());
         };
-        handle.requests += 1;
-        handle.last_ts = params.ts;
+        handle.touch(params.ts);
         Ok(json!({
             "vault_ref": handle.vault_ref.as_str(),
             "vault_id": handle.vault_id.to_string(),
@@ -395,6 +405,7 @@ impl Engine {
     fn open_handle(&self, vault_ref: VaultRef, dir: PathBuf, ts: Ts) -> EngineResult<VaultHandle> {
         let vault_id = vault_id_for(vault_ref.as_str());
         let salt = salt_for(vault_ref.as_str());
+        let clock = EngineClock::new(ts);
         let context = VaultContext::new(
             vault_id,
             &self.config.master_key,
@@ -406,7 +417,7 @@ impl Engine {
             vault_id,
             salt,
             VaultOptions::default(),
-            FixedClock::new(ts),
+            clock.clone(),
         )?;
         Ok(VaultHandle {
             vault_ref,
@@ -415,6 +426,7 @@ impl Engine {
             opened_at: ts,
             last_ts: ts,
             requests: 1,
+            clock,
             context,
             vault,
         })
@@ -475,17 +487,9 @@ fn vault_handle_value(status: &str, handle: &VaultHandle) -> Value {
     })
 }
 
-fn vault_id_for(vault_ref: &str) -> VaultId {
-    VaultId::from_ulid(Ulid::from_bytes(content_address([vault_ref.as_bytes()])))
-}
-
-fn salt_for(vault_ref: &str) -> Vec<u8> {
-    content_address([
-        b"calyx-leapable-vault-salt".as_slice(),
-        vault_ref.as_bytes(),
-    ])
-    .to_vec()
-}
+mod clock;
+mod cx;
+mod identity;
 
 #[cfg(test)]
 mod tests;

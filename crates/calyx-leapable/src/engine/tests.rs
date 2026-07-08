@@ -1,7 +1,7 @@
 use super::*;
 use calyx_core::{
-    Anchor, AnchorKind, AnchorValue, Constellation, CxFlags, InputRef, LedgerRef, Modality, SlotId,
-    SlotVector, VaultStore,
+    Anchor, AnchorKind, AnchorValue, Clock, Constellation, CxFlags, InputRef, LedgerRef, Modality,
+    SlotId, SlotVector, VaultStore,
 };
 use calyx_mcp::decode_jsonrpc_request;
 use std::collections::BTreeMap;
@@ -25,7 +25,7 @@ fn config(root: PathBuf) -> EngineConfig {
     }
 }
 
-fn sample_constellation(vault: &AsterVault<FixedClock>, seed: u8) -> Constellation {
+fn sample_constellation<C: Clock>(vault: &AsterVault<C>, seed: u8) -> Constellation {
     let input = [seed; 8];
     Constellation {
         cx_id: vault.cx_id_for_input(&input, 1),

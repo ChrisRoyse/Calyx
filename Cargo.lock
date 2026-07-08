@@ -661,6 +661,7 @@ dependencies = [
  "calyx-aster",
  "calyx-buildinfo",
  "calyx-core",
+ "calyx-ledger",
  "calyx-mcp",
  "serde",
  "serde_json",
