@@ -386,6 +386,8 @@ fn kalshi_fixture_body() -> Vec<u8> {
 }
 
 fn assert_not_d_drive(path: &Path) {
+    #[cfg(not(windows))]
+    let _ = path;
     #[cfg(windows)]
     {
         use std::path::{Component, Prefix};

@@ -115,6 +115,8 @@ pub fn sha256_hex(bytes: &[u8]) -> String {
 }
 
 pub fn assert_c_drive(path: &Path) {
+    #[cfg(not(windows))]
+    let _ = path;
     #[cfg(windows)]
     assert!(
         path.to_string_lossy()

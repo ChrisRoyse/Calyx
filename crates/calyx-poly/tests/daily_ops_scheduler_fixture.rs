@@ -143,6 +143,8 @@ pub fn open_vault(dir: &Path) -> AsterVault {
 }
 
 pub fn assert_c_drive(path: &Path) {
+    #[cfg(not(windows))]
+    let _ = path;
     #[cfg(windows)]
     assert!(
         path.to_string_lossy().starts_with("C:"),
