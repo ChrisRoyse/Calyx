@@ -14,7 +14,8 @@ mode="$1"
 baseline_file="$2"
 tmp_root="${CALYX_TMP_ROOT:-/tmp}"
 stale_minutes="${CALYX_TMP_STALE_MINUTES:-360}"
-min_free_percent="${CALYX_TMP_MIN_FREE_INODE_PERCENT:-5}"
+min_free_inode_percent="${CALYX_TMP_MIN_FREE_INODE_PERCENT:-5}"
+min_free_block_percent="${CALYX_TMP_MIN_FREE_BLOCK_PERCENT:-1}"
 current_uid="$(id -u)"
 current_user="$(id -un 2>/dev/null || printf '%s' "$current_uid")"
 
@@ -134,6 +135,10 @@ cleanup_new_owned() {
 
 inode_snapshot() {
   df -Pi "$tmp_root" | awk 'NR == 2 {
+    if ($2 !~ /^[0-9]+$/ || $2 == 0 || $3 !~ /^[0-9]+$/ || $4 !~ /^[0-9]+$/) {
+      printf "calyx_tmp_guard_inodes total=unavailable used=unavailable free=unavailable used_percent=unavailable\n"
+      exit
+    }
     used_percent = $5
     sub(/%$/, "", used_percent)
     printf "calyx_tmp_guard_inodes total=%s used=%s free=%s used_percent=%s\n",
@@ -141,21 +146,62 @@ inode_snapshot() {
   }'
 }
 
+block_snapshot() {
+  df -Pk "$tmp_root" | awk 'NR == 2 {
+    if ($2 !~ /^[0-9]+$/ || $2 == 0 || $3 !~ /^[0-9]+$/ || $4 !~ /^[0-9]+$/) {
+      printf "calyx_tmp_guard_blocks total=unavailable used=unavailable free=unavailable used_percent=unavailable\n"
+      exit
+    }
+    used_percent = $5
+    sub(/%$/, "", used_percent)
+    printf "calyx_tmp_guard_blocks total=%s used=%s free=%s used_percent=%s\n",
+      $2, $3, $4, used_percent
+  }'
+}
+
 free_inode_percent() {
-  df -Pi "$tmp_root" | awk 'NR == 2 { printf "%.0f\n", ($4 * 100) / $2 }'
+  df -Pi "$tmp_root" | awk 'NR == 2 {
+    if ($2 !~ /^[0-9]+$/ || $2 == 0 || $4 !~ /^[0-9]+$/) {
+      exit 1
+    }
+    printf "%.0f\n", ($4 * 100) / $2
+  }'
+}
+
+free_block_percent() {
+  df -Pk "$tmp_root" | awk 'NR == 2 {
+    if ($2 !~ /^[0-9]+$/ || $2 == 0 || $4 !~ /^[0-9]+$/) {
+      exit 1
+    }
+    printf "%.0f\n", ($4 * 100) / $2
+  }'
+}
+
+free_tmp_percent() {
+  free_inode_percent 2>/dev/null || free_block_percent
+}
+
+min_tmp_free_percent() {
+  if free_inode_percent >/dev/null 2>&1; then
+    printf '%s\n' "$min_free_inode_percent"
+  else
+    printf '%s\n' "$min_free_block_percent"
+  fi
 }
 
 inode_headroom_ok() {
-  local free_percent
-  free_percent="$(free_inode_percent)"
+  local free_percent min_free_percent
+  free_percent="$(free_tmp_percent)"
+  min_free_percent="$(min_tmp_free_percent)"
   ((free_percent >= min_free_percent))
 }
 
 assert_inode_headroom() {
-  local free_percent
-  free_percent="$(free_inode_percent)"
+  local free_percent min_free_percent
+  free_percent="$(free_tmp_percent)"
+  min_free_percent="$(min_tmp_free_percent)"
   if ! inode_headroom_ok; then
-    echo "CALYX_TMP_GUARD_LOW_INODES: $tmp_root free inode percent $free_percent < $min_free_percent" >&2
+    echo "CALYX_TMP_GUARD_LOW_TMP_HEADROOM: $tmp_root free inode/block percent $free_percent < $min_free_percent" >&2
     exit 1
   fi
 }
@@ -166,11 +212,14 @@ pre)
   echo "calyx_tmp_guard_mode=pre"
   echo "calyx_tmp_guard_existing_owned=$(wc -l <"$baseline_file")"
   inode_snapshot
+  block_snapshot
   cleanup_stale_owned
   inode_snapshot
+  block_snapshot
   if ! inode_headroom_ok; then
     cleanup_all_owned
     inode_snapshot
+    block_snapshot
   fi
   assert_inode_headroom
   ;;
@@ -183,6 +232,7 @@ post)
   cleanup_new_owned
   cleanup_stale_owned
   inode_snapshot
+  block_snapshot
   assert_inode_headroom
   ;;
 *)

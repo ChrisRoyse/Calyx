@@ -8,8 +8,17 @@
 # CPU-only machines.
 crates/calyx-forge/src/cuda/
 
+# CUDA autotune microbench kernels are wired by
+# `#[cfg(feature = "cuda")] mod cuda_bench;` in `autotune/microbench.rs`.
+# The default CPU workspace gate cannot compile the CUDA benchmark path.
+crates/calyx-forge/src/autotune/microbench/
+
 # cuVS CAGRA DiskANN backend is wired as
 # `#[cfg(feature = "cuda")] mod cuvs_cagra;` under calyx-sextant. The default
 # CPU workspace gate cannot compile optional cuVS deps, so the source is
 # intentionally unreachable unless the cuda feature is enabled.
 crates/calyx-sextant/src/index/diskann/cuvs_cagra.rs
+
+# PH58 soak/performance support is only compiled by Linux-only tests
+# (`#![cfg(target_os = "linux")]`), so Windows dep-info cannot see it.
+crates/calyx-aster/tests/soak_ph58/

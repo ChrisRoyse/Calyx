@@ -1,9 +1,11 @@
 //! PH57 T03 manual FSV for Forge VRAM admission control.
 //!
 //! SoT: `VramStats` admission counters and the Prometheus text bytes returned
-//! by `VramStats::admission_metrics_text()`. This test writes those bytes under
-//! `CALYX_FSV_ROOT`, re-reads them from disk, and prints before/after state for
-//! a deterministic happy path plus edge cases.
+//! by `VramStats::admission_metrics_text()`. The hidden admission queue is
+//! disabled, so queue-pressure inputs fail closed and `queued_total` remains
+//! zero. This test writes those bytes under `CALYX_FSV_ROOT`, re-reads them
+//! from disk, and prints before/after state for a deterministic happy path plus
+//! edge cases.
 
 use std::fs;
 use std::path::PathBuf;
@@ -77,7 +79,7 @@ fn ph57_admission_fsv_writes_counter_and_metric_readbacks() {
             Ok((offset..offset + len).collect::<Vec<_>>())
         })
         .expect("split run");
-    let queued = ctl.decide(2 * GIB, 2, deadline);
+    let queue_disabled = ctl.decide(2 * GIB, 2, deadline);
     let fail = ctl.decide(2 * GIB, 2, deadline);
     let past_deadline = ctl.decide(512 * MIB, 8, past);
     let zero = ctl.decide(0, 8, past);
@@ -97,15 +99,15 @@ fn ph57_admission_fsv_writes_counter_and_metric_readbacks() {
 
     assert_eq!(happy, AdmitDecision::Split { sub_batch_size: 8 });
     assert_eq!(split_output, (0..8).collect::<Vec<_>>());
-    assert!(matches!(queued, AdmitDecision::Queue { .. }));
+    assert_eq!(queue_disabled, AdmitDecision::Fail);
     assert_eq!(fail, AdmitDecision::Fail);
     assert_eq!(past_deadline, AdmitDecision::Fail);
     assert_eq!(zero, AdmitDecision::Split { sub_batch_size: 8 });
     assert_eq!(sync_err.code(), CODE);
-    assert_eq!(ctl.queue_len(), 1);
-    assert!(after.splits_total >= 9);
-    assert_eq!(after.queued_total, 1);
-    assert!(after.failed_total >= 3);
+    assert_eq!(ctl.queue_len(), 0);
+    assert_eq!(after.splits_total, 9);
+    assert_eq!(after.queued_total, 0);
+    assert_eq!(after.failed_total, 4);
 
     let metrics = after.admission_metrics_text();
     assert!(metrics.contains("calyx_forge_vram_budget_exceeded_total"));
@@ -122,7 +124,7 @@ fn ph57_admission_fsv_writes_counter_and_metric_readbacks() {
         "actual_split_output": split_output,
         "decisions": {
             "happy": format!("{happy:?}"),
-            "queued": format!("{queued:?}"),
+            "queue_disabled": format!("{queue_disabled:?}"),
             "fail": format!("{fail:?}"),
             "past_deadline": format!("{past_deadline:?}"),
             "zero": format!("{zero:?}"),
