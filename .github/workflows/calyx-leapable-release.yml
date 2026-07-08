@@ -1,0 +1,236 @@
+name: calyx-leapable-release
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - "calyx-leapable-v*"
+  pull_request:
+    paths:
+      - ".github/workflows/calyx-leapable-release.yml"
+      - "scripts/leapable_release_smoke.py"
+      - "crates/calyx-leapable/**"
+      - "crates/calyx-cli/src/leapable/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+  workflow_dispatch:
+    inputs:
+      publish_release:
+        description: "Publish the signed assets to the calyx-leapable GitHub Release channel."
+        required: true
+        default: false
+        type: boolean
+      release_tag:
+        description: "Required when publish_release is true; must match calyx-leapable-v<semver>."
+        required: false
+        default: ""
+        type: string
+
+permissions:
+  contents: write
+  id-token: write
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: "1"
+
+jobs:
+  build:
+    name: ${{ matrix.platform }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux-x64
+            os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            rust_targets: x86_64-unknown-linux-gnu
+            exe_suffix: ""
+          - platform: windows-x64
+            os: windows-latest
+            target: x86_64-pc-windows-msvc
+            rust_targets: x86_64-pc-windows-msvc
+            exe_suffix: ".exe"
+          - platform: macos-universal
+            os: macos-latest
+            target: universal-apple-darwin
+            rust_targets: x86_64-apple-darwin,aarch64-apple-darwin
+            exe_suffix: ""
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.rust_targets }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Show toolchain
+        shell: bash
+        run: |
+          rustc --version
+          cargo --version
+          python --version
+
+      - name: Run calyx-leapable engine tests
+        run: cargo test --locked -p calyx-leapable -- --nocapture
+
+      - name: Run Leapable shadow harness
+        run: cargo test --locked -p calyx-cli --bin calyx leapable::shadow_harness_tests -- --nocapture
+
+      - name: Build release binary
+        id: build
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "${{ matrix.platform }}" == "macos-universal" ]]; then
+            cargo build --locked --release -p calyx-leapable --target x86_64-apple-darwin
+            cargo build --locked --release -p calyx-leapable --target aarch64-apple-darwin
+            mkdir -p dist/universal
+            lipo -create \
+              -output dist/universal/calyx-leapable \
+              target/x86_64-apple-darwin/release/calyx-leapable \
+              target/aarch64-apple-darwin/release/calyx-leapable
+            binary="dist/universal/calyx-leapable"
+          else
+            cargo build --locked --release -p calyx-leapable --target "${{ matrix.target }}"
+            binary="target/${{ matrix.target }}/release/calyx-leapable${{ matrix.exe_suffix }}"
+          fi
+          test -f "$binary"
+          echo "binary=$binary" >> "$GITHUB_OUTPUT"
+
+      - name: Package and smoke-test release binary
+        id: package
+        shell: bash
+        run: |
+          set -euo pipefail
+          python scripts/leapable_release_smoke.py \
+            --binary "${{ steps.build.outputs.binary }}" \
+            --platform "${{ matrix.platform }}" \
+            --target "${{ matrix.target }}" \
+            --dist-dir release-dist
+
+      - name: Install Cosign
+        uses: sigstore/cosign-installer@v4.1.2
+
+      - name: Sign and verify release archive
+        shell: bash
+        env:
+          ASSET: ${{ steps.package.outputs.asset }}
+          CERT_IDENTITY_RE: https://github.com/${{ github.repository }}/.github/workflows/calyx-leapable-release.yml@refs/(heads/main|tags/calyx-leapable-v.*|pull/[0-9]+/merge)
+        run: |
+          set -euo pipefail
+          cosign sign-blob --yes --bundle "$ASSET.sig" "$ASSET"
+          test -s "$ASSET.sig"
+          cosign verify-blob "$ASSET" \
+            --bundle "$ASSET.sig" \
+            --certificate-identity-regexp "$CERT_IDENTITY_RE" \
+            --certificate-oidc-issuer "https://token.actions.githubusercontent.com"
+
+      - name: Record release measurements
+        shell: bash
+        run: |
+          {
+            echo "### calyx-leapable ${{ matrix.platform }}"
+            echo
+            echo "- archive: \`${{ steps.package.outputs.asset }}\`"
+            echo "- archive_sha256: \`${{ steps.package.outputs.asset_sha256 }}\`"
+            echo "- binary_size_bytes: \`${{ steps.package.outputs.binary_size_bytes }}\`"
+            echo "- cold_start_ms: \`${{ steps.package.outputs.cold_start_ms }}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload signed platform assets
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.platform }}-release-assets
+          if-no-files-found: error
+          path: |
+            ${{ steps.package.outputs.asset }}
+            ${{ steps.package.outputs.asset }}.sig
+            ${{ steps.package.outputs.checksum }}
+            ${{ steps.package.outputs.provenance }}
+            ${{ steps.package.outputs.manifest }}
+
+  publish:
+    name: publish GitHub Release
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/calyx-leapable-v') || (github.event_name == 'workflow_dispatch' && github.event.inputs.publish_release == 'true')
+    permissions:
+      contents: write
+    steps:
+      - name: Download signed platform assets
+        uses: actions/download-artifact@v4
+        with:
+          path: release-assets
+          pattern: "*-release-assets"
+          merge-multiple: true
+
+      - name: Resolve release tag
+        id: release
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="${GITHUB_REF_NAME}"
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            tag="${{ inputs.release_tag }}"
+          fi
+          if [[ ! "$tag" =~ ^calyx-leapable-v[0-9]+\.[0-9]+\.[0-9]+([.-][A-Za-z0-9]+)*$ ]]; then
+            echo "Invalid release tag: $tag" >&2
+            exit 1
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
+      - name: Verify release asset set
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          root = Path("release-assets")
+          expected = {
+              "windows-x64": "zip",
+              "macos-universal": "tar.gz",
+              "linux-x64": "tar.gz",
+          }
+          missing = []
+          for platform, ext in expected.items():
+              archive = root / f"calyx-leapable-{platform}.{ext}"
+              required = [
+                  archive,
+                  Path(str(archive) + ".sig"),
+                  Path(str(archive) + ".sha256"),
+                  Path(str(archive) + ".intoto.jsonl"),
+                  root / f"calyx-leapable-{platform}.manifest.json",
+              ]
+              for path in required:
+                  if not path.is_file() or path.stat().st_size == 0:
+                      missing.append(str(path))
+          if missing:
+              raise SystemExit("Missing or empty release assets:\n" + "\n".join(missing))
+          print("release asset set complete")
+          PY
+
+      - name: Publish calyx-leapable release
+        uses: softprops/action-gh-release@v3.0.1
+        with:
+          tag_name: ${{ steps.release.outputs.tag }}
+          target_commitish: ${{ github.sha }}
+          name: calyx-leapable ${{ steps.release.outputs.tag }}
+          body: |
+            Signed calyx-leapable release assets.
+
+            Source commit: ${{ github.sha }}
+            Workflow: ${{ github.workflow }} / run ${{ github.run_id }}
+          files: release-assets/*
+          fail_on_unmatched_files: true
+          make_latest: false
