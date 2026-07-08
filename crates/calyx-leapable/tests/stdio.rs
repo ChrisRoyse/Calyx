@@ -8,7 +8,15 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
+use calyx_aster::vault::{AsterVault, VaultOptions};
+use calyx_aster::verify_restore::verify_restore;
+use calyx_core::{
+    Anchor, AnchorKind, AnchorValue, Constellation, CxFlags, InputRef, LedgerRef, Modality, SlotId,
+    SlotVector, VaultId, VaultStore, content_address,
+};
 use serde_json::{Value, json};
+use std::collections::BTreeMap;
+use ulid::Ulid;
 
 const TEST_MASTER_KEY_HEX: &str =
     "00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff";
@@ -56,6 +64,80 @@ fn request(id: u64, method: &str, params: Value) -> String {
         "method": method,
         "params": params
     }))
+}
+
+fn storage_dir(root: &Path, vault_ref: &str) -> PathBuf {
+    if vault_ref.ends_with(".calyx") {
+        root.join(vault_ref)
+    } else {
+        root.join(format!("{vault_ref}.calyx"))
+    }
+}
+
+fn vault_id_for(vault_ref: &str) -> VaultId {
+    VaultId::from_ulid(Ulid::from_bytes(content_address([vault_ref.as_bytes()])))
+}
+
+fn salt_for(vault_ref: &str) -> Vec<u8> {
+    content_address([
+        b"calyx-leapable-vault-salt".as_slice(),
+        vault_ref.as_bytes(),
+    ])
+    .to_vec()
+}
+
+fn seed_vault(root: &Path, vault_ref: &str, seeds: &[u8]) {
+    let dir = storage_dir(root, vault_ref);
+    let vault = AsterVault::new_durable(
+        &dir,
+        vault_id_for(vault_ref),
+        salt_for(vault_ref),
+        VaultOptions::default(),
+    )
+    .expect("open seeded vault");
+    for seed in seeds {
+        vault
+            .put(sample_constellation(&vault, *seed))
+            .expect("put seeded constellation");
+    }
+    vault.flush().expect("flush seeded vault");
+}
+
+fn sample_constellation(vault: &AsterVault, seed: u8) -> Constellation {
+    let input = [seed; 8];
+    Constellation {
+        cx_id: vault.cx_id_for_input(&input, 1),
+        vault_id: vault.vault_id(),
+        panel_version: 1,
+        created_at: 1_785_500_000 + u64::from(seed),
+        input_ref: InputRef {
+            hash: [seed; 32],
+            pointer: None,
+            redacted: false,
+        },
+        modality: Modality::Text,
+        slots: BTreeMap::from([(
+            SlotId::new(0),
+            SlotVector::Dense {
+                dim: 4,
+                data: vec![f32::from(seed); 4],
+            },
+        )]),
+        scalars: BTreeMap::new(),
+        metadata: BTreeMap::new(),
+        anchors: vec![Anchor {
+            kind: AnchorKind::TestPass,
+            value: AnchorValue::Bool(true),
+            source: "calyx-leapable-stdio-test".to_string(),
+            observed_at: 1_785_500_000,
+            confidence: 1.0,
+        }],
+        provenance: LedgerRef {
+            seq: 0,
+            hash: [0; 32],
+        },
+        flags: CxFlags::default(),
+    }
 }
 
 fn run_engine(input: &str, root: &Path, panic_probe: bool) -> (String, String, bool) {
@@ -110,12 +192,12 @@ fn multiplexes_two_vaults_and_survives_panic_request() {
         request(1, "engine.info", json!({})),
         request(
             2,
-            "vault.open",
+            "vault.create",
             json!({"vault_ref": "alpha", "ts": 1785500000_u64}),
         ),
         request(
             3,
-            "vault.open",
+            "vault.create",
             json!({"vault_ref": "beta", "ts": 1785500010_u64}),
         ),
         request(
@@ -150,10 +232,20 @@ fn multiplexes_two_vaults_and_survives_panic_request() {
     assert_no_json_on_stderr(&stderr);
     assert!(ok, "engine exits cleanly on EOF after panic isolation");
 
-    assert!(root.path().join("alpha").join("cf").join("base").exists());
-    assert!(root.path().join("beta").join("cf").join("base").exists());
-    assert!(!wal_files(&root.path().join("alpha")).is_empty());
-    assert!(!wal_files(&root.path().join("beta")).is_empty());
+    assert!(
+        storage_dir(root.path(), "alpha")
+            .join("cf")
+            .join("base")
+            .exists()
+    );
+    assert!(
+        storage_dir(root.path(), "beta")
+            .join("cf")
+            .join("base")
+            .exists()
+    );
+    assert!(!wal_files(&storage_dir(root.path(), "alpha")).is_empty());
+    assert!(!wal_files(&storage_dir(root.path(), "beta")).is_empty());
 }
 
 #[test]
@@ -207,6 +299,111 @@ fn notification_gets_no_response_but_following_request_does() {
     assert_eq!(responses[0]["id"], 1);
     assert_no_json_on_stderr(&stderr);
     assert!(ok);
+}
+
+#[test]
+fn lifecycle_snapshot_restore_clone_verify_and_delete_round_trip() {
+    let root = TestRoot::new("lifecycle");
+    seed_vault(root.path(), "life", &[1, 2, 3]);
+    assert!(storage_dir(root.path(), "life").join("cf/base").exists());
+    assert!(!root.path().join("_snapshots/life.calyx/snap_a").exists());
+
+    let input = [
+        request(
+            1,
+            "vault.open",
+            json!({"vault_ref": "life", "ts": 1785500100_u64}),
+        ),
+        request(
+            2,
+            "vault.snapshot",
+            json!({"vault_ref": "life", "snapshot_ref": "snap_a", "ts": 1785500110_u64}),
+        ),
+        request(
+            3,
+            "vault.close",
+            json!({"vault_ref": "life", "ts": 1785500120_u64}),
+        ),
+        request(
+            4,
+            "vault.delete",
+            json!({"vault_ref": "life", "ts": 1785500130_u64}),
+        ),
+        request(
+            5,
+            "vault.restore",
+            json!({"vault_ref": "life", "snapshot_ref": "snap_a", "ts": 1785500140_u64}),
+        ),
+        request(
+            6,
+            "vault.clone",
+            json!({"vault_ref": "life", "target_vault_ref": "copy", "ts": 1785500150_u64}),
+        ),
+        request(
+            7,
+            "vault.verify",
+            json!({"vault_ref": "copy", "ts": 1785500160_u64}),
+        ),
+        request(
+            8,
+            "vault.snapshot",
+            json!({"vault_ref": "life", "snapshot_ref": "snap_a", "ts": 1785500170_u64}),
+        ),
+        request(
+            9,
+            "vault.delete",
+            json!({"vault_ref": "life", "ts": 1785500180_u64}),
+        ),
+    ]
+    .concat();
+
+    let (stdout, stderr, ok) = run_engine(&input, root.path(), false);
+    let responses = json_lines(&stdout);
+    assert_eq!(responses.len(), 9);
+    for response in responses.iter().take(7) {
+        assert!(response.get("error").is_none(), "{response}");
+    }
+    assert_eq!(responses[1]["result"]["verify_restore"]["success"], true);
+    assert_eq!(responses[4]["result"]["verify_restore"]["success"], true);
+    assert_eq!(responses[5]["result"]["verify_restore"]["success"], true);
+    assert_eq!(responses[6]["result"]["verify_restore"]["success"], true);
+    assert_eq!(
+        responses[7]["error"]["data"]["calyx_code"],
+        "CALYX_LEAPABLE_VAULT_ALREADY_EXISTS"
+    );
+    assert!(responses[8].get("error").is_none(), "{}", responses[8]);
+    assert_no_json_on_stderr(&stderr);
+    assert!(ok);
+
+    assert!(
+        root.path()
+            .join("_snapshots/life.calyx/snap_a/cf/base")
+            .exists()
+    );
+    assert!(!storage_dir(root.path(), "life").exists());
+    assert!(storage_dir(root.path(), "copy").join("cf/base").exists());
+    assert!(!wal_files(&storage_dir(root.path(), "copy")).is_empty());
+}
+
+#[test]
+#[ignore = "manual FSV seeder for Leapable issue #1973"]
+fn fsv_seed_lifecycle_vault_for_manual_inspection() {
+    let root = PathBuf::from(
+        std::env::var("CALYX_ISSUE1973_FSV_ROOT").expect("set CALYX_ISSUE1973_FSV_ROOT"),
+    );
+    fs::create_dir_all(&root).expect("create fsv root");
+    let vault_dir = storage_dir(&root, "life");
+    assert!(
+        !vault_dir.exists(),
+        "FSV seed target must be fresh: {}",
+        vault_dir.display()
+    );
+
+    seed_vault(&root, "life", &[1, 2, 3]);
+    let report = verify_restore(&vault_dir).expect("verify seeded lifecycle vault");
+    println!("issue-1973 fsv root: {}", root.display());
+    println!("issue-1973 fsv seed report: {report:?}");
+    assert!(report.success(), "seeded vault must verify");
 }
 
 fn wal_files(vault_root: &Path) -> Vec<String> {

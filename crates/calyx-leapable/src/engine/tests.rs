@@ -1,0 +1,207 @@
+use super::*;
+use calyx_core::{
+    Anchor, AnchorKind, AnchorValue, Constellation, CxFlags, InputRef, LedgerRef, Modality, SlotId,
+    SlotVector, VaultStore,
+};
+use calyx_mcp::decode_jsonrpc_request;
+use std::collections::BTreeMap;
+use std::fs;
+
+fn temp_root(name: &str) -> PathBuf {
+    let root = std::env::temp_dir().join(format!("calyx-leapable-{name}-{}", std::process::id()));
+    let _ = fs::remove_dir_all(&root);
+    fs::create_dir_all(&root).unwrap();
+    root.canonicalize().unwrap()
+}
+
+fn req(line: &str) -> calyx_mcp::JsonRpcRequest {
+    decode_jsonrpc_request(line.as_bytes()).unwrap()
+}
+
+fn config(root: PathBuf) -> EngineConfig {
+    EngineConfig {
+        data_dir: root,
+        master_key: vec![0xA5; 32],
+    }
+}
+
+fn sample_constellation(vault: &AsterVault<FixedClock>, seed: u8) -> Constellation {
+    let input = [seed; 8];
+    Constellation {
+        cx_id: vault.cx_id_for_input(&input, 1),
+        vault_id: vault.vault_id(),
+        panel_version: 1,
+        created_at: 1_785_500_000 + u64::from(seed),
+        input_ref: InputRef {
+            hash: [seed; 32],
+            pointer: None,
+            redacted: false,
+        },
+        modality: Modality::Text,
+        slots: BTreeMap::from([(
+            SlotId::new(0),
+            SlotVector::Dense {
+                dim: 4,
+                data: vec![f32::from(seed); 4],
+            },
+        )]),
+        scalars: BTreeMap::new(),
+        metadata: BTreeMap::new(),
+        anchors: vec![Anchor {
+            kind: AnchorKind::TestPass,
+            value: AnchorValue::Bool(true),
+            source: "calyx-leapable-test".to_string(),
+            observed_at: 1_785_500_000,
+            confidence: 1.0,
+        }],
+        provenance: LedgerRef {
+            seq: 0,
+            hash: [0; 32],
+        },
+        flags: CxFlags::default(),
+    }
+}
+
+#[test]
+fn two_vaults_are_multiplexed_by_vault_ref() {
+    let root = temp_root("multiplex");
+    let mut engine = Engine::new(config(root.clone()));
+    let create_a = engine.dispatch(req(
+        r#"{"jsonrpc":"2.0","id":1,"method":"vault.create","params":{"vault_ref":"alpha","ts":1785500000}}"#,
+    ));
+    let create_b = engine.dispatch(req(
+        r#"{"jsonrpc":"2.0","id":2,"method":"vault.create","params":{"vault_ref":"beta","ts":1785500010}}"#,
+    ));
+    assert!(create_a.error.is_none());
+    assert!(create_b.error.is_none());
+
+    let stat_a = engine.dispatch(req(
+        r#"{"jsonrpc":"2.0","id":3,"method":"vault.stat","params":{"vault_ref":"alpha","ts":1785500020}}"#,
+    ));
+    let stat_b = engine.dispatch(req(
+        r#"{"jsonrpc":"2.0","id":4,"method":"vault.stat","params":{"vault_ref":"beta","ts":1785500030}}"#,
+    ));
+    assert_eq!(stat_a.result.unwrap()["vault_ref"], "alpha");
+    assert_eq!(stat_b.result.unwrap()["vault_ref"], "beta");
+    assert_ne!(vault_id_for("alpha"), vault_id_for("beta"));
+    assert!(root.join("alpha.calyx").join("cf").join("base").exists());
+    assert!(root.join("alpha.calyx").join("wal").exists());
+    assert!(root.join("beta.calyx").join("cf").join("base").exists());
+    assert!(root.join("beta.calyx").join("wal").exists());
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn vault_stat_requires_prior_open() {
+    let mut engine = Engine::new(config(temp_root("not-open")));
+    let response = engine.dispatch(req(
+        r#"{"jsonrpc":"2.0","id":1,"method":"vault.stat","params":{"vault_ref":"ghost","ts":1}}"#,
+    ));
+    let error = response.error.unwrap();
+    assert_eq!(error.code, -32000);
+    assert_eq!(
+        error.data.unwrap()["calyx_code"],
+        CALYX_LEAPABLE_VAULT_NOT_OPEN
+    );
+}
+
+#[test]
+fn invalid_vault_ref_fails_closed() {
+    let mut engine = Engine::new(config(temp_root("bad-ref")));
+    let response = engine.dispatch(req(
+        r#"{"jsonrpc":"2.0","id":1,"method":"vault.create","params":{"vault_ref":"../escape","ts":1}}"#,
+    ));
+    let error = response.error.unwrap();
+    assert_eq!(error.code, -32000);
+    assert_eq!(
+        error.data.unwrap()["calyx_code"],
+        crate::paths::CALYX_LEAPABLE_PATH_INVALID
+    );
+}
+
+#[test]
+fn missing_timestamp_is_invalid_params() {
+    let mut engine = Engine::new(config(temp_root("missing-ts")));
+    let response = engine.dispatch(req(
+        r#"{"jsonrpc":"2.0","id":1,"method":"vault.open","params":{"vault_ref":"alpha"}}"#,
+    ));
+    assert_eq!(response.error.unwrap().code, -32602);
+}
+
+#[test]
+fn lifecycle_snapshot_restore_clone_verify_and_delete_use_real_bytes() {
+    let root = temp_root("lifecycle");
+    let mut engine = Engine::new(config(root.clone()));
+    let create = engine.dispatch(req(
+        r#"{"jsonrpc":"2.0","id":1,"method":"vault.create","params":{"vault_ref":"alpha","ts":1785500000}}"#,
+    ));
+    assert!(create.error.is_none(), "{create:?}");
+    {
+        let handle = engine.vaults.get("alpha").unwrap();
+        handle
+            .vault
+            .put(sample_constellation(&handle.vault, 7))
+            .unwrap();
+        handle.vault.flush().unwrap();
+    }
+
+    let delete_open = engine.dispatch(req(
+        r#"{"jsonrpc":"2.0","id":2,"method":"vault.delete","params":{"vault_ref":"alpha","ts":1785500010}}"#,
+    ));
+    assert_eq!(
+        delete_open.error.unwrap().data.unwrap()["calyx_code"],
+        CALYX_LEAPABLE_VAULT_OPEN
+    );
+
+    let snapshot = engine.dispatch(req(
+        r#"{"jsonrpc":"2.0","id":3,"method":"vault.snapshot","params":{"vault_ref":"alpha","snapshot_ref":"snap1","ts":1785500020}}"#,
+    ));
+    let snapshot_result = snapshot.result.unwrap();
+    assert_eq!(
+        snapshot_result["verify_restore"]["success"], true,
+        "{snapshot_result}"
+    );
+    assert!(root.join("_snapshots/alpha.calyx/snap1/cf/base").exists());
+
+    let clone = engine.dispatch(req(
+        r#"{"jsonrpc":"2.0","id":4,"method":"vault.clone","params":{"vault_ref":"alpha","target_vault_ref":"beta","ts":1785500030}}"#,
+    ));
+    let clone_result = clone.result.unwrap();
+    assert_eq!(clone_result["verify_restore"]["success"], true);
+    assert!(root.join("beta.calyx").join("cf").join("base").exists());
+
+    let restore_open = engine.dispatch(req(
+        r#"{"jsonrpc":"2.0","id":5,"method":"vault.restore","params":{"vault_ref":"alpha","snapshot_ref":"snap1","overwrite":true,"ts":1785500040}}"#,
+    ));
+    assert_eq!(
+        restore_open.error.unwrap().data.unwrap()["calyx_code"],
+        CALYX_LEAPABLE_VAULT_OPEN
+    );
+
+    let close = engine.dispatch(req(
+        r#"{"jsonrpc":"2.0","id":6,"method":"vault.close","params":{"vault_ref":"alpha","ts":1785500050}}"#,
+    ));
+    assert!(close.error.is_none());
+    let delete = engine.dispatch(req(
+        r#"{"jsonrpc":"2.0","id":7,"method":"vault.delete","params":{"vault_ref":"alpha","ts":1785500060}}"#,
+    ));
+    assert!(delete.error.is_none());
+    assert!(!root.join("alpha.calyx").exists());
+
+    let restore = engine.dispatch(req(
+        r#"{"jsonrpc":"2.0","id":8,"method":"vault.restore","params":{"vault_ref":"alpha","snapshot_ref":"snap1","ts":1785500070}}"#,
+    ));
+    let restore_result = restore.result.unwrap();
+    assert_eq!(restore_result["verify_restore"]["success"], true);
+
+    let list = engine.dispatch(req(r#"{"jsonrpc":"2.0","id":9,"method":"vault.list"}"#));
+    let list_result = list.result.unwrap();
+    let refs = list_result["vaults"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|vault| vault["vault_ref"].as_str().unwrap())
+        .collect::<Vec<_>>();
+    assert_eq!(refs, vec!["alpha", "beta"]);
+    fs::remove_dir_all(root).unwrap();
+}

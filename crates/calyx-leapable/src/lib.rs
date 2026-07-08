@@ -6,6 +6,7 @@
 
 pub mod config;
 pub mod engine;
+pub mod lifecycle;
 pub mod paths;
 
 pub use config::EngineConfig;

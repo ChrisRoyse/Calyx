@@ -12,7 +12,14 @@ use serde_json::{Value, json};
 use ulid::Ulid;
 
 use crate::config::EngineConfig;
-use crate::paths::{VaultRef, resolve_vault_dir};
+use crate::lifecycle::{
+    CALYX_LEAPABLE_VAULT_ALREADY_EXISTS, CALYX_LEAPABLE_VAULT_OPEN, copy_dir_new, lifecycle_error,
+    remove_dir, verify_restore_value,
+};
+use crate::paths::{
+    VaultRef, list_vault_refs, resolve_existing_snapshot_dir, resolve_existing_vault_dir,
+    resolve_new_vault_dir, resolve_snapshot_dir, resolve_vault_target_dir,
+};
 
 /// Compile-time capability map: end-user binary is CPU-only.
 pub const LEAPABLE_CAPABILITIES: &[(&str, bool)] = &[
@@ -54,6 +61,29 @@ struct VaultParams {
     ts: Ts,
 }
 
+#[derive(Deserialize)]
+struct SnapshotParams {
+    vault_ref: String,
+    snapshot_ref: String,
+    ts: Ts,
+}
+
+#[derive(Deserialize)]
+struct RestoreParams {
+    vault_ref: String,
+    snapshot_ref: String,
+    ts: Ts,
+    #[serde(default)]
+    overwrite: bool,
+}
+
+#[derive(Deserialize)]
+struct CloneParams {
+    vault_ref: String,
+    target_vault_ref: String,
+    ts: Ts,
+}
+
 impl Engine {
     /// Creates an engine with no open vaults.
     pub fn new(config: EngineConfig) -> Self {
@@ -77,7 +107,15 @@ impl Engine {
         let id = request.id.clone();
         let result = match request.method.as_str() {
             "engine.info" => self.engine_info(),
+            "vault.create" => self.vault_create(request.params),
             "vault.open" => self.vault_open(request.params),
+            "vault.close" => self.vault_close(request.params),
+            "vault.list" => self.vault_list(),
+            "vault.delete" => self.vault_delete(request.params),
+            "vault.snapshot" => self.vault_snapshot(request.params),
+            "vault.restore" => self.vault_restore(request.params),
+            "vault.clone" => self.vault_clone(request.params),
+            "vault.verify" => self.vault_verify(request.params),
             "vault.stat" => self.vault_stat(request.params),
             "engine.panic_probe" => self.panic_probe(),
             other => {
@@ -111,45 +149,213 @@ impl Engine {
         }))
     }
 
+    fn vault_create(&mut self, params: Option<Value>) -> EngineResult<Value> {
+        let params = parse_params::<VaultParams>(params, "vault.create")?;
+        let vault_ref = VaultRef::parse(&params.vault_ref)?;
+        if self.vaults.contains_key(vault_ref.as_str()) {
+            return Err(lifecycle_error(
+                CALYX_LEAPABLE_VAULT_ALREADY_EXISTS,
+                format!("vault_ref {:?} is already open", vault_ref.as_str()),
+                "close the open handle or choose a different vault_ref",
+            )
+            .into());
+        }
+        let dir = resolve_new_vault_dir(&self.config.data_dir, &vault_ref)?;
+        let handle = self.open_handle(vault_ref.clone(), dir, params.ts)?;
+        handle.vault.flush()?;
+        let value = vault_handle_value("created", &handle);
+        self.vaults.insert(vault_ref.as_str().to_string(), handle);
+        Ok(value)
+    }
+
     fn vault_open(&mut self, params: Option<Value>) -> EngineResult<Value> {
         let params = parse_params::<VaultParams>(params, "vault.open")?;
         let vault_ref = VaultRef::parse(&params.vault_ref)?;
-        let dir = resolve_vault_dir(&self.config.data_dir, &vault_ref)?;
-        let vault_id = vault_id_for(vault_ref.as_str());
-        let salt = salt_for(vault_ref.as_str());
-        let context = VaultContext::new(
-            vault_id,
-            &self.config.master_key,
-            QuotaConfig::default(),
-            ZFS_DATASET_UNAVAILABLE,
-        )?;
-        let vault = AsterVault::new_durable_with_clock(
-            &dir,
-            vault_id,
-            salt,
-            VaultOptions::default(),
-            FixedClock::new(params.ts),
-        )?;
-        vault.flush()?;
-        let reopened = self.vaults.contains_key(vault_ref.as_str());
-        let handle = VaultHandle {
-            vault_ref: vault_ref.clone(),
-            vault_id,
-            dir: dir.clone(),
-            opened_at: params.ts,
-            last_ts: params.ts,
-            requests: 1,
-            context,
-            vault,
-        };
+        if let Some(handle) = self.vaults.get_mut(vault_ref.as_str()) {
+            handle.requests += 1;
+            handle.last_ts = params.ts;
+            return Ok(vault_handle_value("already_open", handle));
+        }
+        let dir = resolve_existing_vault_dir(&self.config.data_dir, &vault_ref)?;
+        let handle = self.open_handle(vault_ref.clone(), dir, params.ts)?;
+        let value = vault_handle_value("opened", &handle);
         self.vaults.insert(vault_ref.as_str().to_string(), handle);
+        Ok(value)
+    }
+
+    fn vault_close(&mut self, params: Option<Value>) -> EngineResult<Value> {
+        let params = parse_params::<VaultParams>(params, "vault.close")?;
+        let vault_ref = VaultRef::parse(&params.vault_ref)?;
+        let Some(mut handle) = self.vaults.remove(vault_ref.as_str()) else {
+            return Err(vault_not_open(vault_ref.as_str()).into());
+        };
+        handle.requests += 1;
+        handle.last_ts = params.ts;
+        handle.vault.flush()?;
         Ok(json!({
-            "status": if reopened { "reopened" } else { "opened" },
+            "status": "closed",
+            "vault_ref": handle.vault_ref.as_str(),
+            "vault_id": handle.vault_id.to_string(),
+            "vault_dir": handle.dir,
+            "latest_seq": handle.vault.latest_seq(),
+            "last_ts": handle.last_ts,
+            "requests": handle.requests
+        }))
+    }
+
+    fn vault_list(&self) -> EngineResult<Value> {
+        let vaults = list_vault_refs(&self.config.data_dir)?
+            .into_iter()
+            .map(|(vault_ref, dir)| {
+                json!({
+                    "vault_ref": vault_ref.as_str(),
+                    "vault_dir": dir,
+                    "open": self.vaults.contains_key(vault_ref.as_str())
+                })
+            })
+            .collect::<Vec<_>>();
+        Ok(json!({
+            "status": "listed",
+            "vaults": vaults
+        }))
+    }
+
+    fn vault_delete(&mut self, params: Option<Value>) -> EngineResult<Value> {
+        let params = parse_params::<VaultParams>(params, "vault.delete")?;
+        let vault_ref = VaultRef::parse(&params.vault_ref)?;
+        if self.vaults.contains_key(vault_ref.as_str()) {
+            return Err(vault_open_error(vault_ref.as_str()).into());
+        }
+        let dir = resolve_existing_vault_dir(&self.config.data_dir, &vault_ref)?;
+        remove_dir(&dir)?;
+        Ok(json!({
+            "status": "deleted",
             "vault_ref": vault_ref.as_str(),
-            "vault_id": vault_id.to_string(),
             "vault_dir": dir,
-            "opened_at": params.ts,
-            "latest_seq": self.vaults[vault_ref.as_str()].vault.latest_seq()
+            "deleted_at": params.ts
+        }))
+    }
+
+    fn vault_snapshot(&mut self, params: Option<Value>) -> EngineResult<Value> {
+        let params = parse_params::<SnapshotParams>(params, "vault.snapshot")?;
+        let vault_ref = VaultRef::parse(&params.vault_ref)?;
+        let snapshot_ref = VaultRef::parse(&params.snapshot_ref)?;
+        let (source_dir, latest_seq) = match self.vaults.get_mut(vault_ref.as_str()) {
+            Some(handle) => {
+                handle.requests += 1;
+                handle.last_ts = params.ts;
+                handle.vault.flush()?;
+                (handle.dir.clone(), Some(handle.vault.latest_seq()))
+            }
+            None => (
+                resolve_existing_vault_dir(&self.config.data_dir, &vault_ref)?,
+                None,
+            ),
+        };
+        let snapshot_dir = resolve_snapshot_dir(&self.config.data_dir, &vault_ref, &snapshot_ref)?;
+        let copy = copy_dir_new(&source_dir, &snapshot_dir)?;
+        let verify = verify_restore_value(&snapshot_dir)?;
+        Ok(json!({
+            "status": "snapshotted",
+            "vault_ref": vault_ref.as_str(),
+            "snapshot_ref": snapshot_ref.as_str(),
+            "source_dir": source_dir,
+            "snapshot_dir": snapshot_dir,
+            "latest_seq": latest_seq,
+            "copy": copy.to_value(),
+            "verify_restore": verify
+        }))
+    }
+
+    fn vault_restore(&mut self, params: Option<Value>) -> EngineResult<Value> {
+        let params = parse_params::<RestoreParams>(params, "vault.restore")?;
+        let vault_ref = VaultRef::parse(&params.vault_ref)?;
+        let snapshot_ref = VaultRef::parse(&params.snapshot_ref)?;
+        if self.vaults.contains_key(vault_ref.as_str()) {
+            return Err(vault_open_error(vault_ref.as_str()).into());
+        }
+        let snapshot_dir =
+            resolve_existing_snapshot_dir(&self.config.data_dir, &vault_ref, &snapshot_ref)?;
+        let target_dir = if params.overwrite {
+            if self
+                .config
+                .data_dir
+                .join(vault_ref.storage_dir_name())
+                .exists()
+            {
+                let existing = resolve_existing_vault_dir(&self.config.data_dir, &vault_ref)?;
+                remove_dir(&existing)?;
+            }
+            resolve_vault_target_dir(&self.config.data_dir, &vault_ref)?
+        } else {
+            resolve_vault_target_dir(&self.config.data_dir, &vault_ref)?
+        };
+        let source_verify = verify_restore_value(&snapshot_dir)?;
+        let copy = copy_dir_new(&snapshot_dir, &target_dir)?;
+        let restored_verify = verify_restore_value(&target_dir)?;
+        Ok(json!({
+            "status": "restored",
+            "vault_ref": vault_ref.as_str(),
+            "snapshot_ref": snapshot_ref.as_str(),
+            "snapshot_dir": snapshot_dir,
+            "vault_dir": target_dir,
+            "restored_at": params.ts,
+            "overwrite": params.overwrite,
+            "copy": copy.to_value(),
+            "source_verify_restore": source_verify,
+            "verify_restore": restored_verify
+        }))
+    }
+
+    fn vault_clone(&mut self, params: Option<Value>) -> EngineResult<Value> {
+        let params = parse_params::<CloneParams>(params, "vault.clone")?;
+        let vault_ref = VaultRef::parse(&params.vault_ref)?;
+        let target_vault_ref = VaultRef::parse(&params.target_vault_ref)?;
+        if self.vaults.contains_key(target_vault_ref.as_str()) {
+            return Err(vault_open_error(target_vault_ref.as_str()).into());
+        }
+        if let Some(handle) = self.vaults.get_mut(vault_ref.as_str()) {
+            handle.requests += 1;
+            handle.last_ts = params.ts;
+            handle.vault.flush()?;
+        }
+        let source_dir = resolve_existing_vault_dir(&self.config.data_dir, &vault_ref)?;
+        let target_dir = resolve_vault_target_dir(&self.config.data_dir, &target_vault_ref)?;
+        let source_verify = verify_restore_value(&source_dir)?;
+        let copy = copy_dir_new(&source_dir, &target_dir)?;
+        let clone_verify = verify_restore_value(&target_dir)?;
+        Ok(json!({
+            "status": "cloned",
+            "vault_ref": vault_ref.as_str(),
+            "target_vault_ref": target_vault_ref.as_str(),
+            "source_dir": source_dir,
+            "target_dir": target_dir,
+            "cloned_at": params.ts,
+            "copy": copy.to_value(),
+            "source_verify_restore": source_verify,
+            "verify_restore": clone_verify
+        }))
+    }
+
+    fn vault_verify(&mut self, params: Option<Value>) -> EngineResult<Value> {
+        let params = parse_params::<VaultParams>(params, "vault.verify")?;
+        let vault_ref = VaultRef::parse(&params.vault_ref)?;
+        let dir = match self.vaults.get_mut(vault_ref.as_str()) {
+            Some(handle) => {
+                handle.requests += 1;
+                handle.last_ts = params.ts;
+                handle.vault.flush()?;
+                handle.dir.clone()
+            }
+            None => resolve_existing_vault_dir(&self.config.data_dir, &vault_ref)?,
+        };
+        let verify = verify_restore_value(&dir)?;
+        Ok(json!({
+            "status": "verified",
+            "vault_ref": vault_ref.as_str(),
+            "vault_dir": dir,
+            "verified_at": params.ts,
+            "verify_restore": verify
         }))
     }
 
@@ -185,6 +391,34 @@ impl Engine {
         }
         panic!("calyx-leapable panic isolation probe");
     }
+
+    fn open_handle(&self, vault_ref: VaultRef, dir: PathBuf, ts: Ts) -> EngineResult<VaultHandle> {
+        let vault_id = vault_id_for(vault_ref.as_str());
+        let salt = salt_for(vault_ref.as_str());
+        let context = VaultContext::new(
+            vault_id,
+            &self.config.master_key,
+            QuotaConfig::default(),
+            ZFS_DATASET_UNAVAILABLE,
+        )?;
+        let vault = AsterVault::new_durable_with_clock(
+            &dir,
+            vault_id,
+            salt,
+            VaultOptions::default(),
+            FixedClock::new(ts),
+        )?;
+        Ok(VaultHandle {
+            vault_ref,
+            vault_id,
+            dir,
+            opened_at: ts,
+            last_ts: ts,
+            requests: 1,
+            context,
+            vault,
+        })
+    }
 }
 
 type EngineResult<T> = std::result::Result<T, EngineError>;
@@ -218,6 +452,29 @@ fn vault_not_open(vault_ref: &str) -> CalyxError {
     }
 }
 
+fn vault_open_error(vault_ref: &str) -> CalyxError {
+    CalyxError {
+        code: CALYX_LEAPABLE_VAULT_OPEN,
+        message: format!("vault_ref {vault_ref:?} has an open handle in this engine process"),
+        remediation: "call vault.close before delete, restore, or overwriting lifecycle operations",
+    }
+}
+
+fn vault_handle_value(status: &str, handle: &VaultHandle) -> Value {
+    json!({
+        "status": status,
+        "vault_ref": handle.vault_ref.as_str(),
+        "vault_id": handle.vault_id.to_string(),
+        "vault_dir": handle.dir,
+        "context_vault_id": handle.context.vault_id().to_string(),
+        "opened_at": handle.opened_at,
+        "last_ts": handle.last_ts,
+        "requests": handle.requests,
+        "latest_seq": handle.vault.latest_seq(),
+        "recovered_seq": handle.vault.recovery_report().last_recovered_seq
+    })
+}
+
 fn vault_id_for(vault_ref: &str) -> VaultId {
     VaultId::from_ulid(Ulid::from_bytes(content_address([vault_ref.as_bytes()])))
 }
@@ -231,93 +488,4 @@ fn salt_for(vault_ref: &str) -> Vec<u8> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use calyx_mcp::decode_jsonrpc_request;
-    use std::fs;
-
-    fn temp_root(name: &str) -> PathBuf {
-        let root =
-            std::env::temp_dir().join(format!("calyx-leapable-{name}-{}", std::process::id()));
-        let _ = fs::remove_dir_all(&root);
-        fs::create_dir_all(&root).unwrap();
-        root.canonicalize().unwrap()
-    }
-
-    fn req(line: &str) -> calyx_mcp::JsonRpcRequest {
-        decode_jsonrpc_request(line.as_bytes()).unwrap()
-    }
-
-    fn config(root: PathBuf) -> EngineConfig {
-        EngineConfig {
-            data_dir: root,
-            master_key: vec![0xA5; 32],
-        }
-    }
-
-    #[test]
-    fn two_vaults_are_multiplexed_by_vault_ref() {
-        let root = temp_root("multiplex");
-        let mut engine = Engine::new(config(root.clone()));
-        let open_a = engine.dispatch(req(
-            r#"{"jsonrpc":"2.0","id":1,"method":"vault.open","params":{"vault_ref":"alpha","ts":1785500000}}"#,
-        ));
-        let open_b = engine.dispatch(req(
-            r#"{"jsonrpc":"2.0","id":2,"method":"vault.open","params":{"vault_ref":"beta","ts":1785500010}}"#,
-        ));
-        assert!(open_a.error.is_none());
-        assert!(open_b.error.is_none());
-
-        let stat_a = engine.dispatch(req(
-            r#"{"jsonrpc":"2.0","id":3,"method":"vault.stat","params":{"vault_ref":"alpha","ts":1785500020}}"#,
-        ));
-        let stat_b = engine.dispatch(req(
-            r#"{"jsonrpc":"2.0","id":4,"method":"vault.stat","params":{"vault_ref":"beta","ts":1785500030}}"#,
-        ));
-        assert_eq!(stat_a.result.unwrap()["vault_ref"], "alpha");
-        assert_eq!(stat_b.result.unwrap()["vault_ref"], "beta");
-        assert_ne!(vault_id_for("alpha"), vault_id_for("beta"));
-        assert!(root.join("alpha").join("cf").join("base").exists());
-        assert!(root.join("alpha").join("wal").exists());
-        assert!(root.join("beta").join("cf").join("base").exists());
-        assert!(root.join("beta").join("wal").exists());
-        fs::remove_dir_all(root).unwrap();
-    }
-
-    #[test]
-    fn vault_stat_requires_prior_open() {
-        let mut engine = Engine::new(config(temp_root("not-open")));
-        let response = engine.dispatch(req(
-            r#"{"jsonrpc":"2.0","id":1,"method":"vault.stat","params":{"vault_ref":"ghost","ts":1}}"#,
-        ));
-        let error = response.error.unwrap();
-        assert_eq!(error.code, -32000);
-        assert_eq!(
-            error.data.unwrap()["calyx_code"],
-            CALYX_LEAPABLE_VAULT_NOT_OPEN
-        );
-    }
-
-    #[test]
-    fn invalid_vault_ref_fails_closed() {
-        let mut engine = Engine::new(config(temp_root("bad-ref")));
-        let response = engine.dispatch(req(
-            r#"{"jsonrpc":"2.0","id":1,"method":"vault.open","params":{"vault_ref":"../escape","ts":1}}"#,
-        ));
-        let error = response.error.unwrap();
-        assert_eq!(error.code, -32000);
-        assert_eq!(
-            error.data.unwrap()["calyx_code"],
-            crate::paths::CALYX_LEAPABLE_PATH_INVALID
-        );
-    }
-
-    #[test]
-    fn missing_timestamp_is_invalid_params() {
-        let mut engine = Engine::new(config(temp_root("missing-ts")));
-        let response = engine.dispatch(req(
-            r#"{"jsonrpc":"2.0","id":1,"method":"vault.open","params":{"vault_ref":"alpha"}}"#,
-        ));
-        assert_eq!(response.error.unwrap().code, -32602);
-    }
-}
+mod tests;

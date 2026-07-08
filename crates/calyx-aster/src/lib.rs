@@ -35,6 +35,7 @@ pub mod supply_chain;
 pub mod timetravel;
 pub mod txn;
 pub mod vault;
+pub mod verify_restore;
 pub mod wal;
 
 pub use dedup::{
