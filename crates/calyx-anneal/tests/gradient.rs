@@ -136,6 +136,8 @@ fn gradient_snapshot_roundtrips_to_vault_bytes() {
 }
 
 proptest! {
+    #![proptest_config(calyx_testkit::integration_proptest_config(256))]
+
     #[test]
     fn next_best_action_matches_highest_priority(values in proptest::collection::vec(0.0f64..100.0, 1..32)) {
         let mut gradient = gradient();

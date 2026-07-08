@@ -25,5 +25,6 @@ zstd.workspace = true
 
 [dev-dependencies]
 calyx-fsv = { path = "../calyx-fsv" }
+calyx-testkit = { path = "../calyx-testkit" }
 filetime.workspace = true
 proptest.workspace = true

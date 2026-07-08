@@ -21,4 +21,5 @@ uuid.workspace = true
 [dev-dependencies]
 blake3.workspace = true
 calyx-assay = { path = "../calyx-assay" }
+calyx-testkit = { path = "../calyx-testkit" }
 proptest.workspace = true

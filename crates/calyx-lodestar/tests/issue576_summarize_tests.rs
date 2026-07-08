@@ -387,7 +387,7 @@ fn scope_hash_is_stable_and_matches_subject() {
 }
 
 proptest! {
-    /// ∀ scope ∈ {AllAssociations, Collection, TimeWindow}: metrics stay in bounds
+    #![proptest_config(calyx_testkit::integration_proptest_config(256))]    /// ∀ scope ∈ {AllAssociations, Collection, TimeWindow}: metrics stay in bounds
     /// and the call never panics.
     #[test]
     fn metrics_in_bounds_for_any_scope(which in 0u8..3, lo in 1_000u64..1_010, span in 0u64..30) {

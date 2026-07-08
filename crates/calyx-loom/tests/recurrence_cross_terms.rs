@@ -123,6 +123,8 @@ fn series_read_errors_fail_closed_with_loom_code() {
 }
 
 proptest! {
+    #![proptest_config(calyx_testkit::integration_proptest_config(256))]
+
     #[test]
     fn lead_lag_sign_flips_when_direction_reverses(
         start in 0_i64..10_000,

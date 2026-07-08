@@ -237,6 +237,8 @@ fn tau_override_updates_guard_profile_tau() {
 }
 
 proptest! {
+    #![proptest_config(calyx_testkit::integration_proptest_config(256))]
+
     #[test]
     fn identity_slot_config_roundtrips(slot_id in any::<u16>(), tau in prop::option::of(0.0f32..1.0f32)) {
         let config = IdentitySlotConfig {

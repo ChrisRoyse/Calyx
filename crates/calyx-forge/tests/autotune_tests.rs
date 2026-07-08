@@ -208,7 +208,7 @@ fn autotune_zero_iters_returns_defaults() -> Result<()> {
 }
 
 proptest! {
-    #![proptest_config(ProptestConfig::with_cases(8))]
+    #![proptest_config(calyx_testkit::integration_proptest_config(8))]
 
     #[test]
     fn cache_get_returns_inserted_for_100_random_keys(seed in any::<u64>()) {

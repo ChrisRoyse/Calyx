@@ -213,7 +213,7 @@ fn missing_and_invalid_metrics_revert_without_partial_query_count() {
 }
 
 proptest! {
-    #![proptest_config(ProptestConfig::with_cases(32))]
+    #![proptest_config(calyx_testkit::integration_proptest_config(32))]
 
     #[test]
     fn dominant_candidate_always_promotes(

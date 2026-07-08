@@ -168,6 +168,8 @@ fn wrong_outcome_anchor_kind_fails_closed() {
 }
 
 proptest! {
+    #![proptest_config(calyx_testkit::integration_proptest_config(256))]
+
     #[test]
     fn agreement_rate_stays_in_unit_interval(values in proptest::collection::vec(0_u8..5, 3..32)) {
         let observations = values

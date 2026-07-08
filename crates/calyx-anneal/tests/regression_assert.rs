@@ -50,7 +50,7 @@ fn still_wrong_prediction_recurs_and_can_be_relogged() {
 }
 
 proptest! {
-    #![proptest_config(ProptestConfig::with_cases(32))]
+    #![proptest_config(calyx_testkit::integration_proptest_config(32))]
 
     #[test]
     fn all_improvements_have_zero_regression_rate(

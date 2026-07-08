@@ -149,6 +149,8 @@ fn transfer_entropy_edges_fail_closed_with_code() {
 }
 
 proptest! {
+    #![proptest_config(calyx_testkit::integration_proptest_config(256))]
+
     #[test]
     fn below_quorum_is_always_provisional(n in 0usize..30) {
         let a = simple_stream(n, 11);

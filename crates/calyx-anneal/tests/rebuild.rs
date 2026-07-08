@@ -214,7 +214,7 @@ fn snapshot_failure_records_rebuild_failure() {
 }
 
 proptest! {
-    #![proptest_config(ProptestConfig::with_cases(16))]
+    #![proptest_config(calyx_testkit::integration_proptest_config(16))]
 
     #[test]
     fn successful_runs_leave_component_ok(ops in prop::collection::vec(any::<bool>(), 1..12)) {

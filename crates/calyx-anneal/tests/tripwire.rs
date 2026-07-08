@@ -147,7 +147,7 @@ fn set_tripwire_persists_toml_source_of_truth() {
 }
 
 proptest! {
-    #![proptest_config(ProptestConfig::with_cases(48))]
+    #![proptest_config(calyx_testkit::integration_proptest_config(48))]
 
     #[test]
     fn lower_bound_stays_crossed_inside_hysteresis(

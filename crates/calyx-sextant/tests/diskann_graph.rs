@@ -274,7 +274,7 @@ fn fsv_issue545_thousand_node_graph_i8_v3() {
 }
 
 proptest! {
-    #![proptest_config(ProptestConfig::with_cases(64))]
+    #![proptest_config(calyx_testkit::integration_proptest_config(64))]
 
     #[test]
     fn node_block_size_never_truncates(dim in 1_usize..=2048, m_max in 1_usize..=96) {
@@ -285,7 +285,7 @@ proptest! {
 }
 
 proptest! {
-    #![proptest_config(ProptestConfig::with_cases(8))]
+    #![proptest_config(calyx_testkit::integration_proptest_config(8))]
 
     #[test]
     #[ignore = "server-only"]

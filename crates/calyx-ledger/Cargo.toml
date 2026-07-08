@@ -17,4 +17,5 @@ ulid.workspace = true
 
 [dev-dependencies]
 calyx-fsv = { path = "../calyx-fsv" }
+calyx-testkit = { path = "../calyx-testkit" }
 proptest.workspace = true

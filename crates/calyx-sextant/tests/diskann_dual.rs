@@ -439,7 +439,7 @@ fn dir_listing(dir: &Path) -> String {
 }
 
 proptest! {
-    #![proptest_config(ProptestConfig::with_cases(8))]
+    #![proptest_config(calyx_testkit::integration_proptest_config(8))]
 
     #[test]
     fn merged_results_have_no_phantom_ids(weight in 0.0_f32..=1.0) {

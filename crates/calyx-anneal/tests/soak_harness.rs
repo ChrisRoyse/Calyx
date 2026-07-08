@@ -149,7 +149,7 @@ fn storage_failure_returns_cf_unavailable_and_keeps_partial_report() {
 }
 
 proptest! {
-    #![proptest_config(ProptestConfig::with_cases(16))]
+    #![proptest_config(calyx_testkit::integration_proptest_config(16))]
 
     #[test]
     fn seeded_better_profile_never_makes_p99_worse(

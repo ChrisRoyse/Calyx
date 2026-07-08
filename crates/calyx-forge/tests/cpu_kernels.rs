@@ -184,6 +184,8 @@ fn golden_cosine_self_sanity_bound() {
 }
 
 proptest! {
+    #![proptest_config(calyx_testkit::integration_proptest_config(256))]
+
     #[test]
     fn golden_values_are_finite(name in prop::sample::select(vec![
         "vectors_128d",

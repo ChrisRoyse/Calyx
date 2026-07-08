@@ -71,6 +71,8 @@ fn edge_cases_fail_closed_or_select_expected_arm() {
 }
 
 proptest! {
+    #![proptest_config(calyx_testkit::integration_proptest_config(256))]
+
     #[test]
     fn incumbent_index_stays_valid(
         results in proptest::collection::vec((0usize..4, any::<bool>()), 0..80)

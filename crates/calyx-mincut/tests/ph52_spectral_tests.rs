@@ -180,6 +180,8 @@ fn spectral_cache_roundtrips_and_invalidates_scope() {
 }
 
 proptest! {
+    #![proptest_config(calyx_testkit::integration_proptest_config(256))]
+
     #[test]
     fn centrality_scores_are_normalized(n in 2u8..10) {
         let mut builder = builder_with_nodes(&(1..=n).collect::<Vec<_>>());

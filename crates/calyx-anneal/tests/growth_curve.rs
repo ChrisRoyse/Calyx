@@ -118,6 +118,8 @@ fn persists_to_anneal_growth_cf_and_decodes() {
 }
 
 proptest! {
+    #![proptest_config(calyx_testkit::integration_proptest_config(256))]
+
     #[test]
     fn summary_max_is_at_least_last(values in proptest::collection::vec(0.0f64..100.0, 1..32)) {
         let mut curve = curve(MemoryGrowthCf::default(), 64);

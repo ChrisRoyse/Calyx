@@ -171,6 +171,8 @@ fn propagation_run_writes_real_ledger_row() {
 }
 
 proptest! {
+    #![proptest_config(calyx_testkit::integration_proptest_config(256))]
+
     #[test]
     fn confidence_is_monotone_by_hop_distance(edge_count in 3usize..12) {
         let graph = connected_line_with_shortcuts(edge_count);

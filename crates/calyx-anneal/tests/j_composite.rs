@@ -292,6 +292,8 @@ fn objective_weights_roundtrip_vault_config() {
 }
 
 proptest! {
+    #![proptest_config(calyx_testkit::integration_proptest_config(256))]
+
     #[test]
     fn finite_inputs_return_finite_j(
         info in 0.0f64..10.0,

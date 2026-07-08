@@ -342,7 +342,7 @@ struct FileReadback {
 }
 
 proptest! {
-    #![proptest_config(ProptestConfig::with_cases(8))]
+    #![proptest_config(calyx_testkit::integration_proptest_config(8))]
 
     #[test]
     fn safe_recall_windows_never_revert(recall in 0.90_f32..1.0) {

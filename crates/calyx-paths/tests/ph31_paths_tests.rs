@@ -207,6 +207,8 @@ fn graph_parallel_self_loop_and_invalid_weights_are_handled() {
 }
 
 proptest! {
+    #![proptest_config(calyx_testkit::integration_proptest_config(256))]
+
     #[test]
     fn uniform_chain_scores_decrease_with_hops(len in 2u8..20) {
         let graph = linear_graph(len);

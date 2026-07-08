@@ -15,5 +15,6 @@ thiserror.workspace = true
 
 [dev-dependencies]
 calyx-fsv = { path = "../calyx-fsv" }
+calyx-testkit = { path = "../calyx-testkit" }
 proptest.workspace = true
 serde_json.workspace = true

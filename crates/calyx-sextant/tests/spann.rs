@@ -448,7 +448,7 @@ fn fsv_issue547_edges_write_before_after_artifacts() {
 }
 
 proptest! {
-    #![proptest_config(ProptestConfig::with_cases(16))]
+    #![proptest_config(calyx_testkit::integration_proptest_config(16))]
 
     #[test]
     fn n_probe_search_returns_distinct_top_k(n_probe in 1_usize..=8) {

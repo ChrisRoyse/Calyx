@@ -132,6 +132,8 @@ fn lens_trait_rejects_malformed_pcm_bytes() {
 }
 
 proptest! {
+    #![proptest_config(calyx_testkit::integration_proptest_config(256))]
+
     #[test]
     fn proptest_embeddings_are_unit_norm(samples in prop::collection::vec(-1.0f32..1.0, 1..128)) {
         let lens = mock_lens(WAVLM_DIM);

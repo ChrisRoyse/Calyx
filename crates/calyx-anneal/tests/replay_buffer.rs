@@ -120,6 +120,8 @@ fn aster_storage_writes_cbor_snapshot_under_anneal_replay_cf() {
 }
 
 proptest! {
+    #![proptest_config(calyx_testkit::integration_proptest_config(256))]
+
     #[test]
     fn len_never_exceeds_capacity(
         surprises in proptest::collection::vec(0.0f64..1.0, 0..80),

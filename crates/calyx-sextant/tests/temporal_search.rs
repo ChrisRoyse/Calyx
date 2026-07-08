@@ -213,6 +213,8 @@ fn temporal_single_lens_primary_fails_closed() {
 }
 
 proptest! {
+    #![proptest_config(calyx_testkit::integration_proptest_config(256))]
+
     #[test]
     fn temporal_search_from_primary_returns_subset_of_primary_ids(
         seeds in proptest::collection::btree_set(1_u8..64, 0..24),

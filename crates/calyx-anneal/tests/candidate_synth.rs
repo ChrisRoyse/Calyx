@@ -345,7 +345,7 @@ fn invalid_deficit_metrics_fail_closed() {
 }
 
 proptest! {
-    #![proptest_config(ProptestConfig::with_cases(32))]
+    #![proptest_config(calyx_testkit::integration_proptest_config(32))]
 
     #[test]
     fn valid_deficit_always_returns_candidate(

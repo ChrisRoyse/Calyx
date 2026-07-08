@@ -400,7 +400,7 @@ fn flat_search_scratch_reuse_does_not_leak_previous_graph_hits() {
 }
 
 proptest! {
-    #![proptest_config(ProptestConfig::with_cases(16))]
+    #![proptest_config(calyx_testkit::integration_proptest_config(16))]
 
     #[test]
     fn search_count_distinct_and_sorted(k in 1_usize..=50, beamwidth in 4_usize..=128) {

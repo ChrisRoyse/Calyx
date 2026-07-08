@@ -156,7 +156,7 @@ fn cf_failure_surfaces_error_and_memory_state_survives() {
 }
 
 proptest! {
-    #![proptest_config(ProptestConfig::with_cases(32))]
+    #![proptest_config(calyx_testkit::integration_proptest_config(32))]
 
     #[test]
     fn active_lenses_never_returns_failing_or_parked(ops in prop::collection::vec((0u8..4, 0u8..4), 1..64)) {

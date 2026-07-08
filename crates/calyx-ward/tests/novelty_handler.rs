@@ -64,6 +64,8 @@ fn reject_closed_writes_rejected_record_then_returns_ood() {
 }
 
 proptest! {
+    #![proptest_config(calyx_testkit::integration_proptest_config(256))]
+
     #[test]
     fn every_action_writes_exactly_one_record(action_index in 0u8..3) {
         let action = match action_index {

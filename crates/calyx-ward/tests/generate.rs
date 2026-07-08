@@ -310,6 +310,8 @@ fn novelty_sink_failure_propagates_without_accepting() {
 }
 
 proptest! {
+    #![proptest_config(calyx_testkit::integration_proptest_config(256))]
+
     #[test]
     fn proptest_acceptance_matches_per_slot_threshold(
         speaker_cos in 0.0f32..1.0,

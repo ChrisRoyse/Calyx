@@ -127,7 +127,7 @@ fn assay_error_fails_closed_without_zero_gap_fake() {
 }
 
 proptest! {
-    #![proptest_config(ProptestConfig::with_cases(32))]
+    #![proptest_config(calyx_testkit::integration_proptest_config(32))]
 
     #[test]
     fn dpi_bounded_metrics_never_emit_negative_gap(

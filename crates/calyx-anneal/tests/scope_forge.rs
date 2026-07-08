@@ -115,6 +115,8 @@ fn cache_write_failure_is_fail_closed_but_bandit_state_survives() {
 }
 
 proptest! {
+    #![proptest_config(calyx_testkit::integration_proptest_config(256))]
+
     #[test]
     fn incumbent_is_always_a_valid_config(latencies in prop::collection::vec(1_u64..10_000, 1..40)) {
         let key = forge_key();

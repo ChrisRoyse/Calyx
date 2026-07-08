@@ -166,7 +166,7 @@ fn profiler_timeout_error_rejects_without_panic() {
 }
 
 proptest! {
-    #![proptest_config(ProptestConfig::with_cases(64))]
+    #![proptest_config(calyx_testkit::integration_proptest_config(64))]
 
     #[test]
     fn valid_bits_and_corr_admit_iff_contract_passes(bits in 0.0f32..1.0, corr in 0.0f32..1.0) {

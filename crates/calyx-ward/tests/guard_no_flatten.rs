@@ -108,6 +108,8 @@ fn source_readback_has_no_aggregate_vector_gate_markers() {
 }
 
 proptest! {
+    #![proptest_config(calyx_testkit::integration_proptest_config(256))]
+
     #[test]
     fn allrequired_fails_when_any_slot_below_tau(
         first in 0.0f32..1.0,

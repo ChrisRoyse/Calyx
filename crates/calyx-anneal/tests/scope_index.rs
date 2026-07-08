@@ -201,6 +201,8 @@ fn cache_write_failure_is_fail_closed_but_in_memory_incumbent_survives() {
 }
 
 proptest! {
+    #![proptest_config(calyx_testkit::integration_proptest_config(256))]
+
     #[test]
     fn incumbent_quant_bits_are_valid(arms in prop::collection::vec(0_usize..8, 1..40)) {
         let slot = SlotId::new(0);

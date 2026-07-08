@@ -25,5 +25,6 @@ calyx-mincut = { path = "../calyx-mincut" }
 calyx-oracle = { path = "../calyx-oracle" }
 calyx-paths = { path = "../calyx-paths" }
 calyx-sextant = { path = "../calyx-sextant" }
+calyx-testkit = { path = "../calyx-testkit" }
 calyx-ward = { path = "../calyx-ward" }
 proptest.workspace = true

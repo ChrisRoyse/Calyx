@@ -123,6 +123,8 @@ fn prepare_without_live_pointer_fails_closed() {
 }
 
 proptest! {
+    #![proptest_config(calyx_testkit::integration_proptest_config(256))]
+
     #[test]
     fn live_pointer_stays_defined_across_prepare_promote_rollback(ops in proptest::collection::vec(0u8..3, 1..64)) {
         let clock = FixedClock::new(1_785_500_396);

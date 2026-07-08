@@ -43,6 +43,8 @@ fn fail_closed_edges_report_catalog_codes() {
 }
 
 proptest! {
+    #![proptest_config(calyx_testkit::integration_proptest_config(256))]
+
     #[test]
     fn selected_count_stays_within_ceiling(n in 1u8..20) {
         let mut builder = builder_with_nodes(&(1..=n).collect::<Vec<_>>());

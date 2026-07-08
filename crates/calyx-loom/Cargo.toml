@@ -24,4 +24,5 @@ uuid = { workspace = true, features = ["v7"] }
 [dev-dependencies]
 calyx-forge = { path = "../calyx-forge" }
 calyx-fsv = { path = "../calyx-fsv" }
+calyx-testkit = { path = "../calyx-testkit" }
 proptest.workspace = true

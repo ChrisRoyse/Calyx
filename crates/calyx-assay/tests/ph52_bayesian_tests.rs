@@ -183,6 +183,8 @@ fn bayesian_edges_fail_closed_with_codes() {
 }
 
 proptest! {
+    #![proptest_config(calyx_testkit::integration_proptest_config(256))]
+
     #[test]
     fn credible_intervals_contain_means_and_shrink(events in 0u64..25, failures in 0u64..25) {
         let mut small_rate = GammaPoisson::default();

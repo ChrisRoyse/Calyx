@@ -7,6 +7,7 @@ use calyx_core::{
     InputRef, LedgerRef, Modality, SlotId, SlotVector, Ts, VaultId,
 };
 use proptest::prelude::*;
+use proptest::test_runner::FileFailurePersistence;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 
@@ -87,6 +88,20 @@ pub fn seeded_rng(seed: u64) -> StdRng {
 /// Builds the standard fixed test clock.
 pub fn fixed_clock() -> FixedClock {
     FixedClock::new(DEFAULT_TEST_TS)
+}
+
+/// Proptest config for top-level Cargo integration tests under `tests/`.
+///
+/// Proptest's default `SourceParallel` persistence walks upward looking for a
+/// `lib.rs` or `main.rs`, which top-level integration tests do not have in
+/// their ancestor chain. `WithSource` keeps persisted failing seeds next to the
+/// real test source and avoids that warning-prone search.
+pub fn integration_proptest_config(cases: u32) -> ProptestConfig {
+    ProptestConfig {
+        cases,
+        failure_persistence: Some(Box::new(FileFailurePersistence::WithSource("regressions"))),
+        ..ProptestConfig::default()
+    }
 }
 
 /// Strategy for stable slot ids.
@@ -246,6 +261,11 @@ mod tests {
     #[test]
     fn fixed_clock_helper_is_stable() {
         assert_eq!(fixed_clock(), FixedClock::new(DEFAULT_TEST_TS));
+    }
+
+    #[test]
+    fn integration_proptest_config_preserves_requested_cases() {
+        assert_eq!(integration_proptest_config(17).cases, 17);
     }
 
     proptest! {

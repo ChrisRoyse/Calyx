@@ -120,6 +120,8 @@ fn overdue_scan_and_action_mapping_surface_ward_novelty_routes() {
 }
 
 proptest! {
+    #![proptest_config(calyx_testkit::integration_proptest_config(256))]
+
     #[test]
     fn surprise_score_is_non_negative(frequency in any::<u64>(), total in any::<u64>()) {
         let score = surprise_score_from_counts(frequency, total).unwrap();

@@ -392,6 +392,8 @@ fn perf_vs_cublas() {
 }
 
 proptest! {
+    #![proptest_config(calyx_testkit::integration_proptest_config(256))]
+
     #[test]
     #[cfg_attr(not(feature = "cuda"), ignore)]
     fn max_rel_err_self_is_zero_for_finite_nonzero(

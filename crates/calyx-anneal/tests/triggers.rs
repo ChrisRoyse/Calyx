@@ -65,6 +65,8 @@ fn signal_decay_detector_uses_exclusive_signal_floor() {
 }
 
 proptest! {
+    #![proptest_config(calyx_testkit::integration_proptest_config(256))]
+
     #[test]
     fn signal_decay_fires_iff_bits_below_floor(bits in 0.0f64..0.1) {
         let registry = memory_registry(MemoryHealthStore::default());

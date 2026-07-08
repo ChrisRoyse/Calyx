@@ -150,6 +150,8 @@ fn lens_trait_rejects_invalid_utf8() {
 }
 
 proptest! {
+    #![proptest_config(calyx_testkit::integration_proptest_config(256))]
+
     #[test]
     fn proptest_embeddings_are_unit_norm(text in "[A-Za-z0-9][ -~]{0,127}") {
         let lens = mock_lens(STYLE_DIM);

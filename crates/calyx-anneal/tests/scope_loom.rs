@@ -157,6 +157,8 @@ fn cache_write_failure_is_fail_closed_but_incumbent_survives() {
 }
 
 proptest! {
+    #![proptest_config(calyx_testkit::integration_proptest_config(256))]
+
     #[test]
     fn incumbent_bits_sum_is_non_decreasing(bits in prop::collection::vec(5_u32..100, 1..20)) {
         let mut tuner = LoomScopeTuner::new(

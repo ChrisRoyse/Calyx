@@ -89,6 +89,8 @@ fn appender_rejects_secret_payload_without_writing_row() {
 }
 
 proptest! {
+    #![proptest_config(calyx_testkit::integration_proptest_config(256))]
+
     #[test]
     fn sequential_appends_preserve_hash_chain(count in 1usize..=100) {
         let mut appender = LedgerAppender::open(MemoryLedgerStore::default(), FixedClock::new(7))?;

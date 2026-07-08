@@ -43,6 +43,7 @@ cuvs-sys = { workspace = true, optional = true }
 calyx-fsv = { path = "../calyx-fsv" }
 calyx-loom = { path = "../calyx-loom" }
 calyx-oracle = { path = "../calyx-oracle" }
+calyx-testkit = { path = "../calyx-testkit" }
 criterion.workspace = true
 proptest.workspace = true
 sha2.workspace = true

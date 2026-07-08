@@ -43,7 +43,7 @@ fn changed_weight_hash_is_a_frozen_violation() {
 }
 
 proptest! {
-    #![proptest_config(ProptestConfig::with_cases(24))]
+    #![proptest_config(calyx_testkit::integration_proptest_config(24))]
 
     #[test]
     fn unchanged_hashes_never_violate(values in prop::collection::vec(any::<[u8; 32]>(), 0..16)) {

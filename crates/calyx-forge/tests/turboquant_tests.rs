@@ -358,6 +358,8 @@ fn decode_with_wrong_seed_fails_closed() {
 }
 
 proptest::proptest! {
+    #![proptest_config(calyx_testkit::integration_proptest_config(256))]
+
     #[test]
     fn encoded_seed_id_preserves_rotation_seed(values in proptest::collection::vec(-1.0f32..1.0, 16)) {
         let seed = new_seed(16, b"ph14_prop_seed");

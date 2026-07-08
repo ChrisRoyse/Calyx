@@ -143,6 +143,8 @@ fn goodhart_ledger_description_passes_secret_redaction() {
 }
 
 proptest! {
+    #![proptest_config(calyx_testkit::integration_proptest_config(256))]
+
     #[test]
     fn passed_state_matches_violation_vector(
         before in 0.0f64..100.0,

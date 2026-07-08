@@ -176,6 +176,8 @@ fn invalid_frequency_fails_closed_with_catalog_code() {
 }
 
 proptest! {
+    #![proptest_config(calyx_testkit::integration_proptest_config(256))]
+
     #[test]
     fn frequency_kernel_bonus_stays_bounded(value in any::<u64>()) {
         let bonus = frequency_kernel_bonus(value);

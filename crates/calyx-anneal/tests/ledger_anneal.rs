@@ -135,7 +135,7 @@ fn mismatched_prev_hash_fails_closed() {
 }
 
 proptest! {
-    #![proptest_config(ProptestConfig::with_cases(32))]
+    #![proptest_config(calyx_testkit::integration_proptest_config(32))]
 
     #[test]
     fn written_entries_remain_in_insertion_order(actions in prop::collection::vec(action_strategy(), 1..32)) {

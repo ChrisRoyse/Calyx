@@ -152,7 +152,7 @@ fn duplicate_trial_fails_closed_and_budget_exhaustion_abandons() {
 }
 
 proptest! {
-    #![proptest_config(ProptestConfig::with_cases(48))]
+    #![proptest_config(calyx_testkit::integration_proptest_config(48))]
 
     #[test]
     fn promotion_iff_candidate_p99_faster_and_no_tripwire_or_quality_regression(

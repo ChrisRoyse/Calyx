@@ -197,6 +197,8 @@ fn grounding_gaps_boundary_and_pipeline_use_same_gap_logic() {
 }
 
 proptest! {
+    #![proptest_config(calyx_testkit::integration_proptest_config(256))]
+
     #[test]
     fn grounding_gaps_counts_partition_members(member_count in 0u8..12, grounded_prefix in 0u8..12) {
         let grounded_prefix = grounded_prefix.min(member_count);

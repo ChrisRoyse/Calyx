@@ -162,6 +162,8 @@ fn all_corrupt_shards_fail_reads_closed() {
 }
 
 proptest! {
+    #![proptest_config(calyx_testkit::integration_proptest_config(256))]
+
     #[test]
     fn barrier_is_reversible(byte in 1u8..=200) {
         let clock = FixedClock::new(TEST_TS);

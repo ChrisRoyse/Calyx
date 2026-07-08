@@ -3,6 +3,7 @@ use std::path::{Path, PathBuf};
 
 use calyx_core::{CALYX_TEMPORAL_NEGATIVE_WEIGHT, CALYX_TEMPORAL_WEIGHT_SUM, FusionWeights};
 use proptest::prelude::*;
+use proptest::test_runner::FileFailurePersistence;
 use serde_json::{Value, json};
 
 #[test]
@@ -66,7 +67,11 @@ fn fusion_weights_validation_matrix_readback() {
 }
 
 proptest! {
-    #![proptest_config(ProptestConfig::with_cases(32))]
+    #![proptest_config(ProptestConfig {
+        cases: 32,
+        failure_persistence: Some(Box::new(FileFailurePersistence::WithSource("regressions"))),
+        ..ProptestConfig::default()
+    })]
 
     #[test]
     fn generated_convex_weights_validate(a in 0_u16..=1000, b in 0_u16..=1000) {

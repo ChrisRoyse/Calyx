@@ -459,7 +459,7 @@ struct TraceReport {
 }
 
 proptest! {
-    #![proptest_config(ProptestConfig::with_cases(8))]
+    #![proptest_config(calyx_testkit::integration_proptest_config(8))]
 
     #[test]
     fn probe_count_returns_distinct_descending_hits(n_probe in 1_usize..=3) {

@@ -96,6 +96,8 @@ fn missing_frequency_fails_closed_with_dedup_code() {
 }
 
 proptest! {
+    #![proptest_config(calyx_testkit::integration_proptest_config(256))]
+
     #[test]
     fn frequency_importance_stays_bounded(frequency in any::<u64>()) {
         let weight = frequency_kernel_bonus(frequency);

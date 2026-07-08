@@ -108,6 +108,8 @@ fn aster_storage_writes_cbor_row_under_anneal_mistakes_cf() {
 }
 
 proptest! {
+    #![proptest_config(calyx_testkit::integration_proptest_config(256))]
+
     #[test]
     fn mistake_rate_is_always_bounded(
         values in proptest::collection::vec((0.0f64..1.0, 0.0f64..1.0), 0..30),

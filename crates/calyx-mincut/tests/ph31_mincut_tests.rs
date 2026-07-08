@@ -364,6 +364,8 @@ fn fail_closed_graph_builder_and_lp_edges() {
 }
 
 proptest! {
+    #![proptest_config(calyx_testkit::integration_proptest_config(256))]
+
     #[test]
     fn random_dag_sccs_are_singletons(n in 1u8..12) {
         let mut builder = builder_with_nodes(&(1..=n).collect::<Vec<_>>());

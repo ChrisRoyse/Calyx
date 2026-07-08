@@ -60,7 +60,7 @@ fn ewc_regularizer_bounds_task_a_loss_increase() {
 }
 
 proptest! {
-    #![proptest_config(ProptestConfig::with_cases(24))]
+    #![proptest_config(calyx_testkit::integration_proptest_config(24))]
 
     #[test]
     fn param_len_remains_constant(surprises in prop::collection::vec(0.0_f64..2.0, 1..24)) {

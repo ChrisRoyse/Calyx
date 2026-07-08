@@ -148,7 +148,7 @@ fn load_from_vault_persists_default_config_bytes() {
 }
 
 proptest! {
-    #![proptest_config(ProptestConfig::with_cases(32))]
+    #![proptest_config(calyx_testkit::integration_proptest_config(32))]
 
     #[test]
     fn vram_status_never_exceeds_cap(

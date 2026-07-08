@@ -46,6 +46,8 @@ fn identity_tau_is_at_least_stylistic_tau() {
 }
 
 proptest! {
+    #![proptest_config(calyx_testkit::integration_proptest_config(256))]
+
     #[test]
     fn achieved_far_never_exceeds_target(
         mut bad_scores in proptest::collection::vec(0.0f32..1.0, MIN_BAD_SCORES..100),

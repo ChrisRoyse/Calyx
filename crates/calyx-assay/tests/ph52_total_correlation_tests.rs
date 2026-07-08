@@ -167,6 +167,8 @@ fn total_correlation_edges_fail_closed_with_code() {
 }
 
 proptest! {
+    #![proptest_config(calyx_testkit::integration_proptest_config(256))]
+
     #[test]
     fn n_eff_bounds_and_tc_nonnegative(slot_count in 1usize..5, n in 0usize..90) {
         let panel = generated_panel(slot_count, n);
