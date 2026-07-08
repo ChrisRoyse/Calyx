@@ -18,12 +18,7 @@ pub(super) fn command(args: ProposeLensArgs) -> CliResult {
     let label = anchor_label(&anchor);
     let corpus = docs.values().cloned().collect::<Vec<_>>();
     let assay_key = assay_key(&label);
-    let measured =
-        bits::calculate(&ctx.state.panel, &docs, &anchor, &label, false, &assay_key).ok();
-    let mutual_info = measured
-        .as_ref()
-        .map(|report| report.per_slot.iter().map(|slot| slot.bits).sum::<f64>())
-        .unwrap_or(0.0);
+    let mutual_info = measured_mutual_info(&ctx.state.panel, &docs, &anchor, &label, &assay_key)?;
     let entropy = entropy_bits(docs.len());
     let deficit = DeficitMap {
         computed_at: calyx_core::SystemClock.now(),
@@ -57,6 +52,17 @@ pub(super) fn command(args: ProposeLensArgs) -> CliResult {
 
 fn entropy_bits(n: usize) -> f64 {
     (n.max(2) as f64).log2()
+}
+
+pub(super) fn measured_mutual_info(
+    panel: &calyx_core::Panel,
+    docs: &std::collections::BTreeMap<calyx_core::CxId, calyx_core::Constellation>,
+    anchor: &calyx_core::AnchorKind,
+    label: &str,
+    assay_key: &[u8],
+) -> CliResult<f64> {
+    let measured = bits::calculate(panel, docs, anchor, label, false, assay_key)?;
+    Ok(measured.per_slot.iter().map(|slot| slot.bits).sum::<f64>())
 }
 
 fn underrepresented_modalities(

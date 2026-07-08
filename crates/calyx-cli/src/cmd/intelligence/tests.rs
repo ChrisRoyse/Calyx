@@ -26,6 +26,22 @@ fn bits_insufficient_samples_has_exact_remediation() {
 }
 
 #[test]
+fn propose_lens_propagates_bits_error_before_gain_estimate() {
+    let docs = docs_with_signal(30, true, false);
+    let err = propose::measured_mutual_info(
+        &panel_two_active(),
+        &docs,
+        &AnchorKind::TestPass,
+        "test_pass",
+        b"bits\0test_pass",
+    )
+    .unwrap_err();
+
+    assert_eq!(err.code(), "CALYX_ASSAY_INSUFFICIENT_SAMPLES");
+    assert_eq!(err.remediation(), "anchor ≥50 outcomes first");
+}
+
+#[test]
 fn bits_planted_signal_reports_high_and_low_slots() {
     let docs = docs_with_signal(100, true, false);
     let report = bits::calculate(
