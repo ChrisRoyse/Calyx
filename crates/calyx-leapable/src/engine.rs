@@ -4,6 +4,7 @@ use std::collections::BTreeMap;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::path::PathBuf;
 
+use calyx_aster::txn::TxnHandle;
 use calyx_aster::vault::{AsterVault, QuotaConfig, VaultContext, VaultOptions};
 use calyx_core::{CalyxError, Ts, VaultId};
 use calyx_mcp::{JsonRpcError, JsonRpcRequest, JsonRpcResponse};
@@ -53,6 +54,7 @@ struct VaultHandle {
     last_ts: Ts,
     requests: u64,
     clock: EngineClock,
+    txn: TxnHandle,
     context: VaultContext,
     vault: AsterVault<EngineClock>,
 }
@@ -133,6 +135,9 @@ impl Engine {
             "cx.scan" => self.cx_scan(request.params),
             "cx.anchor" => self.cx_anchor(request.params),
             "cx.delete" => self.cx_delete(request.params),
+            method if storage::is_storage_method(method) => {
+                self.dispatch_storage(method, request.params)
+            }
             "engine.panic_probe" => self.panic_probe(),
             other => {
                 return JsonRpcResponse::error(id, JsonRpcError::method_not_found(other));
@@ -406,6 +411,7 @@ impl Engine {
         let vault_id = vault_id_for(vault_ref.as_str());
         let salt = salt_for(vault_ref.as_str());
         let clock = EngineClock::new(ts);
+        let txn = TxnHandle::new(vault_id);
         let context = VaultContext::new(
             vault_id,
             &self.config.master_key,
@@ -427,6 +433,7 @@ impl Engine {
             last_ts: ts,
             requests: 1,
             clock,
+            txn,
             context,
             vault,
         })
@@ -490,6 +497,7 @@ fn vault_handle_value(status: &str, handle: &VaultHandle) -> Value {
 mod clock;
 mod cx;
 mod identity;
+mod storage;
 
 #[cfg(test)]
 mod tests;

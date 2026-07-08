@@ -658,6 +658,7 @@ dependencies = [
 name = "calyx-leapable"
 version = "0.1.0"
 dependencies = [
+ "blake3",
  "calyx-aster",
  "calyx-buildinfo",
  "calyx-core",

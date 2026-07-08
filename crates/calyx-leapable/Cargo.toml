@@ -14,6 +14,7 @@ path = "src/main.rs"
 calyx-buildinfo = { path = "../calyx-buildinfo" }
 
 [dependencies]
+blake3 = { workspace = true }
 calyx-aster = { path = "../calyx-aster" }
 calyx-buildinfo = { path = "../calyx-buildinfo" }
 calyx-core = { path = "../calyx-core" }
