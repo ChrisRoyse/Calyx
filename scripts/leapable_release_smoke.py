@@ -109,6 +109,10 @@ def list_files(root: Path) -> list[dict[str, Any]]:
     return entries
 
 
+def total_file_bytes(files: list[dict[str, Any]]) -> int:
+    return sum(int(entry["size_bytes"]) for entry in files)
+
+
 def run_build_info(binary: Path) -> dict[str, Any]:
     result = subprocess.run(
         [str(binary), "--build-info"],
@@ -158,8 +162,92 @@ def run_smoke(binary: Path, platform: str) -> dict[str, Any]:
             ),
             request(
                 3,
+                "rel.insert",
+                {
+                    "vault_ref": "release-smoke",
+                    "ts": 1_785_800_001_000,
+                    "collection_name": "orders",
+                    "collection": {
+                        "schema": [
+                            {"name": "sku", "ty": "text"},
+                            {"name": "qty", "ty": "i64"},
+                            {"name": "updated", "ty": "timestamp"},
+                        ],
+                        "indexes": [
+                            {"name": "qty_idx", "kind": "btree", "fields": ["qty"]}
+                        ],
+                    },
+                    "pk": {"u64": 1},
+                    "row": {
+                        "sku": {"text": "bolt"},
+                        "qty": {"i64": 3},
+                        "updated": {"timestamp": 1_785_800_001_000},
+                    },
+                },
+            ),
+            request(
+                4,
+                "rel.get",
+                {
+                    "vault_ref": "release-smoke",
+                    "ts": 1_785_800_002_000,
+                    "collection_name": "orders",
+                    "pk": {"u64": 1},
+                },
+            ),
+            request(
+                5,
+                "kv.set",
+                {
+                    "vault_ref": "release-smoke",
+                    "ts": 1_785_800_003_000,
+                    "collection_name": "locks",
+                    "collection": {},
+                    "ns": 7,
+                    "key": {"text": "doc-1"},
+                    "value": {"text": "held"},
+                },
+            ),
+            request(
+                6,
+                "kv.get",
+                {
+                    "vault_ref": "release-smoke",
+                    "ts": 1_785_800_004_000,
+                    "collection_name": "locks",
+                    "ns": 7,
+                    "key": {"text": "doc-1"},
+                },
+            ),
+            request(
+                7,
+                "ts.write",
+                {
+                    "vault_ref": "release-smoke",
+                    "ts": 1_785_800_005_000,
+                    "collection_name": "metrics",
+                    "collection": {},
+                    "series": 42,
+                    "point_ts": 100,
+                    "value": 1.5,
+                },
+            ),
+            request(
+                8,
+                "ts.range",
+                {
+                    "vault_ref": "release-smoke",
+                    "ts": 1_785_800_006_000,
+                    "collection_name": "metrics",
+                    "series": 42,
+                    "start_ts": 50,
+                    "end_ts": 150,
+                },
+            ),
+            request(
+                9,
                 "vault.stat",
-                {"vault_ref": "release-smoke", "ts": 1_785_800_001_000},
+                {"vault_ref": "release-smoke", "ts": 1_785_800_007_000},
             ),
         ]
         started = time.perf_counter()
@@ -187,16 +275,26 @@ def run_smoke(binary: Path, platform: str) -> dict[str, Any]:
         }
         if exit_code != 0:
             raise RuntimeError(f"calyx-leapable exited {exit_code}; stderr={stderr!r}")
-        if len(responses) != 3:
-            raise RuntimeError(f"expected 3 JSON-RPC responses, got {len(responses)}")
+        if len(responses) != 9:
+            raise RuntimeError(f"expected 9 JSON-RPC responses, got {len(responses)}")
         if errors:
             raise RuntimeError(f"JSON-RPC smoke returned errors: {errors!r}")
         if "{" in stderr:
             raise RuntimeError(f"stderr contained protocol-looking JSON: {stderr!r}")
+        if responses[3]["result"]["row"]["sku"]["text"] != "bolt":
+            raise RuntimeError(f"rel.get smoke readback mismatch: {responses[3]!r}")
+        if responses[5]["result"]["value"]["text"] != "held":
+            raise RuntimeError(f"kv.get smoke readback mismatch: {responses[5]!r}")
+        points = responses[7]["result"]["points"]
+        if len(points) != 1 or points[0]["value"] != 1.5:
+            raise RuntimeError(f"ts.range smoke readback mismatch: {responses[7]!r}")
         if not after["vault_exists"]:
             raise RuntimeError(f"smoke vault bytes absent after run: {vault_dir}")
         if not after["files"]:
-            raise RuntimeError("smoke data root has no file bytes after vault.create")
+            raise RuntimeError("smoke data root has no file bytes after storage writes")
+        after_total_bytes = total_file_bytes(after["files"])
+        if after_total_bytes == 0:
+            raise RuntimeError("smoke data root only contains zero-byte files")
 
         return {
             "platform": platform,
@@ -207,6 +305,10 @@ def run_smoke(binary: Path, platform: str) -> dict[str, Any]:
             "stderr": stderr,
             "before": before,
             "after": after,
+            "after_total_bytes": after_total_bytes,
+            "nonzero_file_count_after": len(
+                [entry for entry in after["files"] if entry["size_bytes"] > 0]
+            ),
         }
 
 
@@ -366,6 +468,8 @@ def main() -> int:
         "smoke_summary": {
             "cold_start_ms": smoke["cold_start_ms"],
             "file_count_after": len(smoke["after"]["files"]),
+            "nonzero_file_count_after": smoke["nonzero_file_count_after"],
+            "total_file_bytes_after": smoke["after_total_bytes"],
             "vault_exists_after": smoke["after"]["vault_exists"],
         },
     }
@@ -378,6 +482,8 @@ def main() -> int:
     manifest_path = dist_dir / f"{asset_stem}.manifest.json"
     manifest["archive_sha256"] = asset_sha
     manifest_path.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    smoke_path = dist_dir / f"{asset_stem}.smoke-readback.json"
+    smoke_path.write_text(json.dumps(smoke, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     provenance = Path(str(asset) + ".intoto.jsonl")
     write_provenance(
         provenance,
@@ -398,6 +504,7 @@ def main() -> int:
         "checksum": checksum,
         "provenance": provenance,
         "manifest": manifest_path,
+        "smoke": smoke_path,
         "asset_sha256": asset_sha,
         "binary_size_bytes": binary_size,
         "cold_start_ms": smoke["cold_start_ms"],
