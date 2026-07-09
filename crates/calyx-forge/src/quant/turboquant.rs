@@ -1,11 +1,12 @@
-use crate::quant::qjl::{
-    append_qjl_section, dot_estimate_unbiased, encode_qjl_residual, read_qjl_section,
-};
+mod prepared;
+
+use crate::quant::qjl::{append_qjl_section, encode_qjl_residual, read_qjl_section};
 use crate::quant::{
     QuantLevel, QuantizedVec, Quantizer, RotationSeed, apply_inverse_rotation, apply_rotation,
     new_seed,
 };
 use crate::{ForgeError, Result};
+pub use prepared::PreparedQuant;
 
 const BITS3P5_CODE_BITS: usize = 7;
 const BITS3P5_LEVELS: u16 = 1 << BITS3P5_CODE_BITS;
@@ -15,14 +16,23 @@ const TURBOQUANT_LEVEL_DETAIL: &str = "TurboQuant only supports Bits3p5 and Bits
 #[derive(Clone, Debug)]
 pub struct TurboQuantCodec {
     seed: RotationSeed,
+    rotation: RotationSeed,
     rademacher: RotationSeed,
     level: QuantLevel,
+    rot_width: usize,
 }
 
 impl TurboQuantCodec {
     pub fn new(seed: RotationSeed, level: QuantLevel) -> Result<Self> {
         validate_level(level)?;
         seed.verify_current_version()?;
+        if seed.dim == 0 {
+            return Err(quant_error(
+                "new",
+                level,
+                "TurboQuant dimension must be positive",
+            ));
+        }
         if seed.diagonal.len() != seed.dim {
             return Err(ForgeError::ShapeMismatch {
                 expected: vec![seed.dim],
@@ -41,16 +51,91 @@ impl TurboQuantCodec {
                 "rotation seed diagonal must contain only finite +/-1 signs",
             ));
         }
-        let rademacher = derive_rademacher_seed(&seed);
+        let rot_width = rotation_width(seed.dim);
+        let rotation = derive_rotation_seed(&seed, rot_width);
+        let rademacher = derive_rademacher_seed(&seed, rot_width);
         Ok(Self {
             seed,
+            rotation,
             rademacher,
             level,
+            rot_width,
         })
     }
 
     pub(crate) fn rademacher(&self) -> &RotationSeed {
         &self.rademacher
+    }
+
+    pub fn prepare(&self, qv: &QuantizedVec) -> Result<PreparedQuant> {
+        prepared::prepare(self, qv)
+    }
+
+    pub fn dot_prepared(&self, a: &PreparedQuant, b: &PreparedQuant) -> f32 {
+        debug_assert_eq!(a.dim, self.seed.dim);
+        debug_assert_eq!(b.dim, self.seed.dim);
+        prepared::dot_prepared(a, b)
+    }
+
+    pub fn dot_estimate_batch(
+        &self,
+        query: &QuantizedVec,
+        candidates: &[QuantizedVec],
+    ) -> Result<Vec<f32>> {
+        let query = self.prepare(query)?;
+        candidates
+            .iter()
+            .map(|candidate| {
+                let candidate = self.prepare(candidate)?;
+                Ok(self.dot_prepared(&query, &candidate))
+            })
+            .collect()
+    }
+
+    pub(crate) fn validate_quantized(&self, qv: &QuantizedVec, op: &str) -> Result<()> {
+        validate_level(qv.level)?;
+        if qv.level != self.level {
+            return Err(quant_error(
+                op,
+                qv.level,
+                format!(
+                    "quant level mismatch: expected {:?} got {:?}",
+                    self.level, qv.level
+                ),
+            ));
+        }
+        if qv.dim != self.seed.dim {
+            return Err(ForgeError::ShapeMismatch {
+                expected: vec![self.seed.dim],
+                got: vec![qv.dim],
+                remediation: "Decode with the codec seed used for encode".to_string(),
+            });
+        }
+        if qv.seed_id != self.seed.id {
+            return Err(quant_error(op, qv.level, "seed_id mismatch"));
+        }
+        if !qv.scale.is_finite() || qv.scale < 0.0 {
+            return Err(quant_error(
+                op,
+                qv.level,
+                "scale must be finite and non-negative",
+            ));
+        }
+        let expected_len = packed_len(self.rot_width, qv.level);
+        if qv.bytes.len() < expected_len {
+            return Err(quant_error(
+                op,
+                qv.level,
+                format!(
+                    "encoded byte length mismatch: expected at least {expected_len} got {}",
+                    qv.bytes.len()
+                ),
+            ));
+        }
+        if qv.bytes.len() > expected_len {
+            read_qjl_section(&qv.bytes, expected_len, self.rot_width)?;
+        }
+        Ok(())
     }
 }
 
@@ -71,7 +156,7 @@ impl Quantizer for TurboQuantCodec {
                 remediation: "Reject NaN/Inf vectors before quantization".to_string(),
             });
         }
-        let scalar = rotate_quantize_scalar_parts(&self.seed, vec, self.level);
+        let scalar = rotate_quantize_scalar_parts(&self.rotation, vec, self.level);
         let residual = encode_qjl_residual(&scalar.rotated, &scalar.decoded, &self.rademacher);
         let mut bytes = scalar.bytes;
         append_qjl_section(&mut bytes, &residual);
@@ -85,55 +170,23 @@ impl Quantizer for TurboQuantCodec {
     }
 
     fn decode(&self, qv: &QuantizedVec) -> Result<Vec<f32>> {
-        validate_level(qv.level)?;
-        if qv.level != self.level {
-            return Err(quant_error(
-                "decode",
-                qv.level,
-                format!(
-                    "quant level mismatch: expected {:?} got {:?}",
-                    self.level, qv.level
-                ),
-            ));
-        }
-        if qv.dim != self.seed.dim {
-            return Err(ForgeError::ShapeMismatch {
-                expected: vec![self.seed.dim],
-                got: vec![qv.dim],
-                remediation: "Decode with the codec seed used for encode".to_string(),
-            });
-        }
-        if qv.seed_id != self.seed.id {
-            return Err(quant_error("decode", qv.level, "seed_id mismatch"));
-        }
-        if !qv.scale.is_finite() || qv.scale < 0.0 {
-            return Err(quant_error(
-                "decode",
-                qv.level,
-                "scale must be finite and non-negative",
-            ));
-        }
-        let expected_len = packed_len(qv.dim, qv.level);
-        if qv.bytes.len() < expected_len {
-            return Err(quant_error(
-                "decode",
-                qv.level,
-                format!(
-                    "encoded byte length mismatch: expected at least {expected_len} got {}",
-                    qv.bytes.len()
-                ),
-            ));
-        }
-        if qv.bytes.len() > expected_len {
-            read_qjl_section(&qv.bytes, expected_len, qv.dim)?;
-        }
-        let mut decoded = dequantize_scalar(&qv.bytes[..expected_len], qv.scale, qv.dim, qv.level);
-        apply_inverse_rotation(&self.seed, &mut decoded);
+        self.validate_quantized(qv, "decode")?;
+        let expected_len = packed_len(self.rot_width, qv.level);
+        let mut decoded = dequantize_scalar(
+            &qv.bytes[..expected_len],
+            qv.scale,
+            self.rot_width,
+            qv.level,
+        );
+        apply_inverse_rotation(&self.rotation, &mut decoded);
+        decoded.truncate(self.seed.dim);
         Ok(decoded)
     }
 
     fn dot_estimate(&self, a: &QuantizedVec, b: &QuantizedVec) -> Result<f32> {
-        dot_estimate_unbiased(self, a, b)
+        let a = self.prepare(a)?;
+        let b = self.prepare(b)?;
+        Ok(self.dot_prepared(&a, &b))
     }
 
     fn level(&self) -> QuantLevel {
@@ -167,7 +220,8 @@ fn rotate_quantize_scalar_parts(
     vec: &[f32],
     level: QuantLevel,
 ) -> ScalarQuantized {
-    let mut rotated = vec.to_vec();
+    let mut rotated = vec![0.0; seed.dim];
+    rotated[..vec.len()].copy_from_slice(vec);
     apply_rotation(seed, &mut rotated);
     let scale = rotated
         .iter()
@@ -175,7 +229,7 @@ fn rotate_quantize_scalar_parts(
         .fold(0.0_f32, f32::max);
     let codes = quantize_codes(&rotated, scale, level);
     let bytes = pack_codes(&codes, level);
-    let decoded = dequantize_scalar(&bytes, scale, vec.len(), level);
+    let decoded = dequantize_scalar(&bytes, scale, seed.dim, level);
     ScalarQuantized {
         bytes,
         scale,
@@ -217,7 +271,7 @@ fn pack_codes(codes: &[u16], level: QuantLevel) -> Vec<u8> {
     }
 }
 
-fn unpack_codes(bytes: &[u8], dim: usize, level: QuantLevel) -> Vec<u16> {
+pub(crate) fn unpack_codes(bytes: &[u8], dim: usize, level: QuantLevel) -> Vec<u16> {
     match level {
         QuantLevel::Bits3p5 => unpack_bits3p5(bytes, dim),
         QuantLevel::Bits2p5 => unpack_bits2p5(bytes, dim),
@@ -304,7 +358,7 @@ pub(crate) fn packed_len(dim: usize, level: QuantLevel) -> usize {
     }
 }
 
-fn level_steps(level: QuantLevel) -> u16 {
+pub(crate) fn level_steps(level: QuantLevel) -> u16 {
     match level {
         QuantLevel::Bits3p5 => BITS3P5_LEVELS,
         QuantLevel::Bits2p5 => BITS2P5_LEVELS,
@@ -329,12 +383,29 @@ fn quant_error(op: &str, level: QuantLevel, detail: impl Into<String>) -> ForgeE
     }
 }
 
-fn derive_rademacher_seed(seed: &RotationSeed) -> RotationSeed {
-    let mut entropy = Vec::with_capacity(42);
-    entropy.extend_from_slice(b"calyx-qjl-rademacher-v1");
+fn rotation_width(dim: usize) -> usize {
+    dim.next_power_of_two()
+}
+
+fn derive_rotation_seed(seed: &RotationSeed, rot_width: usize) -> RotationSeed {
+    if rot_width == seed.dim {
+        return seed.clone();
+    }
+    let mut entropy = Vec::with_capacity(74);
+    entropy.extend_from_slice(b"calyx-turboquant-rotation-v2");
     entropy.extend_from_slice(&seed.id);
     entropy.push(seed.version);
-    new_seed(seed.dim, &entropy)
+    entropy.extend_from_slice(&(seed.dim as u64).to_le_bytes());
+    new_seed(rot_width, &entropy)
+}
+
+fn derive_rademacher_seed(seed: &RotationSeed, rot_width: usize) -> RotationSeed {
+    let mut entropy = Vec::with_capacity(42);
+    entropy.extend_from_slice(b"calyx-qjl-rademacher-v2");
+    entropy.extend_from_slice(&seed.id);
+    entropy.push(seed.version);
+    entropy.extend_from_slice(&(seed.dim as u64).to_le_bytes());
+    new_seed(rot_width, &entropy)
 }
 
 #[cfg(test)]

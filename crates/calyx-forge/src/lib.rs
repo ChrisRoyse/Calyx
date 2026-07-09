@@ -55,8 +55,8 @@ pub use mxfp8::{
     encode_mxfp8, encode_mxfp8_block,
 };
 pub use quant::{
-    AssayQuantSafety, BinaryCodec, CURRENT_SEED_VERSION, MxFp4Codec, QjlResidual, QuantLevel,
-    QuantizedVec, Quantizer, RotationSeed, ScalarInt8Codec, SeedId, TurboQuantCodec,
+    AssayQuantSafety, BinaryCodec, CURRENT_SEED_VERSION, MxFp4Codec, PreparedQuant, QjlResidual,
+    QuantLevel, QuantizedVec, Quantizer, RotationSeed, ScalarInt8Codec, SeedId, TurboQuantCodec,
     apply_inverse_rotation, apply_rotation, apply_rotation_batch, binary_prefilter,
     dot_estimate_unbiased, dot_qjl_correction, encode_qjl_residual, hamming_dot_estimate, new_seed,
     seed_id_hex,

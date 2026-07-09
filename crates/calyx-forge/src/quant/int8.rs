@@ -64,13 +64,13 @@ impl Quantizer for ScalarInt8Codec {
     fn dot_estimate(&self, a: &QuantizedVec, b: &QuantizedVec) -> Result<f32> {
         validate_quantized(a, self.dim, "dot_estimate")?;
         validate_quantized(b, self.dim, "dot_estimate")?;
-        let left = self.decode(a)?;
-        let right = self.decode(b)?;
-        Ok(left
+        let code_dot: i64 = a
+            .bytes
             .iter()
-            .zip(right.iter())
-            .map(|(lhs, rhs)| lhs * rhs)
-            .sum())
+            .zip(b.bytes.iter())
+            .map(|(lhs, rhs)| i64::from(*lhs as i8) * i64::from(*rhs as i8))
+            .sum();
+        Ok(code_dot as f32 * a.scale * b.scale)
     }
 
     fn level(&self) -> QuantLevel {
@@ -178,6 +178,29 @@ mod tests {
             .expect_err("zero-scale nonzero code must fail closed");
         assert!(matches!(err, ForgeError::QuantError { .. }));
         println!("SCALAR_INT8_CORRUPT_ZERO_SCALE PASSED err={err}");
+        Ok(())
+    }
+
+    #[test]
+    fn scalar_int8_dot_estimate_matches_decoded_dot() -> Result<()> {
+        let codec = ScalarInt8Codec::new(8);
+        let left = [0.0, 0.125, -0.25, 0.5, -1.0, 0.75, -0.375, 0.0625];
+        let right = [0.5, -0.25, 0.125, -0.75, 0.25, -1.0, 0.375, 0.0];
+        let q_left = codec.encode(&left)?;
+        let q_right = codec.encode(&right)?;
+        let actual = codec.dot_estimate(&q_left, &q_right)?;
+        let decoded_left = codec.decode(&q_left)?;
+        let decoded_right = codec.decode(&q_right)?;
+        let expected: f32 = decoded_left
+            .iter()
+            .zip(decoded_right.iter())
+            .map(|(lhs, rhs)| lhs * rhs)
+            .sum();
+        assert!(
+            (actual - expected).abs() <= 1.0e-6 * expected.abs().max(1.0),
+            "actual={actual} expected={expected}"
+        );
+        println!("SCALAR_INT8_DOT_ESTIMATE PASSED actual={actual:.9} expected={expected:.9}");
         Ok(())
     }
 }

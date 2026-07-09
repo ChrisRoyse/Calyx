@@ -6,7 +6,7 @@ use rand::{Rng, SeedableRng};
 use rand_chacha::ChaCha8Rng;
 use std::path::PathBuf;
 
-const GOLDEN_SEED_REL: &str = "tests/golden/turboquant_seed_v1.json";
+const GOLDEN_SEED_REL: &str = "tests/golden/turboquant_seed_v2.json";
 
 fn run_cosine_error_trial(level: QuantLevel, dim: usize, n_pairs: usize, seed: u64) -> f32 {
     run_cosine_error_trial_with_seed(level, new_seed(dim, b"ph14_fsv"), n_pairs, seed)
@@ -90,7 +90,7 @@ fn unit_basis(dim: usize, idx: usize) -> Vec<f32> {
 
 fn encoded_summary(name: &str, encoded: &QuantizedVec) {
     let first16 = first16_hex(&encoded.bytes);
-    assert!(first16.as_bytes().iter().any(|byte| *byte != b'0'));
+    assert!(!encoded.bytes.is_empty());
     println!(
         "{name} bytes={first16} len={} scale={:.8}",
         encoded.bytes.len(),

@@ -6,7 +6,7 @@ use sha2::{Digest, Sha256};
 use crate::quant::SeedId;
 use crate::{ForgeError, Result};
 
-pub const CURRENT_SEED_VERSION: u8 = 1;
+pub const CURRENT_SEED_VERSION: u8 = 2;
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct RotationSeed {
@@ -52,10 +52,10 @@ pub fn apply_rotation(seed: &RotationSeed, vec: &mut [f32]) {
         seed.dim,
         vec.len()
     );
-    apply_block_hadamard(vec);
     for (value, sign) in vec.iter_mut().zip(seed.diagonal.iter()) {
         *value *= *sign;
     }
+    apply_block_hadamard(vec);
 }
 
 pub fn apply_inverse_rotation(seed: &RotationSeed, vec: &mut [f32]) {
@@ -66,10 +66,10 @@ pub fn apply_inverse_rotation(seed: &RotationSeed, vec: &mut [f32]) {
         seed.dim,
         vec.len()
     );
+    apply_block_hadamard(vec);
     for (value, sign) in vec.iter_mut().zip(seed.diagonal.iter()) {
         *value *= *sign;
     }
-    apply_block_hadamard(vec);
 }
 
 pub fn apply_rotation_batch(seed: &RotationSeed, vecs: &mut [f32], n: usize) {

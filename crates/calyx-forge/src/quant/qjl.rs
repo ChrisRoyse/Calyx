@@ -1,12 +1,14 @@
-use crate::quant::{QuantLevel, QuantizedVec, Quantizer, RotationSeed, SeedId, TurboQuantCodec};
+use crate::quant::{QuantLevel, QuantizedVec, RotationSeed, SeedId, TurboQuantCodec};
 use crate::{ForgeError, Result};
 
-pub const QJL_SECTION_TAG: u8 = 0x01;
+pub const QJL_SECTION_TAG_V1: u8 = 0x01;
+pub const QJL_SECTION_TAG: u8 = 0x02;
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct QjlResidual {
     pub bits: Vec<u8>,
     pub rademacher_seed: SeedId,
+    pub residual_norm: Option<f32>,
 }
 
 pub fn encode_qjl_residual(
@@ -28,21 +30,27 @@ pub fn encode_qjl_residual(
         rademacher.dim,
         rotated.len()
     );
-    let mut bits = vec![0; qjl_bits_len(rotated.len())];
-    for (idx, ((rotated, decoded), sign)) in rotated
+    let mut residual = rotated
         .iter()
         .zip(scalar_decoded.iter())
-        .zip(rademacher.diagonal.iter())
-        .enumerate()
-    {
-        let residual = (rotated - decoded) * sign;
-        if residual > 0.0 {
+        .map(|(rotated, decoded)| rotated - decoded)
+        .collect::<Vec<_>>();
+    let residual_norm = residual
+        .iter()
+        .map(|value| value * value)
+        .sum::<f32>()
+        .sqrt();
+    crate::quant::apply_rotation(rademacher, &mut residual);
+    let mut bits = vec![0; qjl_bits_len(rotated.len())];
+    for (idx, residual) in residual.iter().enumerate() {
+        if *residual > 0.0 {
             bits[idx / 8] |= 1 << (idx % 8);
         }
     }
     QjlResidual {
         bits,
         rademacher_seed: rademacher.id,
+        residual_norm: Some(residual_norm),
     }
 }
 
@@ -74,11 +82,17 @@ pub fn dot_qjl_correction(
     if rademacher.dim == 0 {
         return 0.0;
     }
-    let mut sum = 0.0_f32;
-    for idx in 0..rademacher.dim {
-        sum += bipolar_bit(&qa.bits, idx) * bipolar_bit(&qb.bits, idx);
+    let mean = qjl_bipolar_mean(
+        &sign_words(&qa.bits, rademacher.dim),
+        &sign_words(&qb.bits, rademacher.dim),
+        rademacher.dim,
+    );
+    match (qa.residual_norm, qb.residual_norm) {
+        (Some(norm_a), Some(norm_b)) => {
+            norm_a * norm_b * (std::f32::consts::FRAC_PI_2 * mean).sin()
+        }
+        _ => scale_a * scale_b * mean,
     }
-    scale_a * scale_b * sum / rademacher.dim as f32
 }
 
 pub fn dot_estimate_unbiased(
@@ -86,36 +100,16 @@ pub fn dot_estimate_unbiased(
     qv_a: &QuantizedVec,
     qv_b: &QuantizedVec,
 ) -> Result<f32> {
-    if qv_a.seed_id != qv_b.seed_id {
-        return Err(qjl_error(
-            "dot_estimate",
-            qv_a.level,
-            "seed_id mismatch in dot_estimate",
-        ));
-    }
-    let scalar_a = codec.decode(qv_a)?;
-    let scalar_b = codec.decode(qv_b)?;
-    let scalar_dot = scalar_a
-        .iter()
-        .zip(scalar_b.iter())
-        .map(|(a, b)| a * b)
-        .sum::<f32>();
-    let scalar_len = super::turboquant::packed_len(qv_a.dim, qv_a.level);
-    let qa = required_qjl_section(qv_a, scalar_len)?;
-    let qb = required_qjl_section(qv_b, scalar_len)?;
-    if qa.rademacher_seed != codec.rademacher().id || qb.rademacher_seed != codec.rademacher().id {
-        return Err(qjl_error(
-            "dot_estimate",
-            qv_a.level,
-            "rademacher_seed mismatch in dot_estimate",
-        ));
-    }
-    Ok(scalar_dot + dot_qjl_correction(&qa, &qb, codec.rademacher(), qv_a.scale, qv_b.scale))
+    let a = codec.prepare(qv_a)?;
+    let b = codec.prepare(qv_b)?;
+    Ok(codec.dot_prepared(&a, &b))
 }
 
 pub(crate) fn append_qjl_section(bytes: &mut Vec<u8>, residual: &QjlResidual) {
     bytes.push(QJL_SECTION_TAG);
     bytes.extend_from_slice(&residual.rademacher_seed);
+    let residual_norm = residual.residual_norm.unwrap_or(0.0);
+    bytes.extend_from_slice(&residual_norm.to_le_bytes());
     bytes.extend_from_slice(&residual.bits);
 }
 
@@ -127,7 +121,18 @@ pub(crate) fn read_qjl_section(
     if bytes.len() == scalar_len {
         return Ok(None);
     }
-    let expected_total = scalar_len + qjl_section_len(dim);
+    let tag = bytes[scalar_len];
+    let (expected_total, residual_norm_len) = match tag {
+        QJL_SECTION_TAG_V1 => (scalar_len + qjl_section_len_v1(dim), 0),
+        QJL_SECTION_TAG => (scalar_len + qjl_section_len(dim), 4),
+        _ => {
+            return Err(qjl_error(
+                "decode",
+                QuantLevel::Bits3p5,
+                "missing QJL section tag",
+            ));
+        }
+    };
     if bytes.len() != expected_total {
         return Err(qjl_error(
             "decode",
@@ -138,47 +143,72 @@ pub(crate) fn read_qjl_section(
             ),
         ));
     }
-    if bytes[scalar_len] != QJL_SECTION_TAG {
-        return Err(qjl_error(
-            "decode",
-            QuantLevel::Bits3p5,
-            "missing QJL section tag",
-        ));
-    }
     let seed_start = scalar_len + 1;
-    let bits_start = seed_start + 32;
+    let norm_start = seed_start + 32;
+    let bits_start = norm_start + residual_norm_len;
     let mut seed = [0u8; 32];
-    seed.copy_from_slice(&bytes[seed_start..bits_start]);
+    seed.copy_from_slice(&bytes[seed_start..norm_start]);
+    let residual_norm = if residual_norm_len == 0 {
+        None
+    } else {
+        let norm = f32::from_le_bytes(bytes[norm_start..bits_start].try_into().unwrap());
+        if !norm.is_finite() || norm < 0.0 {
+            return Err(qjl_error(
+                "decode",
+                QuantLevel::Bits3p5,
+                "QJL residual norm must be finite and non-negative",
+            ));
+        }
+        Some(norm)
+    };
     Ok(Some(QjlResidual {
         bits: bytes[bits_start..].to_vec(),
         rademacher_seed: seed,
+        residual_norm,
     }))
 }
 
-fn required_qjl_section(qv: &QuantizedVec, scalar_len: usize) -> Result<QjlResidual> {
-    read_qjl_section(&qv.bytes, scalar_len, qv.dim)?.ok_or_else(|| {
-        qjl_error(
-            "dot_estimate",
-            qv.level,
-            "missing QJL residual section in dot_estimate",
-        )
-    })
-}
-
-fn qjl_bits_len(dim: usize) -> usize {
+pub(crate) fn qjl_bits_len(dim: usize) -> usize {
     dim.div_ceil(8)
 }
 
 fn qjl_section_len(dim: usize) -> usize {
+    1 + 32 + 4 + qjl_bits_len(dim)
+}
+
+fn qjl_section_len_v1(dim: usize) -> usize {
     1 + 32 + qjl_bits_len(dim)
 }
 
-fn bipolar_bit(bits: &[u8], idx: usize) -> f32 {
-    if ((bits[idx / 8] >> (idx % 8)) & 1) == 1 {
-        1.0
-    } else {
-        -1.0
+pub(crate) fn sign_words(bits: &[u8], dim: usize) -> Vec<u64> {
+    let mut words = vec![0_u64; dim.div_ceil(64)];
+    for idx in 0..dim {
+        if ((bits[idx / 8] >> (idx % 8)) & 1) == 1 {
+            words[idx / 64] |= 1_u64 << (idx % 64);
+        }
     }
+    words
+}
+
+pub(crate) fn qjl_bipolar_mean(left: &[u64], right: &[u64], dim: usize) -> f32 {
+    debug_assert_eq!(left.len(), dim.div_ceil(64));
+    debug_assert_eq!(right.len(), dim.div_ceil(64));
+    if dim == 0 {
+        return 0.0;
+    }
+    let mut mismatches = 0_u64;
+    for (idx, (left, right)) in left.iter().zip(right.iter()).enumerate() {
+        let mut xor = left ^ right;
+        if idx + 1 == dim.div_ceil(64) {
+            let tail = dim % 64;
+            if tail != 0 {
+                xor &= (1_u64 << tail) - 1;
+            }
+        }
+        mismatches += u64::from(xor.count_ones());
+    }
+    let matches_minus_mismatches = dim as f32 - 2.0 * mismatches as f32;
+    matches_minus_mismatches / dim as f32
 }
 
 fn qjl_error(op: &str, level: QuantLevel, detail: impl Into<String>) -> ForgeError {
@@ -193,7 +223,7 @@ fn qjl_error(op: &str, level: QuantLevel, detail: impl Into<String>) -> ForgeErr
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::quant::new_seed;
+    use crate::quant::{Quantizer, new_seed};
     use rand::{Rng, SeedableRng, rngs::StdRng};
 
     fn unit_basis(dim: usize, idx: usize) -> Vec<f32> {
@@ -247,6 +277,21 @@ mod tests {
         err / 1000.0
     }
 
+    fn mean_signed_error(level: QuantLevel) -> f32 {
+        let codec =
+            TurboQuantCodec::new(new_seed(128, b"qjl_signed_seed_42"), level).expect("codec");
+        let mut rng = StdRng::seed_from_u64(4242);
+        let mut err = 0.0_f32;
+        for _ in 0..2000 {
+            let (left, right) = random_unit_pair(&mut rng, 128);
+            let q_left = codec.encode(&left).expect("encode left");
+            let q_right = codec.encode(&right).expect("encode right");
+            let estimate = dot_estimate_unbiased(&codec, &q_left, &q_right).expect("dot");
+            err += estimate - dot(&left, &right);
+        }
+        err / 2000.0
+    }
+
     #[test]
     fn unbiased_dot_self_and_orthogonal_bits3p5() {
         let codec = TurboQuantCodec::new(new_seed(128, b"qjl_self_orth"), QuantLevel::Bits3p5)
@@ -277,6 +322,15 @@ mod tests {
     }
 
     #[test]
+    fn unbiased_dot_mean_signed_error_is_near_zero() {
+        let bits3 = mean_signed_error(QuantLevel::Bits3p5);
+        let bits2 = mean_signed_error(QuantLevel::Bits2p5);
+        assert!(bits3.abs() <= 0.01, "{bits3}");
+        assert!(bits2.abs() <= 0.02, "{bits2}");
+        println!("unbiased_dot_mean_signed_error PASSED bits3={bits3:.6} bits2={bits2:.6}");
+    }
+
+    #[test]
     fn unbiased_dot_edges_parallel_antiparallel_and_seed_mismatch() {
         let codec =
             TurboQuantCodec::new(new_seed(128, b"qjl_edges"), QuantLevel::Bits3p5).expect("codec");
@@ -298,7 +352,7 @@ mod tests {
         let q_other = other.encode(&left).expect("other encode");
         let err = dot_estimate_unbiased(&codec, &q_left, &q_other)
             .expect_err("seed mismatch must fail closed");
-        assert!(err.to_string().contains("seed_id mismatch in dot_estimate"));
+        assert!(err.to_string().contains("seed_id mismatch"));
         println!(
             "unbiased_dot_edges PASSED parallel={parallel:.6} antiparallel={antiparallel:.6} {err}"
         );

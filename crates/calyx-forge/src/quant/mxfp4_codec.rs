@@ -1,7 +1,9 @@
 use std::collections::BTreeMap;
 
-use crate::mxfp4::{MXFP4_PACKED_BYTES, MxFp4Block, decode_mxfp4, encode_mxfp4};
-use crate::mxfp8::{MXFP8_BLOCK_BYTES, MxFp8Block, decode_mxfp8, encode_mxfp8};
+mod dot;
+
+use crate::mxfp4::{MXFP4_BLOCK_SIZE, MXFP4_PACKED_BYTES, MxFp4Block, decode_mxfp4, encode_mxfp4};
+use crate::mxfp8::{MXFP8_BLOCK_BYTES, MXFP8_BLOCK_SIZE, MxFp8Block, decode_mxfp8, encode_mxfp8};
 use crate::quant::{QuantLevel, QuantizedVec, Quantizer, SeedId};
 use crate::{ForgeError, Result};
 use serde::{Deserialize, Serialize};
@@ -173,15 +175,24 @@ impl Quantizer for MxFp4Codec {
                 remediation: "Compare MXFP4 vectors with the same dimension".to_string(),
             });
         }
-        let left = self.decode(a)?;
-        let right = self.decode(b)?;
         // Assay admits FP4 slots only after the intelligence-preservation gate,
         // so this path uses the raw decoded fp32 dot without an unbiased fixup.
-        Ok(left
-            .iter()
-            .zip(right.iter())
-            .map(|(lhs, rhs)| lhs * rhs)
-            .sum())
+        let dot = match (a.level, b.level) {
+            (QuantLevel::Bits4Fp, QuantLevel::Bits4Fp) => {
+                dot::dot_mxfp4_payload(&a.bytes, &b.bytes, a.dim)
+            }
+            (QuantLevel::Bits8Fp, QuantLevel::Bits8Fp) => {
+                dot::dot_mxfp8_payload(&a.bytes, &b.bytes, a.dim)
+            }
+            (QuantLevel::Bits4Fp, QuantLevel::Bits8Fp) => {
+                dot::dot_mxfp4_mxfp8_payload(&a.bytes, &b.bytes, a.dim)
+            }
+            (QuantLevel::Bits8Fp, QuantLevel::Bits4Fp) => {
+                dot::dot_mxfp4_mxfp8_payload(&b.bytes, &a.bytes, a.dim)
+            }
+            _ => unreachable!("validate_quantized rejects unsupported MXFP levels"),
+        };
+        Ok(dot)
     }
 
     fn level(&self) -> QuantLevel {
@@ -257,8 +268,8 @@ pub fn deserialize_mxfp8_blocks(bytes: &[u8]) -> Result<Vec<MxFp8Block>> {
 
 fn validate_quantized(qv: &QuantizedVec, dim: usize, op: &str) -> Result<()> {
     let expected_len = match qv.level {
-        QuantLevel::Bits4Fp => qv.dim.div_ceil(crate::MXFP4_BLOCK_SIZE) * MXFP4_BLOCK_BYTES,
-        QuantLevel::Bits8Fp => qv.dim.div_ceil(crate::MXFP8_BLOCK_SIZE) * MXFP8_BLOCK_BYTES,
+        QuantLevel::Bits4Fp => qv.dim.div_ceil(MXFP4_BLOCK_SIZE) * MXFP4_BLOCK_BYTES,
+        QuantLevel::Bits8Fp => qv.dim.div_ceil(MXFP8_BLOCK_SIZE) * MXFP8_BLOCK_BYTES,
         _ => {
             return Err(quant_error(
                 op,
@@ -437,6 +448,30 @@ mod tests {
         Ok(())
     }
 
+    #[test]
+    fn mxfp_dot_estimate_matches_decoded_dot() -> Result<()> {
+        let codec = MxFp4Codec::new(65);
+        let safety = passing_safety();
+        let left: Vec<f32> = (0..65).map(|idx| (idx as f32 - 32.0) / 16.0).collect();
+        let right: Vec<f32> = (0..65).map(|idx| (32.0 - idx as f32) / 21.0).collect();
+
+        let left_fp4 = codec.encode_assay_checked("slot:left", &left, &safety)?;
+        let right_fp4 = codec.encode_assay_checked("slot:right", &right, &safety)?;
+        assert_dot_matches_decoded(&codec, &left_fp4, &right_fp4)?;
+
+        let left_fp8 = codec.encode_mxfp8(&left)?;
+        let right_fp8 = codec.encode_mxfp8(&right)?;
+        assert_dot_matches_decoded(&codec, &left_fp8, &right_fp8)?;
+        assert_dot_matches_decoded(&codec, &left_fp4, &right_fp8)?;
+
+        println!(
+            "MXFP_DOT_ESTIMATE PASSED fp4_bytes={} fp8_bytes={}",
+            left_fp4.bytes.len(),
+            left_fp8.bytes.len()
+        );
+        Ok(())
+    }
+
     proptest! {
         #![proptest_config(ProptestConfig::with_cases(24))]
 
@@ -465,5 +500,25 @@ mod tests {
             cosine: 0.995,
             far_delta: 0.005,
         }
+    }
+
+    fn assert_dot_matches_decoded(
+        codec: &MxFp4Codec,
+        left: &QuantizedVec,
+        right: &QuantizedVec,
+    ) -> Result<()> {
+        let actual = codec.dot_estimate(left, right)?;
+        let decoded_left = codec.decode(left)?;
+        let decoded_right = codec.decode(right)?;
+        let expected: f32 = decoded_left
+            .iter()
+            .zip(decoded_right.iter())
+            .map(|(lhs, rhs)| lhs * rhs)
+            .sum();
+        assert!(
+            (actual - expected).abs() <= 1.0e-6 * expected.abs().max(1.0),
+            "actual={actual} expected={expected}"
+        );
+        Ok(())
     }
 }

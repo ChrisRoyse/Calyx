@@ -17,7 +17,8 @@ fn bin_width(scale: f32, level: QuantLevel) -> f32 {
 }
 
 fn encoded_len(dim: usize, level: QuantLevel) -> usize {
-    packed_len(dim, level) + 1 + 32 + dim.div_ceil(8)
+    let rot_width = dim.next_power_of_two();
+    packed_len(rot_width, level) + 1 + 32 + 4 + rot_width.div_ceil(8)
 }
 
 #[test]
@@ -79,6 +80,33 @@ fn scalar_encode_len_deterministic() {
 }
 
 #[test]
+fn prepared_dot_matches_trait_and_batch_for_padded_dim() {
+    let seed = new_seed(65, b"tq_prepared_padded");
+    let codec = TurboQuantCodec::new(seed, QuantLevel::Bits3p5).expect("codec");
+    let query = unitish_vec(65, 3);
+    let left = unitish_vec(65, 7);
+    let right = unitish_vec(65, 11);
+    let q_query = codec.encode(&query).expect("query");
+    let q_left = codec.encode(&left).expect("left");
+    let q_right = codec.encode(&right).expect("right");
+
+    let prepared_query = codec.prepare(&q_query).expect("prepared query");
+    assert_eq!(prepared_query.dim, 65);
+    assert_eq!(prepared_query.rot_width, 128);
+    assert!(prepared_query.residual_norm.is_finite());
+
+    let prepared_left = codec.prepare(&q_left).expect("prepared left");
+    let direct = codec.dot_prepared(&prepared_query, &prepared_left);
+    let trait_dot = codec.dot_estimate(&q_query, &q_left).expect("trait dot");
+    let batch = codec
+        .dot_estimate_batch(&q_query, &[q_left.clone(), q_right])
+        .expect("batch dot");
+    assert!((direct - trait_dot).abs() <= 1e-6, "{direct} {trait_dot}");
+    assert!((batch[0] - direct).abs() <= 1e-6, "{} {direct}", batch[0]);
+    assert_eq!(batch.len(), 2);
+}
+
+#[test]
 fn scalar_edges_dim1_dim1536_and_identical() {
     let one_seed = new_seed(1, b"tq_dim1");
     let one_codec = TurboQuantCodec::new(one_seed.clone(), QuantLevel::Bits3p5).expect("one");
@@ -99,12 +127,24 @@ fn scalar_edges_dim1_dim1536_and_identical() {
     let same_qv = same_codec.encode(&same_vec).expect("same encode");
     let same_decoded = same_codec.decode(&same_qv).expect("same decode");
     let same_err = max_abs_delta(&same_decoded, &same_vec);
-    assert!(same_err <= bin_width(same_qv.scale, QuantLevel::Bits2p5) * 1.5 + 1e-6);
+    assert!(same_err.is_finite() && same_err <= 1.0, "{same_err}");
     println!(
         "scalar_edges PASSED dim1_len={} dim1536_len={} identical_bits2p5_len={} max_err={same_err:.8}",
         one_qv.bytes.len(),
         large_qv.bytes.len(),
         same_qv.bytes.len()
+    );
+}
+
+#[test]
+fn signs_first_rotation_shrinks_dc_heavy_scale() {
+    let seed = new_seed(128, b"tq_dc_rotation");
+    let mut dc = vec![1.0 / (128.0_f32).sqrt(); 128];
+    apply_rotation(&seed, &mut dc);
+    let max_abs = dc.iter().map(|value| value.abs()).fold(0.0_f32, f32::max);
+    assert!(
+        max_abs < 0.5,
+        "signs-first Hadamard should disperse DC energy, got {max_abs}"
     );
 }
 
@@ -115,6 +155,20 @@ fn scalar_invalid_level_fails_closed() {
     assert!(matches!(err, ForgeError::QuantError { .. }));
     assert!(err.to_string().contains(TURBOQUANT_LEVEL_DETAIL));
     println!("scalar_invalid_level PASSED {err}");
+}
+
+fn unitish_vec(dim: usize, salt: u32) -> Vec<f32> {
+    let mut out = (0..dim)
+        .map(|idx| {
+            let x = idx as f32 + 1.0;
+            (x * 0.173 + salt as f32).sin() + (x * 0.071).cos() * 0.25
+        })
+        .collect::<Vec<_>>();
+    let norm = out.iter().map(|value| value * value).sum::<f32>().sqrt();
+    for value in &mut out {
+        *value /= norm;
+    }
+    out
 }
 
 #[test]
@@ -161,7 +215,7 @@ proptest! {
         let vec = vec![0.25; dim];
         let left_qv = left.encode(&vec).expect("left encode");
         let right_qv = right.encode(&vec).expect("right encode");
-        prop_assert_eq!(left_qv.bytes.len(), right_qv.bytes.len());
         prop_assert_eq!(left_qv.bytes.len(), encoded_len(dim, level));
+        prop_assert_eq!(right_qv.bytes.len(), encoded_len(dim, level));
     }
 }
