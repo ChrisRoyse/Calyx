@@ -1,6 +1,7 @@
 //! Aster `VaultStore` implementation over the PH08 MVCC CF table.
 
 mod anchor_codec;
+mod anchor_compact;
 mod anchor_merge;
 mod batch_ingest;
 mod cf_codec;
@@ -44,12 +45,10 @@ use crate::wal::TornTail;
 #[cfg(test)]
 use calyx_core::{Anchor, SlotId, VaultStore};
 use calyx_core::{CalyxError, Clock, Constellation, CxId, Result, Seq, SystemClock, VaultId};
-use std::path::Path;
-use std::sync::Mutex;
+use std::{path::Path, sync::Mutex};
 
+pub use anchor_compact::{AnchorCompactionConflict, AnchorCompactionReport};
 pub use compaction_bridge::VaultCompactionScheduler;
-pub use context::VaultContext;
-pub use durable::VaultOptions;
 pub use grant::{AuditEvent, GrantEntry, GrantStore};
 pub use htap::HtapDualRead;
 pub use key::{CALYX_DECRYPTION_FAILED, CALYX_ENCRYPTION_FAILED, CALYX_VAULT_KEY_MISSING};
@@ -61,6 +60,7 @@ pub use slot_column::{
     SlotColumnManifest, SlotColumnMaterialization, SlotColumnReadback, SlotColumnRow,
     read_materialized_slot_column,
 };
+pub use {context::VaultContext, durable::VaultOptions};
 
 const DEFAULT_LEASE_MS: u64 = 5_000;
 

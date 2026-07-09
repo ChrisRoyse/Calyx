@@ -43,6 +43,35 @@ where
         self.hydrate_slots_at_snapshot(id, snapshot, constellation, slot_ids)
     }
 
+    /// Merges proposed duplicate anchors into an existing constellation with the
+    /// same semantics as duplicate ingest: dedup by kind, reject conflicts, and
+    /// commit at most one base+anchor row batch.
+    pub fn merge_anchors<I>(&self, id: CxId, anchors: I) -> Result<usize>
+    where
+        I: IntoIterator<Item = Anchor>,
+    {
+        let anchors = anchors.into_iter().collect::<Vec<_>>();
+        for anchor in &anchors {
+            anchor.validate_schema()?;
+        }
+        if anchors.is_empty() {
+            return Ok(0);
+        }
+        self.with_durable_commit_lock(|| {
+            let latest = self.snapshot();
+            let mut merged = self.get(id, latest)?;
+            let mut incoming = merged.clone();
+            incoming.anchors.extend(anchors.iter().cloned());
+            incoming.flags.ungrounded = incoming.anchors.is_empty();
+            let added = anchor_merge::merge_duplicate_anchors(&mut merged, &incoming)?;
+            if !added.is_empty() {
+                let rows = anchor_merge::stage_anchor_merge_rows(id, &merged, &added)?;
+                self.commit_rows_locked(&rows)?;
+            }
+            Ok(added.len())
+        })
+    }
+
     fn hydrate_slots_at_snapshot<I>(
         &self,
         id: CxId,

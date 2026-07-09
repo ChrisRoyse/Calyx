@@ -7,11 +7,12 @@ use serde_json::{Value, json};
 
 use super::{Engine, EngineResult, VaultHandle, parse_params, vault_not_open};
 use crate::paths::VaultRef;
+use anchors::{merge_duplicate_anchors, repair_duplicate_anchor_bloat};
 use codec::{
-    append_duplicate_anchors, append_recurrence_if_needed, constellation_value,
-    constellation_value_from_base, cx_id_from_key, decode_put_input, delete_input_row, input_row,
-    parse_cx_id, prepare_put, prepare_put_decoded, put_ack_value, validate_batch_bytes,
-    validate_batch_items, validate_scan_limit,
+    append_recurrence_if_needed, constellation_value, constellation_value_from_base,
+    cx_id_from_key, decode_put_input, delete_input_row, input_row, parse_cx_id, prepare_put,
+    prepare_put_decoded, put_ack_value, validate_batch_bytes, validate_batch_items,
+    validate_scan_limit,
 };
 use params::{
     CxAnchorParams, CxDeleteParams, CxGetParams, CxPutBatchParams, CxPutParams, CxScanParams,
@@ -31,7 +32,7 @@ impl Engine {
         let input_hash = prepared.input_hash;
         let recurrence_context = prepared.recurrence_context;
         if deduped {
-            append_duplicate_anchors(handle, &prepared.constellation)?;
+            merge_duplicate_anchors(handle, &prepared.constellation)?;
         } else {
             let row = input_row(id, prepared.input_bytes);
             handle.vault.put(prepared.constellation)?;
@@ -102,7 +103,7 @@ impl Engine {
         handle.vault.put_batch(constellations)?;
         handle.vault.write_cf_batch(input_rows)?;
         for constellation in &duplicate_constellations {
-            append_duplicate_anchors(handle, constellation)?;
+            merge_duplicate_anchors(handle, constellation)?;
         }
         let mut response_items = Vec::with_capacity(ack_parts.len());
         for (id, deduped, recurrence_context, input_len, input_hash) in ack_parts {
@@ -254,10 +255,15 @@ impl Engine {
     }
 }
 
+mod anchors;
 mod codec;
 mod params;
 mod tombstone;
 
 pub(super) fn ensure_cx_tombstone_index(handle: &VaultHandle) -> EngineResult<()> {
     ensure_tombstone_index(handle)
+}
+
+pub(super) fn repair_cx_anchor_bloat(handle: &VaultHandle) -> EngineResult<()> {
+    repair_duplicate_anchor_bloat(handle)
 }

@@ -210,3 +210,58 @@ fn duplicate_put_with_same_cxid_different_metadata_still_fails_closed() {
     assert!(got.anchors.is_empty());
     assert!(got.flags.ungrounded);
 }
+
+#[test]
+fn merge_anchors_dedups_kind_and_commits_once() {
+    let vault = AsterVault::with_clock(vault_id(), b"salt".to_vec(), FixedClock::new(123));
+    let mut base = sample_constellation(&vault);
+    base.anchors = vec![reward_anchor(1.0)];
+    base.flags.ungrounded = false;
+    vault.put(base.clone()).expect("base put");
+    let seq_after_base = vault.snapshot();
+
+    let added = vault
+        .merge_anchors(
+            base.cx_id,
+            [
+                reward_anchor(1.0),
+                label_anchor("reviewed", "accepted"),
+                label_anchor("reviewed", "accepted"),
+            ],
+        )
+        .expect("merge anchors");
+    let got = vault
+        .get(base.cx_id, vault.snapshot())
+        .expect("get merged anchors");
+
+    assert_eq!(added, 1);
+    assert_eq!(vault.snapshot(), seq_after_base + 1);
+    assert_eq!(got.anchors.len(), 2);
+    assert_eq!(got.anchors[0], base.anchors[0]);
+    assert!(
+        got.anchors
+            .iter()
+            .any(|anchor| anchor.kind == AnchorKind::Label("reviewed".to_string()))
+    );
+}
+
+#[test]
+fn merge_anchors_conflict_leaves_record_unchanged() {
+    let vault = AsterVault::with_clock(vault_id(), b"salt".to_vec(), FixedClock::new(123));
+    let mut base = sample_constellation(&vault);
+    base.anchors = vec![reward_anchor(1.0)];
+    base.flags.ungrounded = false;
+    vault.put(base.clone()).expect("base put");
+    let seq_after_base = vault.snapshot();
+
+    let error = vault
+        .merge_anchors(base.cx_id, [reward_anchor(2.0)])
+        .expect_err("conflicting reward rejected");
+    let got = vault
+        .get(base.cx_id, vault.snapshot())
+        .expect("get unchanged anchors");
+
+    assert_eq!(error.code, "CALYX_ASTER_CORRUPT_SHARD");
+    assert_eq!(vault.snapshot(), seq_after_base);
+    assert_eq!(got.anchors, base.anchors);
+}

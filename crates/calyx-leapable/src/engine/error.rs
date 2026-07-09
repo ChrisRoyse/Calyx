@@ -5,9 +5,21 @@ use serde_json::Value;
 use super::{CALYX_LEAPABLE_VAULT_NOT_OPEN, CALYX_LEAPABLE_VAULT_OPEN};
 pub(super) type EngineResult<T> = std::result::Result<T, EngineError>;
 
+pub(super) const CALYX_LEAPABLE_ANCHOR_CONFLICT: &str = "CALYX_LEAPABLE_ANCHOR_CONFLICT";
+
+pub(super) struct AnchorConflictError {
+    pub(super) message: String,
+    pub(super) anchor_kind: Value,
+    pub(super) conflict_reason: String,
+    pub(super) existing_value: Value,
+    pub(super) incoming_value: Value,
+    pub(super) remediation: &'static str,
+}
+
 pub(super) enum EngineError {
     InvalidParams(String),
     Calyx(CalyxError),
+    AnchorConflict(Box<AnchorConflictError>),
 }
 
 impl From<CalyxError> for EngineError {

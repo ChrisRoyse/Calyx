@@ -10,7 +10,7 @@ use calyx_aster::collection::Collection;
 use calyx_aster::txn::TxnHandle;
 use calyx_aster::vault::{AsterVault, QuotaConfig, VaultContext, VaultOptions};
 use calyx_core::{CalyxError, Ts, VaultId};
-use calyx_mcp::{JsonRpcError, JsonRpcRequest, JsonRpcResponse};
+use calyx_mcp::{JSONRPC_CALYX_ERROR, JsonRpcError, JsonRpcRequest, JsonRpcResponse};
 use serde::Deserialize;
 use serde_json::{Value, json};
 
@@ -153,6 +153,21 @@ impl Engine {
             Err(EngineError::Calyx(error)) => {
                 JsonRpcResponse::error(id, JsonRpcError::from_calyx(&error))
             }
+            Err(EngineError::AnchorConflict(conflict)) => JsonRpcResponse::error(
+                id,
+                JsonRpcError {
+                    code: JSONRPC_CALYX_ERROR,
+                    message: conflict.message,
+                    data: Some(json!({
+                        "calyx_code": error::CALYX_LEAPABLE_ANCHOR_CONFLICT,
+                        "anchor_kind": conflict.anchor_kind,
+                        "conflict_reason": conflict.conflict_reason,
+                        "existing_value": conflict.existing_value,
+                        "incoming_value": conflict.incoming_value,
+                        "remediation": conflict.remediation,
+                    })),
+                },
+            ),
         }
     }
 
@@ -223,6 +238,7 @@ impl Engine {
         let dir = resolve_existing_vault_dir(&self.config.data_dir, &vault_ref)?;
         let handle = self.open_handle(vault_ref.clone(), dir, params.ts)?;
         cx::ensure_cx_tombstone_index(&handle)?;
+        cx::repair_cx_anchor_bloat(&handle)?;
         storage::warn_stranded_indexes(&handle)?;
         let value = vault_handle_value("opened", &handle);
         self.vaults.insert(vault_ref.as_str().to_string(), handle);

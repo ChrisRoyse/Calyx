@@ -242,6 +242,94 @@ fn cx_put_batch_get_anchor_delete_and_scan_round_trip() {
 }
 
 #[test]
+fn duplicate_put_anchor_merge_is_idempotent_and_conflicts_fail_closed() {
+    let root = TestRoot::new("anchor-merge");
+    let text = "anchored duplicate chunk";
+    let mut requests = vec![
+        request(
+            1,
+            "vault.create",
+            json!({"vault_ref": "anchors", "ts": 1_785_510_000_000_u64}),
+        ),
+        request(
+            2,
+            "cx.put",
+            anchored_item(1_785_510_001_000_u64, text, true),
+        ),
+    ];
+    for index in 0..100_u64 {
+        requests.push(request(
+            3 + index,
+            "cx.put",
+            anchored_item(1_785_510_002_000_u64 + index, text, true),
+        ));
+    }
+    let setup = requests.concat();
+    let (stdout, stderr, ok) = run_engine(&setup, root.path());
+    let mut responses = json_lines(&stdout);
+    assert_eq!(responses.len(), 102);
+    for response in &responses {
+        assert!(response.get("error").is_none(), "{response}");
+    }
+    assert!(ok);
+    assert!(
+        !stderr.contains('{'),
+        "stderr must not contain protocol JSON"
+    );
+    let cx_id = responses[1]["result"]["cx_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    let verify = [
+        request(
+            103,
+            "vault.open",
+            json!({"vault_ref": "anchors", "ts": 1_785_510_200_000_u64}),
+        ),
+        request(
+            104,
+            "cx.get",
+            json!({"vault_ref": "anchors", "ts": 1_785_510_201_000_u64, "cx_id": cx_id}),
+        ),
+        request(
+            105,
+            "cx.put",
+            anchored_item(1_785_510_202_000_u64, text, false),
+        ),
+        request(
+            106,
+            "cx.get",
+            json!({"vault_ref": "anchors", "ts": 1_785_510_203_000_u64, "cx_id": responses[1]["result"]["cx_id"]}),
+        ),
+    ]
+    .concat();
+    let (stdout, stderr, ok) = run_engine(&verify, root.path());
+    responses = json_lines(&stdout);
+    assert_eq!(responses.len(), 4);
+    assert!(responses[0].get("error").is_none(), "{responses:?}");
+    assert!(responses[1].get("error").is_none(), "{responses:?}");
+    let anchors = responses[1]["result"]["item"]["constellation"]["anchors"]
+        .as_array()
+        .unwrap();
+    assert_eq!(anchors.len(), 3, "{anchors:?}");
+    let conflict = responses[2]["error"]["data"].clone();
+    assert_eq!(conflict["calyx_code"], "CALYX_LEAPABLE_ANCHOR_CONFLICT");
+    assert_eq!(conflict["anchor_kind"], "test_pass");
+    assert_eq!(conflict["existing_value"]["bool"], true);
+    assert_eq!(conflict["incoming_value"]["bool"], false);
+    let after_conflict = responses[3]["result"]["item"]["constellation"]["anchors"]
+        .as_array()
+        .unwrap();
+    assert_eq!(after_conflict.len(), 3);
+    assert!(ok);
+    assert!(
+        !stderr.contains('{'),
+        "stderr must not contain protocol JSON"
+    );
+}
+
+#[test]
 fn cx_rpc_edges_fail_closed() {
     let root = TestRoot::new("edges");
     let input = [
@@ -319,6 +407,40 @@ fn put_item(text: &str, chunk_id: &str) -> Value {
         "input": {"text": text, "pointer": format!("leapable://{chunk_id}")},
         "scalars": {"tokens": 3.0},
         "metadata": {"chunk_id": chunk_id, "document_id": "doc-1"}
+    })
+}
+
+fn anchored_item(ts: u64, text: &str, test_pass: bool) -> Value {
+    json!({
+        "vault_ref": "anchors",
+        "ts": ts,
+        "panel_version": 7,
+        "modality": "text",
+        "input": {"text": text},
+        "metadata": {"document_id": "anchor-doc"},
+        "anchors": [
+            {
+                "kind": "test_pass",
+                "value": {"bool": test_pass},
+                "source": "cx-anchor-test",
+                "observed_at": ts,
+                "confidence": 1.0
+            },
+            {
+                "kind": "reward",
+                "value": {"number": 1.0},
+                "source": "cx-anchor-test",
+                "observed_at": ts,
+                "confidence": 1.0
+            },
+            {
+                "kind": {"label": "reviewed"},
+                "value": {"text": "accepted"},
+                "source": "cx-anchor-test",
+                "observed_at": ts,
+                "confidence": 1.0
+            }
+        ]
     })
 }
 

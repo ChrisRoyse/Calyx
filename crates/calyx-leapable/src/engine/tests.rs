@@ -328,6 +328,48 @@ fn legacy_stranded_inverted_collection_opens_and_skips_index_maintenance() {
 }
 
 #[test]
+fn vault_open_compacts_legacy_duplicate_anchor_bloat_once() {
+    let root = temp_root("legacy-anchor-bloat");
+    let cfg = config(root.clone());
+    let vault_ref = VaultRef::parse("legacy_anchor_bloat").unwrap();
+    let vault_id = vault_id_for(vault_ref.as_str());
+    let dir = root.join(vault_ref.storage_dir_name());
+    let vault = AsterVault::new_durable(
+        &dir,
+        vault_id,
+        identity::salt_for(vault_ref.as_str()),
+        VaultOptions::default(),
+    )
+    .unwrap();
+    let mut cx = sample_constellation(&vault, 77);
+    cx.anchors.push(cx.anchors[0].clone());
+    let cx_id = cx.cx_id;
+    vault.put(cx).unwrap();
+    vault.flush().unwrap();
+    drop(vault);
+
+    let mut engine = Engine::new(cfg);
+    let open = engine.dispatch(req(
+        r#"{"jsonrpc":"2.0","id":1,"method":"vault.open","params":{"vault_ref":"legacy_anchor_bloat","ts":1785500300}}"#,
+    ));
+    assert!(open.error.is_none(), "{open:?}");
+    let handle = engine.vaults.get("legacy_anchor_bloat").unwrap();
+    let stored = handle.vault.get(cx_id, handle.vault.snapshot()).unwrap();
+    let marker = handle
+        .vault
+        .read_cf_at(
+            handle.vault.snapshot(),
+            ColumnFamily::Leapable,
+            b"cx_anchor_compaction_v1",
+        )
+        .unwrap();
+
+    assert_eq!(stored.anchors.len(), 1);
+    assert!(marker.is_some());
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn vault_open_backfills_legacy_cx_tombstone_index() {
     let root = temp_root("legacy-tombstone-index");
     let cfg = config(root.clone());

@@ -166,16 +166,6 @@ pub(super) fn append_recurrence_if_needed(
     Ok(Some(occurrence.0))
 }
 
-pub(super) fn append_duplicate_anchors(
-    handle: &VaultHandle,
-    constellation: &Constellation,
-) -> EngineResult<()> {
-    for anchor in &constellation.anchors {
-        handle.vault.anchor(constellation.cx_id, anchor.clone())?;
-    }
-    Ok(())
-}
-
 pub(super) fn validate_scan_limit(limit: Option<usize>) -> EngineResult<usize> {
     let limit = limit.unwrap_or(DEFAULT_SCAN_LIMIT);
     if (1..=MAX_SCAN_LIMIT).contains(&limit) {
