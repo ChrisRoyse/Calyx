@@ -1,5 +1,9 @@
 use super::*;
 use calyx_aster::cf::ColumnFamily;
+use calyx_aster::collection::{
+    Collection, CollectionMode, DedupPolicy, FieldDef, FieldType, RetentionPolicy, Schema,
+    SecondaryIndexKind, SecondaryIndexSpec, TemporalPolicy, TenantId, TxnPolicy, create_collection,
+};
 use calyx_aster::erase::{EraseRegistry, EraseScope};
 use calyx_core::{
     Anchor, AnchorKind, AnchorValue, Clock, Constellation, CxFlags, InputRef, LedgerRef, Modality,
@@ -98,6 +102,27 @@ fn two_vaults_are_multiplexed_by_vault_ref() {
     assert!(root.join("beta.calyx").join("cf").join("base").exists());
     assert!(root.join("beta.calyx").join("wal").exists());
     fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn engine_info_reports_registered_served_methods_without_vector_claims() {
+    let mut engine = Engine::new(config(temp_root("engine-info")));
+    let response = engine.dispatch(req(
+        r#"{"jsonrpc":"2.0","id":1,"method":"engine.info","params":{}}"#,
+    ));
+    let result = response.result.unwrap();
+    let reported = result["served_methods"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|method| method["name"].as_str().unwrap())
+        .collect::<Vec<_>>();
+    let expected = served_method_names().collect::<Vec<_>>();
+    assert_eq!(reported, expected);
+    assert_eq!(result["cpu_profile"]["hnsw"], false);
+    assert_eq!(result["cpu_profile"]["vector_query"], false);
+    assert_eq!(result["capabilities"]["hnsw-ram"], false);
+    assert_eq!(result["capabilities"]["vector-query"], false);
 }
 
 #[test]
@@ -251,6 +276,58 @@ fn snapshot_verify_none_skips_restore_verification() {
 }
 
 #[test]
+fn legacy_stranded_inverted_collection_opens_and_skips_index_maintenance() {
+    let root = temp_root("legacy-stranded-index");
+    let cfg = config(root.clone());
+    let vault_ref = VaultRef::parse("legacy_inv").unwrap();
+    let vault_id = vault_id_for(vault_ref.as_str());
+    let dir = root.join(vault_ref.storage_dir_name());
+    let vault = AsterVault::new_durable(
+        &dir,
+        vault_id,
+        identity::salt_for(vault_ref.as_str()),
+        VaultOptions::default(),
+    )
+    .unwrap();
+    create_collection(&vault, legacy_inverted_collection()).unwrap();
+    vault.flush().unwrap();
+    drop(vault);
+
+    let mut engine = Engine::new(cfg);
+    let open = engine.dispatch(req(
+        r#"{"jsonrpc":"2.0","id":1,"method":"vault.open","params":{"vault_ref":"legacy_inv","ts":1785500200}}"#,
+    ));
+    assert!(open.error.is_none(), "{open:?}");
+    let insert = engine.dispatch(req(
+        r#"{"jsonrpc":"2.0","id":2,"method":"rel.insert","params":{"vault_ref":"legacy_inv","ts":1785500210,"collection_name":"docs","pk":{"u64":1},"row":{"body":{"text":"alpha"}}}}"#,
+    ));
+    assert!(insert.error.is_none(), "{insert:?}");
+    let scan = engine.dispatch(req(
+        r#"{"jsonrpc":"2.0","id":3,"method":"rel.scan","params":{"vault_ref":"legacy_inv","ts":1785500215,"collection_name":"docs","limit":10}}"#,
+    ));
+    let scan_result = scan.result.unwrap();
+    assert_eq!(scan_result["items"].as_array().unwrap().len(), 1);
+    let query = engine.dispatch(req(
+        r#"{"jsonrpc":"2.0","id":4,"method":"rel.query","params":{"vault_ref":"legacy_inv","ts":1785500216,"collection_name":"docs","index_name":"body_inv","gte":{"text":"a"}}}"#,
+    ));
+    assert_eq!(
+        query.error.unwrap().data.unwrap()["calyx_code"],
+        "CALYX_LEAPABLE_UNSERVED_CAPABILITY"
+    );
+    let delete = engine.dispatch(req(
+        r#"{"jsonrpc":"2.0","id":5,"method":"rel.delete","params":{"vault_ref":"legacy_inv","ts":1785500220,"collection_name":"docs","pk":{"u64":1}}}"#,
+    ));
+    assert!(delete.error.is_none(), "{delete:?}");
+    let handle = engine.vaults.get("legacy_inv").unwrap();
+    let inverted_rows = handle
+        .vault
+        .scan_cf_at(handle.vault.snapshot(), ColumnFamily::IndexInverted)
+        .unwrap();
+    assert!(inverted_rows.is_empty(), "{inverted_rows:?}");
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn vault_open_backfills_legacy_cx_tombstone_index() {
     let root = temp_root("legacy-tombstone-index");
     let cfg = config(root.clone());
@@ -307,4 +384,27 @@ fn vault_open_backfills_legacy_cx_tombstone_index() {
         "expected marker plus tombstone index row, got {indexed:?}"
     );
     fs::remove_dir_all(root).unwrap();
+}
+
+fn legacy_inverted_collection() -> Collection {
+    Collection {
+        name: "docs".to_string(),
+        mode: CollectionMode::Records,
+        schema: Some(Schema::SchemaFull(vec![FieldDef::new(
+            "body",
+            FieldType::Text,
+            false,
+        )])),
+        panel: None,
+        indexes: vec![SecondaryIndexSpec {
+            name: "body_inv".to_string(),
+            kind: SecondaryIndexKind::Inverted,
+            fields: vec!["body".to_string()],
+        }],
+        dedup: DedupPolicy::Off,
+        temporal: TemporalPolicy::default(),
+        retention: RetentionPolicy::Forever,
+        txn_policy: TxnPolicy::default(),
+        tenant: TenantId::default(),
+    }
 }

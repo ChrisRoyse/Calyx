@@ -163,7 +163,6 @@ fn cx_put_batch_get_anchor_delete_and_scan_round_trip() {
                 "panel_version": 7,
                 "modality": "text",
                 "input": {"text": first_text},
-                "slots": [{"slot_id": 0, "vector": {"dense": {"dim": 3, "data": [0.1, 0.2, 0.3]}}}],
                 "metadata": {"chunk_id": "chunk-alpha-repeat"},
                 "scalars": {"tokens": 3.0}
             }),
@@ -234,9 +233,9 @@ fn cx_put_batch_get_anchor_delete_and_scan_round_trip() {
     let vault = storage_dir(root.path(), "cxlife");
     assert_eq!(fs::read(vault.join("salt")).expect("salt file").len(), 32);
     assert!(vault.join("cf/base").exists());
-    assert!(vault.join("cf/slot_00").exists());
-    assert!(vault.join("cf/slot_01").exists());
-    assert!(vault.join("cf/slot_02").exists());
+    assert!(!vault.join("cf/slot_00").exists());
+    assert!(!vault.join("cf/slot_01").exists());
+    assert!(!vault.join("cf/slot_02").exists());
     assert!(vault.join("cf/leapable").exists());
     assert!(vault.join("cf/ledger").exists());
     assert!(!wal_files(&vault).is_empty(), "WAL bytes were written");
@@ -305,7 +304,7 @@ fn cx_rpc_edges_fail_closed() {
     assert_calyx_code(&responses[2], "CALYX_LEAPABLE_CX_INPUT_INVALID");
     assert_calyx_code(&responses[3], "CALYX_LEAPABLE_CX_ID_INVALID");
     assert_calyx_code(&responses[4], "CALYX_LEAPABLE_CX_SCAN_LIMIT_INVALID");
-    assert_calyx_code(&responses[5], "CALYX_RECORD_SCHEMA_VIOLATION");
+    assert_calyx_code(&responses[5], "CALYX_LEAPABLE_UNSERVED_CAPABILITY");
     assert!(
         !stderr.contains('{'),
         "stderr must not contain protocol JSON"
@@ -318,11 +317,6 @@ fn put_item(text: &str, chunk_id: &str) -> Value {
         "panel_version": 7,
         "modality": "text",
         "input": {"text": text, "pointer": format!("leapable://{chunk_id}")},
-        "slots": [
-            {"slot_id": 0, "vector": {"dense": {"dim": 3, "data": [0.1, 0.2, 0.3]}}},
-            {"slot_id": 1, "vector": {"sparse": {"dim": 16, "entries": [{"idx": 2, "val": 1.25}]}}},
-            {"slot_id": 2, "vector": {"multi": {"token_dim": 2, "tokens": [[0.5, 0.6], [0.7, 0.8]]}}}
-        ],
         "scalars": {"tokens": 3.0},
         "metadata": {"chunk_id": chunk_id, "document_id": "doc-1"}
     })

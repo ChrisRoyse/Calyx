@@ -17,45 +17,14 @@ use serde_json::{Value, json};
 use self::clock::EngineClock;
 use self::error::{EngineError, EngineResult, parse_params, vault_not_open, vault_open_error};
 use self::identity::{salt_for_dir, vault_id_for};
+use self::methods::LEAPABLE_METHODS;
+pub use self::methods::{LEAPABLE_CAPABILITIES, mutating_method_requires_id, served_method_names};
 use crate::config::{EngineConfig, FlushPolicy};
 use crate::lifecycle::{
     CALYX_LEAPABLE_VAULT_ALREADY_EXISTS, CALYX_LEAPABLE_VAULT_OPEN, lifecycle_error, remove_dir,
     verify_restore_value,
 };
 use crate::paths::{VaultRef, list_vault_refs, resolve_existing_vault_dir, resolve_new_vault_dir};
-
-/// Compile-time capability map: end-user binary is CPU-only.
-pub const LEAPABLE_CAPABILITIES: &[(&str, bool)] = &[
-    ("cpu-only", true),
-    ("hnsw-ram", true),
-    ("cuda", false),
-    ("diskann", false),
-    ("spann", false),
-];
-
-pub fn mutating_method_requires_id(method: &str) -> bool {
-    matches!(
-        method,
-        "vault.create"
-            | "vault.close"
-            | "vault.delete"
-            | "vault.snapshot"
-            | "vault.restore"
-            | "vault.clone"
-            | "cx.put"
-            | "cx.put_batch"
-            | "cx.anchor"
-            | "cx.delete"
-            | "rel.insert"
-            | "rel.update_row"
-            | "rel.delete"
-            | "kv.set"
-            | "kv.delete"
-            | "ts.write"
-            | "blob.put"
-            | "txn.commit"
-    )
-}
 
 const PANIC_PROBE_ENV: &str = "CALYX_LEAPABLE_ENABLE_PANIC_PROBE";
 const ZFS_DATASET_UNAVAILABLE: &str = "leapable/local";
@@ -188,14 +157,34 @@ impl Engine {
     }
 
     fn engine_info(&self) -> EngineResult<Value> {
+        let capabilities = LEAPABLE_CAPABILITIES
+            .iter()
+            .copied()
+            .collect::<BTreeMap<_, _>>();
+        let served_methods = LEAPABLE_METHODS
+            .iter()
+            .map(|method| {
+                json!({
+                    "name": method.name,
+                    "mutating": method.mutating,
+                    "tags": method.tags,
+                })
+            })
+            .collect::<Vec<_>>();
         Ok(json!({
             "engine": "calyx-leapable",
             "transport": "stdio-jsonrpc-2.0-ndjson",
             "data_dir": self.config.data_dir,
             "open_vaults": self.vaults.keys().collect::<Vec<_>>(),
+            "capabilities": capabilities,
+            "served_methods": served_methods,
             "cpu_profile": {
                 "cpu_only": true,
-                "hnsw": "ram",
+                "hnsw": false,
+                "vector_query": false,
+                "ann_query": false,
+                "inverted_query": false,
+                "kernel_query": false,
                 "cuda": false,
                 "diskann": false,
                 "spann": false
@@ -234,6 +223,7 @@ impl Engine {
         let dir = resolve_existing_vault_dir(&self.config.data_dir, &vault_ref)?;
         let handle = self.open_handle(vault_ref.clone(), dir, params.ts)?;
         cx::ensure_cx_tombstone_index(&handle)?;
+        storage::warn_stranded_indexes(&handle)?;
         let value = vault_handle_value("opened", &handle);
         self.vaults.insert(vault_ref.as_str().to_string(), handle);
         Ok(value)
@@ -400,6 +390,7 @@ mod error;
 mod hex;
 mod identity;
 mod lifecycle_ops;
+mod methods;
 mod storage;
 mod verify;
 

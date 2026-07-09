@@ -11,13 +11,16 @@ use calyx_core::CalyxError;
 use calyx_ledger::{ActorId, EntryKind};
 
 use super::params::{
-    CollectionSpecParam, FieldTypeParam, IndexKindParam, RetentionParam, TxnOpParam,
+    CollectionSpecParam, FieldTypeParam, IndexKindParam, IndexParam, RetentionParam, TxnOpParam,
 };
 use super::{
     CALYX_LEAPABLE_COLLECTION_MISMATCH, CALYX_LEAPABLE_INDEX_NOT_FOUND,
     CALYX_LEAPABLE_REL_CONFLICT, CALYX_LEAPABLE_STORAGE_INPUT_INVALID, EngineResult, VaultHandle,
 };
 
+pub(super) use support::{
+    served_write_collection, unserved_capability_error, unserved_index_kind, warn_stranded_indexes,
+};
 pub(super) use values::*;
 
 pub(super) fn stage_txn_op(
@@ -43,7 +46,8 @@ pub(super) fn stage_txn_op(
                 )
                 .into());
             }
-            txn.put_record(&handle.vault, &col, &pk, &row)?;
+            let write_col = served_write_collection(&col);
+            txn.put_record(&handle.vault, &write_col, &pk, &row)?;
         }
         TxnOpParam::KvSet {
             collection_name,
@@ -56,9 +60,10 @@ pub(super) fn stage_txn_op(
             let key = bytes_from_param(key)?;
             let value = bytes_from_param(value)?;
             let col = ensure_collection(handle, &collection_name, CollectionMode::KV, collection)?;
+            let write_col = served_write_collection(&col);
             txn.kv_set(
                 &handle.vault,
-                &col,
+                &write_col,
                 ns,
                 &key,
                 &value,
@@ -79,7 +84,8 @@ pub(super) fn stage_txn_op(
                 CollectionMode::TimeSeries,
                 collection,
             )?;
-            txn.ts_write(&handle.vault, &col, series, point_ts, value)?;
+            let write_col = served_write_collection(&col);
+            txn.ts_write(&handle.vault, &write_col, series, point_ts, value)?;
         }
     }
     Ok(())
@@ -236,12 +242,8 @@ fn build_collection(
         indexes: spec
             .indexes
             .into_iter()
-            .map(|index| SecondaryIndexSpec {
-                name: index.name,
-                kind: index_kind(index.kind),
-                fields: index.fields,
-            })
-            .collect(),
+            .map(|index| secondary_index_spec(mode, index))
+            .collect::<EngineResult<_>>()?,
         dedup: DedupPolicy::Off,
         temporal: TemporalPolicy::default(),
         retention: match spec.retention {
@@ -268,12 +270,45 @@ fn field_type(value: FieldTypeParam) -> FieldType {
     }
 }
 
-fn index_kind(value: IndexKindParam) -> SecondaryIndexKind {
+fn secondary_index_spec(
+    mode: CollectionMode,
+    index: IndexParam,
+) -> EngineResult<SecondaryIndexSpec> {
+    if mode != CollectionMode::Records {
+        return Err(unserved_capability_error(
+            format!(
+                "Leapable only serves secondary indexes through rel.query on Records collections; index {:?} was declared for {mode:?}",
+                index.name
+            ),
+            "omit indexes on non-Records collections until Leapable exposes a query surface for that model",
+        )
+        .into());
+    }
+    let kind = index_kind(index.kind, &index.name)?;
+    if index.fields.len() != 1 {
+        return Err(unserved_capability_error(
+            format!(
+                "Leapable only serves single-field btree indexes; index {:?} declared {} fields",
+                index.name,
+                index.fields.len()
+            ),
+            "declare exactly one indexed field or omit the unserved index",
+        )
+        .into());
+    }
+    Ok(SecondaryIndexSpec {
+        name: index.name,
+        kind,
+        fields: index.fields,
+    })
+}
+
+fn index_kind(value: IndexKindParam, name: &str) -> EngineResult<SecondaryIndexKind> {
     match value {
-        IndexKindParam::Btree => SecondaryIndexKind::Btree,
-        IndexKindParam::Inverted => SecondaryIndexKind::Inverted,
-        IndexKindParam::Ann => SecondaryIndexKind::Ann,
-        IndexKindParam::Kernel => SecondaryIndexKind::Kernel,
+        IndexKindParam::Btree => Ok(SecondaryIndexKind::Btree),
+        IndexKindParam::Inverted => Err(unserved_index_kind("inverted", name).into()),
+        IndexKindParam::Ann => Err(unserved_index_kind("ann", name).into()),
+        IndexKindParam::Kernel => Err(unserved_index_kind("kernel", name).into()),
     }
 }
 
@@ -295,10 +330,9 @@ pub(super) fn runtime_btree_spec(
             )
         })?;
     if declared.kind != SecondaryIndexKind::Btree || declared.fields.len() != 1 {
-        return Err(storage_error(
-            CALYX_LEAPABLE_STORAGE_INPUT_INVALID,
-            "rel.query currently supports single-field btree indexes",
-            "query a single-field btree secondary index",
+        return Err(unserved_capability_error(
+            "Leapable rel.query only serves single-field btree indexes",
+            "query a single-field btree index or omit unserved ANN/inverted/kernel declarations",
         )
         .into());
     }
@@ -415,4 +449,5 @@ pub(super) fn write_rel_delete(
     )?)
 }
 
+mod support;
 mod values;

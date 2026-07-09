@@ -23,6 +23,7 @@ const CALYX_LEAPABLE_COLLECTION_MISMATCH: &str = "CALYX_LEAPABLE_COLLECTION_MISM
 const CALYX_LEAPABLE_REL_CONFLICT: &str = "CALYX_LEAPABLE_REL_CONFLICT";
 const CALYX_LEAPABLE_REL_NOT_FOUND: &str = "CALYX_LEAPABLE_REL_NOT_FOUND";
 const CALYX_LEAPABLE_INDEX_NOT_FOUND: &str = "CALYX_LEAPABLE_INDEX_NOT_FOUND";
+const CALYX_LEAPABLE_UNSERVED_CAPABILITY: &str = "CALYX_LEAPABLE_UNSERVED_CAPABILITY";
 const CALYX_LEAPABLE_TXN_INJECTED_CRASH: &str = "CALYX_LEAPABLE_TXN_INJECTED_CRASH";
 
 pub(super) fn is_storage_method(method: &str) -> bool {
@@ -43,6 +44,10 @@ pub(super) fn is_storage_method(method: &str) -> bool {
             | "blob.get"
             | "txn.commit"
     )
+}
+
+pub(super) fn warn_stranded_indexes(handle: &VaultHandle) -> EngineResult<()> {
+    codec::warn_stranded_indexes(handle)
 }
 
 impl Engine {
@@ -91,7 +96,8 @@ impl Engine {
             )
             .into());
         }
-        let seq = layer.put_record(&col, &pk, &row)?;
+        let write_col = served_write_collection(&col);
+        let seq = layer.put_record(&write_col, &pk, &row)?;
         handle.flush_after_write(&flush_policy)?;
         Ok(json!({
             "status": "inserted",
@@ -137,7 +143,8 @@ impl Engine {
         for (name, value) in params.set {
             row.fields.insert(name, record_value_from_param(value)?);
         }
-        let seq = layer.put_record(&col, &pk, &row)?;
+        let write_col = served_write_collection(&col);
+        let seq = layer.put_record(&write_col, &pk, &row)?;
         handle.flush_after_write(&flush_policy)?;
         Ok(json!({
             "status": "updated",
@@ -268,7 +275,8 @@ impl Engine {
             CollectionMode::KV,
             params.collection,
         )?;
-        let seq = KvLayer::new(&handle.vault).kv_set(&col, params.ns, &key, &value, ttl)?;
+        let write_col = served_write_collection(&col);
+        let seq = KvLayer::new(&handle.vault).kv_set(&write_col, params.ns, &key, &value, ttl)?;
         handle.flush_after_write(&flush_policy)?;
         Ok(json!({
             "status": "set",
@@ -309,7 +317,8 @@ impl Engine {
         let handle = self.open_vault_for_storage(&params.vault_ref, params.ts)?;
         let col = require_collection(handle, &params.collection_name, CollectionMode::KV)?;
         let key = bytes_from_param(params.key)?;
-        let seq = KvLayer::new(&handle.vault).kv_delete(&col, params.ns, &key)?;
+        let write_col = served_write_collection(&col);
+        let seq = KvLayer::new(&handle.vault).kv_delete(&write_col, params.ns, &key)?;
         handle.flush_after_write(&flush_policy)?;
         Ok(json!({
             "status": "deleted",
@@ -333,8 +342,9 @@ impl Engine {
             CollectionMode::TimeSeries,
             params.collection,
         )?;
+        let write_col = served_write_collection(&col);
         let seq = TimeSeriesLayer::new(&handle.vault).ts_write(
-            &col,
+            &write_col,
             params.series,
             params.point_ts,
             params.value,

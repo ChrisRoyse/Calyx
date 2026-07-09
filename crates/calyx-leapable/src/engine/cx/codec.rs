@@ -19,6 +19,7 @@ const CALYX_LEAPABLE_CX_INPUT_INVALID: &str = "CALYX_LEAPABLE_CX_INPUT_INVALID";
 const CALYX_LEAPABLE_CX_ID_INVALID: &str = "CALYX_LEAPABLE_CX_ID_INVALID";
 const CALYX_LEAPABLE_CX_SCAN_LIMIT_INVALID: &str = "CALYX_LEAPABLE_CX_SCAN_LIMIT_INVALID";
 const CALYX_LEAPABLE_CX_BATCH_TOO_LARGE: &str = "CALYX_LEAPABLE_CX_BATCH_TOO_LARGE";
+const CALYX_LEAPABLE_UNSERVED_CAPABILITY: &str = "CALYX_LEAPABLE_UNSERVED_CAPABILITY";
 
 const INPUT_HEX_METADATA: &str = "leapable.input_hex";
 const INPUT_REF_METADATA: &str = "leapable.input_ref";
@@ -375,6 +376,18 @@ fn reject_reserved_metadata(metadata: &BTreeMap<String, String>) -> EngineResult
 }
 
 fn slots_from_params(params: Vec<CxSlotParam>) -> EngineResult<BTreeMap<SlotId, SlotVector>> {
+    if let Some(first) = params.first() {
+        return Err(cx_error(
+            CALYX_LEAPABLE_UNSERVED_CAPABILITY,
+            format!(
+                "cx.put slot vectors are not queryable through Leapable; first unsupported slot {} has {} vector data",
+                first.slot_id,
+                slot_vector_kind(&first.vector)
+            ),
+            "omit slots until Leapable exposes a vector query surface, or write/search vectors through a served Calyx index layer",
+        )
+        .into());
+    }
     let mut slots = BTreeMap::new();
     for param in params {
         let slot = SlotId::new(param.slot_id);
@@ -388,6 +401,15 @@ fn slots_from_params(params: Vec<CxSlotParam>) -> EngineResult<BTreeMap<SlotId, 
         }
     }
     Ok(slots)
+}
+
+fn slot_vector_kind(vector: &SlotVector) -> &'static str {
+    match vector {
+        SlotVector::Dense { .. } => "dense",
+        SlotVector::Sparse { .. } => "sparse",
+        SlotVector::Multi { .. } => "multi",
+        SlotVector::Absent { .. } => "absent",
+    }
 }
 
 fn base_exists(handle: &VaultHandle, id: CxId) -> EngineResult<bool> {

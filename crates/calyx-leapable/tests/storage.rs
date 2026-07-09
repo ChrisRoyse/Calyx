@@ -381,12 +381,27 @@ fn storage_rpc_edges_fail_closed() {
             "rel.scan",
             json!({"vault_ref": "edges", "ts": 1_785_700_010_000_u64, "collection_name": "strict", "limit": 0}),
         ),
+        request(
+            12,
+            "rel.insert",
+            json!({
+                "vault_ref": "edges",
+                "ts": 1_785_700_011_000_u64,
+                "collection_name": "ann_bad",
+                "collection": {
+                    "schema": [{"name": "qty", "ty": "i64"}],
+                    "indexes": [{"name": "ann_idx", "kind": "ann", "fields": ["qty"]}]
+                },
+                "pk": {"u64": 1},
+                "row": {"qty": {"i64": 1}}
+            }),
+        ),
     ]
     .concat();
 
     let (stdout, stderr, ok) = run_engine(&input, &root.path);
     let responses = json_lines(&stdout);
-    assert_eq!(responses.len(), 11);
+    assert_eq!(responses.len(), 12);
     assert_calyx_code(&responses[0], "CALYX_LEAPABLE_VAULT_NOT_OPEN");
     assert!(responses[1].get("error").is_none());
     assert_calyx_code(&responses[2], "CALYX_LEAPABLE_STORAGE_INPUT_INVALID");
@@ -398,6 +413,7 @@ fn storage_rpc_edges_fail_closed() {
     assert!(responses[8].get("error").is_none());
     assert_calyx_code(&responses[9], "CALYX_LEAPABLE_STORAGE_INPUT_INVALID");
     assert_calyx_code(&responses[10], "CALYX_LEAPABLE_STORAGE_INPUT_INVALID");
+    assert_calyx_code(&responses[11], "CALYX_LEAPABLE_UNSERVED_CAPABILITY");
     assert_no_json_on_stderr(&stderr);
     assert!(ok);
 }

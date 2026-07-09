@@ -206,7 +206,8 @@ pub(in crate::engine::storage) fn rel_delete_rows(
 ) -> EngineResult<StorageWriteRows> {
     let key = calyx_aster::layers::relational::record_key(col, pk)?;
     let mut rows = vec![(ColumnFamily::Relational, key, tombstone_value())];
-    IndexMaintenance::stage_delete(&handle.vault, &mut rows, col, pk, old_row)?;
+    let write_col = super::served_write_collection(col);
+    IndexMaintenance::stage_delete(&handle.vault, &mut rows, &write_col, pk, old_row)?;
     Ok(rows)
 }
 
