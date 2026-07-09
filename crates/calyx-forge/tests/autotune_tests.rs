@@ -43,13 +43,6 @@ fn config(tile: usize, backend: BackendKind, label: &str) -> BestConfig {
     }
 }
 
-#[cfg(feature = "cuda")]
-fn artifact_path(name: &str) -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("tests")
-        .join(name)
-}
-
 fn unique_path(name: &str, ext: &str) -> PathBuf {
     let nanos = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -93,9 +86,9 @@ fn autotune_two_shapes_converge() -> Result<()> {
     #[cfg(feature = "cuda")]
     {
         let run = run_two_shapes(
-            artifact_path("autotune_cache_fsv.json"),
-            artifact_path("promotion_log.jsonl"),
-            artifact_path("promotion_ledger"),
+            unique_path("two_shapes_cache", "json"),
+            unique_path("two_shapes_promotion", "jsonl"),
+            unique_path("two_shapes_ledger", "dir"),
         )?;
         let loaded = AutotuneCache::load(&run.cache_path)?;
         let loaded_a = autotune(&loaded, &run.key_a);

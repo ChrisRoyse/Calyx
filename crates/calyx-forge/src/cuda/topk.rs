@@ -98,8 +98,8 @@ fn launch_topk(
         remediation: "cuda topk chunk count exceeds grid dimension limit".to_string(),
     })?;
     let module = topk_module(ctx)?;
-    let func = module
-        .load_function("bitonic_topk_f32")
+    let func = ctx
+        .cached_function(&module, "topk.bitonic_topk_f32", "bitonic_topk_f32")
         .map_err(|err| device_unavailable(ctx, format!("topk load function failed: {err}")))?;
     let stream = ctx.inner().default_stream();
     let cfg = LaunchConfig {
@@ -107,7 +107,7 @@ fn launch_topk(
         block_dim: (TOPK_BLOCK as u32, 1, 1),
         shared_mem_bytes: 0,
     };
-    let mut launch = stream.launch_builder(&func);
+    let mut launch = stream.launch_builder(func.as_ref());
     unsafe {
         launch
             .arg(scores)

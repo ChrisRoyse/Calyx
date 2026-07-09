@@ -10,6 +10,7 @@ use crate::BestConfig;
 pub const EPSILON: f64 = 0.1;
 pub const MIN_PROMOTE_MARGIN: f64 = 0.02;
 pub const MIN_PROMOTE_TRIALS: u32 = 3;
+const THOMPSON_COUNT_CAP: u32 = 128;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ExplorerPolicy {
@@ -21,9 +22,26 @@ pub enum ExplorerPolicy {
 pub struct Explorer {
     policy: ExplorerPolicy,
     rng: ChaCha8Rng,
-    candidate_stats: HashMap<AutotuneKey, Vec<BenchResult>>,
-    candidate_configs: HashMap<AutotuneKey, Vec<BestConfig>>,
+    candidate_stats: HashMap<AutotuneKey, CandidateStats>,
     last_promotion_ts: Option<Ts>,
+}
+
+#[derive(Clone, Debug, Default)]
+struct CandidateStats {
+    total: RunningGflops,
+    configs: Vec<ConfigStats>,
+}
+
+#[derive(Clone, Debug)]
+struct ConfigStats {
+    config: BestConfig,
+    gflops: RunningGflops,
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+struct RunningGflops {
+    count: usize,
+    mean: f64,
 }
 
 impl Explorer {
@@ -32,7 +50,6 @@ impl Explorer {
             policy,
             rng: ChaCha8Rng::seed_from_u64(seed),
             candidate_stats: HashMap::new(),
-            candidate_configs: HashMap::new(),
             last_promotion_ts: None,
         }
     }
@@ -42,11 +59,55 @@ impl Explorer {
     }
 
     pub fn trial_count(&self, key: &AutotuneKey) -> usize {
-        self.candidate_stats.get(key).map_or(0, Vec::len)
+        self.candidate_stats
+            .get(key)
+            .map_or(0, CandidateStats::trial_count)
     }
 
     pub fn last_promotion_ts(&self) -> Option<Ts> {
         self.last_promotion_ts
+    }
+}
+
+impl CandidateStats {
+    fn record(&mut self, config: &BestConfig, result: BenchResult) {
+        self.total.record(result);
+        if let Some(entry) = self
+            .configs
+            .iter_mut()
+            .find(|entry| entry.config == *config)
+        {
+            entry.gflops.record(result);
+            return;
+        }
+        let mut gflops = RunningGflops::default();
+        gflops.record(result);
+        self.configs.push(ConfigStats {
+            config: config.clone(),
+            gflops,
+        });
+    }
+
+    fn aggregate_for(&self, config: &BestConfig) -> Option<RunningGflops> {
+        self.configs
+            .iter()
+            .find(|entry| entry.config == *config)
+            .map(|entry| entry.gflops)
+    }
+
+    fn trial_count(&self) -> usize {
+        self.total.count
+    }
+}
+
+impl RunningGflops {
+    fn record(&mut self, result: BenchResult) {
+        self.count = self.count.saturating_add(1);
+        self.mean += (result.gflops - self.mean) / self.count as f64;
+    }
+
+    fn thompson_count(self) -> u32 {
+        self.count.min(THOMPSON_COUNT_CAP as usize) as u32
     }
 }
 
@@ -61,7 +122,7 @@ pub fn next_candidate(
     }
     match explorer.policy {
         ExplorerPolicy::EpsilonGreedy => next_epsilon_greedy(explorer, incumbent, candidate_pool),
-        ExplorerPolicy::Thompson => next_thompson(explorer, key, candidate_pool),
+        ExplorerPolicy::Thompson => next_thompson(explorer, key, incumbent, candidate_pool),
     }
 }
 
@@ -75,12 +136,7 @@ pub fn record_trial(
         .candidate_stats
         .entry(key.clone())
         .or_default()
-        .push(result);
-    explorer
-        .candidate_configs
-        .entry(key.clone())
-        .or_default()
-        .push(config.clone());
+        .record(config, result);
 }
 
 pub fn should_promote(
@@ -89,16 +145,18 @@ pub fn should_promote(
     challenger: &BestConfig,
     incumbent: &BestConfig,
 ) -> bool {
-    let challenger = results_for(explorer, key, challenger);
-    let incumbent = results_for(explorer, key, incumbent);
-    if challenger.len() < MIN_PROMOTE_TRIALS as usize
-        || incumbent.len() < MIN_PROMOTE_TRIALS as usize
+    let Some(challenger) = aggregate_for(explorer, key, challenger) else {
+        return false;
+    };
+    let Some(incumbent) = aggregate_for(explorer, key, incumbent) else {
+        return false;
+    };
+    if challenger.count < MIN_PROMOTE_TRIALS as usize
+        || incumbent.count < MIN_PROMOTE_TRIALS as usize
     {
         return false;
     }
-    let challenger_mean = mean_gflops(&challenger);
-    let incumbent_mean = mean_gflops(&incumbent);
-    challenger_mean > incumbent_mean * (1.0 + MIN_PROMOTE_MARGIN)
+    challenger.mean > incumbent.mean * (1.0 + MIN_PROMOTE_MARGIN)
 }
 
 pub fn promote_if_winner(
@@ -134,13 +192,18 @@ fn next_epsilon_greedy(
 fn next_thompson(
     explorer: &mut Explorer,
     key: &AutotuneKey,
+    incumbent: &BestConfig,
     candidate_pool: &[BestConfig],
 ) -> BestConfig {
     let mut best_idx = 0;
     let mut best_score = f64::NEG_INFINITY;
     for (idx, candidate) in candidate_pool.iter().enumerate() {
-        let (wins, losses) = thompson_counts(explorer, key, candidate);
-        let score = sample_beta_integer(wins + 1, losses + 1, &mut explorer.rng);
+        let (wins, losses) = thompson_counts(explorer, key, candidate, incumbent);
+        let score = sample_beta_integer(
+            wins.saturating_add(1),
+            losses.saturating_add(1),
+            &mut explorer.rng,
+        );
         if score > best_score {
             best_score = score;
             best_idx = idx;
@@ -149,53 +212,41 @@ fn next_thompson(
     candidate_pool[best_idx].clone()
 }
 
-fn thompson_counts(explorer: &Explorer, key: &AutotuneKey, candidate: &BestConfig) -> (u32, u32) {
-    let candidate_results = results_for(explorer, key, candidate);
-    if candidate_results.is_empty() {
+fn thompson_counts(
+    explorer: &Explorer,
+    key: &AutotuneKey,
+    candidate: &BestConfig,
+    incumbent: &BestConfig,
+) -> (u32, u32) {
+    let Some(candidate) = aggregate_for(explorer, key, candidate) else {
+        return (0, 0);
+    };
+    let Some(incumbent) = aggregate_for(explorer, key, incumbent) else {
+        return (0, 0);
+    };
+    let trials = candidate.thompson_count();
+    if trials == 0 {
         return (0, 0);
     }
-    let all_results = explorer
+    if candidate.mean > incumbent.mean * (1.0 + MIN_PROMOTE_MARGIN) {
+        (trials, 0)
+    } else if incumbent.mean > candidate.mean * (1.0 + MIN_PROMOTE_MARGIN) {
+        (0, trials)
+    } else {
+        let wins = trials / 2;
+        (wins, trials - wins)
+    }
+}
+
+fn aggregate_for(
+    explorer: &Explorer,
+    key: &AutotuneKey,
+    config: &BestConfig,
+) -> Option<RunningGflops> {
+    explorer
         .candidate_stats
         .get(key)
-        .map_or(&[][..], Vec::as_slice);
-    let global_mean = mean_gflops(all_results);
-    let mut wins = 0;
-    let mut losses = 0;
-    for result in candidate_results {
-        if result.gflops >= global_mean {
-            wins += 1;
-        } else {
-            losses += 1;
-        }
-    }
-    (wins, losses)
-}
-
-fn results_for(explorer: &Explorer, key: &AutotuneKey, config: &BestConfig) -> Vec<BenchResult> {
-    let Some(results) = explorer.candidate_stats.get(key) else {
-        return Vec::new();
-    };
-    let Some(configs) = explorer.candidate_configs.get(key) else {
-        return Vec::new();
-    };
-    results
-        .iter()
-        .zip(configs.iter())
-        .filter_map(|(result, stored_config)| {
-            if stored_config == config {
-                Some(*result)
-            } else {
-                None
-            }
-        })
-        .collect()
-}
-
-fn mean_gflops(results: &[BenchResult]) -> f64 {
-    if results.is_empty() {
-        return 0.0;
-    }
-    results.iter().map(|result| result.gflops).sum::<f64>() / results.len() as f64
+        .and_then(|stats| stats.aggregate_for(config))
 }
 
 fn sample_beta_integer(alpha: u32, beta: u32, rng: &mut ChaCha8Rng) -> f64 {

@@ -1,3 +1,4 @@
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -14,6 +15,18 @@ struct StaticProbe {
 
 impl VramProbe for StaticProbe {
     fn free_device_vram(&self) -> Result<usize> {
+        Ok(self.free)
+    }
+}
+
+struct CountingProbe {
+    free: usize,
+    calls: Arc<AtomicUsize>,
+}
+
+impl VramProbe for CountingProbe {
+    fn free_device_vram(&self) -> Result<usize> {
+        self.calls.fetch_add(1, Ordering::AcqRel);
         Ok(self.free)
     }
 }
@@ -63,6 +76,26 @@ fn fits_returns_full_batch_and_counts_split() {
     assert_eq!(stats.splits_total, 0);
     assert_eq!(stats.queued_total, 0);
     assert_eq!(stats.failed_total, 0);
+}
+
+#[test]
+fn decide_uses_single_device_probe_for_initial_fit() {
+    let calls = Arc::new(AtomicUsize::new(0));
+    let budgeter = VramBudgeter::with_soft_cap(
+        GIB,
+        CountingProbe {
+            free: 64 * GIB,
+            calls: Arc::clone(&calls),
+        },
+    );
+    let registry = GpuBlockRegistry::new(&budgeter, RecordingDealloc::default(), 16);
+    let ctl = AdmissionController::new(&budgeter, Arc::new(Mutex::new(registry)), 2, 2);
+
+    let decision = ctl.decide(512 * MIB, 8, Instant::now() + Duration::from_secs(1));
+
+    assert_eq!(decision, AdmitDecision::Split { sub_batch_size: 8 });
+    assert_eq!(calls.load(Ordering::Acquire), 1);
+    println!("ADMISSION_SINGLE_PROBE calls=1 decision={decision:?}");
 }
 
 #[test]

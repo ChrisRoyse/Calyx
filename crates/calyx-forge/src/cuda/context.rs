@@ -1,7 +1,8 @@
-use std::sync::{Arc, OnceLock};
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex, OnceLock};
 
 use cudarc::cublas::CudaBlas;
-use cudarc::driver::{CudaContext as CudarcContext, CudaModule};
+use cudarc::driver::{CudaContext as CudarcContext, CudaFunction, CudaModule};
 
 use crate::{BackendKind, DeviceInfo, ForgeError, Result};
 
@@ -22,6 +23,7 @@ pub struct CudaContext {
     distance_module: Arc<OnceLock<Arc<CudaModule>>>,
     mxfp4_module: Arc<OnceLock<Arc<CudaModule>>>,
     topk_module: Arc<OnceLock<Arc<CudaModule>>>,
+    kernel_functions: Arc<Mutex<HashMap<&'static str, Arc<CudaFunction>>>>,
 }
 
 impl CudaContext {
@@ -90,6 +92,24 @@ impl CudaContext {
     pub(crate) fn topk_module_cache(&self) -> &OnceLock<Arc<CudaModule>> {
         &self.topk_module
     }
+
+    pub(crate) fn cached_function(
+        &self,
+        module: &Arc<CudaModule>,
+        cache_key: &'static str,
+        function_name: &'static str,
+    ) -> std::result::Result<Arc<CudaFunction>, cudarc::driver::DriverError> {
+        let mut functions = self
+            .kernel_functions
+            .lock()
+            .unwrap_or_else(|err| err.into_inner());
+        if let Some(function) = functions.get(cache_key) {
+            return Ok(function.clone());
+        }
+        let function = Arc::new(module.load_function(function_name)?);
+        functions.insert(cache_key, function.clone());
+        Ok(function)
+    }
 }
 
 pub fn init_cuda(device_idx: u32, determinism: bool) -> Result<CudaContext> {
@@ -125,6 +145,7 @@ pub fn init_cuda(device_idx: u32, determinism: bool) -> Result<CudaContext> {
         distance_module: Arc::new(OnceLock::new()),
         mxfp4_module: Arc::new(OnceLock::new()),
         topk_module: Arc::new(OnceLock::new()),
+        kernel_functions: Arc::new(Mutex::new(HashMap::new())),
     })
 }
 

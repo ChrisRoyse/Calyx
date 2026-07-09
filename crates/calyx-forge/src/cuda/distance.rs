@@ -246,8 +246,8 @@ fn launch_distance(
         remediation: "cuda distance n_cands exceeds grid dimension limit".to_string(),
     })?;
     let module = distance_module(ctx)?;
-    let func = module
-        .load_function(kernel_name)
+    let func = ctx
+        .cached_function(&module, distance_cache_key(kernel_name), kernel_name)
         .map_err(|err| device_unavailable(ctx, format!("{op} load function failed: {err}")))?;
     let stream = ctx.inner().default_stream();
     let cfg = LaunchConfig {
@@ -256,7 +256,7 @@ fn launch_distance(
         shared_mem_bytes: 0,
     };
 
-    let mut launch = stream.launch_builder(&func);
+    let mut launch = stream.launch_builder(func.as_ref());
     unsafe {
         launch
             .arg(query)
@@ -284,8 +284,8 @@ fn launch_normalize(
     })?;
     let dim_i32 = to_i32(dim, "dim")?;
     let module = distance_module(ctx)?;
-    let func = module
-        .load_function("normalize_rows_f32")
+    let func = ctx
+        .cached_function(&module, "distance.normalize_rows_f32", "normalize_rows_f32")
         .map_err(|err| device_unavailable(ctx, format!("normalize load function failed: {err}")))?;
     let stream = ctx.inner().default_stream();
     let cfg = LaunchConfig {
@@ -294,7 +294,7 @@ fn launch_normalize(
         shared_mem_bytes: 0,
     };
 
-    let mut launch = stream.launch_builder(&func);
+    let mut launch = stream.launch_builder(func.as_ref());
     unsafe { launch.arg(vecs).arg(&dim_i32).arg(&rows_i32).launch(cfg) }
         .map_err(|err| device_unavailable(ctx, format!("normalize kernel launch failed: {err}")))?;
     Ok(())
@@ -317,6 +317,15 @@ pub(crate) fn distance_module(ctx: &CudaContext) -> Result<Arc<CudaModule>> {
             let _ = ctx.distance_module_cache().set(module.clone());
             Ok(module)
         }
+    }
+}
+
+fn distance_cache_key(kernel_name: &'static str) -> &'static str {
+    match kernel_name {
+        "cosine_batch_f32" => "distance.cosine_batch_f32",
+        "dot_batch_f32" => "distance.dot_batch_f32",
+        "l2_batch_f32" => "distance.l2_batch_f32",
+        _ => kernel_name,
     }
 }
 

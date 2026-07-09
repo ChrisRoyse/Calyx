@@ -126,8 +126,12 @@ fn launch_mxfp4_kernel(
     out: &mut CudaSlice<f32>,
 ) -> Result<()> {
     let module = mxfp4_module(ctx)?;
-    let func = module
-        .load_function("gemm_mxfp4_fp32_accum_kernel")
+    let func = ctx
+        .cached_function(
+            &module,
+            "mxfp4.gemm_mxfp4_fp32_accum_kernel",
+            "gemm_mxfp4_fp32_accum_kernel",
+        )
         .map_err(|err| device_unavailable(ctx, format!("load MXFP4 GEMM kernel failed: {err}")))?;
     let cells = checked_mul(m, n, "MXFP4 kernel cells")?;
     let blocks = u32::try_from(cells.div_ceil(MXFP4_THREADS as usize)).map_err(|_| {
@@ -146,7 +150,7 @@ fn launch_mxfp4_kernel(
         shared_mem_bytes: 0,
     };
     let stream = ctx.inner().default_stream();
-    let mut launch = stream.launch_builder(&func);
+    let mut launch = stream.launch_builder(func.as_ref());
     unsafe {
         launch
             .arg(a_codes)

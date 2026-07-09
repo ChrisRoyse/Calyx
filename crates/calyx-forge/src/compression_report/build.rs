@@ -6,15 +6,16 @@ use crate::{
     MXFP4_BLOCK_SIZE, MXFP8_BLOCK_BYTES, MXFP8_BLOCK_SIZE, QuantLevel, QuantizedVec, Result,
 };
 
+use super::contract::validate_slot_contract;
 use super::types::{
     COMPRESSION_REPORT_SCHEMA_VERSION, CompressionReport, CompressionReportInput,
     CompressionSlotMeasurement, CompressionSlotReport, CompressionTotals, IntelligenceDeltaReport,
     KernelCompressionMeasurement, KernelCompressionReport,
 };
 use super::validate::{
-    checked_add, intelligence_loss, quant_error, ratio, reject_if, require_bytes,
-    require_finite_f64, require_nonnegative_f64, require_positive_f64, require_positive_u64,
-    require_range_f64, require_unit_interval, validate_slot_id, validate_vault,
+    checked_add, intelligence_loss, quant_error, ratio, require_bytes, require_finite_f64,
+    require_nonnegative_f64, require_positive_f64, require_positive_u64, require_range_f64,
+    require_unit_interval, validate_slot_id, validate_vault,
 };
 
 const MXFP4_BLOCK_BYTES: usize = MXFP4_PACKED_BYTES + 1;
@@ -59,7 +60,7 @@ fn slot_report(measurement: &CompressionSlotMeasurement) -> Result<CompressionSl
     let guard_frr_delta = measurement.guard_frr_after - measurement.guard_frr_before;
     let kernel_only_recall_delta =
         measurement.kernel_only_recall_after - measurement.kernel_only_recall_before;
-    validate_slot_contract(
+    let passed_contract = validate_slot_contract(
         measurement,
         bits_delta,
         guard_far_delta,
@@ -99,7 +100,7 @@ fn slot_report(measurement: &CompressionSlotMeasurement) -> Result<CompressionSl
         kernel_only_recall_before: measurement.kernel_only_recall_before,
         kernel_only_recall_after: measurement.kernel_only_recall_after,
         kernel_only_recall_delta,
-        passed_contract: true,
+        passed_contract,
     })
 }
 
@@ -309,55 +310,6 @@ fn validate_intelligence_inputs(measurement: &CompressionSlotMeasurement) -> Res
     )
 }
 
-fn validate_slot_contract(
-    measurement: &CompressionSlotMeasurement,
-    bits_delta: f64,
-    guard_far_delta: f64,
-    guard_frr_delta: f64,
-    kernel_only_recall_delta: f64,
-) -> Result<()> {
-    reject_if(
-        measurement.achieved_cosine_error > measurement.max_cosine_error,
-        &measurement.slot_id,
-        format!(
-            "cosine error {:.8} exceeds bound {:.8}",
-            measurement.achieved_cosine_error, measurement.max_cosine_error
-        ),
-    )?;
-    reject_if(
-        bits_delta < measurement.min_bits_delta,
-        &measurement.slot_id,
-        format!(
-            "bits delta {:.8} below bound {:.8}",
-            bits_delta, measurement.min_bits_delta
-        ),
-    )?;
-    reject_if(
-        guard_far_delta > measurement.max_guard_far_delta,
-        &measurement.slot_id,
-        format!(
-            "guard FAR delta {:.8} exceeds bound {:.8}",
-            guard_far_delta, measurement.max_guard_far_delta
-        ),
-    )?;
-    reject_if(
-        guard_frr_delta > measurement.max_guard_frr_delta,
-        &measurement.slot_id,
-        format!(
-            "guard FRR delta {:.8} exceeds bound {:.8}",
-            guard_frr_delta, measurement.max_guard_frr_delta
-        ),
-    )?;
-    reject_if(
-        kernel_only_recall_delta < measurement.min_kernel_recall_delta,
-        &measurement.slot_id,
-        format!(
-            "kernel-only recall delta {:.8} below bound {:.8}",
-            kernel_only_recall_delta, measurement.min_kernel_recall_delta
-        ),
-    )
-}
-
 fn kernel_report(measurement: &KernelCompressionMeasurement) -> Result<KernelCompressionReport> {
     require_bytes(
         measurement.original_bytes,
@@ -381,7 +333,8 @@ fn kernel_report(measurement: &KernelCompressionMeasurement) -> Result<KernelCom
     )?;
 
     let recall_delta = measurement.recall_after - measurement.recall_before;
-    if recall_delta < measurement.min_recall_delta {
+    let recall_unregressed = recall_delta >= measurement.min_recall_delta;
+    if !recall_unregressed {
         return Err(intelligence_loss(
             "kernel",
             format!(
@@ -402,7 +355,7 @@ fn kernel_report(measurement: &KernelCompressionMeasurement) -> Result<KernelCom
         recall_before: measurement.recall_before,
         recall_after: measurement.recall_after,
         recall_delta,
-        recall_unregressed: true,
+        recall_unregressed,
     })
 }
 

@@ -158,7 +158,7 @@ impl<'b, P: VramProbe, D: BlockDeallocator> AdmissionController<'b, P, D> {
         if deadline <= Instant::now() {
             return AdmitDecision::Fail;
         }
-        if self.budgeter.can_allocate(requested_bytes).is_ok() {
+        if self.can_allocate_from_single_probe(requested_bytes) {
             return AdmitDecision::Split {
                 sub_batch_size: batch_size,
             };
@@ -246,6 +246,15 @@ impl<'b, P: VramProbe, D: BlockDeallocator> AdmissionController<'b, P, D> {
             free.free();
         }
         result.is_ok() && self.budgeter.can_allocate(requested_bytes).is_ok()
+    }
+
+    fn can_allocate_from_single_probe(&self, requested_bytes: usize) -> bool {
+        let Ok(device_free_bytes) = self.budgeter.device_free_vram() else {
+            return false;
+        };
+        self.budgeter
+            .can_allocate_with_device_free(requested_bytes, device_free_bytes)
+            .is_ok()
     }
 
     fn next_split(&self, batch_size: usize) -> Option<usize> {

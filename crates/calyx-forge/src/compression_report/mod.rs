@@ -1,4 +1,5 @@
 mod build;
+mod contract;
 mod types;
 mod validate;
 

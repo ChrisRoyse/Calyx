@@ -114,8 +114,29 @@ impl<P: VramProbe> VramBudgeter<P> {
         }
         let current = self.allocated_bytes.load(Ordering::Acquire);
         self.check_soft_cap(current, bytes)?;
-        self.check_device_headroom(bytes)?;
+        self.check_device_headroom_with_free(bytes, self.device_free_vram()?)?;
         Ok(())
+    }
+
+    pub(crate) fn can_allocate_with_device_free(
+        &self,
+        bytes: usize,
+        device_free_bytes: usize,
+    ) -> Result<()> {
+        if bytes == 0 {
+            return Ok(());
+        }
+        let current = self.allocated_bytes.load(Ordering::Acquire);
+        self.check_soft_cap(current, bytes)?;
+        self.check_device_headroom_with_free(bytes, device_free_bytes)
+    }
+
+    pub(crate) fn device_free_vram(&self) -> Result<usize> {
+        self.probe.free_device_vram().map_err(|err| {
+            budget_err(format!(
+                "device free-VRAM query failed; treating unknown device state as over-budget: {err}"
+            ))
+        })
     }
 
     /// Reserve serving/default VRAM, returning an RAII guard.
@@ -301,11 +322,10 @@ impl<P: VramProbe> VramBudgeter<P> {
     }
 
     fn check_device_headroom(&self, bytes: usize) -> Result<()> {
-        let free = self.probe.free_device_vram().map_err(|err| {
-            budget_err(format!(
-                "device free-VRAM query failed; treating unknown device state as over-budget: {err}"
-            ))
-        })?;
+        self.check_device_headroom_with_free(bytes, self.device_free_vram()?)
+    }
+
+    fn check_device_headroom_with_free(&self, bytes: usize, free: usize) -> Result<()> {
         let usable = free.saturating_sub(RESERVED_HEADROOM_BYTES);
         if bytes > usable {
             return Err(budget_err(format!(

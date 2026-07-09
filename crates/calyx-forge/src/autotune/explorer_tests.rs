@@ -38,6 +38,35 @@ fn record_many(explorer: &mut Explorer, key: &AutotuneKey, cfg: &BestConfig, val
 }
 
 #[test]
+fn explorer_running_aggregates_keep_exact_trial_count() {
+    let key = key();
+    let incumbent = config(64);
+    let challenger = config(128);
+    let mut explorer = Explorer::new(ExplorerPolicy::Thompson, 13);
+
+    for _ in 0..256 {
+        record_trial(&mut explorer, &key, &incumbent, result(100.0));
+        record_trial(&mut explorer, &key, &challenger, result(103.0));
+    }
+
+    let chosen = next_candidate(
+        &mut explorer,
+        &key,
+        &incumbent,
+        std::slice::from_ref(&challenger),
+    );
+
+    assert_eq!(explorer.trial_count(&key), 512);
+    assert!(should_promote(&explorer, &key, &challenger, &incumbent));
+    assert_eq!(chosen, challenger);
+    println!(
+        "explorer_running_aggregate PASSED trials={} promote=true chosen_tile={}",
+        explorer.trial_count(&key),
+        chosen.tile_m
+    );
+}
+
+#[test]
 fn explorer_should_promote_three_trials_three_pct() {
     let key = key();
     let incumbent = config(64);

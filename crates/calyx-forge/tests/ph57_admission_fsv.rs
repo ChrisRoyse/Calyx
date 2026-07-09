@@ -105,9 +105,9 @@ fn ph57_admission_fsv_writes_counter_and_metric_readbacks() {
     assert_eq!(zero, AdmitDecision::Split { sub_batch_size: 8 });
     assert_eq!(sync_err.code(), CODE);
     assert_eq!(ctl.queue_len(), 0);
-    assert_eq!(after.splits_total, 9);
+    assert_eq!(after.splits_total, 7);
     assert_eq!(after.queued_total, 0);
-    assert_eq!(after.failed_total, 4);
+    assert_eq!(after.failed_total, 1);
 
     let metrics = after.admission_metrics_text();
     assert!(metrics.contains("calyx_forge_vram_budget_exceeded_total"));

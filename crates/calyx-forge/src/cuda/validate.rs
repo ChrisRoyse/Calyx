@@ -129,19 +129,21 @@ fn launch_value_validation(
         )
     })?;
     let module = distance_module(ctx)?;
-    let func = module.load_function("validate_f32_flags").map_err(|err| {
-        device_unavailable(
-            ctx,
-            format!("{op} validation kernel load failed: {err}"),
-            remediation,
-        )
-    })?;
+    let func = ctx
+        .cached_function(&module, "distance.validate_f32_flags", "validate_f32_flags")
+        .map_err(|err| {
+            device_unavailable(
+                ctx,
+                format!("{op} validation kernel load failed: {err}"),
+                remediation,
+            )
+        })?;
     let cfg = LaunchConfig {
         grid_dim: (blocks, 1, 1),
         block_dim: (VALIDATE_THREADS, 1, 1),
         shared_mem_bytes: 0,
     };
-    let mut launch = stream.launch_builder(&func);
+    let mut launch = stream.launch_builder(func.as_ref());
     unsafe {
         launch
             .arg(values)
@@ -201,8 +203,12 @@ fn launch_range_validation(
         )
     })?;
     let module = distance_module(ctx)?;
-    let func = module
-        .load_function("validate_f32_ranges_flags")
+    let func = ctx
+        .cached_function(
+            &module,
+            "distance.validate_f32_ranges_flags",
+            "validate_f32_ranges_flags",
+        )
         .map_err(|err| {
             device_unavailable(
                 ctx,
@@ -215,7 +221,7 @@ fn launch_range_validation(
         block_dim: (VALIDATE_THREADS, 1, 1),
         shared_mem_bytes: 0,
     };
-    let mut launch = stream.launch_builder(&func);
+    let mut launch = stream.launch_builder(func.as_ref());
     unsafe {
         launch
             .arg(values)

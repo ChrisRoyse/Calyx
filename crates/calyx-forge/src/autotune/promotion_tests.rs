@@ -1,10 +1,15 @@
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use calyx_core::FixedClock;
-use calyx_ledger::{ActorId, DirectoryLedgerStore, EntryKind, LedgerAppender, LedgerCfStore};
+use calyx_core::{FixedClock, Result as CalyxResult};
+use calyx_ledger::{
+    ActorId, DirectoryLedgerStore, EntryKind, LedgerAppender, LedgerCfStore, LedgerHeadAnchor,
+    LedgerRow, MemoryLedgerStore,
+};
 use proptest::prelude::*;
 use rand::SeedableRng;
 use rand_chacha::ChaCha8Rng;
@@ -96,6 +101,37 @@ fn read_ledger_row_count(path: &Path) -> usize {
         .scan()
         .expect("scan promotion ledger rows")
         .len()
+}
+
+#[derive(Clone, Default)]
+struct CountingStore {
+    inner: MemoryLedgerStore,
+    scans: Arc<AtomicUsize>,
+    reads: Arc<AtomicUsize>,
+}
+
+impl LedgerCfStore for CountingStore {
+    fn scan(&self) -> CalyxResult<Vec<LedgerRow>> {
+        self.scans.fetch_add(1, Ordering::SeqCst);
+        self.inner.scan()
+    }
+
+    fn read_seq(&self, seq: u64) -> CalyxResult<Option<LedgerRow>> {
+        self.reads.fetch_add(1, Ordering::SeqCst);
+        self.inner.read_seq(seq)
+    }
+
+    fn put_new(&mut self, seq: u64, bytes: &[u8]) -> CalyxResult<()> {
+        self.inner.put_new(seq, bytes)
+    }
+
+    fn head_anchor(&self) -> CalyxResult<Option<LedgerHeadAnchor>> {
+        self.inner.head_anchor()
+    }
+
+    fn put_head_anchor(&mut self, anchor: &LedgerHeadAnchor) -> CalyxResult<()> {
+        self.inner.put_head_anchor(anchor)
+    }
 }
 
 fn fsv_error(op: &str, path: &Path, detail: impl ToString) -> ForgeError {
@@ -369,6 +405,62 @@ fn rollback_uses_most_recent_promotion() -> Result<()> {
     println!(
         "promotion_two_promotions PASSED RolledBack=true demoted_tile=256 cache_tile={}",
         cache.get(&key).map_or(0, |cfg| cfg.tile_m)
+    );
+    Ok(())
+}
+
+#[test]
+fn rollback_reads_backwards_without_full_promotion_scan() -> Result<()> {
+    let store = CountingStore::default();
+    let scans = Arc::clone(&store.scans);
+    let reads = Arc::clone(&store.reads);
+    let mut ledger = LedgerAppender::open(store, FixedClock::new(1_000)).expect("open ledger");
+    let cache_path = unique_path("reverse_read_cache", "json");
+    let mut cache = AutotuneCache::load(&cache_path)?;
+    let target = key("gemm");
+    let other = key("cosine");
+    let first = config(64);
+    let second = config(128);
+    let third = config(256);
+
+    log_promotion(
+        &promotion_event(other.clone(), first.clone(), second.clone(), 111),
+        &mut ledger,
+        actor(),
+        None,
+    )?;
+    log_promotion(
+        &promotion_event(target.clone(), first.clone(), second.clone(), 222),
+        &mut ledger,
+        actor(),
+        None,
+    )?;
+    log_promotion(
+        &promotion_event(other, second.clone(), third.clone(), 333),
+        &mut ledger,
+        actor(),
+        None,
+    )?;
+    cache.insert(target.clone(), second.clone());
+    scans.store(0, Ordering::SeqCst);
+    reads.store(0, Ordering::SeqCst);
+
+    let demoted = rollback_promotion(
+        &mut cache,
+        &mut ledger,
+        &target,
+        &FixedClock::new(4_000),
+        actor(),
+        None,
+    )?;
+
+    assert_eq!(demoted, Some(second));
+    assert_eq!(cache.get(&target), Some(&first));
+    assert_eq!(scans.load(Ordering::SeqCst), 0);
+    assert_eq!(reads.load(Ordering::SeqCst), 3);
+    println!(
+        "promotion_reverse_read PASSED scans=0 read_seq={}",
+        reads.load(Ordering::SeqCst)
     );
     Ok(())
 }

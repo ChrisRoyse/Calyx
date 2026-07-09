@@ -4,7 +4,7 @@ use std::io::Write;
 use std::path::Path;
 
 use calyx_core::{Clock, LedgerRef};
-use calyx_ledger::{ActorId, EntryKind, LedgerAppender, LedgerCfStore, SubjectId};
+use calyx_ledger::{ActorId, EntryKind, LedgerAppender, LedgerCfStore, SubjectId, decode};
 use rand::Rng;
 use rand_chacha::ChaCha8Rng;
 use serde::{Deserialize, Serialize};
@@ -231,11 +231,28 @@ where
     S: LedgerCfStore,
     C: Clock,
 {
-    let mut events = promotion_ledger_events(ledger)?;
-    events.reverse();
-    Ok(events
-        .into_iter()
-        .find(|event| event.key == *key && event.action == PromotionAction::Promoted))
+    let subject = promotion_ledger_subject(key)?;
+    let mut seq = ledger.next_seq();
+    while seq > 0 {
+        seq -= 1;
+        let Some(row) = ledger
+            .store()
+            .read_seq(seq)
+            .map_err(|err| ledger_error("promotion_ledger_read_seq", err))?
+        else {
+            continue;
+        };
+        let entry =
+            decode(&row.bytes).map_err(|err| ledger_error("promotion_ledger_decode", err))?;
+        if entry.kind != EntryKind::Anneal || entry.subject != subject {
+            continue;
+        }
+        let event = decode_promotion_ledger_payload(&entry.payload)?;
+        if event.key == *key && event.action == PromotionAction::Promoted {
+            return Ok(Some(event));
+        }
+    }
+    Ok(None)
 }
 
 fn is_promotion_subject(subject: &SubjectId) -> bool {

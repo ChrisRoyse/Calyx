@@ -47,11 +47,13 @@ fn gemm_tiled_f32x16(
     n: usize,
     out: &mut [f32],
 ) -> Result<()> {
-    for col_tile in 0..n {
-        for row_tile in (0..m).step_by(TILE_M) {
-            let row_end = (row_tile + TILE_M).min(m);
-            for row in row_tile..row_end {
-                out[col_major(row, col_tile, m)] = dot_f32x16(a, b, row, col_tile, m, k);
+    let mut packed_a = vec![0.0; k];
+    for row_tile in (0..m).step_by(TILE_M) {
+        let row_end = (row_tile + TILE_M).min(m);
+        for row in row_tile..row_end {
+            pack_a_row(a, row, m, &mut packed_a);
+            for col in 0..n {
+                out[col_major(row, col, m)] = dot_packed_f32x16(&packed_a, b, col, k);
             }
         }
     }
@@ -66,35 +68,43 @@ fn gemm_tiled_f32x8(
     n: usize,
     out: &mut [f32],
 ) -> Result<()> {
-    for col_tile in 0..n {
-        for row_tile in (0..m).step_by(TILE_M) {
-            let row_end = (row_tile + TILE_M).min(m);
-            for row in row_tile..row_end {
-                out[col_major(row, col_tile, m)] = dot_f32x8(a, b, row, col_tile, m, k);
+    let mut packed_a = vec![0.0; k];
+    for row_tile in (0..m).step_by(TILE_M) {
+        let row_end = (row_tile + TILE_M).min(m);
+        for row in row_tile..row_end {
+            pack_a_row(a, row, m, &mut packed_a);
+            for col in 0..n {
+                out[col_major(row, col, m)] = dot_packed_f32x8(&packed_a, b, col, k);
             }
         }
     }
     Ok(())
 }
 
-fn dot_f32x16(a: &[f32], b: &[f32], row: usize, col: usize, m: usize, k: usize) -> f32 {
+fn pack_a_row(a: &[f32], row: usize, m: usize, packed: &mut [f32]) {
+    for (depth, slot) in packed.iter_mut().enumerate() {
+        *slot = a[col_major(row, depth, m)];
+    }
+}
+
+fn dot_packed_f32x16(a_row: &[f32], b: &[f32], col: usize, k: usize) -> f32 {
+    let b_col = b_col_slice(b, col, k);
     let mut sum = 0.0;
     let mut depth_tile = 0;
     while depth_tile < k {
         let depth_end = (depth_tile + TILE_K).min(k);
         let mut depth = depth_tile;
         while depth + 16 <= depth_end {
-            let mut a_lane = [0.0; 16];
-            let mut b_lane = [0.0; 16];
-            for lane in 0..16 {
-                let d = depth + lane;
-                a_lane[lane] = a[col_major(row, d, m)];
-                b_lane[lane] = b[col_major(d, col, k)];
-            }
+            let a_lane: &[f32; 16] = a_row[depth..depth + 16]
+                .try_into()
+                .expect("16-lane packed A slice");
+            let b_lane: &[f32; 16] = b_col[depth..depth + 16]
+                .try_into()
+                .expect("16-lane B column slice");
             // DETERMINISM: keep the AVX512 lane multiply, then reduce as two
             // explicit f32x8-compatible subtotals. A full f32x16 tree reduction
             // drifts from cuBLAS in near-zero cancellation cells.
-            let products = (f32x16::from(a_lane) * f32x16::from(b_lane)).to_array();
+            let products = (f32x16::from(*a_lane) * f32x16::from(*b_lane)).to_array();
             for lane_chunk in products.chunks_exact(8) {
                 let mut subtotal = 0.0;
                 for product in lane_chunk {
@@ -105,7 +115,7 @@ fn dot_f32x16(a: &[f32], b: &[f32], row: usize, col: usize, m: usize, k: usize) 
             depth += 16;
         }
         while depth < depth_end {
-            sum += a[col_major(row, depth, m)] * b[col_major(depth, col, k)];
+            sum += a_row[depth] * b_col[depth];
             depth += 1;
         }
         depth_tile += TILE_K;
@@ -113,30 +123,35 @@ fn dot_f32x16(a: &[f32], b: &[f32], row: usize, col: usize, m: usize, k: usize) 
     sum
 }
 
-fn dot_f32x8(a: &[f32], b: &[f32], row: usize, col: usize, m: usize, k: usize) -> f32 {
+fn dot_packed_f32x8(a_row: &[f32], b: &[f32], col: usize, k: usize) -> f32 {
+    let b_col = b_col_slice(b, col, k);
     let mut sum = 0.0;
     let mut depth_tile = 0;
     while depth_tile < k {
         let depth_end = (depth_tile + TILE_K).min(k);
         let mut depth = depth_tile;
         while depth + 8 <= depth_end {
-            let mut a_lane = [0.0; 8];
-            let mut b_lane = [0.0; 8];
-            for lane in 0..8 {
-                let d = depth + lane;
-                a_lane[lane] = a[col_major(row, d, m)];
-                b_lane[lane] = b[col_major(d, col, k)];
-            }
-            sum += (f32x8::from(a_lane) * f32x8::from(b_lane)).reduce_add();
+            let a_lane: &[f32; 8] = a_row[depth..depth + 8]
+                .try_into()
+                .expect("8-lane packed A slice");
+            let b_lane: &[f32; 8] = b_col[depth..depth + 8]
+                .try_into()
+                .expect("8-lane B column slice");
+            sum += (f32x8::from(*a_lane) * f32x8::from(*b_lane)).reduce_add();
             depth += 8;
         }
         while depth < depth_end {
-            sum += a[col_major(row, depth, m)] * b[col_major(depth, col, k)];
+            sum += a_row[depth] * b_col[depth];
             depth += 1;
         }
         depth_tile += TILE_K;
     }
     sum
+}
+
+fn b_col_slice(b: &[f32], col: usize, k: usize) -> &[f32] {
+    let start = col_major(0, col, k);
+    &b[start..start + k]
 }
 
 fn col_major(row: usize, col: usize, rows: usize) -> usize {
@@ -224,6 +239,30 @@ mod tests {
             out[out.len() - 1]
         );
         assert!(out.iter().all(|value| *value == TILE_K as f32));
+        Ok(())
+    }
+
+    #[test]
+    fn gemm_packed_strided_a_matches_scalar_tail() -> Result<()> {
+        let (m, k, n) = (3, 19, 5);
+        let a: Vec<_> = (0..m * k)
+            .map(|idx| (idx % 11) as f32 * 0.25 - 1.0)
+            .collect();
+        let b: Vec<_> = (0..k * n)
+            .map(|idx| (idx % 13) as f32 * 0.125 - 0.5)
+            .collect();
+        let mut out = vec![0.0; m * n];
+
+        gemm_f32(&a, &b, m, k, n, &mut out)?;
+
+        for col in 0..n {
+            for row in 0..m {
+                let actual = out[col_major(row, col, m)];
+                let expected = scalar_dot(&a, &b, row, col, m, k);
+                assert!((actual - expected).abs() <= 1e-5);
+            }
+        }
+        println!("GEMM_PACKED_STRIDED_A m={m} k={k} n={n} tail={}", k % 8);
         Ok(())
     }
 

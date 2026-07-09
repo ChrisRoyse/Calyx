@@ -5,6 +5,7 @@
 //! off Anneal dispatch when GPU power approaches the host budget.
 
 use std::process::Command;
+use std::sync::OnceLock;
 use std::time::Duration;
 
 use crate::vram::{Category, VRAM_BUDGET_REMEDIATION, VramBudgeter, VramGuard, VramProbe};
@@ -19,6 +20,7 @@ pub const DEFAULT_ANNEAL_THROTTLE_SLEEP: Duration = Duration::from_millis(50);
 
 const GPU_REMEDIATION: &str =
     "Check NVIDIA driver/NVML/nvidia-smi availability and confirm GPU power readback works";
+static NVML_HANDLE: OnceLock<std::result::Result<nvml_wrapper::Nvml, String>> = OnceLock::new();
 
 #[cfg(feature = "cuda")]
 pub type CudaStream = std::sync::Arc<cudarc::driver::CudaStream>;
@@ -121,13 +123,9 @@ impl YieldPolicy {
         }
     }
 
-    /// Record and sleep if current power requires Anneal throttling.
+    /// Record an Anneal throttle event without blocking the caller.
     pub fn throttle_anneal_if_needed<P: VramProbe>(&self, budgeter: &VramBudgeter<P>) -> bool {
-        self.throttle_anneal_if_needed_with(
-            budgeter,
-            &NvmlPowerProbe::default(),
-            Some(DEFAULT_ANNEAL_THROTTLE_SLEEP),
-        )
+        self.throttle_anneal_if_needed_with(budgeter, &NvmlPowerProbe::default(), None)
     }
 
     pub fn throttle_anneal_if_needed_with<B, P>(
@@ -233,9 +231,7 @@ impl NvmlPowerProbe {
     }
 
     fn nvml_power_draw_w(&self) -> Result<u32> {
-        let nvml = nvml_wrapper::Nvml::init().map_err(|err| {
-            gpu_error(format!("NVML init failed while querying GPU power: {err}"))
-        })?;
+        let nvml = nvml_handle()?;
         let device = nvml.device_by_index(self.device_index).map_err(|err| {
             gpu_error(format!(
                 "NVML device_by_index({}) failed while querying GPU power: {err}",
@@ -249,6 +245,15 @@ impl NvmlPowerProbe {
             ))
         })?;
         Ok(milliwatts.saturating_add(999) / 1000)
+    }
+}
+
+fn nvml_handle() -> Result<&'static nvml_wrapper::Nvml> {
+    match NVML_HANDLE.get_or_init(|| nvml_wrapper::Nvml::init().map_err(|err| err.to_string())) {
+        Ok(nvml) => Ok(nvml),
+        Err(err) => Err(gpu_error(format!(
+            "NVML init failed while querying GPU power: {err}"
+        ))),
     }
 }
 
