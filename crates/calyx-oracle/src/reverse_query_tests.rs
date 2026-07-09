@@ -13,6 +13,8 @@ use calyx_core::{
 use proptest::prelude::*;
 use serde_json::json;
 
+use crate::ORACLE_DOMAIN_METADATA_KEY;
+
 use super::*;
 
 const DOMAIN: &str = "reverse-query-fixture";
@@ -189,6 +191,74 @@ fn cycle_back_edge_terminates_without_duplicate_or_self_cause() {
     assert_eq!(causes[0].action_or_event, "cause_A");
 }
 
+#[test]
+fn repeated_occurrences_count_without_multiplying_recursive_walks() {
+    let vault = vault();
+    write_recurrence_edge(
+        &vault,
+        "cause_A",
+        AnchorValue::Text("effect_B".to_string()),
+        true,
+        5,
+    );
+    write_recurrence_edge(
+        &vault,
+        "root_C",
+        AnchorValue::Text("cause_A".to_string()),
+        true,
+        1,
+    );
+
+    let causes = reverse_query(
+        &vault,
+        &AnchorValue::Text("effect_B".to_string()),
+        DomainId::from(DOMAIN),
+        &FixedClock::new(51),
+    )
+    .unwrap();
+
+    assert_eq!(
+        causes
+            .iter()
+            .map(|cause| (cause.action_or_event.as_str(), cause.confidence))
+            .collect::<Vec<_>>(),
+        vec![("cause_A", 5.0 / 6.0), ("root_C", 0.5)]
+    );
+    let payload = ledger_payload(&vault, &causes[0].provenance);
+    assert_eq!(payload["stats"]["base_scans"], 1);
+    assert_eq!(payload["stats"]["base_rows_scanned"], 2);
+    assert_eq!(payload["stats"]["recurrence_range_scans"], 2);
+    assert_eq!(payload["stats"]["walk_calls"], 3);
+    assert_eq!(payload["stats"]["expanded_actions"], 2);
+    assert_eq!(payload["stats"]["matched_edges"], 6);
+}
+
+#[test]
+fn reverse_corpus_load_at_uses_one_snapshot_for_recurrence_ranges() {
+    let vault = vault();
+    write_base(&vault, "cause_late", "late-series");
+    let cx_id = cx_id("cause_late", "late-series");
+    let pinned = vault.snapshot();
+    write_recurrence_occurrence(
+        &vault,
+        cx_id,
+        "cause_late",
+        AnchorValue::Text("late_effect".to_string()),
+        true,
+        0,
+    );
+    let label = answer_label(&AnchorValue::Text("late_effect".to_string())).unwrap();
+
+    let stale = ReverseCorpus::load_at(&vault, &DomainId::from(DOMAIN), pinned).unwrap();
+    assert!(stale.recurrence_edges(&label).is_empty());
+    assert!(stale.action_edges("cause_late").is_empty());
+
+    let latest = ReverseCorpus::load(&vault, &DomainId::from(DOMAIN)).unwrap();
+    assert_eq!(latest.recurrence_edges(&label).len(), 1);
+    assert_eq!(latest.action_edges("cause_late").len(), 1);
+    assert_eq!(latest.stats().base_scans, 1);
+}
+
 proptest! {
     #[test]
     fn grounded_recurrence_is_never_marked_provisional(count in 1_u64..20) {
@@ -224,19 +294,30 @@ fn write_recurrence_edge(
     write_base(vault, from, &series_key);
     let cx_id = cx_id(from, &series_key);
     for index in 0..count {
-        let occurrence = Occurrence {
-            id: OccurrenceId(index),
-            t_k: EpochSecs(1_000 + index as i64),
-            context: OccurrenceContext::new(edge_context(from, outcome.clone(), grounded)).unwrap(),
-        };
-        vault
-            .write_cf(
-                ColumnFamily::Recurrence,
-                recurrence_key(cx_id, index),
-                encode_recurrence_row(&StoredRecurrenceRow::Occurrence(occurrence)).unwrap(),
-            )
-            .unwrap();
+        write_recurrence_occurrence(vault, cx_id, from, outcome.clone(), grounded, index);
     }
+}
+
+fn write_recurrence_occurrence(
+    vault: &AsterVault<FixedClock>,
+    cx_id: CxId,
+    from: &str,
+    outcome: AnchorValue,
+    grounded: bool,
+    index: u64,
+) {
+    let occurrence = Occurrence {
+        id: OccurrenceId(index),
+        t_k: EpochSecs(1_000 + index as i64),
+        context: OccurrenceContext::new(edge_context(from, outcome, grounded)).unwrap(),
+    };
+    vault
+        .write_cf(
+            ColumnFamily::Recurrence,
+            recurrence_key(cx_id, index),
+            encode_recurrence_row(&StoredRecurrenceRow::Occurrence(occurrence)).unwrap(),
+        )
+        .unwrap();
 }
 
 fn write_structural_edge(
@@ -327,6 +408,12 @@ fn ledger_row(vault: &AsterVault<FixedClock>, ref_: &LedgerRef) -> Option<Vec<u8
             &ledger_key(ref_.seq),
         )
         .unwrap()
+}
+
+fn ledger_payload(vault: &AsterVault<FixedClock>, ref_: &LedgerRef) -> serde_json::Value {
+    let bytes = ledger_row(vault, ref_).expect("ledger row");
+    let entry = calyx_ledger::decode(&bytes).expect("decode ledger");
+    serde_json::from_slice(&entry.payload).expect("decode reverse payload")
 }
 
 fn cx_id(action: &str, series_key: &str) -> CxId {

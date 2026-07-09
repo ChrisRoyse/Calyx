@@ -1,23 +1,19 @@
 //! Reverse Oracle traversal for epistemic symmetry.
 
+#[path = "reverse_query/corpus.rs"]
+mod corpus;
 #[path = "reverse_query_context.rs"]
 mod reverse_query_context;
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
-use calyx_aster::cf::ColumnFamily;
-use calyx_aster::recurrence::read_series;
-use calyx_aster::vault::{AsterVault, encode};
-use calyx_core::{AnchorValue, Clock, Constellation, LedgerRef, VaultStore, content_address};
+use calyx_aster::vault::AsterVault;
+use calyx_core::{AnchorValue, Clock, Constellation, LedgerRef, content_address};
 use calyx_ledger::{ActorId, EntryKind, SubjectId};
 use serde::Serialize;
 
-use crate::evidence_error;
-use crate::{
-    Cause, DomainId, ORACLE_ACTION_METADATA_KEY, ORACLE_DOMAIN_METADATA_KEY,
-    ORACLE_FALLBACK_DOMAIN_METADATA_KEY, OracleError,
-};
-use reverse_query_context::ReverseContext;
+use crate::{Cause, DomainId, ORACLE_ACTION_METADATA_KEY, OracleError};
+use corpus::{ActionGroup, ReverseCorpus, ReverseStats};
 
 pub const MAX_REVERSE_DEPTH: u8 = 3;
 pub const ORACLE_EFFECT_METADATA_KEY: &str = "oracle.effect";
@@ -37,11 +33,16 @@ pub fn reverse_query<C>(
 where
     C: Clock,
 {
-    let mut state = WalkState::new(answer)?;
-    walk_answer(vault, answer, &domain, 0, &mut state)?;
+    let corpus = ReverseCorpus::load(vault, &domain)?;
+    let mut state = WalkState::new(answer, corpus.stats())?;
+    let candidates = walk_answer(&corpus, answer, &domain, 0, &mut state)?;
 
     if !state.found {
         return Err(OracleError::DomainNotFound);
+    }
+
+    for candidate in candidates {
+        upsert_cause(&mut state.causes, candidate, &mut state.stats);
     }
 
     let stats = state.stats.clone();
@@ -59,163 +60,131 @@ where
 }
 
 struct WalkState {
-    visited_answers: BTreeSet<String>,
-    visited_actions: BTreeSet<String>,
+    visited_answers: HashSet<String>,
+    visited_actions: HashSet<String>,
+    expanded_cache: HashMap<String, Vec<CauseCandidate>>,
     causes: BTreeMap<CauseKey, CauseAccumulator>,
     stats: ReverseStats,
     found: bool,
 }
 
 impl WalkState {
-    fn new(answer: &AnchorValue) -> Result<Self, OracleError> {
+    fn new(answer: &AnchorValue, stats: ReverseStats) -> Result<Self, OracleError> {
         Ok(Self {
-            visited_answers: BTreeSet::from([answer_label(answer)?]),
+            visited_answers: HashSet::from([answer_label(answer)?]),
             visited_actions: action_labels_for_answer(answer),
+            expanded_cache: HashMap::new(),
             causes: BTreeMap::new(),
-            stats: ReverseStats::default(),
+            stats,
             found: false,
         })
     }
 }
 
-fn walk_answer<C>(
-    vault: &AsterVault<C>,
+fn walk_answer(
+    corpus: &ReverseCorpus,
     answer: &AnchorValue,
     domain: &DomainId,
     depth: u8,
     state: &mut WalkState,
-) -> Result<(), OracleError>
-where
-    C: Clock,
-{
+) -> Result<Vec<CauseCandidate>, OracleError> {
     state.stats.walk_calls += 1;
     if depth > MAX_REVERSE_DEPTH {
         state.stats.depth_prunes += 1;
-        return Ok(());
+        return Ok(Vec::new());
     }
 
-    let rows = vault
-        .scan_cf_at(vault.snapshot(), ColumnFamily::Base)
-        .map_err(|_| evidence_error::storage_read(domain, "scan base corpus"))?;
-    state.stats.base_rows_scanned += rows.len() as u64;
-
-    for (_, bytes) in rows {
-        let cx = encode::decode_constellation_base(&bytes)
-            .map_err(|_| evidence_error::corrupt(domain, "base constellation"))?;
-        if !matches_domain(&cx, domain) {
-            continue;
-        }
-        state.stats.domain_rows_scanned += 1;
-        collect_structural_cause(&cx, answer, domain, state);
-        collect_recurrence_causes(vault, &cx, answer, domain, depth, state)?;
-    }
-    Ok(())
-}
-
-fn collect_recurrence_causes<C>(
-    vault: &AsterVault<C>,
-    cx: &Constellation,
-    answer: &AnchorValue,
-    domain: &DomainId,
-    depth: u8,
-    state: &mut WalkState,
-) -> Result<(), OracleError>
-where
-    C: Clock,
-{
-    let series = read_series(vault, cx.cx_id)
-        .map_err(|error| evidence_error::recurrence_read(error, domain))?;
-    state.stats.recurrence_rows_scanned += series.occurrences.len() as u64;
-    let base_action = action_from_constellation(cx);
-    for occurrence in &series.occurrences {
-        if occurrence.context.bytes.is_empty() {
-            continue;
-        }
-        let parsed: ReverseContext = serde_json::from_slice(&occurrence.context.bytes)
-            .map_err(|_| evidence_error::corrupt(domain, "recurrence context"))?;
-        for edge in parsed.edges() {
-            if !edge.matches_answer(answer, domain) {
-                continue;
-            }
-            let Some(action) = parsed
-                .action()
-                .or(base_action.as_deref())
-                .filter(|value| !value.trim().is_empty())
-            else {
-                continue;
-            };
-            if state.visited_actions.contains(action) {
+    let label = answer_label(answer)?;
+    let mut candidates = collect_structural_causes(corpus, &label, domain, state);
+    let grouped = grouped_recurrence_edges(corpus, &label);
+    for (action, group) in grouped {
+        if state.visited_actions.contains(&action) {
+            if state.expanded_cache.contains_key(&action) {
+                state.stats.memo_hits += 1;
+            } else {
                 state.stats.cycle_skips += 1;
-                continue;
             }
-            state.found = true;
-            state.stats.matched_edges += 1;
-            let candidate = CauseCandidate {
-                action_or_event: action.to_string(),
-                domain: edge.domain_id(),
-                provisional: !edge.is_grounded(),
-                confidence: grounded_confidence(1),
-            };
-            let inserted_grounded = upsert_cause(&mut state.causes, candidate, &mut state.stats);
-            maybe_walk_antecedent(vault, action, domain, depth, inserted_grounded, state)?;
+            continue;
+        }
+        state.found = true;
+        state.stats.matched_edges += group.grounded_count + group.provisional_count;
+        let candidate = CauseCandidate {
+            action_or_event: action.clone(),
+            domain: group.domain(domain),
+            grounded_count: group.grounded_count,
+            provisional_count: group.provisional_count,
+            provisional_confidence: grounded_confidence(1),
+        };
+        let has_grounded = candidate.grounded_count > 0;
+        candidates.push(candidate);
+        if has_grounded && depth < MAX_REVERSE_DEPTH {
+            candidates.extend(expand_action(corpus, &action, domain, depth + 1, state)?);
         }
     }
-    Ok(())
+    Ok(candidates)
 }
 
-fn maybe_walk_antecedent<C>(
-    vault: &AsterVault<C>,
+fn collect_structural_causes(
+    corpus: &ReverseCorpus,
+    answer_label: &str,
+    domain: &DomainId,
+    state: &mut WalkState,
+) -> Vec<CauseCandidate> {
+    let mut candidates = Vec::new();
+    for edge in corpus.structural_edges(answer_label) {
+        state.found = true;
+        state.stats.structural_matches += 1;
+        candidates.push(CauseCandidate {
+            action_or_event: edge.action_or_event.clone(),
+            domain: domain.clone(),
+            grounded_count: 0,
+            provisional_count: 1,
+            provisional_confidence: edge.confidence,
+        });
+    }
+    candidates
+}
+
+fn grouped_recurrence_edges(
+    corpus: &ReverseCorpus,
+    answer_label: &str,
+) -> BTreeMap<String, ActionGroup> {
+    let mut grouped = BTreeMap::<String, ActionGroup>::new();
+    for edge in corpus.recurrence_edges(answer_label) {
+        grouped.entry(edge.action_id.clone()).or_default().add(edge);
+    }
+    grouped
+}
+
+fn expand_action(
+    corpus: &ReverseCorpus,
     action: &str,
     domain: &DomainId,
     depth: u8,
-    grounded: bool,
     state: &mut WalkState,
-) -> Result<(), OracleError>
-where
-    C: Clock,
-{
-    if !grounded || depth >= MAX_REVERSE_DEPTH {
-        return Ok(());
+) -> Result<Vec<CauseCandidate>, OracleError> {
+    if let Some(cached) = state.expanded_cache.get(action) {
+        state.stats.memo_hits += 1;
+        return Ok(cached.clone());
     }
     if state.visited_actions.contains(action) {
         state.stats.cycle_skips += 1;
-        return Ok(());
+        return Ok(Vec::new());
     }
     let next = AnchorValue::Text(action.to_string());
     let label = answer_label(&next)?;
-    if !state.visited_answers.insert(label) {
+    if !state.visited_answers.insert(label.clone()) {
         state.stats.cycle_skips += 1;
-        return Ok(());
+        return Ok(Vec::new());
     }
     state.visited_actions.insert(action.to_string());
-    walk_answer(vault, &next, domain, depth.saturating_add(1), state)?;
-    state.visited_answers.remove(&answer_label(&next)?);
-    state.visited_actions.remove(action);
-    Ok(())
-}
-
-fn collect_structural_cause(
-    cx: &Constellation,
-    answer: &AnchorValue,
-    domain: &DomainId,
-    state: &mut WalkState,
-) {
-    if !structural_answer_matches(cx, answer) {
-        return;
-    }
-    let Some(action) = action_from_constellation(cx) else {
-        return;
-    };
-    state.found = true;
-    state.stats.structural_matches += 1;
-    let confidence = structural_confidence(cx);
-    let candidate = CauseCandidate {
-        action_or_event: action,
-        domain: domain.clone(),
-        provisional: true,
-        confidence,
-    };
-    upsert_cause(&mut state.causes, candidate, &mut state.stats);
+    state.stats.expanded_actions += 1;
+    let expanded = walk_answer(corpus, &next, domain, depth, state)?;
+    state.visited_answers.remove(&label);
+    state
+        .expanded_cache
+        .insert(action.to_string(), expanded.clone());
+    Ok(expanded)
 }
 
 fn upsert_cause(
@@ -227,15 +196,15 @@ fn upsert_cause(
     let accumulator = causes
         .entry(key)
         .or_insert_with(|| CauseAccumulator::new(candidate.action_or_event, candidate.domain));
-    if candidate.provisional {
-        stats.provisional_causes_observed += 1;
-        accumulator.add_provisional(candidate.confidence);
-        false
-    } else {
-        stats.grounded_causes_observed += 1;
-        accumulator.add_grounded();
-        true
+    if candidate.grounded_count > 0 {
+        stats.grounded_causes_observed += candidate.grounded_count;
+        accumulator.add_grounded(candidate.grounded_count);
     }
+    if candidate.provisional_count > 0 {
+        stats.provisional_causes_observed += candidate.provisional_count;
+        accumulator.add_provisional(candidate.provisional_confidence);
+    }
+    candidate.grounded_count > 0
 }
 
 fn write_reverse_ledger<C>(
@@ -293,27 +262,10 @@ fn sort_causes(causes: &mut [Cause]) {
     });
 }
 
-fn structural_answer_matches(cx: &Constellation, answer: &AnchorValue) -> bool {
-    cx.anchors.iter().any(|anchor| &anchor.value == answer)
-        || cx
-            .metadata_value(ORACLE_EFFECT_METADATA_KEY)
-            .is_some_and(|value| metadata_anchor_matches(value, answer))
-}
-
-fn metadata_anchor_matches(raw: &str, answer: &AnchorValue) -> bool {
-    serde_json::from_str::<AnchorValue>(raw).is_ok_and(|value| value == *answer)
-        || matches!(answer, AnchorValue::Text(text) | AnchorValue::Enum(text) if raw == text)
-}
-
 fn action_from_constellation(cx: &Constellation) -> Option<String> {
     cx.metadata_value(ORACLE_ACTION_METADATA_KEY)
         .or_else(|| cx.metadata_value(ORACLE_FALLBACK_ACTION_METADATA_KEY))
         .map(ToOwned::to_owned)
-}
-
-fn matches_domain(cx: &Constellation, domain: &DomainId) -> bool {
-    cx.metadata_value(ORACLE_DOMAIN_METADATA_KEY) == Some(domain.as_str())
-        || cx.metadata_value(ORACLE_FALLBACK_DOMAIN_METADATA_KEY) == Some(domain.as_str())
 }
 
 fn structural_confidence(cx: &Constellation) -> f32 {
@@ -334,10 +286,10 @@ fn answer_label(answer: &AnchorValue) -> Result<String, OracleError> {
     })
 }
 
-fn action_labels_for_answer(answer: &AnchorValue) -> BTreeSet<String> {
+fn action_labels_for_answer(answer: &AnchorValue) -> HashSet<String> {
     match answer {
-        AnchorValue::Text(value) | AnchorValue::Enum(value) => BTreeSet::from([value.clone()]),
-        _ => BTreeSet::new(),
+        AnchorValue::Text(value) | AnchorValue::Enum(value) => HashSet::from([value.clone()]),
+        _ => HashSet::new(),
     }
 }
 
@@ -372,8 +324,9 @@ impl CauseKey {
 struct CauseCandidate {
     action_or_event: String,
     domain: DomainId,
-    provisional: bool,
-    confidence: f32,
+    grounded_count: u64,
+    provisional_count: u64,
+    provisional_confidence: f32,
 }
 
 #[derive(Clone, Debug)]
@@ -394,8 +347,8 @@ impl CauseAccumulator {
         }
     }
 
-    fn add_grounded(&mut self) {
-        self.grounded_count = self.grounded_count.saturating_add(1);
+    fn add_grounded(&mut self, count: u64) {
+        self.grounded_count = self.grounded_count.saturating_add(count);
     }
 
     fn add_provisional(&mut self, confidence: f32) {
@@ -419,20 +372,6 @@ impl CauseAccumulator {
             },
         }
     }
-}
-
-#[derive(Clone, Debug, Default, PartialEq, Serialize)]
-struct ReverseStats {
-    walk_calls: u64,
-    base_rows_scanned: u64,
-    domain_rows_scanned: u64,
-    recurrence_rows_scanned: u64,
-    matched_edges: u64,
-    structural_matches: u64,
-    grounded_causes_observed: u64,
-    provisional_causes_observed: u64,
-    cycle_skips: u64,
-    depth_prunes: u64,
 }
 
 #[derive(Clone, Debug, Serialize)]

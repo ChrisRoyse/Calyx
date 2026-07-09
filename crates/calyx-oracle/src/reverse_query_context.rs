@@ -44,12 +44,12 @@ pub(super) struct EdgeEvidence {
 }
 
 impl EdgeEvidence {
-    pub(super) fn matches_answer(&self, answer: &AnchorValue, domain: &DomainId) -> bool {
-        self.outcome.value == *answer && self.domain == domain.as_str()
-    }
-
     pub(super) fn domain_id(&self) -> DomainId {
         DomainId::from(self.domain.clone())
+    }
+
+    pub(super) fn outcome(&self) -> &AnchorValue {
+        &self.outcome.value
     }
 
     pub(super) fn is_grounded(&self) -> bool {
