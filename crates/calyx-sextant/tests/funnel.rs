@@ -128,7 +128,7 @@ fn fixture_at(root: PathBuf, n_regions: u32, per_region: u32) -> Fixture {
         u64::from(n_regions * per_region),
         Some(kernel),
         region_ann,
-        FinalCxSearch::DiskAnn(final_ann),
+        FinalCxSearch::DiskAnn(Box::new(final_ann)),
         partitions,
     )
     .with_min_vault_size(u64::from(n_regions * per_region));
@@ -370,7 +370,7 @@ fn extract_region_ann(root: &Path, n_regions: usize) -> DiskAnnSearch {
 
 fn extract_final_ann(root: &Path, n: usize) -> FinalCxSearch {
     let ids = (0..n as u32).map(cx).collect::<Vec<_>>();
-    FinalCxSearch::DiskAnn(
+    FinalCxSearch::DiskAnn(Box::new(
         DiskAnnSearch::open(
             SlotId::new(91),
             root.join("idx/slot_00.ann/graph.cda"),
@@ -379,7 +379,7 @@ fn extract_final_ann(root: &Path, n: usize) -> FinalCxSearch {
             search_params(n),
         )
         .expect("open final ann"),
-    )
+    ))
 }
 
 fn brute_region_top(

@@ -23,6 +23,7 @@ blake3.workspace = true
 calyx-anneal = { path = "../calyx-anneal" }
 calyx-aster = { path = "../calyx-aster" }
 calyx-core = { path = "../calyx-core" }
+calyx-forge = { path = "../calyx-forge" }
 calyx-paths = { path = "../calyx-paths" }
 calyx-ward = { path = "../calyx-ward" }
 memmap2.workspace = true

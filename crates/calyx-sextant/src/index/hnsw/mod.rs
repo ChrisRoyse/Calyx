@@ -1,12 +1,14 @@
 //! Deterministic in-RAM dense HNSW-style index.
 
 mod graph;
+mod quant;
 mod scored;
 
 use std::collections::HashMap;
 
 use calyx_aster::gc::{AnnIndexGraph, AnnTombstoneStats};
 use calyx_core::{CxId, Result, SlotId, SlotShape, SlotVector};
+use calyx_forge::{PreparedQuant, TurboQuantCodec};
 
 use super::{IndexSearchHit, IndexStats, QuantConfig, SextantIndex, ranked};
 use crate::error::{
@@ -19,6 +21,7 @@ use crate::util::{cosine, dense, top_k};
 struct Row {
     cx_id: CxId,
     vector: Vec<f32>,
+    prepared: Option<PreparedQuant>,
     seq: u64,
     level: u8,
     neighbors: Vec<usize>,
@@ -36,6 +39,7 @@ pub struct HnswIndex {
     fingerprints: HashMap<[u8; 32], Vec<usize>>,
     entry_point: Option<usize>,
     quant: QuantConfig,
+    turbo_codec: Option<TurboQuantCodec>,
     built_at_seq: u64,
     base_seq: u64,
 }
@@ -52,14 +56,23 @@ impl HnswIndex {
             fingerprints: HashMap::new(),
             entry_point: None,
             quant: QuantConfig::none(),
+            turbo_codec: None,
             built_at_seq: 0,
             base_seq: 0,
         }
     }
 
     pub fn with_quant(mut self, quant: QuantConfig) -> Self {
+        self.turbo_codec = self.turbo_codec_for(&quant);
         self.quant = quant;
         self
+    }
+
+    pub fn turboquant_prepared_count(&self) -> usize {
+        self.rows
+            .iter()
+            .filter(|row| !row.deleted && row.prepared.is_some())
+            .count()
     }
 
     pub fn neighbor_counts(&self) -> Vec<usize> {
@@ -243,9 +256,11 @@ impl SextantIndex for HnswIndex {
             ));
         }
         self.quant.lock_after_first_insert();
+        let prepared = self.prepare_turbo(values)?;
         if let Some(&index) = self.positions.get(&cx_id) {
             self.remove_fingerprint(index);
             self.rows[index].vector = values.to_vec();
+            self.rows[index].prepared = prepared;
             self.rows[index].seq = seq;
             self.rows[index].deleted = false;
             self.index_fingerprint(index);
@@ -258,6 +273,7 @@ impl SextantIndex for HnswIndex {
         self.rows.push(Row {
             cx_id,
             vector: values.to_vec(),
+            prepared,
             seq,
             level,
             neighbors: Vec::new(),
@@ -299,6 +315,7 @@ impl SextantIndex for HnswIndex {
         }
         let query = self.checked_query(query)?;
         let needed = k.min(live_len);
+        let query_prepared = self.prepare_turbo(query)?;
         let ef = ef
             .unwrap_or_else(|| needed.max(self.max_neighbors * 2))
             .min(self.rows.len());
@@ -314,8 +331,8 @@ impl SextantIndex for HnswIndex {
                 "hnsw search requested on an empty index",
             )
         })?;
-        let start = self.greedy_descent(query, entry);
-        let results = self.beam_search(query, start, ef);
+        let start = self.greedy_descent(query, query_prepared.as_ref(), entry);
+        let results = self.beam_search(query, query_prepared.as_ref(), start, ef);
         let mut merged = HashMap::<CxId, f32>::new();
         for (cx_id, score) in results.into_iter().chain(self.exact_vector_hits(query)) {
             merged
@@ -323,7 +340,7 @@ impl SextantIndex for HnswIndex {
                 .and_modify(|existing| *existing = existing.max(score))
                 .or_insert(score);
         }
-        let mut results = top_k(merged.into_iter().collect(), k);
+        let mut results = self.exact_rerank(query, merged, k);
         results.truncate(k);
         Ok(ranked(results))
     }

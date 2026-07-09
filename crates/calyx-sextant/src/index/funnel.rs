@@ -180,8 +180,8 @@ pub struct FunnelHit {
 
 #[derive(Debug)]
 pub enum FinalCxSearch {
-    DiskAnn(DiskAnnSearch),
-    Spann(SpannSearch),
+    DiskAnn(Box<DiskAnnSearch>),
+    Spann(Box<SpannSearch>),
 }
 
 impl FinalCxSearch {

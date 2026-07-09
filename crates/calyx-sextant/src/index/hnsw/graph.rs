@@ -1,13 +1,13 @@
 use std::collections::{BinaryHeap, HashSet};
 
 use calyx_core::CxId;
+use calyx_forge::PreparedQuant;
 
 use super::HnswIndex;
 use super::scored::{
     ScoredIndex, diversified_neighbors, score_better, sort_scored, top_k_indices, worst_position,
     worst_scored,
 };
-use crate::util::cosine;
 
 const EXACT_CONSTRUCTION_ROWS: usize = 4_096;
 const CONSTRUCTION_EF: usize = 64;
@@ -21,7 +21,8 @@ impl HnswIndex {
             return;
         }
         let query = self.rows[index].vector.clone();
-        let mut neighbors = self.construction_candidates(index, &query);
+        let query_prepared = self.rows[index].prepared.clone();
+        let mut neighbors = self.construction_candidates(index, &query, query_prepared.as_ref());
         append_stride_neighbors(index, &mut neighbors);
         neighbors.sort_unstable();
         neighbors.dedup();
@@ -45,13 +46,18 @@ impl HnswIndex {
         }
     }
 
-    fn construction_candidates(&self, index: usize, query: &[f32]) -> Vec<usize> {
+    fn construction_candidates(
+        &self,
+        index: usize,
+        query: &[f32],
+        query_prepared: Option<&PreparedQuant>,
+    ) -> Vec<usize> {
         if index <= EXACT_CONSTRUCTION_ROWS {
-            return self.exhaustive_candidates(index, query);
+            return self.exhaustive_candidates(index, query, query_prepared);
         }
-        let candidates = self.approximate_candidate_set(index, query);
+        let candidates = self.approximate_candidate_set(index, query, query_prepared);
         let mut neighbors = top_k_indices(
-            scored_from_indices(self, &candidates, query),
+            scored_from_indices(self, &candidates, query, query_prepared),
             self.max_neighbors,
         );
         for level in 1..=self.rows[index].level {
@@ -59,19 +65,24 @@ impl HnswIndex {
                 .iter()
                 .copied()
                 .filter(|idx| self.rows[*idx].level >= level)
-                .map(|idx| (idx, cosine(query, &self.rows[idx].vector)))
+                .map(|idx| (idx, self.score_row(query, query_prepared, idx)))
                 .collect();
             neighbors.extend(top_k_indices(level_scored, self.max_neighbors));
         }
         neighbors
     }
 
-    fn exhaustive_candidates(&self, index: usize, query: &[f32]) -> Vec<usize> {
+    fn exhaustive_candidates(
+        &self,
+        index: usize,
+        query: &[f32],
+        query_prepared: Option<&PreparedQuant>,
+    ) -> Vec<usize> {
         let mut neighbors = top_k_indices(
             self.rows[..index]
                 .iter()
                 .enumerate()
-                .map(|(idx, row)| (idx, cosine(query, &row.vector)))
+                .map(|(idx, _row)| (idx, self.score_row(query, query_prepared, idx)))
                 .collect(),
             self.max_neighbors,
         );
@@ -81,7 +92,7 @@ impl HnswIndex {
                     .iter()
                     .enumerate()
                     .filter(|(_, row)| row.level >= level)
-                    .map(|(idx, row)| (idx, cosine(query, &row.vector)))
+                    .map(|(idx, _row)| (idx, self.score_row(query, query_prepared, idx)))
                     .collect(),
                 self.max_neighbors,
             ));
@@ -89,14 +100,20 @@ impl HnswIndex {
         neighbors
     }
 
-    fn approximate_candidate_set(&self, index: usize, query: &[f32]) -> Vec<usize> {
+    fn approximate_candidate_set(
+        &self,
+        index: usize,
+        query: &[f32],
+        query_prepared: Option<&PreparedQuant>,
+    ) -> Vec<usize> {
         let mut candidates = Vec::with_capacity(CONSTRUCTION_EF + RECENT_CONSTRUCTION_SCAN + 24);
         let ef = CONSTRUCTION_EF.min(index).max(self.max_neighbors);
         if let Some(entry) = self.entry_point_before(index) {
-            let start = self.greedy_descent_before(query, entry, index);
+            let start = self.greedy_descent_before(query, query_prepared, entry, index);
             candidates.extend(
                 self.beam_search_indices(
                     query,
+                    query_prepared,
                     start,
                     ef,
                     index,
@@ -116,13 +133,19 @@ impl HnswIndex {
 
     fn prune_neighbors(&mut self, index: usize) {
         let vector = self.rows[index].vector.clone();
+        let prepared = self.rows[index].prepared.clone();
         let mut candidates = self.rows[index].neighbors.clone();
         candidates.sort_unstable();
         candidates.dedup();
         candidates.retain(|neighbor| *neighbor != index && *neighbor < self.rows.len());
         let scored: Vec<_> = candidates
             .into_iter()
-            .map(|neighbor| (neighbor, cosine(&vector, &self.rows[neighbor].vector)))
+            .map(|neighbor| {
+                (
+                    neighbor,
+                    self.score_row(&vector, prepared.as_ref(), neighbor),
+                )
+            })
             .collect();
         self.rows[index].neighbors = diversified_neighbors(scored, index, self.max_neighbors);
     }
@@ -144,24 +167,35 @@ impl HnswIndex {
             .map(|(idx, _)| idx)
     }
 
-    pub(super) fn greedy_descent(&self, query: &[f32], current: usize) -> usize {
-        self.greedy_descent_before(query, current, self.rows.len())
+    pub(super) fn greedy_descent(
+        &self,
+        query: &[f32],
+        query_prepared: Option<&PreparedQuant>,
+        current: usize,
+    ) -> usize {
+        self.greedy_descent_before(query, query_prepared, current, self.rows.len())
     }
 
-    fn greedy_descent_before(&self, query: &[f32], mut current: usize, limit: usize) -> usize {
+    fn greedy_descent_before(
+        &self,
+        query: &[f32],
+        query_prepared: Option<&PreparedQuant>,
+        mut current: usize,
+        limit: usize,
+    ) -> usize {
         if current >= limit {
             return current;
         }
         let max_level = self.rows[current].level;
         for level in (1..=max_level).rev() {
             loop {
-                let current_score = cosine(query, &self.rows[current].vector);
+                let current_score = self.score_row(query, query_prepared, current);
                 let mut best = (current, current_score);
                 for &neighbor in &self.rows[current].neighbors {
                     if neighbor >= limit || self.rows[neighbor].level < level {
                         continue;
                     }
-                    let score = cosine(query, &self.rows[neighbor].vector);
+                    let score = self.score_row(query, query_prepared, neighbor);
                     if score_better((neighbor, score), best) {
                         best = (neighbor, score);
                     }
@@ -175,12 +209,19 @@ impl HnswIndex {
         current
     }
 
-    pub(super) fn beam_search(&self, query: &[f32], entry: usize, ef: usize) -> Vec<(CxId, f32)> {
+    pub(super) fn beam_search(
+        &self,
+        query: &[f32],
+        query_prepared: Option<&PreparedQuant>,
+        entry: usize,
+        ef: usize,
+    ) -> Vec<(CxId, f32)> {
         let effective_ef = ef
             .saturating_add(self.tombstone_count())
             .min(self.rows.len());
         self.beam_search_indices(
             query,
+            query_prepared,
             entry,
             effective_ef,
             self.rows.len(),
@@ -195,12 +236,13 @@ impl HnswIndex {
     fn beam_search_indices(
         &self,
         query: &[f32],
+        query_prepared: Option<&PreparedQuant>,
         entry: usize,
         ef: usize,
         limit: usize,
         visit_multiplier: usize,
     ) -> Vec<(usize, f32)> {
-        let entry_score = cosine(query, &self.rows[entry].vector);
+        let entry_score = self.score_row(query, query_prepared, entry);
         let max_visits = ef.saturating_mul(visit_multiplier).min(limit);
         let mut visited = HashSet::with_capacity(max_visits);
         let mut candidates = BinaryHeap::new();
@@ -229,7 +271,7 @@ impl HnswIndex {
                 if neighbor >= limit || !visited.insert(neighbor) {
                     continue;
                 }
-                let scored = (neighbor, cosine(query, &self.rows[neighbor].vector));
+                let scored = (neighbor, self.score_row(query, query_prepared, neighbor));
                 candidates.push(ScoredIndex {
                     idx: scored.0,
                     score: scored.1,
@@ -252,11 +294,12 @@ fn scored_from_indices(
     index: &HnswIndex,
     candidates: &[usize],
     query: &[f32],
+    query_prepared: Option<&PreparedQuant>,
 ) -> Vec<(usize, f32)> {
     candidates
         .iter()
         .copied()
-        .map(|idx| (idx, cosine(query, &index.rows[idx].vector)))
+        .map(|idx| (idx, index.score_row(query, query_prepared, idx)))
         .collect()
 }
 

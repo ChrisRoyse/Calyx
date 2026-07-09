@@ -889,6 +889,7 @@ dependencies = [
  "calyx-anneal",
  "calyx-aster",
  "calyx-core",
+ "calyx-forge",
  "calyx-fsv",
  "calyx-loom",
  "calyx-oracle",
