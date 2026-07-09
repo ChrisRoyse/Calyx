@@ -32,6 +32,10 @@ struct SparseIndex {
     base_seq: u64,
     rows: Vec<SparseRow>,
     postings: BTreeMap<u32, Vec<SparsePosting>>,
+    #[serde(default)]
+    doc_lengths: BTreeMap<CxId, usize>,
+    #[serde(default)]
+    avg_doc_len: f32,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -211,6 +215,7 @@ fn build_index(
         })
         .collect::<Vec<_>>();
     let postings = postings_from_rows(&rows);
+    let (doc_lengths, avg_doc_len) = sparse_stats(&rows);
     SparseIndex {
         format: SPARSE_FORMAT.to_string(),
         slot: slot.get(),
@@ -218,6 +223,8 @@ fn build_index(
         base_seq,
         rows,
         postings,
+        doc_lengths,
+        avg_doc_len,
     }
 }
 
@@ -243,12 +250,13 @@ fn read(
             "persistent sparse sidecar sha256 {actual} != manifest {expected}; rebuild the vault search indexes"
         )));
     }
-    let index: SparseIndex = serde_json::from_slice(&bytes).map_err(|err| {
+    let mut index: SparseIndex = serde_json::from_slice(&bytes).map_err(|err| {
         stale(format!(
             "persistent sparse sidecar {} is not valid JSON: {err}; rebuild the vault search indexes",
             path.display()
         ))
     })?;
+    hydrate_sparse_stats(&mut index);
     validate(&index, entry, manifest_base_seq, slot)?;
     Ok(index)
 }
@@ -337,6 +345,17 @@ fn validate(
             "persistent sparse postings do not match row payloads; rebuild the vault search indexes",
         ));
     }
+    let (expected_doc_lengths, expected_avg_doc_len) = sparse_stats(&index.rows);
+    if index.doc_lengths != expected_doc_lengths {
+        return Err(stale(
+            "persistent sparse doc-length metadata does not match row payloads; rebuild the vault search indexes",
+        ));
+    }
+    if (index.avg_doc_len - expected_avg_doc_len).abs() > f32::EPSILON {
+        return Err(stale(
+            "persistent sparse average doc length does not match row payloads; rebuild the vault search indexes",
+        ));
+    }
     Ok(())
 }
 
@@ -357,23 +376,34 @@ fn postings_from_rows(rows: &[SparseRow]) -> BTreeMap<u32, Vec<SparsePosting>> {
     out
 }
 
+fn hydrate_sparse_stats(index: &mut SparseIndex) {
+    if index.doc_lengths.is_empty() && index.avg_doc_len == 0.0 {
+        let (doc_lengths, avg_doc_len) = sparse_stats(&index.rows);
+        index.doc_lengths = doc_lengths;
+        index.avg_doc_len = avg_doc_len;
+    }
+}
+
+fn sparse_stats(rows: &[SparseRow]) -> (BTreeMap<CxId, usize>, f32) {
+    let doc_lengths = rows
+        .iter()
+        .map(|row| (row.cx_id, row.doc_len))
+        .collect::<BTreeMap<_, _>>();
+    let avg_doc_len = if rows.is_empty() {
+        0.0
+    } else {
+        doc_lengths.values().sum::<usize>() as f32 / rows.len() as f32
+    };
+    (doc_lengths, avg_doc_len)
+}
+
 fn score(
     index: &SparseIndex,
     query: &[SparseEntry],
     candidates: Option<&BTreeSet<CxId>>,
 ) -> Vec<(CxId, f32)> {
     let query_terms = query.iter().map(|entry| entry.idx).collect::<BTreeSet<_>>();
-    let doc_len = index
-        .rows
-        .iter()
-        .map(|row| (row.cx_id, row.doc_len))
-        .collect::<BTreeMap<_, _>>();
     let total_docs = index.rows.len();
-    let avg_len = if total_docs == 0 {
-        0.0
-    } else {
-        doc_len.values().sum::<usize>() as f32 / total_docs as f32
-    };
     let scorer = Bm25::default();
     let mut scores = BTreeMap::<CxId, f32>::new();
     for term in query_terms {
@@ -385,8 +415,8 @@ fn score(
             if candidates.is_some_and(|allowed| !allowed.contains(&posting.cx_id)) {
                 continue;
             }
-            let len = *doc_len.get(&posting.cx_id).unwrap_or(&1);
-            let score = scorer.score_term(posting.tf, len, avg_len, total_docs, df);
+            let len = *index.doc_lengths.get(&posting.cx_id).unwrap_or(&1);
+            let score = scorer.score_term(posting.tf, len, index.avg_doc_len, total_docs, df);
             *scores.entry(posting.cx_id).or_default() += score;
         }
     }

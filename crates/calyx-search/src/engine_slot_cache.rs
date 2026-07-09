@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::fmt::Write as _;
 use std::path::Path;
 use std::time::Instant;
@@ -17,31 +17,50 @@ use crate::persisted::PersistedSearchIndexes;
 const CACHE_KEY_SCHEMA: &str = "calyx-search-slot-cache-key-v1";
 const CACHE_KEY_ERROR: &str = "CALYX_SEARCH_SLOT_CACHE_KEY_INCOMPLETE";
 const CACHE_KEY_REMEDIATION: &str = "include vault path, manifest fingerprint, freshness policy, guard, candidate universe, selected slots, search_k, and measured query vector hashes before reusing slot search results";
+const DEFAULT_MAX_ENTRIES: usize = 128;
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SearchSlotCacheDiagnostic {
     pub entry_count: usize,
+    pub max_entries: usize,
     pub lookup_count: usize,
     pub hit_count: usize,
     pub miss_count: usize,
+    pub eviction_count: usize,
     pub stored_slot_count: usize,
     pub stored_hit_count: usize,
     pub stored_search_elapsed_ms: u128,
     pub last_key_sha256: Option<String>,
 }
 
-#[derive(Default, Debug)]
+#[derive(Debug)]
 pub struct SearchSlotCache {
     entries: BTreeMap<String, CachedSearchSlots>,
+    order: VecDeque<String>,
+    max_entries: usize,
     lookup_count: usize,
     hit_count: usize,
     miss_count: usize,
+    eviction_count: usize,
     last_key_sha256: Option<String>,
 }
 
 impl SearchSlotCache {
     pub fn new() -> Self {
-        Self::default()
+        Self::with_capacity(DEFAULT_MAX_ENTRIES)
+    }
+
+    pub fn with_capacity(max_entries: usize) -> Self {
+        Self {
+            entries: BTreeMap::new(),
+            order: VecDeque::new(),
+            max_entries: max_entries.max(1),
+            lookup_count: 0,
+            hit_count: 0,
+            miss_count: 0,
+            eviction_count: 0,
+            last_key_sha256: None,
+        }
     }
 
     pub fn diagnostics(&self) -> SearchSlotCacheDiagnostic {
@@ -55,13 +74,40 @@ impl SearchSlotCache {
         }
         SearchSlotCacheDiagnostic {
             entry_count: self.entries.len(),
+            max_entries: self.max_entries,
             lookup_count: self.lookup_count,
             hit_count: self.hit_count,
             miss_count: self.miss_count,
+            eviction_count: self.eviction_count,
             stored_slot_count,
             stored_hit_count,
             stored_search_elapsed_ms,
             last_key_sha256: self.last_key_sha256.clone(),
+        }
+    }
+
+    fn touch(&mut self, key: &str) {
+        self.order.retain(|entry| entry != key);
+        self.order.push_back(key.to_string());
+    }
+
+    fn insert(&mut self, key: String, entry: CachedSearchSlots) {
+        let replaced = self.entries.insert(key.clone(), entry).is_some();
+        self.touch(&key);
+        if replaced {
+            return;
+        }
+        while self.entries.len() > self.max_entries {
+            let Some(evicted) = self.order.pop_front() else {
+                break;
+            };
+            if evicted == key {
+                self.order.push_back(evicted);
+                continue;
+            }
+            if self.entries.remove(&evicted).is_some() {
+                self.eviction_count += 1;
+            }
         }
     }
 }
@@ -147,13 +193,14 @@ pub(crate) fn search_slots_with_cache(
         )),
     );
 
-    if let Some(entry) = cache.entries.get(&key_sha256) {
+    if let Some(entry) = cache.entries.get(&key_sha256).cloned() {
         if entry.key != key {
             return Err(cache_key_error(format!(
                 "slot search cache key digest collision key_sha256={key_sha256}"
             )));
         }
         cache.hit_count += 1;
+        cache.touch(&key_sha256);
         let slot_count = entry.slot_elapsed_ms.len();
         let hit_count = entry.per_slot.values().map(Vec::len).sum::<usize>();
         trace.emit_detail(
@@ -204,7 +251,7 @@ pub(crate) fn search_slots_with_cache(
             key_sha256, hit_count, search_elapsed_ms
         )),
     );
-    cache.entries.insert(
+    cache.insert(
         key_sha256,
         CachedSearchSlots {
             key,
@@ -401,4 +448,50 @@ fn sha256_hex(bytes: &[u8]) -> String {
         write!(&mut out, "{byte:02x}").expect("writing to String cannot fail");
     }
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cache_evicts_least_recently_used_entry_at_capacity() {
+        let mut cache = SearchSlotCache::with_capacity(2);
+        cache.insert("a".to_string(), entry("a"));
+        cache.insert("b".to_string(), entry("b"));
+        cache.touch("a");
+        cache.insert("c".to_string(), entry("c"));
+
+        let diagnostic = cache.diagnostics();
+        assert_eq!(diagnostic.entry_count, 2);
+        assert_eq!(diagnostic.max_entries, 2);
+        assert_eq!(diagnostic.eviction_count, 1);
+        assert!(cache.entries.contains_key("a"));
+        assert!(!cache.entries.contains_key("b"));
+        assert!(cache.entries.contains_key("c"));
+    }
+
+    fn entry(label: &'static str) -> CachedSearchSlots {
+        CachedSearchSlots {
+            key: SearchSlotCacheKey {
+                schema: CACHE_KEY_SCHEMA,
+                vault_dir: label.to_string(),
+                manifest_base_seq: 1,
+                manifest_sha256: label.to_string(),
+                freshness: "fresh",
+                guard: "off",
+                search_k: 1,
+                selected_slots: Vec::new(),
+                query_vectors: Vec::new(),
+                candidate_universe: CandidateUniverseKey {
+                    mode: "unfiltered",
+                    count: 0,
+                    sha256: None,
+                },
+            },
+            per_slot: BTreeMap::new(),
+            slot_elapsed_ms: BTreeMap::new(),
+            search_elapsed_ms: 0,
+        }
+    }
 }

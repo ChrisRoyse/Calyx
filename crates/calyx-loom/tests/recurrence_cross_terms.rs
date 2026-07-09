@@ -45,6 +45,26 @@ fn lead_lag_negative_when_b_leads_a() {
 }
 
 #[test]
+fn co_occurrence_pairs_use_half_open_sliding_window() {
+    let a = series(cx(1), &[100, 200]);
+    let b = series(cx(2), &[80, 90, 100, 109, 110, 120, 180, 190, 209, 220]);
+
+    let pairs = co_occurrence_pairs(&a, &b, 20);
+
+    assert_eq!(
+        pairs,
+        vec![
+            (EpochSecs(100), EpochSecs(90)),
+            (EpochSecs(100), EpochSecs(100)),
+            (EpochSecs(100), EpochSecs(109)),
+            (EpochSecs(100), EpochSecs(110)),
+            (EpochSecs(200), EpochSecs(190)),
+            (EpochSecs(200), EpochSecs(209)),
+        ]
+    );
+}
+
+#[test]
 fn no_nearby_or_insufficient_pairs_returns_none() {
     let a = series(cx(1), &[100, 200, 300, 400, 500]);
     let far = series(cx(2), &[1_000, 2_000]);

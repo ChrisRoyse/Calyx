@@ -33,12 +33,23 @@ pub fn co_occurrence_pairs(
     }
     let window = i128::from(window_secs);
     let mut pairs = Vec::new();
+    let mut start_b = 0_usize;
+    let mut end_b = 0_usize;
     for occurrence_a in &series_a.occurrences {
-        for occurrence_b in &series_b.occurrences {
-            let delta = i128::from(occurrence_b.t_k.0) - i128::from(occurrence_a.t_k.0);
-            if delta.abs() < window {
-                pairs.push((occurrence_a.t_k, occurrence_b.t_k));
-            }
+        let time_a = i128::from(occurrence_a.t_k.0);
+        while start_b < series_b.occurrences.len()
+            && i128::from(series_b.occurrences[start_b].t_k.0) <= time_a - window
+        {
+            start_b += 1;
+        }
+        end_b = end_b.max(start_b);
+        while end_b < series_b.occurrences.len()
+            && i128::from(series_b.occurrences[end_b].t_k.0) < time_a + window
+        {
+            end_b += 1;
+        }
+        for occurrence_b in &series_b.occurrences[start_b..end_b] {
+            pairs.push((occurrence_a.t_k, occurrence_b.t_k));
         }
     }
     pairs

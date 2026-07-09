@@ -64,6 +64,8 @@ fn rebuild_writes_sparse_and_multi_sidecars_and_searches() {
             .ends_with(".multi.segments.json")
     );
     assert_eq!(sparse_json["format"], "calyx-search-sparse-index-v1");
+    assert_eq!(sparse_json["doc_lengths"].as_object().unwrap().len(), 3);
+    assert!(sparse_json["avg_doc_len"].as_f64().unwrap() > 0.0);
     assert_eq!(
         multi_manifest["format"],
         "calyx-search-multi-maxsim-segments-v1"
