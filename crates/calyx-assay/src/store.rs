@@ -10,6 +10,7 @@ use serde::{Deserialize, Serialize};
 use crate::estimate::MiEstimate;
 
 type AsterAssayRow = (ColumnFamily, Vec<u8>, Vec<u8>);
+const ASSAY_SCAN_PAGE_ROWS: usize = 1024;
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct AssayCacheKey {
@@ -167,21 +168,23 @@ impl AssayStore {
         Ok(store)
     }
 
-    pub fn load_from_vault<C>(vault: &AsterVault<C>) -> Result<Self>
-    where
-        C: Clock,
-    {
+    pub fn load_from_vault<C: Clock>(vault: &AsterVault<C>) -> Result<Self> {
         Self::load_from_vault_at(vault, vault.snapshot())
     }
 
-    pub fn load_from_vault_at<C>(vault: &AsterVault<C>, snapshot: u64) -> Result<Self>
-    where
-        C: Clock,
-    {
+    pub fn load_from_vault_at<C: Clock>(vault: &AsterVault<C>, snapshot: u64) -> Result<Self> {
         let mut store = Self::default();
-        for (key, value) in vault.scan_cf_at(snapshot, ColumnFamily::Assay)? {
-            store.insert_aster_row(key, value)?;
-        }
+        vault.scan_cf_pages_at(
+            snapshot,
+            ColumnFamily::Assay,
+            ASSAY_SCAN_PAGE_ROWS,
+            |rows| {
+                for (key, value) in rows {
+                    store.insert_aster_row(key, value)?;
+                }
+                Ok::<(), CalyxError>(())
+            },
+        )?;
         Ok(store)
     }
 
@@ -380,8 +383,9 @@ mod tests {
         let subject = AssaySubject::Lens {
             slot: SlotId::new(2),
         };
+        let vault_b: VaultId = "01BX5ZZKBKACTAV9WEVGEMMVS0".parse().unwrap();
         let key_a = AssayCacheKey::scoped(7, "shared", vault_a(), AnchorKind::Reward);
-        let key_b = AssayCacheKey::scoped(7, "shared", vault_b(), AnchorKind::Reward);
+        let key_b = AssayCacheKey::scoped(7, "shared", vault_b, AnchorKind::Reward);
         let key_c = AssayCacheKey::scoped(
             7,
             "shared",
@@ -490,9 +494,5 @@ mod tests {
 
     fn vault_a() -> VaultId {
         "01ARZ3NDEKTSV4RRFFQ69G5FAV".parse().unwrap()
-    }
-
-    fn vault_b() -> VaultId {
-        "01BX5ZZKBKACTAV9WEVGEMMVS0".parse().unwrap()
     }
 }

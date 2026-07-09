@@ -192,6 +192,13 @@ fn latest_readback_merges_router_sst_with_wal_overlay_and_blocks_history() {
         .scan_cf_range_page_at(snapshot, ColumnFamily::Base, &range, Some(b"b"), 1, &clock)
         .unwrap();
     assert!(overlay_done.is_empty());
+    assert_eq!(
+        collect_cf_pages(&latest, snapshot, &clock, 1),
+        [
+            (b"a".to_vec(), b"wal-a".to_vec()),
+            (b"b".to_vec(), b"wal-b".to_vec())
+        ]
+    );
 
     let historical = Snapshot::new(
         1,
@@ -202,6 +209,103 @@ fn latest_readback_merges_router_sst_with_wal_overlay_and_blocks_history() {
         .read_at(historical, ColumnFamily::Base, b"a", &clock)
         .unwrap_err();
     assert_eq!(error.code, "CALYX_ASTER_LATEST_ONLY_HISTORY_UNAVAILABLE");
+    cleanup(dir);
+}
+
+#[test]
+fn scan_cf_pages_matches_materialized_scan_and_holds_snapshot() {
+    let store = VersionedCfStore::default();
+    let clock = FixedClock::new(100);
+    store
+        .commit_batch([
+            (ColumnFamily::Base, b"a".to_vec(), b"v1-a".to_vec()),
+            (ColumnFamily::Base, b"c".to_vec(), b"v1-c".to_vec()),
+        ])
+        .unwrap();
+    let snapshot = store.pin_snapshot(Freshness::FreshDerived, &clock, 1_000);
+    store
+        .commit_batch([
+            (ColumnFamily::Base, b"b".to_vec(), b"v2-b".to_vec()),
+            (ColumnFamily::Base, b"c".to_vec(), b"v2-c".to_vec()),
+        ])
+        .unwrap();
+
+    let materialized = store
+        .scan_cf_at(snapshot, ColumnFamily::Base, &clock)
+        .unwrap();
+    let streamed = collect_cf_pages(&store, snapshot, &clock, 1);
+
+    assert_eq!(
+        materialized,
+        [
+            (b"a".to_vec(), b"v1-a".to_vec()),
+            (b"c".to_vec(), b"v1-c".to_vec())
+        ]
+    );
+    assert_eq!(streamed, materialized);
+}
+
+#[test]
+fn scan_cf_pages_never_emits_more_than_limit() {
+    let store = VersionedCfStore::default();
+    let clock = FixedClock::new(100);
+    let rows = (0..37)
+        .map(|index| {
+            (
+                ColumnFamily::Base,
+                format!("k{index:03}").into_bytes(),
+                format!("v{index:03}").into_bytes(),
+            )
+        })
+        .collect::<Vec<_>>();
+    store.commit_batch(rows).unwrap();
+    let snapshot = store.pin_snapshot(Freshness::FreshDerived, &clock, 1_000);
+
+    let mut page_lengths = Vec::new();
+    let mut streamed = Vec::new();
+    store
+        .scan_cf_pages_at(snapshot, ColumnFamily::Base, 7, &clock, |page| {
+            page_lengths.push(page.len());
+            streamed.extend(page);
+            Ok::<(), calyx_core::CalyxError>(())
+        })
+        .unwrap();
+
+    assert!(page_lengths.iter().all(|len| *len <= 7));
+    assert!(page_lengths.len() > 1);
+    assert_eq!(streamed.len(), 37);
+    assert_eq!(
+        streamed,
+        store
+            .scan_cf_at(snapshot, ColumnFamily::Base, &clock)
+            .unwrap()
+    );
+}
+
+#[test]
+fn scan_cf_pages_matches_router_sst_only_scan() {
+    let dir = test_dir("router-page-sst-only");
+    let writer = VersionedCfStore::new_with_router(0, CfRouter::open(&dir, 1024).unwrap());
+    writer
+        .commit_batch([
+            (ColumnFamily::Base, b"a".to_vec(), b"sst-a".to_vec()),
+            (ColumnFamily::Base, b"b".to_vec(), b"sst-b".to_vec()),
+            (ColumnFamily::Base, b"c".to_vec(), b"sst-c".to_vec()),
+        ])
+        .unwrap();
+    writer.flush_all_cfs().unwrap();
+
+    let store =
+        VersionedCfStore::new_with_router_latest_readback(1, CfRouter::open(&dir, 1024).unwrap());
+    let clock = FixedClock::new(100);
+    let snapshot = store.pin_snapshot(Freshness::FreshDerived, &clock, 1_000);
+    let materialized = store
+        .scan_cf_at(snapshot, ColumnFamily::Base, &clock)
+        .unwrap();
+    let streamed = collect_cf_pages(&store, snapshot, &clock, 2);
+
+    assert_eq!(streamed, materialized);
+    assert_eq!(streamed.len(), 3);
     cleanup(dir);
 }
 
@@ -236,10 +340,34 @@ fn aster_vault_put_flushes_through_router_to_cf_ssts() {
             .unwrap()
             .is_some()
     );
+    let mut streamed = Vec::new();
+    vault
+        .scan_cf_pages_at(vault.latest_seq(), ColumnFamily::Base, 1, |page| {
+            streamed.extend(page);
+            Ok::<(), calyx_core::CalyxError>(())
+        })
+        .unwrap();
+    assert_eq!(streamed.len(), 1);
     println!(
         "ASTER_VAULT_ROUTER_FLUSH base_ssts={} slot_ssts={}",
         sst_count(dir.join("cf/base")),
         sst_count(dir.join("cf/slot_00"))
     );
     cleanup(dir);
+}
+
+fn collect_cf_pages(
+    store: &VersionedCfStore,
+    snapshot: Snapshot,
+    clock: &FixedClock,
+    limit: usize,
+) -> Vec<(Vec<u8>, Vec<u8>)> {
+    let mut rows = Vec::new();
+    store
+        .scan_cf_pages_at(snapshot, ColumnFamily::Base, limit, clock, |page| {
+            rows.extend(page);
+            Ok::<(), calyx_core::CalyxError>(())
+        })
+        .unwrap();
+    rows
 }

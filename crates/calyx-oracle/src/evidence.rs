@@ -16,6 +16,7 @@ use crate::{
 };
 
 const ORACLE_FALLBACK_ACTION_METADATA_KEY: &str = "action";
+const BASE_SCAN_PAGE_ROWS: usize = 1024;
 
 #[derive(Clone, Debug)]
 pub(crate) struct OracleEvidence {
@@ -42,9 +43,6 @@ impl OracleEvidence {
         C: Clock,
     {
         let assay = AssayStore::load_from_vault_at(vault, snapshot).map_err(OracleError::from)?;
-        let base_rows = vault
-            .scan_cf_at(snapshot, ColumnFamily::Base)
-            .map_err(|_| evidence_error::storage_read(domain, "scan base corpus"))?;
         let mut evidence = Self {
             snapshot,
             assay,
@@ -52,20 +50,30 @@ impl OracleEvidence {
             stats: OracleEvidenceStats {
                 assay_scans: 1,
                 base_scans: 1,
-                base_rows_scanned: base_rows.len() as u64,
                 ..OracleEvidenceStats::default()
             },
         };
 
-        for (_, bytes) in base_rows {
-            let cx = encode::decode_constellation_base(&bytes)
-                .map_err(|_| evidence_error::corrupt(domain, "base constellation"))?;
-            if !matches_domain(&cx, domain) {
-                continue;
-            }
-            evidence.stats.domain_rows_scanned += 1;
-            evidence.collect_recurrence(vault, &cx, domain)?;
-        }
+        vault
+            .scan_cf_pages_at(
+                snapshot,
+                ColumnFamily::Base,
+                BASE_SCAN_PAGE_ROWS,
+                |rows| -> Result<(), evidence_error::ScanError> {
+                    evidence.stats.base_rows_scanned += rows.len() as u64;
+                    for (_, bytes) in rows {
+                        let cx = encode::decode_constellation_base(&bytes)
+                            .map_err(|_| evidence_error::corrupt(domain, "base constellation"))?;
+                        if !matches_domain(&cx, domain) {
+                            continue;
+                        }
+                        evidence.stats.domain_rows_scanned += 1;
+                        evidence.collect_recurrence(vault, &cx, domain)?;
+                    }
+                    Ok(())
+                },
+            )
+            .map_err(|error| evidence_error::scan_read(error, domain, "scan base corpus"))?;
         Ok(evidence)
     }
 

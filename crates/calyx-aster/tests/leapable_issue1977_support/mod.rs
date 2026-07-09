@@ -411,15 +411,12 @@ pub(crate) fn create_dir_link(target: &Path, link: &Path) -> std::io::Result<Str
                 if output.status.success() {
                     Ok("windows-junction".to_string())
                 } else {
-                    Err(std::io::Error::new(
-                        std::io::ErrorKind::Other,
-                        format!(
-                            "symlink_dir failed: {symlink_error}; mklink /J failed: status={} stdout={} stderr={}",
-                            output.status,
-                            String::from_utf8_lossy(&output.stdout),
-                            String::from_utf8_lossy(&output.stderr)
-                        ),
-                    ))
+                    Err(std::io::Error::other(format!(
+                        "symlink_dir failed: {symlink_error}; mklink /J failed: status={} stdout={} stderr={}",
+                        output.status,
+                        String::from_utf8_lossy(&output.stdout),
+                        String::from_utf8_lossy(&output.stderr)
+                    )))
                 }
             }
         }

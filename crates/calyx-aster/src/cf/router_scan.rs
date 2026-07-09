@@ -4,22 +4,13 @@ use crate::sst::level::SstLevel;
 use calyx_core::CalyxError;
 
 impl CfRouter {
-    pub fn range_pages_until<F, E>(
+    pub(crate) fn range_page_sources(
         &self,
         cf: ColumnFamily,
         start: &[u8],
         end: Option<&[u8]>,
-        limit: usize,
         mut overlay: Vec<SstEntry>,
-        on_page: F,
-    ) -> std::result::Result<(), E>
-    where
-        F: FnMut(Vec<SstEntry>) -> std::result::Result<(), E>,
-        E: From<CalyxError>,
-    {
-        if limit == 0 {
-            return Ok(());
-        }
+    ) -> (SstLevel, Vec<SstEntry>) {
         if let Some(table) = self.memtables.get(&cf) {
             overlay.extend(
                 table
@@ -29,13 +20,26 @@ impl CfRouter {
                     .map(|(key, value)| SstEntry { key, value }),
             );
         }
-        match self.levels.get(&cf) {
-            Some(level) => {
-                level.range_pages_with_overlay(start, end, None, limit, overlay, on_page)
-            }
-            None => {
-                SstLevel::new().range_pages_with_overlay(start, end, None, limit, overlay, on_page)
-            }
+        (self.levels.get(&cf).cloned().unwrap_or_default(), overlay)
+    }
+
+    pub fn range_pages_until<F, E>(
+        &self,
+        cf: ColumnFamily,
+        start: &[u8],
+        end: Option<&[u8]>,
+        limit: usize,
+        overlay: Vec<SstEntry>,
+        on_page: F,
+    ) -> std::result::Result<(), E>
+    where
+        F: FnMut(Vec<SstEntry>) -> std::result::Result<(), E>,
+        E: From<CalyxError>,
+    {
+        if limit == 0 {
+            return Ok(());
         }
+        let (level, overlay) = self.range_page_sources(cf, start, end, overlay);
+        level.range_pages_with_overlay(start, end, None, limit, overlay, on_page)
     }
 }

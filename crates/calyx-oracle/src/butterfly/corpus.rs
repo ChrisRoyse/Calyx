@@ -12,6 +12,8 @@ use crate::{
     ORACLE_FALLBACK_DOMAIN_METADATA_KEY, OracleError,
 };
 
+const BASE_SCAN_PAGE_ROWS: usize = 1024;
+
 pub(super) struct DomainCorpus {
     children_by_action: BTreeMap<String, Vec<ChildCandidate>>,
 }
@@ -31,21 +33,33 @@ impl DomainCorpus {
         C: Clock,
     {
         let snapshot = vault.snapshot();
-        let rows = vault
-            .scan_cf_at(snapshot, ColumnFamily::Base)
-            .map_err(|_| evidence_error::storage_read(domain, "scan base corpus"))?;
-        let mut stats = DomainCorpusStats {
-            base_rows_scanned: rows.len() as u64,
-            ..DomainCorpusStats::default()
-        };
+        let mut stats = DomainCorpusStats::default();
         let mut grouped = BTreeMap::<String, BTreeMap<ChildKey, ChildCandidate>>::new();
-        for (_, bytes) in rows {
-            let cx = encode::decode_constellation_base(&bytes)
-                .map_err(|_| evidence_error::corrupt(domain, "base constellation"))?;
-            if matches_domain(&cx, domain) {
-                collect_children(vault, snapshot, &cx, domain, &mut stats, &mut grouped)?;
-            }
-        }
+        vault
+            .scan_cf_pages_at(
+                snapshot,
+                ColumnFamily::Base,
+                BASE_SCAN_PAGE_ROWS,
+                |rows| -> Result<(), evidence_error::ScanError> {
+                    stats.base_rows_scanned += rows.len() as u64;
+                    for (_, bytes) in rows {
+                        let cx = encode::decode_constellation_base(&bytes)
+                            .map_err(|_| evidence_error::corrupt(domain, "base constellation"))?;
+                        if matches_domain(&cx, domain) {
+                            collect_children(
+                                vault,
+                                snapshot,
+                                &cx,
+                                domain,
+                                &mut stats,
+                                &mut grouped,
+                            )?;
+                        }
+                    }
+                    Ok(())
+                },
+            )
+            .map_err(|error| evidence_error::scan_read(error, domain, "scan base corpus"))?;
         Ok((
             Self {
                 children_by_action: grouped

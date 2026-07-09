@@ -16,6 +16,8 @@ use super::{
     ORACLE_EFFECT_METADATA_KEY, action_from_constellation, answer_label, structural_confidence,
 };
 
+const BASE_SCAN_PAGE_ROWS: usize = 1024;
+
 #[derive(Clone, Debug)]
 pub(super) struct ReverseCorpus {
     snapshot: u64,
@@ -41,9 +43,6 @@ impl ReverseCorpus {
     where
         C: Clock,
     {
-        let rows = vault
-            .scan_cf_at(snapshot, ColumnFamily::Base)
-            .map_err(|_| evidence_error::storage_read(domain, "scan base corpus"))?;
         let mut corpus = Self {
             snapshot,
             by_outcome: BTreeMap::new(),
@@ -52,21 +51,31 @@ impl ReverseCorpus {
             stats: ReverseStats {
                 snapshot_seq: snapshot,
                 base_scans: 1,
-                base_rows_scanned: rows.len() as u64,
                 ..ReverseStats::default()
             },
         };
 
-        for (_, bytes) in rows {
-            let cx = encode::decode_constellation_base(&bytes)
-                .map_err(|_| evidence_error::corrupt(domain, "base constellation"))?;
-            if !matches_domain(&cx, domain) {
-                continue;
-            }
-            corpus.stats.domain_rows_scanned += 1;
-            corpus.collect_structural_edges(&cx, domain)?;
-            corpus.collect_recurrence_edges(vault, &cx, domain)?;
-        }
+        vault
+            .scan_cf_pages_at(
+                snapshot,
+                ColumnFamily::Base,
+                BASE_SCAN_PAGE_ROWS,
+                |rows| -> Result<(), evidence_error::ScanError> {
+                    corpus.stats.base_rows_scanned += rows.len() as u64;
+                    for (_, bytes) in rows {
+                        let cx = encode::decode_constellation_base(&bytes)
+                            .map_err(|_| evidence_error::corrupt(domain, "base constellation"))?;
+                        if !matches_domain(&cx, domain) {
+                            continue;
+                        }
+                        corpus.stats.domain_rows_scanned += 1;
+                        corpus.collect_structural_edges(&cx, domain)?;
+                        corpus.collect_recurrence_edges(vault, &cx, domain)?;
+                    }
+                    Ok(())
+                },
+            )
+            .map_err(|error| evidence_error::scan_read(error, domain, "scan base corpus"))?;
         Ok(corpus)
     }
 

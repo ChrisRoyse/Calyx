@@ -26,6 +26,7 @@ const DEFAULT_SCAN_LIMIT: usize = 100;
 const MAX_SCAN_LIMIT: usize = 1000;
 const TOMBSTONE_INDEX_MARKER: &[u8] = b"cx_tombstone_index_built_v1";
 const TOMBSTONE_INDEX_PREFIX: &[u8] = b"cx_tombstone_v1/";
+const LEDGER_SCAN_PAGE_ROWS: usize = 1024;
 const TOMBSTONE_SCAN_LIMIT: usize = MAX_SCAN_LIMIT;
 
 pub(super) struct PreparedPut {
@@ -208,12 +209,20 @@ pub(super) fn ensure_tombstone_index(handle: &VaultHandle) -> EngineResult<()> {
         return Ok(());
     }
     let mut rows = Vec::new();
-    for (_, bytes) in handle.vault.scan_cf_at(snapshot, ColumnFamily::Ledger)? {
-        let entry = decode_ledger(&bytes)?;
-        if let Some(tombstone) = tombstone_from_entry(&entry)? {
-            rows.push(tombstone_index_row(&tombstone));
-        }
-    }
+    handle.vault.scan_cf_pages_at(
+        snapshot,
+        ColumnFamily::Ledger,
+        LEDGER_SCAN_PAGE_ROWS,
+        |page| -> EngineResult<()> {
+            for (_, bytes) in page {
+                let entry = decode_ledger(&bytes)?;
+                if let Some(tombstone) = tombstone_from_entry(&entry)? {
+                    rows.push(tombstone_index_row(&tombstone));
+                }
+            }
+            Ok(())
+        },
+    )?;
     rows.push((
         ColumnFamily::Leapable,
         TOMBSTONE_INDEX_MARKER.to_vec(),

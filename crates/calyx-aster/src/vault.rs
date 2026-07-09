@@ -299,13 +299,13 @@ where
         self.write_cf_batch([(cf, key, value)])
     }
 
-    /// Scans visible raw CF rows at `snapshot`.
+    /// Scans visible raw CF rows at `snapshot`; use `scan_cf_pages_at` for large data CFs.
     pub fn scan_cf_at(&self, snapshot: Seq, cf: ColumnFamily) -> Result<Vec<(Vec<u8>, Vec<u8>)>> {
         self.rows
             .scan_cf_at(self.snapshot_handle(snapshot), cf, &self.clock)
     }
 
-    /// Scans visible raw CF rows using an already-pinned snapshot lease.
+    /// Scans visible raw CF rows for a pinned lease; use `scan_cf_pages_snapshot` for large data.
     pub fn scan_cf_snapshot(
         &self,
         snapshot: Snapshot,

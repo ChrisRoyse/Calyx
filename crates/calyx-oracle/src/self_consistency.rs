@@ -48,7 +48,7 @@ where
         stats.provisional,
         None,
     );
-    let provenance = write_ledger(vault, &domain, &stats, &result, clock)?;
+    let provenance = write_ledger(vault, domain, &stats, &result, clock)?;
     result.provenance = Some(provenance);
     Ok(result)
 }

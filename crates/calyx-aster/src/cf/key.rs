@@ -67,6 +67,13 @@ pub struct KeyRange {
 }
 
 impl KeyRange {
+    pub fn all() -> Self {
+        Self {
+            start: Vec::new(),
+            end: None,
+        }
+    }
+
     pub fn contains(&self, key: &[u8]) -> bool {
         key >= self.start.as_slice() && self.end.as_ref().is_none_or(|end| key < end.as_slice())
     }
