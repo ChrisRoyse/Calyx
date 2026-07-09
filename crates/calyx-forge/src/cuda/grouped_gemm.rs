@@ -1,8 +1,11 @@
+mod launch;
+
 use cudarc::cublas::{CudaBlas, result::CublasError, sys};
 use cudarc::driver::{CudaSlice, DevicePtr, DevicePtrMut};
 
 use crate::cpu::check_finite;
 use crate::{CudaContext, ForgeError, Result};
+use launch::{LaunchData, launch_grouped, launch_sequential};
 
 const GROUPED_REMEDIATION: &str =
     "Validate grouped GEMM slab offsets, dimensions, and cuBLAS grouped support";
@@ -187,7 +190,7 @@ fn execute_grouped_gemm_with_blas(
         let (b_base, _b_guard) = plan.b_slab.device_ptr(&stream);
         let (c_base, _c_guard) = plan.c_slab.device_ptr_mut(&stream);
         let launch = LaunchData::new(&plan.active, a_base, b_base, c_base)?;
-        let group_count = to_i32(launch.group_sizes.len(), "group_count")?;
+        let group_count = to_i32(launch.group_count(), "group_count")?;
         let grouped = launch_grouped(*blas.handle(), &launch, group_count);
         if let Err(err) = grouped {
             if err.0 != sys::cublasStatus_t::CUBLAS_STATUS_NOT_SUPPORTED {
@@ -281,131 +284,6 @@ fn validate_active_again(plan: &GroupedGemmPlan) -> Result<()> {
     Ok(())
 }
 
-struct LaunchData {
-    trans: Vec<sys::cublasOperation_t>,
-    ms: Vec<i32>,
-    ns: Vec<i32>,
-    ks: Vec<i32>,
-    alphas: Vec<f32>,
-    betas: Vec<f32>,
-    ldas: Vec<i32>,
-    ldbs: Vec<i32>,
-    ldcs: Vec<i32>,
-    group_sizes: Vec<i32>,
-    a_ptrs: Vec<*const f32>,
-    b_ptrs: Vec<*const f32>,
-    c_ptrs: Vec<*mut f32>,
-    active: Vec<GemmProblem>,
-}
-
-impl LaunchData {
-    fn new(active: &[ActiveGemmProblem], a_base: u64, b_base: u64, c_base: u64) -> Result<Self> {
-        let mut data = Self::empty();
-        let mut current_dims = None;
-        for item in active {
-            let problem = item.problem;
-            let dims = (problem.m, problem.k, problem.n);
-            if current_dims != Some(dims) {
-                data.push_group(problem)?;
-                current_dims = Some(dims);
-            }
-            *data.group_sizes.last_mut().expect("group exists") += 1;
-            data.a_ptrs.push(offset_ptr(a_base, problem.a_offset));
-            data.b_ptrs.push(offset_ptr(b_base, problem.b_offset));
-            data.c_ptrs.push(offset_mut_ptr(c_base, problem.c_offset));
-            data.active.push(problem);
-        }
-        Ok(data)
-    }
-
-    fn empty() -> Self {
-        Self {
-            trans: Vec::new(),
-            ms: Vec::new(),
-            ns: Vec::new(),
-            ks: Vec::new(),
-            alphas: Vec::new(),
-            betas: Vec::new(),
-            ldas: Vec::new(),
-            ldbs: Vec::new(),
-            ldcs: Vec::new(),
-            group_sizes: Vec::new(),
-            a_ptrs: Vec::new(),
-            b_ptrs: Vec::new(),
-            c_ptrs: Vec::new(),
-            active: Vec::new(),
-        }
-    }
-
-    fn push_group(&mut self, problem: GemmProblem) -> Result<()> {
-        self.trans.push(sys::cublasOperation_t::CUBLAS_OP_N);
-        self.ms.push(to_i32(problem.m, "m")?);
-        self.ns.push(to_i32(problem.n, "n")?);
-        self.ks.push(to_i32(problem.k, "k")?);
-        self.alphas.push(1.0);
-        self.betas.push(0.0);
-        self.ldas.push(to_i32(problem.m, "lda")?);
-        self.ldbs.push(to_i32(problem.k, "ldb")?);
-        self.ldcs.push(to_i32(problem.m, "ldc")?);
-        self.group_sizes.push(0);
-        Ok(())
-    }
-}
-
-fn launch_grouped(
-    handle: sys::cublasHandle_t,
-    data: &LaunchData,
-    group_count: i32,
-) -> std::result::Result<(), CublasError> {
-    unsafe {
-        sys::cublasSgemmGroupedBatched(
-            handle,
-            data.trans.as_ptr(),
-            data.trans.as_ptr(),
-            data.ms.as_ptr(),
-            data.ns.as_ptr(),
-            data.ks.as_ptr(),
-            data.alphas.as_ptr(),
-            data.a_ptrs.as_ptr(),
-            data.ldas.as_ptr(),
-            data.b_ptrs.as_ptr(),
-            data.ldbs.as_ptr(),
-            data.betas.as_ptr(),
-            data.c_ptrs.as_ptr(),
-            data.ldcs.as_ptr(),
-            group_count,
-            data.group_sizes.as_ptr(),
-        )
-        .result()
-    }
-}
-
-fn launch_sequential(handle: sys::cublasHandle_t, data: &LaunchData) -> Result<()> {
-    for (idx, problem) in data.active.iter().enumerate() {
-        unsafe {
-            sys::cublasSgemm_v2(
-                handle,
-                sys::cublasOperation_t::CUBLAS_OP_N,
-                sys::cublasOperation_t::CUBLAS_OP_N,
-                to_i32(problem.m, "m")?,
-                to_i32(problem.n, "n")?,
-                to_i32(problem.k, "k")?,
-                &1.0,
-                data.a_ptrs[idx],
-                to_i32(problem.m, "lda")?,
-                data.b_ptrs[idx],
-                to_i32(problem.k, "ldb")?,
-                &0.0,
-                data.c_ptrs[idx],
-                to_i32(problem.m, "ldc")?,
-            )
-            .result()
-        }
-        .map_err(|err| cublas_error(format!("sequential cublasSgemm_v2 failed: {err}")))?;
-    }
-    Ok(())
-}
-
 fn check_device_output(ctx: &CudaContext, plan: &GroupedGemmPlan) -> Result<()> {
     let values = read_device(ctx, &plan.c_slab)?;
     for item in &plan.active {
@@ -459,18 +337,6 @@ fn read_device(ctx: &CudaContext, out: &CudaSlice<f32>) -> Result<Vec<f32>> {
         .default_stream()
         .clone_dtoh(out)
         .map_err(|err| device_unavailable(ctx, format!("read grouped output failed: {err}")))
-}
-
-fn offset_ptr(base: u64, offset: usize) -> *const f32 {
-    (base + byte_offset(offset)) as *const f32
-}
-
-fn offset_mut_ptr(base: u64, offset: usize) -> *mut f32 {
-    (base + byte_offset(offset)) as *mut f32
-}
-
-fn byte_offset(offset: usize) -> u64 {
-    (offset * std::mem::size_of::<f32>()) as u64
 }
 
 fn matrix_len(rows: usize, cols: usize, name: &str) -> Result<usize> {

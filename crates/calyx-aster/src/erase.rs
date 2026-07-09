@@ -1,5 +1,6 @@
 //! Lawful/user-requested erasure for Aster vault content (PH61 T01).
 
+mod format;
 mod ledger;
 
 use crate::cf::{
@@ -10,6 +11,7 @@ use crate::mvcc::tombstone_value;
 use crate::vault::{AsterVault, VaultContext, encode};
 use calyx_core::{CalyxError, Clock, Constellation, CxId, Result, Ts, VaultId};
 use calyx_ledger::{EntryKind, ErasureTombstone, SubjectId};
+use format::hex;
 use serde::{Deserialize, Serialize};
 
 /// Metadata key used by `EraseScope::Subject`.
@@ -488,10 +490,6 @@ fn push_unique(targets: &mut Vec<EraseTarget>, cf: ColumnFamily, key: Vec<u8>) {
     {
         targets.push(EraseTarget { cf, key });
     }
-}
-
-fn hex(bytes: &[u8]) -> String {
-    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
 #[cfg(test)]

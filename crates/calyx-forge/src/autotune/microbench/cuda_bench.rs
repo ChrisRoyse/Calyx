@@ -3,7 +3,7 @@ use crate::{
     cpu::check_finite,
     cuda::{
         distance::{launch_cosine_batch_gpu, read_checked_device_output},
-        gemm::{gemm_cublas_with_blas, new_blas},
+        gemm::{GemmCublasRequest, GemmDims, gemm_cublas_with_blas, new_blas},
         grouped_gemm::{execute_grouped_gemm_bench, new_grouped_blas, validate_output},
     },
 };
@@ -39,7 +39,14 @@ pub(super) fn bench_cuda_gemm(
         .map_err(|err| cuda_device_error(ctx, op, format!("allocate GEMM C failed: {err}")))?;
     let blas = new_blas(ctx)?;
     let result = time_op(op, iters, flops, || {
-        gemm_cublas_with_blas(ctx, &blas, &a_dev, &b_dev, m, k, n, &mut out_dev)?;
+        gemm_cublas_with_blas(GemmCublasRequest {
+            ctx,
+            blas: &blas,
+            a: &a_dev,
+            b: &b_dev,
+            dims: GemmDims::new(m, k, n),
+            out: &mut out_dev,
+        })?;
         sync_cuda(ctx, op)
     })?;
     let values = stream
