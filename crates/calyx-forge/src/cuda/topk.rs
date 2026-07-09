@@ -4,7 +4,7 @@ use std::sync::Arc;
 use cudarc::driver::{CudaModule, CudaSlice, LaunchConfig, PushKernelArg};
 use cudarc::nvrtc::Ptx;
 
-use crate::cuda::kernels::TOPK_PTX;
+use crate::cuda::kernels::{TOPK_CUBIN, TOPK_PTX};
 use crate::{CUDA_EXACT_TOPK_MAX_K, CudaContext, ForgeError, Result};
 
 const TOPK_BLOCK: usize = CUDA_EXACT_TOPK_MAX_K;
@@ -174,14 +174,36 @@ fn topk_module(ctx: &CudaContext) -> Result<Arc<CudaModule>> {
     if let Some(module) = ctx.topk_module_cache().get() {
         return Ok(module.clone());
     }
+    match ctx
+        .inner()
+        .load_module(Ptx::from_binary(TOPK_CUBIN.to_vec()))
+    {
+        Ok(module) => {
+            let _ = ctx.topk_module_cache().set(module.clone());
+            Ok(module)
+        }
+        Err(cubin_err) => {
+            let module = topk_ptx_module(ctx, cubin_err)?;
+            let _ = ctx.topk_module_cache().set(module.clone());
+            Ok(module)
+        }
+    }
+}
+
+fn topk_ptx_module(
+    ctx: &CudaContext,
+    cubin_err: cudarc::driver::DriverError,
+) -> Result<Arc<CudaModule>> {
     let ptx = str::from_utf8(TOPK_PTX)
         .map_err(|err| device_unavailable(ctx, format!("topk PTX is not UTF-8: {err}")))?;
-    let module = ctx
-        .inner()
+    ctx.inner()
         .load_module(Ptx::from_src(ptx))
-        .map_err(|err| device_unavailable(ctx, format!("topk PTX load failed: {err}")))?;
-    let _ = ctx.topk_module_cache().set(module.clone());
-    Ok(module)
+        .map_err(|ptx_err| {
+            device_unavailable(
+                ctx,
+                format!("topk CUBIN load failed: {cubin_err}; PTX fallback load failed: {ptx_err}"),
+            )
+        })
 }
 
 fn check_device_len(actual: usize, expected: usize) -> Result<()> {

@@ -41,7 +41,7 @@ pub(super) fn bench_cuda_gemm(
     let result = time_op(op, iters, flops, || {
         gemm_cublas_with_blas(GemmCublasRequest {
             ctx,
-            blas: &blas,
+            blas: blas.as_ref(),
             a: &a_dev,
             b: &b_dev,
             dims: GemmDims::new(m, k, n),
@@ -139,7 +139,7 @@ pub(super) fn bench_grouped_gemm(
     let flops = 2.0 * groups as f64 * m as f64 * k as f64 * n as f64;
     let blas = new_grouped_blas(ctx)?;
     let result = time_op(op, iters, flops, || {
-        execute_grouped_gemm_bench(ctx, &mut plan, &blas)
+        execute_grouped_gemm_bench(ctx, &mut plan, blas.as_ref())
     })?;
     validate_output(ctx, &plan)?;
     Ok(result)

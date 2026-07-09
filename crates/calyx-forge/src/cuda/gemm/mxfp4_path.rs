@@ -4,7 +4,7 @@ use std::sync::Arc;
 use cudarc::driver::{CudaModule, CudaSlice, LaunchConfig, PushKernelArg};
 use cudarc::nvrtc::Ptx;
 
-use crate::cuda::kernels::MXFP4_GEMM_PTX;
+use crate::cuda::kernels::{MXFP4_GEMM_CUBIN, MXFP4_GEMM_PTX};
 use crate::{CudaContext, ForgeError, MXFP4_BLOCK_SIZE, MXFP4_PACKED_BYTES, MxFp4Block, Result};
 
 const MXFP4_THREADS: u32 = 128;
@@ -166,11 +166,41 @@ fn launch_mxfp4_kernel(
 }
 
 fn mxfp4_module(ctx: &CudaContext) -> Result<Arc<CudaModule>> {
+    if let Some(module) = ctx.mxfp4_module_cache().get() {
+        return Ok(module.clone());
+    }
+    match ctx
+        .inner()
+        .load_module(Ptx::from_binary(MXFP4_GEMM_CUBIN.to_vec()))
+    {
+        Ok(module) => {
+            let _ = ctx.mxfp4_module_cache().set(module.clone());
+            Ok(module)
+        }
+        Err(cubin_err) => {
+            let module = mxfp4_ptx_module(ctx, cubin_err)?;
+            let _ = ctx.mxfp4_module_cache().set(module.clone());
+            Ok(module)
+        }
+    }
+}
+
+fn mxfp4_ptx_module(
+    ctx: &CudaContext,
+    cubin_err: cudarc::driver::DriverError,
+) -> Result<Arc<CudaModule>> {
     let ptx = str::from_utf8(MXFP4_GEMM_PTX)
         .map_err(|err| device_unavailable(ctx, format!("MXFP4 GEMM PTX is not UTF-8: {err}")))?;
     ctx.inner()
         .load_module(Ptx::from_src(ptx))
-        .map_err(|err| device_unavailable(ctx, format!("MXFP4 GEMM PTX load failed: {err}")))
+        .map_err(|ptx_err| {
+            device_unavailable(
+                ctx,
+                format!(
+                    "MXFP4 GEMM CUBIN load failed: {cubin_err}; PTX fallback load failed: {ptx_err}"
+                ),
+            )
+        })
 }
 
 fn check_output_finite(ctx: &CudaContext, out: &CudaSlice<f32>) -> Result<()> {

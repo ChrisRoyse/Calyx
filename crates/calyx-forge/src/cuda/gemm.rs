@@ -1,4 +1,4 @@
-use std::time::Instant;
+use std::{sync::Arc, time::Instant};
 
 use cudarc::cublas::{CudaBlas, Gemm, GemmConfig, sys};
 use cudarc::driver::CudaSlice;
@@ -25,10 +25,8 @@ pub fn gemm_cublas(
     n: usize,
     out: &mut CudaSlice<f32>,
 ) -> Result<()> {
-    let stream = ctx.inner().default_stream();
-    let blas = CudaBlas::new(stream)
-        .map_err(|err| device_unavailable(ctx, format!("cuBLAS handle creation failed: {err}")))?;
-    gemm_checked_with_blas(ctx, &blas, a, b, GemmDims::new(m, k, n), out)
+    let blas = new_blas(ctx)?;
+    gemm_checked_with_blas(ctx, blas.as_ref(), a, b, GemmDims::new(m, k, n), out)
 }
 
 pub(crate) struct GemmCublasRequest<'a> {
@@ -105,8 +103,8 @@ pub fn bench_gemm_cublas(
     let dims = GemmDims::new(m, k, n);
     let mut bench = BenchBuffers::new(ctx, dims)?;
     let blas = new_blas(ctx)?;
-    gemm_checked_with_blas(ctx, &blas, &bench.a, &bench.b, dims, &mut bench.out)?;
-    timed_gemm(ctx, &blas, &mut bench, dims, iters, true)
+    gemm_checked_with_blas(ctx, blas.as_ref(), &bench.a, &bench.b, dims, &mut bench.out)?;
+    timed_gemm(ctx, blas.as_ref(), &mut bench, dims, iters, true)
 }
 
 pub fn bench_gemm_reference_cublas(
@@ -119,8 +117,8 @@ pub fn bench_gemm_reference_cublas(
     let dims = GemmDims::new(m, k, n);
     let mut bench = BenchBuffers::new(ctx, dims)?;
     let blas = new_blas(ctx)?;
-    raw_gemm_with_blas(&blas, &bench.a, &bench.b, dims, &mut bench.out)?;
-    timed_gemm(ctx, &blas, &mut bench, dims, iters, false)
+    raw_gemm_with_blas(blas.as_ref(), &bench.a, &bench.b, dims, &mut bench.out)?;
+    timed_gemm(ctx, blas.as_ref(), &mut bench, dims, iters, false)
 }
 
 pub fn probe_allocation(ctx: &CudaContext, requested_bytes: usize) -> Result<()> {
@@ -304,9 +302,16 @@ fn deterministic_values(len: usize, period: usize, scale: f32) -> Vec<f32> {
         .collect()
 }
 
-pub(crate) fn new_blas(ctx: &CudaContext) -> Result<CudaBlas> {
-    CudaBlas::new(ctx.inner().default_stream())
-        .map_err(|err| device_unavailable(ctx, format!("cuBLAS handle creation failed: {err}")))
+pub(crate) fn new_blas(ctx: &CudaContext) -> Result<Arc<CudaBlas>> {
+    if let Some(blas) = ctx.blas_cache().get() {
+        return Ok(blas.clone());
+    }
+    let blas =
+        Arc::new(CudaBlas::new(ctx.inner().default_stream()).map_err(|err| {
+            device_unavailable(ctx, format!("cuBLAS handle creation failed: {err}"))
+        })?);
+    let _ = ctx.blas_cache().set(blas.clone());
+    Ok(blas)
 }
 
 fn check_device_shape(len: usize, rows: usize, cols: usize, name: &str) -> Result<()> {

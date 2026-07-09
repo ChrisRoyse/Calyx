@@ -86,25 +86,8 @@ impl Quantizer for BinaryCodec {
 }
 
 pub fn hamming_dot_estimate(a: &QuantizedVec, b: &QuantizedVec) -> Result<f32> {
-    validate_quantized(a, "hamming_dot_estimate")?;
-    validate_quantized(b, "hamming_dot_estimate")?;
-    if a.dim != b.dim {
-        return Err(ForgeError::ShapeMismatch {
-            expected: vec![a.dim],
-            got: vec![b.dim],
-            remediation: "Compare binary vectors with the same dimension".to_string(),
-        });
-    }
-    if a.seed_id != b.seed_id {
-        return Err(binary_error(
-            "hamming_dot_estimate",
-            a.level,
-            "seed_id mismatch in hamming_dot_estimate",
-        ));
-    }
-    let mismatches = (0..a.dim)
-        .filter(|idx| read_bit(&a.bytes, *idx) != read_bit(&b.bytes, *idx))
-        .count();
+    validate_binary_pair(a, b, "hamming_dot_estimate")?;
+    let mismatches = mismatch_count(&a.bytes, &b.bytes, a.dim);
     Ok(1.0 - 2.0 * mismatches as f32 / a.dim as f32)
 }
 
@@ -117,21 +100,24 @@ pub fn binary_prefilter(
     if keep == 0 || candidates.is_empty() {
         return Ok(Vec::new());
     }
+    let keep = keep.min(candidates.len());
     let mut scored = candidates
         .iter()
         .enumerate()
-        .map(|(idx, candidate)| hamming_dot_estimate(query, candidate).map(|score| (idx, score)))
+        .map(|(idx, candidate)| {
+            validate_binary_candidate(query, candidate, "binary_prefilter")?;
+            Ok((
+                idx,
+                mismatch_count(&query.bytes, &candidate.bytes, query.dim),
+            ))
+        })
         .collect::<Result<Vec<_>>>()?;
-    scored.sort_by(|(left_idx, left_score), (right_idx, right_score)| {
-        right_score
-            .total_cmp(left_score)
-            .then_with(|| left_idx.cmp(right_idx))
-    });
-    Ok(scored
-        .into_iter()
-        .take(keep.min(candidates.len()))
-        .map(|(idx, _)| idx)
-        .collect())
+    if keep < scored.len() {
+        scored.select_nth_unstable_by(keep, binary_score_cmp);
+        scored.truncate(keep);
+    }
+    scored.sort_by(binary_score_cmp);
+    Ok(scored.into_iter().map(|(idx, _)| idx).collect())
 }
 
 fn validate_seed(seed: &RotationSeed) -> Result<()> {
@@ -193,6 +179,49 @@ fn validate_quantized(qv: &QuantizedVec, op: &str) -> Result<()> {
         return Err(binary_error(op, qv.level, "non-zero padding bits"));
     }
     Ok(())
+}
+
+fn validate_binary_pair(a: &QuantizedVec, b: &QuantizedVec, op: &str) -> Result<()> {
+    validate_quantized(a, op)?;
+    validate_binary_candidate(a, b, op)
+}
+
+fn validate_binary_candidate(a: &QuantizedVec, b: &QuantizedVec, op: &str) -> Result<()> {
+    validate_quantized(b, op)?;
+    if a.dim != b.dim {
+        return Err(ForgeError::ShapeMismatch {
+            expected: vec![a.dim],
+            got: vec![b.dim],
+            remediation: "Compare binary vectors with the same dimension".to_string(),
+        });
+    }
+    if a.seed_id != b.seed_id {
+        return Err(binary_error(
+            op,
+            a.level,
+            format!("seed_id mismatch in {op}"),
+        ));
+    }
+    Ok(())
+}
+
+fn mismatch_count(left: &[u8], right: &[u8], dim: usize) -> usize {
+    let full_bytes = dim / 8;
+    let mut mismatches = left[..full_bytes]
+        .iter()
+        .zip(right[..full_bytes].iter())
+        .map(|(left, right)| (left ^ right).count_ones() as usize)
+        .sum::<usize>();
+    let tail_bits = dim % 8;
+    if tail_bits != 0 {
+        let mask = ((1_u16 << tail_bits) - 1) as u8;
+        mismatches += ((left[full_bytes] ^ right[full_bytes]) & mask).count_ones() as usize;
+    }
+    mismatches
+}
+
+fn binary_score_cmp(left: &(usize, usize), right: &(usize, usize)) -> std::cmp::Ordering {
+    left.1.cmp(&right.1).then_with(|| left.0.cmp(&right.0))
 }
 
 fn pack_sign_bits(rotated: &[f32]) -> Vec<u8> {

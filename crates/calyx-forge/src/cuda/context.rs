@@ -1,13 +1,13 @@
 use std::sync::{Arc, OnceLock};
 
+use cudarc::cublas::CudaBlas;
 use cudarc::driver::{CudaContext as CudarcContext, CudaModule};
 
 use crate::{BackendKind, DeviceInfo, ForgeError, Result};
 
 const BYTES_PER_MIB: u64 = 1024 * 1024;
 const MIN_FREE_VRAM_MIB: u64 = 4096;
-const CUDA_REMEDIATION: &str =
-    "Check that CUDA is installed and nvidia-smi shows an available CUDA GPU";
+const CUDA_REMEDIATION: &str = "Check that CUDA is installed at /usr/local/cuda-13.3 and nvidia-smi shows an available CUDA GPU";
 
 #[derive(Clone, Debug)]
 pub struct CudaContext {
@@ -18,7 +18,9 @@ pub struct CudaContext {
     compute_capability: (i32, i32),
     total_mem_mib: u64,
     free_mem_mib_at_init: u64,
+    blas: Arc<OnceLock<Arc<CudaBlas>>>,
     distance_module: Arc<OnceLock<Arc<CudaModule>>>,
+    mxfp4_module: Arc<OnceLock<Arc<CudaModule>>>,
     topk_module: Arc<OnceLock<Arc<CudaModule>>>,
 }
 
@@ -73,8 +75,16 @@ impl CudaContext {
         Ok(free_bytes)
     }
 
+    pub(crate) fn blas_cache(&self) -> &OnceLock<Arc<CudaBlas>> {
+        &self.blas
+    }
+
     pub(crate) fn distance_module_cache(&self) -> &OnceLock<Arc<CudaModule>> {
         &self.distance_module
+    }
+
+    pub(crate) fn mxfp4_module_cache(&self) -> &OnceLock<Arc<CudaModule>> {
+        &self.mxfp4_module
     }
 
     pub(crate) fn topk_module_cache(&self) -> &OnceLock<Arc<CudaModule>> {
@@ -111,7 +121,9 @@ pub fn init_cuda(device_idx: u32, determinism: bool) -> Result<CudaContext> {
         compute_capability,
         total_mem_mib: bytes_to_mib(total_bytes),
         free_mem_mib_at_init: free_mem_mib,
+        blas: Arc::new(OnceLock::new()),
         distance_module: Arc::new(OnceLock::new()),
+        mxfp4_module: Arc::new(OnceLock::new()),
         topk_module: Arc::new(OnceLock::new()),
     })
 }

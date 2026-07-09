@@ -1,5 +1,7 @@
 mod launch;
 
+use std::sync::Arc;
+
 use cudarc::cublas::{CudaBlas, result::CublasError, sys};
 use cudarc::driver::{CudaSlice, DevicePtr, DevicePtrMut};
 
@@ -125,7 +127,13 @@ pub fn execute_grouped_gemm(ctx: &CudaContext, plan: &mut GroupedGemmPlan) -> Re
         return check_device_output(ctx, plan);
     }
     let blas = new_grouped_blas(ctx)?;
-    execute_grouped_gemm_with_blas(ctx, plan, &blas, FallbackPolicy::AllowSequential, true)
+    execute_grouped_gemm_with_blas(
+        ctx,
+        plan,
+        blas.as_ref(),
+        FallbackPolicy::AllowSequential,
+        true,
+    )
 }
 
 pub fn execute_grouped_gemm_strict(ctx: &CudaContext, plan: &mut GroupedGemmPlan) -> Result<()> {
@@ -138,7 +146,7 @@ pub fn execute_grouped_gemm_strict(ctx: &CudaContext, plan: &mut GroupedGemmPlan
     execute_grouped_gemm_with_blas(
         ctx,
         plan,
-        &blas,
+        blas.as_ref(),
         FallbackPolicy::FailIfGroupedUnsupported,
         true,
     )
@@ -150,9 +158,17 @@ enum FallbackPolicy {
     FailIfGroupedUnsupported,
 }
 
-pub(crate) fn new_grouped_blas(ctx: &CudaContext) -> Result<CudaBlas> {
-    CudaBlas::new(ctx.inner().default_stream().clone())
-        .map_err(|err| device_unavailable(ctx, format!("cuBLAS grouped handle failed: {err}")))
+pub(crate) fn new_grouped_blas(ctx: &CudaContext) -> Result<Arc<CudaBlas>> {
+    if let Some(blas) = ctx.blas_cache().get() {
+        return Ok(blas.clone());
+    }
+    let blas = Arc::new(
+        CudaBlas::new(ctx.inner().default_stream().clone()).map_err(|err| {
+            device_unavailable(ctx, format!("cuBLAS grouped handle failed: {err}"))
+        })?,
+    );
+    let _ = ctx.blas_cache().set(blas.clone());
+    Ok(blas)
 }
 
 pub(crate) fn execute_grouped_gemm_bench(

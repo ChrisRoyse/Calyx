@@ -191,6 +191,20 @@ fn binary_edges_dim1_keep_all_and_partial_byte() {
 }
 
 #[test]
+fn binary_prefilter_selects_top_k_with_stable_ties() {
+    let codec = BinaryCodec::new(fixed_seed(8, 0x68)).expect("codec");
+    let query = codec.encode(&unit_basis(8, 0)).expect("query");
+    let same_a = codec.encode(&unit_basis(8, 0)).expect("same a");
+    let same_b = same_a.clone();
+    let opposite = codec.encode(&negate(&unit_basis(8, 0))).expect("opposite");
+
+    let selected =
+        binary_prefilter(&query, &[opposite, same_b, same_a], 2).expect("select top two");
+
+    assert_eq!(selected, vec![1, 2]);
+}
+
+#[test]
 fn binary_fail_closed_nonfinite_seed_mismatch_and_padding() {
     let codec = BinaryCodec::new(fixed_seed(8, 0x77)).expect("codec");
     let err = codec
