@@ -160,9 +160,9 @@ fn encode_turbo(
         qv,
         decoded,
         codec: if level == QuantLevel::Bits2p5 {
-            StoredSlotCodec::TurboQuantBits2p5
+            StoredSlotCodec::TurboQuantV2Bits2p5
         } else {
-            StoredSlotCodec::TurboQuantBits3p5
+            StoredSlotCodec::TurboQuantV2Bits3p5
         },
     })
 }
@@ -342,6 +342,8 @@ fn codec_code(codec: StoredSlotCodec) -> u8 {
         StoredSlotCodec::MxFp4 => 4,
         StoredSlotCodec::MxFp8 => 5,
         StoredSlotCodec::Binary => 6,
+        StoredSlotCodec::TurboQuantV2Bits3p5 => 7,
+        StoredSlotCodec::TurboQuantV2Bits2p5 => 8,
     }
 }
 
@@ -354,6 +356,8 @@ fn decode_codec(code: u8) -> Result<StoredSlotCodec> {
         4 => Ok(StoredSlotCodec::MxFp4),
         5 => Ok(StoredSlotCodec::MxFp8),
         6 => Ok(StoredSlotCodec::Binary),
+        7 => Ok(StoredSlotCodec::TurboQuantV2Bits3p5),
+        8 => Ok(StoredSlotCodec::TurboQuantV2Bits2p5),
         _ => Err(compression_error(
             CALYX_VECTOR_COMPRESSION_INVALID,
             format!("unknown stored slot codec code {code}"),
@@ -367,6 +371,8 @@ fn validate_codec_level(codec: StoredSlotCodec, level: QuantLevel) -> Result<()>
         (StoredSlotCodec::RawF32, QuantLevel::F32)
             | (StoredSlotCodec::TurboQuantBits3p5, QuantLevel::Bits3p5)
             | (StoredSlotCodec::TurboQuantBits2p5, QuantLevel::Bits2p5)
+            | (StoredSlotCodec::TurboQuantV2Bits3p5, QuantLevel::Bits3p5)
+            | (StoredSlotCodec::TurboQuantV2Bits2p5, QuantLevel::Bits2p5)
             | (StoredSlotCodec::ScalarInt8, QuantLevel::Bits8)
             | (StoredSlotCodec::MxFp4, QuantLevel::Bits4Fp)
             | (StoredSlotCodec::MxFp8, QuantLevel::Bits8Fp)
