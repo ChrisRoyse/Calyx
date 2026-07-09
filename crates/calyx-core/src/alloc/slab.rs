@@ -7,8 +7,9 @@
 //! fragmentation and a hard slot-count cap (A26). Exhaustion fails closed with
 //! [`CALYX_ALLOC_CAP_EXCEEDED`] — never a silent grow, OOM, or zeroed buffer.
 //!
-//! [`PageAlignedSlabPool`] is the 4 KiB-aligned variant for pinned-host CUDA
-//! staging transfers.
+//! [`PageAlignedSlabPool`] is the 4 KiB-aligned staging variant. It does not
+//! pin/register host pages; CUDA callers that need true pinned-host async DMA
+//! must register the returned allocation in the CUDA layer.
 //!
 //! ## Soundness
 //!
@@ -208,8 +209,10 @@ impl<const SLOT_SIZE: usize> Drop for SlabGuard<'_, SLOT_SIZE> {
     }
 }
 
-/// A page-aligned (`4 KiB`) fixed-size slab pool for pinned-host CUDA staging.
-/// Every acquired slot pointer is a multiple of [`PAGE_SIZE`].
+/// A page-aligned (`4 KiB`) fixed-size slab pool for staging buffers. Every
+/// acquired slot pointer is a multiple of [`PAGE_SIZE`]. This type guarantees
+/// alignment only; it does not call `cudaHostRegister`, `cudaHostAlloc`,
+/// `VirtualLock`, or equivalent OS/CUDA pinning APIs.
 #[derive(Debug)]
 pub struct PageAlignedSlabPool {
     base: NonNull<u8>,
@@ -224,7 +227,7 @@ impl PageAlignedSlabPool {
     ///
     /// # Panics
     /// If `slot_size` is not a non-zero multiple of [`PAGE_SIZE`] — a build-time
-    /// configuration invariant for pinned transfers.
+    /// configuration invariant for page-aligned staging transfers.
     ///
     /// # Errors
     /// [`CALYX_ALLOC_CAP_EXCEEDED`](super::CALYX_ALLOC_CAP_EXCEEDED) if

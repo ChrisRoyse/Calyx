@@ -159,6 +159,18 @@ fn single_entry_exactly_cap_then_next_evicts() {
     assert!(c.get(&2).is_some());
 }
 
+#[derive(Debug, PartialEq, Eq, Hash)]
+struct NonCloneKey(u32);
+
+#[test]
+fn insert_does_not_require_key_clone() {
+    let mut c: LruTtlCache<NonCloneKey, u32> =
+        LruTtlCache::new(256, Duration::from_secs(60), Arc::new(FixedClock::new(0)))
+            .expect("cache");
+    c.insert(NonCloneKey(7), 11, 64).expect("insert");
+    assert_eq!(c.get(&NonCloneKey(7)), Some(&11));
+}
+
 #[test]
 fn entry_larger_than_cap_rejected() {
     let mut c = cache_at(0, 256, 60_000);
@@ -209,7 +221,7 @@ fn jitter_spreads_expiry() {
     for k in 0..50u32 {
         c.insert(k, k, 100).unwrap();
         // Inspect the node's expiry directly (SoT).
-        let idx = c.map[&k];
+        let idx = c.map.get(&k).copied().unwrap();
         expiries.insert(c.node(idx).expires_at);
     }
     let (lo, hi) = (

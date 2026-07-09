@@ -34,7 +34,7 @@ pub struct InsertResult {
 }
 
 struct Node<K, V> {
-    key: K,
+    key: Arc<K>,
     value: V,
     size_bytes: usize,
     expires_at: Ts,
@@ -44,7 +44,7 @@ struct Node<K, V> {
 
 /// A byte-capped LRU cache with per-entry TTL.
 pub struct LruTtlCache<K, V> {
-    map: HashMap<K, usize>,
+    map: HashMap<Arc<K>, usize>,
     nodes: Vec<Option<Node<K, V>>>,
     free: Vec<usize>,
     /// Most-recently-used end of the recency list.
@@ -65,7 +65,7 @@ pub struct LruTtlCache<K, V> {
 
 impl<K, V> LruTtlCache<K, V>
 where
-    K: Clone + Eq + Hash,
+    K: Eq + Hash,
 {
     /// Builds a cache with a hard `byte_cap`, uniform `ttl`, and injected clock.
     /// Errors with [`CALYX_ALLOC_CAP_EXCEEDED`](crate::alloc::CALYX_ALLOC_CAP_EXCEEDED)
@@ -144,7 +144,8 @@ where
             )));
         }
         // Replacing an existing key: drop the old entry first (not an eviction).
-        if let Some(old) = self.map.get(&key).copied() {
+        let key = Arc::new(key);
+        if let Some(old) = self.map.get(key.as_ref()).copied() {
             self.remove_index(old);
         }
         let mut evicted = 0;
@@ -163,7 +164,7 @@ where
         }
         let expires_at = self.compute_expiry(now);
         let idx = self.alloc_node(Node {
-            key: key.clone(),
+            key: Arc::clone(&key),
             value,
             size_bytes,
             expires_at,
@@ -315,7 +316,7 @@ where
         self.unlink(idx);
         let node = self.nodes[idx].take().expect("removing a live node");
         self.used_bytes -= node.size_bytes;
-        self.map.remove(&node.key);
+        self.map.remove(node.key.as_ref());
         self.free.push(idx);
     }
 }
