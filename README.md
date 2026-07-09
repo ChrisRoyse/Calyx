@@ -42,6 +42,14 @@ A *calyx* is the whorl of sepals that holds a flower together at its base — th
 
 ---
 
+## 🧩 Calyx is a base, not a finished product
+
+**Calyx is a template.** It computes associations — it measures one input through many lenses, fuses them, finds the grounding kernel, guards every answer, and records provenance. But the moment an association *means* something specific — something you can infer, recognize, or act on — that recognition-and-trigger logic is code *you* write for *your* data. Every Calyx database holds different data, forms different associations, and unlocks different meanings; what happens the instant a meaning is recognized is custom to each project.
+
+That is by design, and it is why Calyx will always be a **base** rather than a shrink-wrapped product. You don't ship the template — you refactor it into your specific use case, exactly like starting a product from a frontend template instead of a blank page. Beginning from the Calyx base, you are already *very* far along: the hard, reusable machinery (constellations, kernel, guard, ledger) is built and grounded for you. What remains is the part only you can write — the meaning your data unlocks, and what your system does when it sees it.
+
+---
+
 ## ✨ Why Calyx
 
 Every time you build a serious retrieval or intelligence system, you end up gluing the same machinery together by hand: a vector store for semantics, a keyword index for lexical match, a graph database for relationships, a pile of bespoke code to combine embedders, more code to measure whether a new embedder actually helps, and *still* nothing that tells you when your AI's answer has wandered outside what your data can support.
