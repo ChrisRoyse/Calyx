@@ -1,5 +1,3 @@
-use std::time::Instant;
-
 use crate::{ScopeCache, build_kernel};
 
 use super::*;
@@ -57,16 +55,8 @@ pub fn mine_domain_bridges(
                 continue;
             };
             let (degree_counts, max_degree) = degree_summary.get_or_insert_with(|| {
-                let stage = Instant::now();
                 let counts = degree_counts(&graph);
                 let max = max_degree(&counts);
-                eprintln!(
-                    "domain-bridges: precomputed degrees nodes={} edges={} max_degree={} elapsed_ms={}",
-                    graph.node_count(),
-                    graph.edge_count(),
-                    max,
-                    stage.elapsed().as_millis()
-                );
                 (counts, max)
             });
             let metadata = store.node_metadata(cx_id)?.ok_or_else(|| {

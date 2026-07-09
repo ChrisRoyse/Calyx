@@ -71,6 +71,7 @@ fn scope_cache_hits_misses_and_stats() {
 
     assert_eq!(stats.hits, 3);
     assert_eq!(stats.misses, 1);
+    assert_eq!(stats.eviction_count, 0);
     assert_eq!(stats.current_size, 3);
 }
 
@@ -103,6 +104,7 @@ fn scope_cache_capacity_two_evicts_first_inserted() {
     assert!(first_absent);
     assert!(second_present);
     assert!(third_present);
+    assert_eq!(stats.eviction_count, 1);
     assert_eq!(stats.current_size, 2);
 }
 
@@ -167,7 +169,9 @@ fn scope_cache_zero_capacity_and_max_panel_version_are_safe() {
     );
 
     assert_eq!(zero_stats.current_size, 0);
+    assert_eq!(zero_stats.eviction_count, 1);
     assert!(max_present);
+    assert_eq!(max_stats.eviction_count, 0);
     assert_eq!(max_stats.current_size, 1);
 }
 

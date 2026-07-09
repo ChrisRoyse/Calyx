@@ -1,4 +1,5 @@
 use std::collections::{BTreeMap, BTreeSet};
+use std::sync::OnceLock;
 
 use calyx_aster::plain_graph::PlainGraph;
 use calyx_aster::timetravel::TimeTravelSnapshot;
@@ -44,6 +45,7 @@ pub struct AsterAssocSnapshot<'a, C: Clock> {
     collection: String,
     snapshot: Seq,
     metadata: AsterAssocMetadata,
+    graph_cache: OnceLock<AssocGraph>,
     _lease: Option<TimeTravelSnapshot<'a, C>>,
 }
 
@@ -162,12 +164,30 @@ impl<'a, C: Clock> AsterAssocSnapshot<'a, C> {
             collection,
             snapshot,
             metadata,
+            graph_cache: OnceLock::new(),
             _lease: lease,
         })
     }
 
     fn graph(&self) -> Result<PlainGraph<'_, C>> {
         PlainGraph::new(self.vault, &self.collection).map_err(LodestarError::from)
+    }
+
+    fn cached_full_graph(&self) -> Result<AssocGraph> {
+        if let Some(graph) = self.graph_cache.get() {
+            return Ok(graph.clone());
+        }
+        let graph = self
+            .graph()?
+            .assoc_graph(self.snapshot)
+            .map_err(LodestarError::from)?;
+        let _ = self.graph_cache.set(graph);
+        self.graph_cache
+            .get()
+            .cloned()
+            .ok_or_else(|| LodestarError::KernelIndexCodec {
+                detail: "cache Aster assoc graph snapshot".to_string(),
+            })
     }
 
     fn node_props(&self, cx_id: CxId) -> Result<AsterAssocNodeProps> {
@@ -185,9 +205,7 @@ impl<'a, C: Clock> AsterAssocSnapshot<'a, C> {
 
 impl<C: Clock> AssocStore for AsterAssocSnapshot<'_, C> {
     fn full_graph(&self) -> Result<AssocGraph> {
-        self.graph()?
-            .assoc_graph(self.snapshot)
-            .map_err(LodestarError::from)
+        self.cached_full_graph()
     }
 
     fn collection_nodes(&self, id: &CollectionId) -> Result<Option<BTreeSet<CxId>>> {

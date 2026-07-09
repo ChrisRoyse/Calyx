@@ -12,13 +12,15 @@ use std::collections::BTreeMap;
 
 use calyx_aster::cf::ColumnFamily;
 use calyx_aster::vault::AsterVault;
-use calyx_core::{Clock, CxId, SlotId, VaultStore, dense_cosine};
+use calyx_core::{Clock, CxId, SlotId, SlotVector, VaultStore};
 use calyx_paths::AssocGraph;
+use calyx_sextant::{HnswIndex, SextantIndex};
 
 use crate::error::{LodestarError, Result};
 use crate::{
-    GroundednessReport, InMemoryAnnIndex, InMemoryCorpus, Kernel, KernelParams, RecallQuery,
-    RecallReport, RecallTestParams, build_kernel_index, build_kernel_pipeline, kernel_recall_test,
+    AnnIndex, GroundednessReport, InMemoryAnnIndex, InMemoryCorpus, Kernel, KernelParams,
+    RecallQuery, RecallReport, RecallTestParams, build_kernel_index, build_kernel_pipeline,
+    kernel_recall_test,
 };
 
 /// A real kernel plus its MEASURED kernel-only recall, both computed from the
@@ -39,6 +41,9 @@ enum VaultKernelMode {
     Strict,
     WebPartial,
 }
+
+const VAULT_GRAPH_EXACT_MAX_ROWS: usize = 4_096;
+const VAULT_GRAPH_INDEX_SEED: u64 = 0xCA1A_4A77_10DE_57A9;
 
 /// Build the doc-corpus kernel for `vault` and measure its kernel-only recall.
 ///
@@ -253,25 +258,36 @@ fn build_vault_kernel_inputs<C: Clock>(
         });
     }
 
-    // Embedding k-NN association graph: an edge for each pair the panel measures
-    // as close (cosine >= threshold), up to `knn` neighbours per node.
+    let full = InMemoryAnnIndex::new(rows.clone())?;
+    let graph_ann = if rows.len() > VAULT_GRAPH_EXACT_MAX_ROWS {
+        Some(build_vault_graph_ann_index(&rows, content_slot)?)
+    } else {
+        None
+    };
+    let graph_index: &dyn AnnIndex = match graph_ann.as_ref() {
+        Some(index) => index,
+        None => &full,
+    };
+
+    // Embedding k-NN association graph: an edge for each candidate the full
+    // corpus index measures as close (cosine >= threshold), up to `knn`
+    // neighbours per node.
     let mut builder = AssocGraph::builder();
     for row in &rows {
         builder.add_node(row.cx_id, 1.0)?;
     }
-    for (index, src) in rows.iter().enumerate() {
-        let mut neighbours: Vec<(CxId, f32)> = rows
-            .iter()
-            .enumerate()
-            .filter(|(other, _)| *other != index)
-            .filter_map(|(_, dst)| {
-                dense_cosine(&src.vector, &dst.vector).map(|cosine| (dst.cx_id, cosine))
-            })
-            .filter(|(_, cosine)| *cosine >= edge_cos_threshold)
-            .collect();
-        neighbours.sort_by(|left, right| right.1.total_cmp(&left.1));
-        for (dst, cosine) in neighbours.into_iter().take(knn) {
-            builder.add_edge(src.cx_id, dst, cosine)?;
+    if knn > 0 {
+        let candidate_count = knn.saturating_add(1).min(rows.len());
+        for src in &rows {
+            let neighbours = graph_index.search(&src.vector, candidate_count)?;
+            for (dst, cosine) in neighbours
+                .into_iter()
+                .filter(|(dst, _)| *dst != src.cx_id)
+                .filter(|(_, cosine)| *cosine >= edge_cos_threshold)
+                .take(knn)
+            {
+                builder.add_edge(src.cx_id, dst, cosine)?;
+            }
         }
     }
     let graph = builder.build();
@@ -321,7 +337,6 @@ fn build_vault_kernel_inputs<C: Clock>(
         .map(|row| (row.cx_id, row.vector.clone()))
         .collect();
     let corpus_size = rows.len();
-    let full = InMemoryAnnIndex::new(rows.clone())?;
     let corpus = InMemoryCorpus::new("vault-kernel", rows);
 
     Ok(VaultKernelInputs {
@@ -333,4 +348,31 @@ fn build_vault_kernel_inputs<C: Clock>(
         vault_corpus_size,
         skipped_unembedded,
     })
+}
+
+fn build_vault_graph_ann_index(rows: &[RecallQuery], content_slot: SlotId) -> Result<HnswIndex> {
+    let dim = rows.first().map(|row| row.vector.len()).ok_or_else(|| {
+        LodestarError::KernelInvalidParams {
+            detail: "vault graph ANN index requires at least one embedded row".to_string(),
+        }
+    })?;
+    let dim = u32::try_from(dim).map_err(|_| LodestarError::KernelIndexBuild {
+        detail: format!("vault graph ANN dimension {dim} exceeds u32::MAX"),
+    })?;
+    let mut index = HnswIndex::new(content_slot, dim, VAULT_GRAPH_INDEX_SEED);
+    for (seq, row) in rows.iter().enumerate() {
+        SextantIndex::insert(
+            &mut index,
+            row.cx_id,
+            SlotVector::Dense {
+                dim,
+                data: row.vector.clone(),
+            },
+            seq as u64,
+        )
+        .map_err(|error| LodestarError::KernelIndexBuild {
+            detail: format!("build vault graph ANN index: {error}"),
+        })?;
+    }
+    Ok(index)
 }

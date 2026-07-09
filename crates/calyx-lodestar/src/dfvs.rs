@@ -228,11 +228,6 @@ fn greedy_fvs(graph: &AssocGraph) -> Vec<CxId> {
 
 fn local_search_shrink(graph: &AssocGraph, members: &mut Vec<CxId>) {
     if members.len() > LOCAL_SEARCH_MAX_MEMBERS {
-        eprintln!(
-            "lodestar-dfvs: skip local_search members={} cap={}",
-            members.len(),
-            LOCAL_SEARCH_MAX_MEMBERS
-        );
         return;
     }
     let mut index = 0;

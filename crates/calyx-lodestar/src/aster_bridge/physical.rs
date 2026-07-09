@@ -1,5 +1,4 @@
 use std::collections::{BTreeMap, BTreeSet};
-use std::time::Instant;
 
 use calyx_aster::plain_graph::PhysicalPlainGraph;
 use calyx_core::{AnchorKind, CxId, Ts};
@@ -12,29 +11,9 @@ use super::{AsterAssocNodeProps, DEFAULT_ASTER_ASSOC_COLLECTION, PhysicalAsterAs
 
 impl PhysicalAsterAssocSnapshot {
     pub fn latest(vault_dir: impl AsRef<std::path::Path>, collection: &str) -> Result<Self> {
-        let started = Instant::now();
         let plain = PhysicalPlainGraph::open_latest(vault_dir, collection)?;
-        eprintln!(
-            "lodestar-aster: opened physical graph collection={} elapsed_ms={}",
-            collection,
-            started.elapsed().as_millis()
-        );
-        let stage = Instant::now();
         let graph = plain.assoc_graph()?;
-        eprintln!(
-            "lodestar-aster: loaded topology nodes={} edges={} elapsed_ms={}",
-            graph.node_count(),
-            graph.edge_count(),
-            stage.elapsed().as_millis()
-        );
-        let stage = Instant::now();
         let raw_props = plain.node_props()?;
-        eprintln!(
-            "lodestar-aster: scanned node props rows={} elapsed_ms={}",
-            raw_props.len(),
-            stage.elapsed().as_millis()
-        );
-        let stage = Instant::now();
         let mut props = BTreeMap::new();
         for (id, bytes) in raw_props {
             let decoded: AsterAssocNodeProps = serde_json::from_slice(&bytes).map_err(|error| {
@@ -44,11 +23,6 @@ impl PhysicalAsterAssocSnapshot {
             })?;
             props.insert(id, decoded);
         }
-        eprintln!(
-            "lodestar-aster: decoded node props rows={} elapsed_ms={}",
-            props.len(),
-            stage.elapsed().as_millis()
-        );
         if props.len() != graph.node_count() {
             return Err(LodestarError::KernelInvalidParams {
                 detail: format!(

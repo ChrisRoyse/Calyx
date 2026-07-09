@@ -35,6 +35,8 @@ impl ScopeCacheKey {
 pub struct CacheStats {
     pub hits: u64,
     pub misses: u64,
+    #[serde(default)]
+    pub eviction_count: u64,
     pub current_size: usize,
     pub max_entries: usize,
 }
@@ -46,6 +48,7 @@ pub struct ScopeCache {
     max_entries: usize,
     hits: u64,
     misses: u64,
+    eviction_count: u64,
 }
 
 impl ScopeCache {
@@ -56,6 +59,7 @@ impl ScopeCache {
             max_entries,
             hits: 0,
             misses: 0,
+            eviction_count: 0,
         }
     }
 
@@ -72,7 +76,7 @@ impl ScopeCache {
 
     pub fn insert(&mut self, key: ScopeCacheKey, kernel: Kernel) {
         if self.max_entries == 0 {
-            log_eviction(&key, "zero_capacity");
+            self.eviction_count += 1;
             return;
         }
         self.entries.insert(key, kernel);
@@ -82,7 +86,7 @@ impl ScopeCache {
                 break;
             };
             if self.entries.remove(&evicted).is_some() {
-                log_eviction(&evicted, "capacity");
+                self.eviction_count += 1;
             }
         }
     }
@@ -106,6 +110,7 @@ impl ScopeCache {
         CacheStats {
             hits: self.hits,
             misses: self.misses,
+            eviction_count: self.eviction_count,
             current_size: self.entries.len(),
             max_entries: self.max_entries,
         }
@@ -125,16 +130,6 @@ impl Default for ScopeCache {
     }
 }
 
-fn log_eviction(key: &ScopeCacheKey, reason: &str) {
-    eprintln!(
-        "CALYX_SCOPE_CACHE_EVICT reason={reason} scope_hash={} panel_version={} anchor_identity={} corpus_identity={}",
-        hex32(&key.scope_hash),
-        key.panel_version,
-        hex32(&key.anchor_identity),
-        hex32(&key.corpus_identity)
-    );
-}
-
 pub fn scope_cache_anchor_identity(anchor_kinds: &[AnchorKind], anchors: &[CxId]) -> [u8; 32] {
     let mut hasher = blake3::Hasher::new();
     hasher.update(b"calyx-lodestar-scope-anchor-identity-v1");
@@ -151,8 +146,4 @@ pub fn scope_cache_anchor_identity(anchor_kinds: &[AnchorKind], anchors: &[CxId]
 fn frame(hasher: &mut blake3::Hasher, bytes: &[u8]) {
     hasher.update(&(bytes.len() as u64).to_be_bytes());
     hasher.update(bytes);
-}
-
-fn hex32(bytes: &[u8; 32]) -> String {
-    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
 }

@@ -1,5 +1,4 @@
 use std::collections::BTreeSet;
-use std::time::Instant;
 
 use calyx_aster::vault::AsterVault;
 use calyx_core::{Clock, CxId, content_address};
@@ -172,52 +171,16 @@ fn build_kernel_pipeline_with_adjustment(
     if graph.is_empty() {
         return Ok(empty_kernel(params));
     }
-    let stage = Instant::now();
     let scc = tarjan_scc(graph);
-    eprintln!(
-        "lodestar-kernel: scc components={} elapsed_ms={}",
-        scc.components.len(),
-        stage.elapsed().as_millis()
-    );
     // Exact Brandes betweenness up to BETWEENNESS_EXACT_MAX_NODES; beyond that the
     // sampled estimator (BETWEENNESS_PIVOTS pivots) keeps corpus-scale graphs
     // (10^5+ nodes) tractable while preserving the centrality ranking used for
     // kernel selection.
-    let stage = Instant::now();
     let bet = betweenness_auto(graph, BETWEENNESS_EXACT_MAX_NODES, BETWEENNESS_PIVOTS)?;
-    eprintln!(
-        "lodestar-kernel: betweenness mode={} scores={} pivots={} elapsed_ms={}",
-        if graph.node_count() <= BETWEENNESS_EXACT_MAX_NODES {
-            "exact"
-        } else {
-            "sampled"
-        },
-        bet.len(),
-        if graph.node_count() <= BETWEENNESS_EXACT_MAX_NODES {
-            graph.node_count()
-        } else {
-            BETWEENNESS_PIVOTS
-        },
-        stage.elapsed().as_millis()
-    );
-    let stage = Instant::now();
     let mut heuristic = select_kernel_graph(graph, &scc, &bet, anchors, &params.kernel_graph)?;
-    eprintln!(
-        "lodestar-kernel: selected kernel_graph={} elapsed_ms={}",
-        heuristic.selected.len(),
-        stage.elapsed().as_millis()
-    );
     adjust_heuristic(&mut heuristic)?;
     let candidate_graph = heuristic;
-    let stage = Instant::now();
     let dfvs = dfvs_approx(&candidate_graph)?;
-    eprintln!(
-        "lodestar-kernel: dfvs members={} tau_star={} exact={} elapsed_ms={}",
-        dfvs.members.len(),
-        dfvs.tau_star_estimate,
-        dfvs.tau_star_exact,
-        stage.elapsed().as_millis()
-    );
     let gap_report = grounding_gaps_for_members(
         &dfvs.members,
         graph,
