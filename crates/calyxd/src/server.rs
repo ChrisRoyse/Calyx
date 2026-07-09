@@ -8,15 +8,15 @@
 
 mod http;
 
-use std::io::ErrorKind;
 use std::net::{SocketAddr, TcpListener, TcpStream};
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::Arc;
-use std::sync::atomic::{AtomicUsize, Ordering};
-use std::time::{Duration, Instant};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::Duration;
 
 use tokio_util::sync::CancellationToken;
 
+use crate::connection_tracker::ConnectionTracker;
 use crate::error::DaemonError;
 use crate::learner_origin::LearnerOriginService;
 use crate::metrics::CalyxMetrics;
@@ -24,7 +24,6 @@ use http::{
     DEFAULT_BODY_LIMIT, HttpRequest, HttpResponse, IO_TIMEOUT, read_request, write_response,
 };
 
-const ACCEPT_IDLE_SLEEP: Duration = Duration::from_millis(10);
 const DRAIN_TIMEOUT: Duration = Duration::from_secs(5);
 const CONTENT_TYPE: &str = "text/plain; version=0.0.4";
 const PLAIN_CONTENT_TYPE: &str = "text/plain; charset=utf-8";
@@ -35,7 +34,8 @@ pub struct MetricsServer {
     listener: TcpListener,
     metrics: Arc<CalyxMetrics>,
     origin: Option<Arc<LearnerOriginService>>,
-    active: Arc<AtomicUsize>,
+    shutdown: Arc<AtomicBool>,
+    active: Arc<ConnectionTracker>,
 }
 
 impl MetricsServer {
@@ -68,7 +68,8 @@ impl MetricsServer {
             listener,
             metrics,
             origin,
-            active: Arc::new(AtomicUsize::new(0)),
+            shutdown: Arc::new(AtomicBool::new(false)),
+            active: Arc::new(ConnectionTracker::default()),
         })
     }
 
@@ -81,28 +82,52 @@ impl MetricsServer {
 
     /// Number of connection handlers currently in flight.
     pub fn active_connections(&self) -> usize {
-        self.active.load(Ordering::SeqCst)
+        self.active.active()
+    }
+
+    /// A cloneable handle that wakes a blocking accept loop on shutdown.
+    pub fn shutdown_handle(&self) -> Result<MetricsShutdownHandle, DaemonError> {
+        Ok(MetricsShutdownHandle {
+            shutdown: Arc::clone(&self.shutdown),
+            active: Arc::clone(&self.active),
+            addr: self.local_addr()?,
+        })
     }
 
     /// Accept loop; each connection is served on its own thread so one stuck
     /// client cannot block the next scrape. The loop returns only after
     /// `cancel_token` fires and in-flight handlers have drained or timed out.
     pub fn run(self, cancel_token: CancellationToken) -> Result<(), DaemonError> {
-        self.listener.set_nonblocking(true).map_err(|error| {
-            DaemonError::bind_failed(format!("set metrics listener nonblocking: {error}"))
-        })?;
-        while !cancel_token.is_cancelled() {
+        let shutdown = self.shutdown_handle()?;
+        let watcher = shutdown.clone();
+        std::thread::Builder::new()
+            .name("calyxd-metrics-cancel".to_string())
+            .spawn(move || {
+                wait_for_cancellation(cancel_token);
+                watcher.shutdown();
+            })
+            .map_err(|error| {
+                DaemonError::health_failed(format!("spawn metrics cancel watcher: {error}"))
+            })?;
+        self.run_until_shutdown()
+    }
+
+    fn run_until_shutdown(self) -> Result<(), DaemonError> {
+        loop {
             match self.listener.accept() {
                 Ok((stream, peer)) => {
+                    if self.shutdown.load(Ordering::SeqCst) {
+                        break;
+                    }
                     let metrics = Arc::clone(&self.metrics);
                     let origin = self.origin.as_ref().map(Arc::clone);
                     let active = Arc::clone(&self.active);
-                    active.fetch_add(1, Ordering::SeqCst);
+                    active.enter();
                     std::thread::spawn(move || {
                         let outcome = catch_unwind(AssertUnwindSafe(|| {
                             handle_connection(stream, &metrics, origin.as_deref())
                         }));
-                        active.fetch_sub(1, Ordering::SeqCst);
+                        active.exit();
                         match outcome {
                             Ok(Ok(())) => {}
                             Ok(Err(detail)) => {
@@ -117,21 +142,43 @@ impl MetricsServer {
                         }
                     });
                 }
-                Err(error) if error.kind() == ErrorKind::WouldBlock => {
-                    std::thread::sleep(ACCEPT_IDLE_SLEEP);
-                }
                 Err(error) => {
+                    if self.shutdown.load(Ordering::SeqCst) {
+                        break;
+                    }
                     eprintln!("calyxd: accept on metrics listener failed: {error}");
                 }
             }
         }
 
-        let deadline = Instant::now() + DRAIN_TIMEOUT;
-        while self.active.load(Ordering::SeqCst) > 0 && Instant::now() < deadline {
-            std::thread::sleep(ACCEPT_IDLE_SLEEP);
-        }
+        self.active.wait_for_drain(DRAIN_TIMEOUT);
         Ok(())
     }
+}
+
+#[derive(Clone)]
+pub struct MetricsShutdownHandle {
+    shutdown: Arc<AtomicBool>,
+    active: Arc<ConnectionTracker>,
+    addr: SocketAddr,
+}
+
+impl MetricsShutdownHandle {
+    pub fn shutdown(&self) {
+        self.shutdown.store(true, Ordering::SeqCst);
+        let _ = TcpStream::connect(self.addr);
+    }
+
+    pub fn active_connections(&self) -> usize {
+        self.active.active()
+    }
+}
+
+fn wait_for_cancellation(cancel_token: CancellationToken) {
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .build()
+        .expect("build metrics cancellation runtime");
+    runtime.block_on(cancel_token.cancelled_owned());
 }
 
 /// Serves exactly one HTTP request on `stream`.

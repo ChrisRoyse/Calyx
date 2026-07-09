@@ -33,14 +33,15 @@ use std::io::{ErrorKind, Read, Write};
 use std::net::{SocketAddr, TcpListener, TcpStream};
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::time::{Duration, Instant};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::Duration;
 
 use calyx_core::{AuthN, MtlsConfig};
 use calyx_mcp::{JsonRpcError, JsonRpcResponse, McpServer, decode_jsonrpc_request};
 use rustls::ServerConfig;
 
 use crate::config::CalyxConfig;
+use crate::connection_tracker::ConnectionTracker;
 use crate::error::DaemonError;
 
 mod tls;
@@ -87,7 +88,7 @@ pub struct CalyxMcpServer {
     dispatcher: Arc<McpServer>,
     tls_config: Arc<ServerConfig>,
     shutdown: Arc<AtomicBool>,
-    active: Arc<AtomicUsize>,
+    active: Arc<ConnectionTracker>,
 }
 
 impl CalyxMcpServer {
@@ -112,7 +113,7 @@ impl CalyxMcpServer {
             dispatcher,
             tls_config,
             shutdown: Arc::new(AtomicBool::new(false)),
-            active: Arc::new(AtomicUsize::new(0)),
+            active: Arc::new(ConnectionTracker::default()),
         })
     }
 
@@ -162,7 +163,7 @@ impl CalyxMcpServer {
                     if self.shutdown.load(Ordering::SeqCst) {
                         break;
                     }
-                    self.active.fetch_add(1, Ordering::SeqCst);
+                    self.active.enter();
                     let dispatcher = Arc::clone(&self.dispatcher);
                     let tls_config = Arc::clone(&self.tls_config);
                     let active = Arc::clone(&self.active);
@@ -170,7 +171,7 @@ impl CalyxMcpServer {
                         let outcome = catch_unwind(AssertUnwindSafe(|| {
                             tls::serve_connection(stream, &dispatcher, tls_config)
                         }));
-                        active.fetch_sub(1, Ordering::SeqCst);
+                        active.exit();
                         match outcome {
                             Ok(Ok(())) => {}
                             Ok(Err(detail)) => {
@@ -194,10 +195,7 @@ impl CalyxMcpServer {
             }
         }
 
-        let deadline = Instant::now() + DRAIN_TIMEOUT;
-        while self.active.load(Ordering::SeqCst) > 0 && Instant::now() < deadline {
-            std::thread::sleep(Duration::from_millis(10));
-        }
+        self.active.wait_for_drain(DRAIN_TIMEOUT);
         Ok(())
     }
 }
@@ -211,7 +209,7 @@ impl CalyxMcpServer {
 #[derive(Clone)]
 pub struct ShutdownHandle {
     shutdown: Arc<AtomicBool>,
-    active: Arc<AtomicUsize>,
+    active: Arc<ConnectionTracker>,
     addr: SocketAddr,
 }
 
@@ -226,7 +224,7 @@ impl ShutdownHandle {
 
     /// Number of connection handlers currently in flight (0 once all drain).
     pub fn active_connections(&self) -> usize {
-        self.active.load(Ordering::SeqCst)
+        self.active.active()
     }
 }
 

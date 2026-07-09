@@ -1,6 +1,6 @@
 use std::path::Path;
 use std::process::ExitCode;
-use std::sync::Arc;
+use std::sync::{Arc, mpsc};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -21,7 +21,6 @@ use crate::verify_loop::{TargetKind, VerifyTarget, run_cycle, spawn_loop};
 use crate::{refresh_zfs_metrics, spawn_zfs_metrics_loop};
 
 const VERIFY_INTERVAL_SECS: u64 = 60;
-const LISTENER_MONITOR_INTERVAL: Duration = Duration::from_millis(10);
 
 pub(crate) async fn run_server(config_path: &Path, once: bool, audit_vram: bool) -> ExitCode {
     let cfg = match CalyxConfig::from_file(config_path) {
@@ -150,7 +149,7 @@ pub(crate) async fn run_server(config_path: &Path, once: bool, audit_vram: bool)
         Duration::from_secs(VERIFY_INTERVAL_SECS),
     );
 
-    match run_servers(server, mcp_server, cancel_token) {
+    match run_servers(server, mcp_server, cancel_token).await {
         Ok(()) => match write_shutdown_status(&cfg.health_log_path) {
             Ok(record) => {
                 println!(
@@ -195,29 +194,32 @@ fn production_mcp_dispatcher() -> Result<Arc<McpServer>, DaemonError> {
     Ok(Arc::new(dispatcher))
 }
 
-fn run_servers(
+async fn run_servers(
     metrics: MetricsServer,
     mcp: Option<CalyxMcpServer>,
     cancel_token: CancellationToken,
 ) -> Result<(), DaemonError> {
+    let (done_tx, done_rx) = mpsc::channel();
+    let metrics_token = cancel_token.clone();
+    let metrics_join = spawn_listener("calyxd-metrics", done_tx.clone(), move || {
+        metrics.run(metrics_token)
+    })?;
+
     let Some(mcp) = mcp else {
-        return metrics.run(cancel_token);
+        drop(done_tx);
+        wait_for_listener_or_cancel(cancel_token.clone(), done_rx).await?;
+        cancel_token.cancel();
+        join_listener("metrics", metrics_join)??;
+        return Ok(());
     };
     let mcp_addr = mcp.local_addr()?;
     let mcp_shutdown = mcp.shutdown_handle()?;
-    let metrics_token = cancel_token.clone();
-    let metrics_join = spawn_listener("calyxd-metrics", move || metrics.run(metrics_token))?;
-    let mcp_join = spawn_listener("calyxd-mcp", move || {
+    let mcp_join = spawn_listener("calyxd-mcp", done_tx, move || {
         println!("INFO calyxd MCP serving on {mcp_addr}");
         mcp.run()
     })?;
 
-    loop {
-        if cancel_token.is_cancelled() || metrics_join.is_finished() || mcp_join.is_finished() {
-            break;
-        }
-        thread::sleep(LISTENER_MONITOR_INTERVAL);
-    }
+    wait_for_listener_or_cancel(cancel_token.clone(), done_rx).await?;
     cancel_token.cancel();
     mcp_shutdown.shutdown();
 
@@ -226,13 +228,34 @@ fn run_servers(
     Ok(())
 }
 
-fn spawn_listener<F>(name: &str, run: F) -> Result<JoinHandle<Result<(), DaemonError>>, DaemonError>
+async fn wait_for_listener_or_cancel(
+    cancel_token: CancellationToken,
+    done_rx: mpsc::Receiver<()>,
+) -> Result<(), DaemonError> {
+    let listener_done = tokio::task::spawn_blocking(move || done_rx.recv());
+    tokio::select! {
+        _ = cancel_token.cancelled() => Ok(()),
+        result = listener_done => result
+            .map(|_| ())
+            .map_err(|error| DaemonError::health_failed(format!("wait for listener: {error}"))),
+    }
+}
+
+fn spawn_listener<F>(
+    name: &'static str,
+    done_tx: mpsc::Sender<()>,
+    run: F,
+) -> Result<JoinHandle<Result<(), DaemonError>>, DaemonError>
 where
     F: FnOnce() -> Result<(), DaemonError> + Send + 'static,
 {
     thread::Builder::new()
         .name(name.to_string())
-        .spawn(run)
+        .spawn(move || {
+            let result = run();
+            let _ = done_tx.send(());
+            result
+        })
         .map_err(|error| DaemonError::health_failed(format!("spawn {name} listener: {error}")))
 }
 

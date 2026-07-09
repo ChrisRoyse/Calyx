@@ -14,6 +14,7 @@
 //! public API rather than binary dead code.
 
 pub mod config;
+mod connection_tracker;
 pub mod cuda_probe;
 pub mod error;
 pub mod health;
