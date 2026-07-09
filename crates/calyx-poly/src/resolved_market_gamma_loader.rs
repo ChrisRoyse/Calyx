@@ -11,6 +11,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::error::{PolyError, Result};
+use crate::gamma_time::iso8601_to_unix;
 use crate::model::{MarketSnapshot, Resolution};
 use crate::resolved_market_corpus::ResolvedMarketInput;
 
@@ -32,6 +33,7 @@ pub struct GammaRecallCensus {
     pub unresolved_no_clean_winner: usize,
     pub rejected_terminal_degenerate: usize,
     pub rejected_lookahead: usize,
+    pub malformed_page_objects: usize,
     pub admitted: usize,
 }
 
@@ -74,29 +76,36 @@ pub fn load_admissible_markets(dir: &Path) -> Result<GammaResolvedMarkets> {
                 format!("parse {}: {e}", file.display()),
             )
         })?;
-        let arr = match &value {
-            Value::Array(a) => a.clone(),
-            Value::Object(o) => o
-                .get("data")
-                .or_else(|| o.get("markets"))
-                .and_then(|v| v.as_array())
-                .cloned()
-                .unwrap_or_default(),
-            _ => Vec::new(),
-        };
-        for item in arr {
-            census.markets_seen += 1;
-            match admit_market(&item) {
-                Admission::Admit(pair) => markets.push(*pair),
-                Admission::SkipParse => census.skipped_not_binary_or_ids += 1,
-                Admission::Unresolved => census.unresolved_no_clean_winner += 1,
-                Admission::TerminalDegenerate => census.rejected_terminal_degenerate += 1,
-                Admission::LookAhead => census.rejected_lookahead += 1,
+        match page_markets(&value) {
+            Some(page_markets) => {
+                for item in page_markets {
+                    census.markets_seen += 1;
+                    match admit_market(item) {
+                        Admission::Admit(pair) => markets.push(*pair),
+                        Admission::SkipParse => census.skipped_not_binary_or_ids += 1,
+                        Admission::Unresolved => census.unresolved_no_clean_winner += 1,
+                        Admission::TerminalDegenerate => census.rejected_terminal_degenerate += 1,
+                        Admission::LookAhead => census.rejected_lookahead += 1,
+                    }
+                }
             }
+            None => census.malformed_page_objects += 1,
         }
     }
     census.admitted = markets.len();
     Ok(GammaResolvedMarkets { markets, census })
+}
+
+fn page_markets(value: &Value) -> Option<&[Value]> {
+    match value {
+        Value::Array(items) => Some(items),
+        Value::Object(object) => object
+            .get("data")
+            .or_else(|| object.get("markets"))
+            .and_then(Value::as_array)
+            .map(Vec::as_slice),
+        _ => None,
+    }
 }
 
 fn collect_json_files(dir: &Path, out: &mut Vec<PathBuf>) -> Result<()> {
@@ -167,7 +176,7 @@ struct GammaMarket {
 }
 
 fn admit_market(item: &Value) -> Admission {
-    let Ok(m) = serde_json::from_value::<GammaMarket>(item.clone()) else {
+    let Ok(m) = GammaMarket::deserialize(item) else {
         return Admission::SkipParse;
     };
     let (Some(cond), Some(outcomes_s), Some(prices_s), Some(tokens_s)) = (
@@ -298,31 +307,6 @@ fn num(v: Option<&Value>) -> Option<f64> {
         Value::String(s) => s.parse::<f64>().ok().filter(|x| x.is_finite()),
         _ => None,
     }
-}
-
-fn iso8601_to_unix(s: &str) -> Option<u64> {
-    let bytes = s.as_bytes();
-    if bytes.len() < 19
-        || bytes[4] != b'-'
-        || bytes[7] != b'-'
-        || (bytes[10] != b'T' && bytes[10] != b' ')
-    {
-        return None;
-    }
-    let p = |a: usize, b: usize| s.get(a..b)?.parse::<i64>().ok();
-    let (y, mo, d) = (p(0, 4)?, p(5, 7)?, p(8, 10)?);
-    let (h, mi, se) = (p(11, 13)?, p(14, 16)?, p(17, 19)?);
-    if !(1..=12).contains(&mo) || !(1..=31).contains(&d) {
-        return None;
-    }
-    let yy = if mo <= 2 { y - 1 } else { y };
-    let era = if yy >= 0 { yy } else { yy - 399 } / 400;
-    let yoe = yy - era * 400;
-    let doy = (153 * (if mo > 2 { mo - 3 } else { mo + 9 }) + 2) / 5 + d - 1;
-    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
-    let days = era * 146_097 + doe - 719_468;
-    let secs = days * 86_400 + h * 3_600 + mi * 60 + se;
-    u64::try_from(secs).ok()
 }
 
 #[cfg(test)]

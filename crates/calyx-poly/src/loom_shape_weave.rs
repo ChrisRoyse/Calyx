@@ -126,7 +126,7 @@ pub fn run_shape_aware_loom_weave_for_cx_ids<C: Clock>(
         ));
     }
 
-    let agreement_graph = agreement_graph_from_rows(&readback_rows);
+    let agreement_graph = agreement_graph_from_rows(&readback_rows)?;
     let report = ShapeAwareLoomWeaveReport {
         schema_version: SHAPE_AWARE_LOOM_WEAVE_SCHEMA_VERSION.to_string(),
         artifact_kind: SHAPE_AWARE_LOOM_WEAVE_ARTIFACT_KIND.to_string(),
@@ -396,7 +396,7 @@ fn unsupported_reason(left: &ShapeSlot, right: &ShapeSlot) -> (&'static str, Str
     }
 }
 
-fn agreement_graph_from_rows(rows: &[XtermRow]) -> Vec<AgreementEdge> {
+fn agreement_graph_from_rows(rows: &[XtermRow]) -> Result<Vec<AgreementEdge>> {
     let mut edges = BTreeMap::<(SlotId, SlotId), (f32, usize)>::new();
     for row in rows {
         if let CrossTermValue::Scalar(value) = row.value {
@@ -409,14 +409,14 @@ fn agreement_graph_from_rows(rows: &[XtermRow]) -> Vec<AgreementEdge> {
         .into_iter()
         .map(|((a, b), (sum, n))| {
             let raw = sum / n.max(1) as f32;
-            AgreementEdge {
+            Ok(AgreementEdge {
                 a,
                 b,
                 raw_mean_agreement: raw,
                 mean_agreement: raw,
-                agreement_weight: agreement_weight(raw).unwrap_or(0.0),
+                agreement_weight: agreement_weight(raw)?,
                 n,
-            }
+            })
         })
         .collect()
 }

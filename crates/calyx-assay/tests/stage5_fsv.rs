@@ -96,7 +96,7 @@ fn loom_cross_terms_materialization_and_reports_work() {
             )
             .unwrap();
     }
-    let graph = graph_store.agreement_graph();
+    let graph = graph_store.agreement_graph().expect("agreement graph");
     assert_eq!(graph[0].n, 50);
     assert!((graph[0].mean_agreement - 0.75).abs() < 0.01);
 
@@ -306,7 +306,7 @@ fn stage5_full_stack_fsv() {
         "lazy_after_rows": persisted_loom.xterm_count(),
         "lazy_cache_rows": loom.cache_count(),
         "lazy_delta": lazy_value,
-        "agreement_edges": persisted_loom.agreement_graph(),
+        "agreement_edges": persisted_loom.agreement_graph().expect("agreement graph"),
         "measured_tags": loom.measured_count(),
         "low_gain_materialized": low_gain_plan.materialized_count(),
         "high_gain_materialized": high_gain_plan.materialized_count(),

@@ -52,7 +52,7 @@ fn normalize_unix_ts(value: u64) -> u64 {
     }
 }
 
-fn iso8601_to_unix(s: &str) -> Option<u64> {
+pub(crate) fn iso8601_to_unix(s: &str) -> Option<u64> {
     let bytes = s.as_bytes();
     if bytes.len() == 10 && bytes[4] == b'-' && bytes[7] == b'-' {
         return iso8601_to_unix(&format!("{s}T00:00:00Z"));

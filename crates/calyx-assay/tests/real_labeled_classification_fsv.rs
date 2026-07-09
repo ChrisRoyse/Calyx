@@ -166,7 +166,7 @@ fn real_iris_classification_assay_loom_fsv() {
         "persisted_rows": xterm_persisted,
         "raw_cf_rows": xterm_router.iter_cf(ColumnFamily::XTerm).unwrap().len(),
         "loaded_xterm_rows": loaded_xterm.xterm_count(),
-        "agreement_graph": loaded_xterm.agreement_graph(),
+        "agreement_graph": loaded_xterm.agreement_graph().expect("agreement graph"),
         "sample_rows": loaded_xterm.xterm_rows().into_iter().take(5).collect::<Vec<_>>(),
         "abundance": abundance,
     });

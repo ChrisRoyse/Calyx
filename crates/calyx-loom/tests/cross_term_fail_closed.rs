@@ -4,10 +4,12 @@ use std::path::PathBuf;
 
 use calyx_aster::cf::{CfRouter, ColumnFamily};
 use calyx_core::{CxId, SlotId, content_address};
+use calyx_loom::agreement_graph::XtermRow;
 use calyx_loom::{
     CALYX_LOOM_DIM_MISMATCH, CALYX_LOOM_FORGE_UNAVAILABLE, CALYX_LOOM_NON_FINITE_VECTOR,
-    CALYX_LOOM_SLOT_MISSING, CALYX_LOOM_ZERO_NORM_VECTOR, CrossTermKind, LoomStore,
-    agreement_batch_gpu, agreement_scalar, agreement_weight, delta_vec, interaction_vec,
+    CALYX_LOOM_SLOT_MISSING, CALYX_LOOM_ZERO_NORM_VECTOR, CrossTermKey, CrossTermKind,
+    CrossTermValue, LoomStore, SignalProvenanceTag, agreement_batch_gpu, agreement_scalar,
+    agreement_weight, delta_vec, interaction_vec,
 };
 use serde_json::json;
 
@@ -55,7 +57,28 @@ fn loom_cross_term_fail_closed_manual_fsv() {
         .unwrap();
     let persisted = store.persist_xterms_to_aster(&mut router).unwrap();
     let loaded = LoomStore::load_xterms_from_aster(&router, 8).unwrap();
-    let edge = loaded.agreement_graph().pop().unwrap();
+    let edge = loaded.agreement_graph().unwrap().pop().unwrap();
+    let corrupt_key = CrossTermKey {
+        cx_id: cx(9),
+        a: slot(3),
+        b: slot(4),
+        kind: CrossTermKind::Agreement,
+    };
+    let corrupt_row = XtermRow {
+        key: corrupt_key,
+        value: CrossTermValue::Scalar(f32::NAN),
+        tag: SignalProvenanceTag::Derived,
+    };
+    router
+        .put(
+            ColumnFamily::XTerm,
+            &manual_xterm_key(&corrupt_key),
+            &serde_json::to_vec(&corrupt_row).unwrap(),
+        )
+        .unwrap();
+    router.flush_cf(ColumnFamily::XTerm).unwrap();
+    let corrupt_load_error =
+        LoomStore::load_xterms_from_aster(&router, 8).expect_err("corrupt XTerm row must fail");
 
     let zero = agreement_scalar(&[0.0, 0.0], &[1.0, 0.0]).unwrap_err();
     let mismatch = delta_vec(&[1.0, 0.0], &[1.0]).unwrap_err();
@@ -71,6 +94,7 @@ fn loom_cross_term_fail_closed_manual_fsv() {
         "raw_cf_rows": router.iter_cf(ColumnFamily::XTerm).unwrap().len(),
         "lazy_delta": lazy,
         "edge": edge,
+        "corrupt_xterm_load_error": corrupt_load_error.code,
         "antipodal_weight": agreement_weight(-1.0).unwrap(),
         "errors": {
             "zero_norm": zero.code,
@@ -93,9 +117,13 @@ fn loom_cross_term_fail_closed_manual_fsv() {
 
     assert_eq!(readback["inserted_agreements"], 1);
     assert_eq!(readback["persisted_xterms"], 1);
-    assert_eq!(readback["raw_cf_rows"], 1);
+    assert_eq!(readback["raw_cf_rows"], 2);
     assert_eq!(readback["edge"]["raw_mean_agreement"], 0.5);
     assert_eq!(readback["edge"]["agreement_weight"], 0.5);
+    assert_eq!(
+        readback["corrupt_xterm_load_error"],
+        "CALYX_ASTER_CORRUPT_SHARD"
+    );
     assert_eq!(readback["antipodal_weight"], 0.0);
     assert_eq!(readback["errors"]["zero_norm"], CALYX_LOOM_ZERO_NORM_VECTOR);
     assert_eq!(readback["errors"]["dim_mismatch"], CALYX_LOOM_DIM_MISMATCH);
@@ -117,6 +145,20 @@ fn cx(value: u8) -> CxId {
 
 fn slot(value: u16) -> SlotId {
     SlotId::new(value)
+}
+
+fn manual_xterm_key(key: &CrossTermKey) -> Vec<u8> {
+    let mut out = Vec::with_capacity(21);
+    out.extend_from_slice(key.cx_id.as_bytes());
+    out.extend_from_slice(&key.a.get().to_be_bytes());
+    out.extend_from_slice(&key.b.get().to_be_bytes());
+    out.push(match key.kind {
+        CrossTermKind::Concat => 0,
+        CrossTermKind::Interaction => 1,
+        CrossTermKind::Agreement => 2,
+        CrossTermKind::Delta => 3,
+    });
+    out
 }
 
 fn assert_gpu_path() {

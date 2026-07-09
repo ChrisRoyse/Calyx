@@ -184,7 +184,7 @@ fn ph74_embedder_zoo_stage_exit_fsv() {
             "xterm_cf_root": xterm_dir.join("cf/xterm"),
             "persisted_rows": xterm_rows,
             "loaded_rows": loaded_xterms.xterm_count(),
-            "agreement_graph": loaded_xterms.agreement_graph(),
+            "agreement_graph": loaded_xterms.agreement_graph().expect("agreement graph"),
             "expected_upper_bound_per_cx": cross_term_upper_bound(active_slots.len()),
             "sample_rows": loaded_xterms.xterm_rows().into_iter().take(8).collect::<Vec<_>>()
         }),

@@ -1,12 +1,11 @@
 //! kNN resolved-neighbor edge materialization into Graph CF (#72).
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use calyx_aster::cf::ColumnFamily;
 use calyx_aster::plain_graph::PlainGraph;
 use calyx_aster::vault::AsterVault;
-use calyx_core::{Clock, CxId, Seq, SlotId, SlotVector};
-use calyx_sextant::{HnswIndex, SextantIndex};
+use calyx_core::{Clock, CxId, Seq};
 use serde::{Deserialize, Serialize};
 
 use crate::error::{PolyError, Result};
@@ -86,14 +85,16 @@ pub fn persist_knn_edges_on_ingest<C: Clock>(
 ) -> Result<KnnGraphRun> {
     let hits = compute_knn_edges(domain, ingested, corpus, k)?;
     let graph = PlainGraph::new(vault, collection)?;
+    let corpus_by_cx: BTreeMap<CxId, &ResolvedExemplar> =
+        corpus.iter().map(|row| (row.cx_id, row)).collect();
     graph.put_node(
         ingested.cx_id,
         &node_value(domain, "ingested_resolved", ingested)?,
     )?;
     for edge in &hits {
-        let neighbor = corpus
-            .iter()
-            .find(|row| row.cx_id == edge.dst)
+        let neighbor = corpus_by_cx
+            .get(&edge.dst)
+            .copied()
             .expect("edge dst came from corpus");
         graph.put_node(
             edge.dst,
@@ -152,29 +153,16 @@ pub fn compute_knn_edges(
     k: usize,
 ) -> Result<Vec<KnnGraphEdge>> {
     validate_request(domain, ingested, corpus, k)?;
-    let dim = ingested.vector.len();
-    let mut index = HnswIndex::new(SlotId::new(0), dim as u32, 0x0720_0B17);
-    for (seq, row) in corpus.iter().enumerate() {
-        index
-            .insert(
-                row.cx_id,
-                SlotVector::Dense {
-                    dim: dim as u32,
-                    data: row.vector.clone(),
-                },
-                seq as u64 + 1,
-            )
-            .map_err(|err| invalid(ERR_KNN_GRAPH_DIM_MISMATCH, err.to_string()))?;
-    }
-    Ok(index
-        .brute_force(&ingested.vector, k)
+    let corpus_by_cx: BTreeMap<CxId, &ResolvedExemplar> =
+        corpus.iter().map(|row| (row.cx_id, row)).collect();
+    Ok(direct_cosine_top_k(&ingested.vector, corpus, k)
         .into_iter()
         .enumerate()
         .map(|(idx, (dst, raw_similarity))| {
-            let neighbor = corpus
-                .iter()
-                .find(|row| row.cx_id == dst)
-                .expect("HNSW hit came from corpus");
+            let neighbor = corpus_by_cx
+                .get(&dst)
+                .copied()
+                .expect("kNN hit came from corpus");
             let similarity = canonical_score(raw_similarity as f64);
             KnnGraphEdge {
                 src: ingested.cx_id,
@@ -191,6 +179,35 @@ pub fn compute_knn_edges(
             }
         })
         .collect())
+}
+
+fn direct_cosine_top_k(query: &[f32], corpus: &[ResolvedExemplar], k: usize) -> Vec<(CxId, f32)> {
+    let mut scored: Vec<_> = corpus
+        .iter()
+        .map(|row| (row.cx_id, cosine(query, &row.vector)))
+        .collect();
+    scored.sort_by(|a, b| {
+        b.1.total_cmp(&a.1)
+            .then_with(|| a.0.to_string().cmp(&b.0.to_string()))
+    });
+    scored.truncate(k);
+    scored
+}
+
+fn cosine(a: &[f32], b: &[f32]) -> f32 {
+    let mut dot = 0.0;
+    let mut an = 0.0;
+    let mut bn = 0.0;
+    for (x, y) in a.iter().zip(b) {
+        dot += x * y;
+        an += x * x;
+        bn += y * y;
+    }
+    if an == 0.0 || bn == 0.0 {
+        0.0
+    } else {
+        dot / (an.sqrt() * bn.sqrt())
+    }
 }
 
 fn validate_request(
@@ -270,7 +287,7 @@ fn edge_value(edge: &KnnGraphEdge) -> KnnGraphEdgeValue {
     KnnGraphEdgeValue {
         schema_version: KNN_GRAPH_SCHEMA_VERSION.to_string(),
         edge_type: edge.edge_type.clone(),
-        source: "calyx_sextant::HnswIndex::brute_force".to_string(),
+        source: "calyx_poly::direct_cosine_top_k".to_string(),
         domain: edge.domain.clone(),
         rank: edge.rank,
         similarity: edge.similarity,

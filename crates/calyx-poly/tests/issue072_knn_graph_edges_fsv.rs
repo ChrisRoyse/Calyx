@@ -49,6 +49,10 @@ fn issue072_knn_graph_edges_fsv() {
     );
     assert!(!run.edges.iter().any(|edge| edge.dst == cx(3)));
     assert_eq!(run.readback_edges.len(), run.edges.len());
+    assert_eq!(
+        run.readback_edges[0].value.source,
+        "calyx_poly::direct_cosine_top_k"
+    );
 
     let graph_readback = reopened_graph_readback(&vault_dir, &run);
     write_json(&root.join("graph-cf-readback.json"), &graph_readback);
@@ -57,7 +61,7 @@ fn issue072_knn_graph_edges_fsv() {
     collect_files(&root, &mut files);
     let report = json!({
         "issue": 72,
-        "proof_claim": "On ingest of a resolved record, Poly builds a real calyx_sextant::HnswIndex over the resolved corpus, computes k nearest resolved neighbours, persists typed association.knn_resolved edges into Aster Graph CF, and reads those Graph CF rows back byte-for-byte.",
+        "proof_claim": "On ingest of a resolved record, Poly computes deterministic direct cosine top-k over the resolved corpus, persists typed association.knn_resolved edges into Aster Graph CF, and reads those Graph CF rows back byte-for-byte.",
         "minimum_sufficient_proof_corpus": {
             "ingested_resolved_rows": 1,
             "resolved_corpus_rows": corpus.len(),
@@ -65,7 +69,7 @@ fn issue072_knn_graph_edges_fsv() {
             "loaded_edges": run.edge_count,
             "why_this_is_sufficient": "One query plus three resolved candidates with k=2 proves top-k selection, nearest ordering, exclusion of a farther candidate, Graph CF persistence, and readback.",
             "why_smaller_is_insufficient": "With fewer than three candidates, k=2 cannot distinguish selected-neighbor persistence from all-corpus fanout.",
-            "why_larger_is_wasteful": "The behavior is deterministic HNSW insert/search plus Graph CF persistence; larger corpora repeat the same code path without adding a new proof obligation."
+            "why_larger_is_wasteful": "The behavior is deterministic direct cosine top-k plus Graph CF persistence; larger corpora repeat the same code path without adding a new proof obligation."
         },
         "graph_run": serde_json::to_value(&run).expect("run JSON"),
         "graph_cf_readback": graph_readback,

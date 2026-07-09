@@ -274,7 +274,7 @@ fn persist_and_reload(dir: &Path, store: &LoomStore) -> serde_json::Value {
         "raw_cf_rows": raw_cf_rows,
         "sst_files": router.level_file_count(ColumnFamily::XTerm),
         "kind_counts": kind_counts(&loaded),
-        "agreement_edges": loaded.agreement_graph(),
+        "agreement_edges": loaded.agreement_graph().expect("agreement graph"),
     })
 }
 

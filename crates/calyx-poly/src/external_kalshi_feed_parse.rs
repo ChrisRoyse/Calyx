@@ -52,9 +52,9 @@ pub fn encode_kalshi_market_signal(market: &KalshiMarketRecord) -> Result<Kalshi
     let values = vec![
         price as f32,
         spread as f32,
-        log1p_feature(market.liquidity_dollars)?,
-        log1p_feature(market.volume_fp)?,
-        log1p_feature(market.open_interest_fp)?,
+        log1p_required_feature(market.liquidity_dollars, "liquidity_dollars")?,
+        log1p_required_feature(market.volume_fp, "volume_fp")?,
+        log1p_required_feature(market.open_interest_fp, "open_interest_fp")?,
     ];
     if values.iter().any(|value| !value.is_finite()) {
         return Err(kalshi_encode_error(
@@ -112,9 +112,10 @@ fn primary_yes_signal(market: &KalshiMarketRecord) -> Result<(f64, f64)> {
         (Some(bid), Some(ask)) if ask >= bid => Some(ask - bid),
         (Some(_), Some(_)) => return Err(kalshi_encode_error("yes ask was below yes bid")),
         _ => None,
-    };
+    }
+    .ok_or_else(|| kalshi_encode_error("Kalshi market missing yes bid/ask spread"))?;
     let price = match (market.yes_bid_dollars, market.yes_ask_dollars, spread) {
-        (Some(bid), Some(ask), Some(spread)) if spread <= 0.5 => Some((bid + ask) / 2.0),
+        (Some(bid), Some(ask), spread) if spread <= 0.5 => Some((bid + ask) / 2.0),
         _ => market
             .last_price_dollars
             .or(market.previous_price_dollars)
@@ -123,16 +124,17 @@ fn primary_yes_signal(market: &KalshiMarketRecord) -> Result<(f64, f64)> {
     }
     .ok_or_else(|| kalshi_encode_error("Kalshi market has no usable yes price signal"))?;
     validate_probability(price, "yes price signal")?;
-    if let Some(spread) = spread {
-        validate_probability(spread, "yes spread")?;
-    }
-    Ok((price, spread.unwrap_or(0.0)))
+    validate_probability(spread, "yes spread")?;
+    Ok((price, spread))
 }
 
-fn log1p_feature(value: Option<f64>) -> Result<f32> {
-    let value = value.unwrap_or(0.0);
+fn log1p_required_feature(value: Option<f64>, field: &str) -> Result<f32> {
+    let value =
+        value.ok_or_else(|| kalshi_encode_error(format!("Kalshi market missing {field}")))?;
     if !value.is_finite() || value < 0.0 {
-        return Err(kalshi_encode_error("non-negative finite feature required"));
+        return Err(kalshi_encode_error(format!(
+            "Kalshi field {field} must be finite and non-negative"
+        )));
     }
     Ok(value.ln_1p() as f32)
 }

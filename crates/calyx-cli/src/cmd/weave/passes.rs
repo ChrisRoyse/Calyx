@@ -178,7 +178,7 @@ pub(super) fn weave_within_doc<C: Clock>(
             knn_vectors.push((cx_id, knn_vec));
         }
 
-        for edge in loom.agreement_graph() {
+        for edge in loom.agreement_graph()? {
             let entry = agreement_acc
                 .entry((edge.a.get(), edge.b.get()))
                 .or_default();

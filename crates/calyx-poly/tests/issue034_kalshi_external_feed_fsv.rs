@@ -89,8 +89,8 @@ fn issue034_kalshi_external_feed_fsv() {
             "raw_kalshi_market_rows": page.markets.len(),
             "known_outcome_admission_rows": observations.len(),
             "lens_autobuild_candidates": 1,
-            "edge_cases": 5,
-            "why_this_is_sufficient": "Two market rows are the smallest fixture that proves both tight bid/ask midpoint encoding and settled wide-spread last-price fallback while exercising yes/no labels. Exactly 50 known-outcome rows is the calyx-assay KSG sample floor, so it is the smallest corpus that can prove a real admission measurement. One trusted lens-autobuild candidate is the smallest #110 handoff. Five edges cover missing markets array, missing price signal, non-finite signal refusal, single-class refusal, and below-floor refusal.",
+            "edge_cases": 9,
+            "why_this_is_sufficient": "Two market rows are the smallest fixture that proves both tight bid/ask midpoint encoding and settled wide-spread last-price fallback while exercising yes/no labels. Exactly 50 known-outcome rows is the calyx-assay KSG sample floor, so it is the smallest corpus that can prove a real admission measurement. One trusted lens-autobuild candidate is the smallest #110 handoff. Nine edges cover missing markets array, missing price signal, missing spread, missing liquidity/volume/open-interest evidence, non-finite signal refusal, single-class refusal, and below-floor refusal.",
             "why_smaller_is_insufficient": "One market row would not prove both encoding branches or both outcome labels. Fewer than 50 known-outcome rows cannot satisfy the Assay KSG sample floor. Removing the edge cases would not prove fail-closed behavior.",
             "why_larger_is_wasteful": "More market rows or more than 50 known-outcome rows repeat the same raw readback, parser, encoder, and KSG admission paths without adding a #34 invariant."
         },
@@ -264,6 +264,71 @@ fn edge_cases(root: &Path, clock: &FixedClock) -> Value {
         encode_kalshi_market_signal(&no_price).expect_err("missing price fails closed");
     assert_eq!(no_price_err.code(), ERR_KALSHI_ENCODE_INVALID);
 
+    let no_spread = parse_kalshi_market(&json!({
+        "ticker": "KXNO-SPREAD",
+        "title": "No spread row",
+        "status": "settled",
+        "result": "yes",
+        "last_price_dollars": "0.4200",
+        "liquidity_dollars": "10.0",
+        "volume_fp": "11.0",
+        "open_interest_fp": "12.0"
+    }))
+    .expect("missing-spread market parses");
+    let no_spread_err =
+        encode_kalshi_market_signal(&no_spread).expect_err("missing spread fails closed");
+    assert_eq!(no_spread_err.code(), ERR_KALSHI_ENCODE_INVALID);
+
+    let missing_required = [
+        (
+            "liquidity_dollars",
+            json!({
+                "ticker": "KXNO-LIQ",
+                "title": "No liquidity row",
+                "status": "settled",
+                "result": "yes",
+                "yes_bid_dollars": "0.4000",
+                "yes_ask_dollars": "0.4400",
+                "volume_fp": "11.0",
+                "open_interest_fp": "12.0"
+            }),
+        ),
+        (
+            "volume_fp",
+            json!({
+                "ticker": "KXNO-VOL",
+                "title": "No volume row",
+                "status": "settled",
+                "result": "yes",
+                "yes_bid_dollars": "0.4000",
+                "yes_ask_dollars": "0.4400",
+                "liquidity_dollars": "10.0",
+                "open_interest_fp": "12.0"
+            }),
+        ),
+        (
+            "open_interest_fp",
+            json!({
+                "ticker": "KXNO-OI",
+                "title": "No open interest row",
+                "status": "settled",
+                "result": "yes",
+                "yes_bid_dollars": "0.4000",
+                "yes_ask_dollars": "0.4400",
+                "liquidity_dollars": "10.0",
+                "volume_fp": "11.0"
+            }),
+        ),
+    ];
+    let mut missing_required_report = Vec::new();
+    for (field, payload) in missing_required {
+        let market = parse_kalshi_market(&payload).expect("required-field market parses");
+        let err = encode_kalshi_market_signal(&market).expect_err("missing field fails closed");
+        assert_eq!(err.code(), ERR_KALSHI_ENCODE_INVALID);
+        assert!(err.message().contains(field));
+        missing_required_report.push(json!({"field": field, "message": err.message()}));
+    }
+
     let mut nonfinite = known_truth_observations(MIN_ASSAY_SAMPLES);
     nonfinite[0].signal_value = f32::NAN;
     let nonfinite_err = measure_external_signal_admission(
@@ -308,6 +373,8 @@ fn edge_cases(root: &Path, clock: &FixedClock) -> Value {
     let edge_report = json!({
         "missing_markets_array": {"code": missing.code(), "message": missing.message()},
         "missing_price_signal": {"code": no_price_err.code(), "message": no_price_err.message()},
+        "missing_spread": {"code": no_spread_err.code(), "message": no_spread_err.message()},
+        "missing_required_features": missing_required_report,
         "nonfinite_signal": {"code": nonfinite_err.code(), "message": nonfinite_err.message()},
         "single_class_refusal": single_report,
         "below_floor_refusal": below_report

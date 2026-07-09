@@ -126,7 +126,7 @@ pub fn run_loom_weave_for_cx_ids<C: Clock>(
         ));
     }
 
-    let agreement_graph = loom.agreement_graph();
+    let agreement_graph = loom.agreement_graph()?;
     let report = LoomWeaveReport {
         schema_version: LOOM_WEAVE_SCHEMA_VERSION.to_string(),
         artifact_kind: LOOM_WEAVE_ARTIFACT_KIND.to_string(),

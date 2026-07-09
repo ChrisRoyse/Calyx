@@ -160,7 +160,7 @@ impl LoomStore {
         Ok(value)
     }
 
-    pub fn agreement_graph(&self) -> Vec<AgreementEdge> {
+    pub fn agreement_graph(&self) -> Result<Vec<AgreementEdge>> {
         let mut edges = BTreeMap::<(SlotId, SlotId), (f32, usize)>::new();
         for row in self.xterm_cf.values() {
             if let CrossTermValue::Scalar(value) = row.value {
@@ -177,11 +177,11 @@ impl LoomStore {
                 b,
                 raw_mean_agreement: raw,
                 mean_agreement: raw,
-                agreement_weight: agreement_weight(raw).unwrap_or(0.0),
+                agreement_weight: agreement_weight(raw)?,
                 n,
             });
         }
-        out
+        Ok(out)
     }
 
     pub fn xterm_rows(&self) -> Vec<XtermRow> {
@@ -295,8 +295,35 @@ mod tests {
         let loaded = LoomStore::load_xterms_from_aster(&reopened, 8).unwrap();
 
         assert_eq!(loaded.xterm_count(), 1);
-        assert_eq!(loaded.agreement_graph()[0].n, 1);
+        assert_eq!(loaded.agreement_graph().unwrap()[0].n, 1);
         cleanup(dir);
+    }
+
+    #[test]
+    fn agreement_graph_rejects_non_finite_xterm_rows() {
+        let mut store = LoomStore::new(8);
+        store.xterm_cf.insert(
+            CrossTermKey {
+                cx_id: CxId::from_bytes([9; 16]),
+                a: SlotId::new(1),
+                b: SlotId::new(2),
+                kind: CrossTermKind::Agreement,
+            },
+            XtermRow {
+                key: CrossTermKey {
+                    cx_id: CxId::from_bytes([9; 16]),
+                    a: SlotId::new(1),
+                    b: SlotId::new(2),
+                    kind: CrossTermKind::Agreement,
+                },
+                value: CrossTermValue::Scalar(f32::NAN),
+                tag: SignalProvenanceTag::Derived,
+            },
+        );
+        let err = store
+            .agreement_graph()
+            .expect_err("NaN xterm must fail closed");
+        assert_eq!(err.code, crate::error::CALYX_LOOM_NON_FINITE_VECTOR);
     }
 
     #[test]

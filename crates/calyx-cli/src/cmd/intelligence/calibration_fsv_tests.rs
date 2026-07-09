@@ -251,7 +251,7 @@ fn loom_agreement_roundtrip(root: &Path) -> serde_json::Value {
         panic!("agreement xterm must persist a scalar");
     };
     assert_close_f32(persisted, 1.0);
-    let graph = loaded.agreement_graph();
+    let graph = loaded.agreement_graph().expect("agreement graph");
     assert_eq!(graph.len(), 1);
     assert_close_f32(graph[0].raw_mean_agreement, 1.0);
     json!({

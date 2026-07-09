@@ -45,6 +45,7 @@ fn issue223_loader_admits_known_truth_pre_resolution_gamma_row() {
     assert_eq!(loaded.census.rejected_terminal_degenerate, 0);
     assert_eq!(loaded.census.rejected_lookahead, 0);
     assert_eq!(loaded.census.unresolved_no_clean_winner, 0);
+    assert_eq!(loaded.census.malformed_page_objects, 0);
 
     let (snapshot, resolution) = &loaded.markets[0];
     assert_eq!(snapshot.condition_id, "0xclean");
@@ -126,6 +127,80 @@ fn issue223_loader_rejects_degenerate_lookahead_and_unresolved_rows_loud() {
     assert_eq!(loaded.census.rejected_lookahead, 1);
     assert_eq!(loaded.census.unresolved_no_clean_winner, 1);
     assert_eq!(loaded.census.skipped_not_binary_or_ids, 0);
+    assert_eq!(loaded.census.malformed_page_objects, 0);
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn issue1321_loader_uses_shared_gamma_timestamp_parser() {
+    let root = test_root("shared-time");
+    let input = root.join("gamma_markets_closed_large");
+    fs::create_dir_all(&input).expect("input dir");
+    let mut date_only_end = gamma_market(GammaMarketFixture {
+        condition_id: "0xdateonly",
+        outcomes: &["No", "Yes"],
+        outcome_prices: &["0.00", "1.00"],
+        tokens: &["no-token", "yes-token"],
+        last_trade_price: "0.61",
+        spread: "0.08",
+        volume_24h: "500.0",
+        liquidity: "2000.0",
+        created_at: "2026-01-01T00:00:00Z",
+        closed_time: "2026-01-02T00:00:00Z",
+    });
+    let object = date_only_end.as_object_mut().expect("market object");
+    object.remove("closedTime");
+    object.insert("endDate".to_string(), json!("2026-01-02"));
+    fs::write(
+        input.join("page-000000.json"),
+        serde_json::to_vec_pretty(&json!({
+            "data": [
+                date_only_end,
+                gamma_market(GammaMarketFixture {
+                    condition_id: "0xbadtime",
+                    outcomes: &["No", "Yes"],
+                    outcome_prices: &["0.00", "1.00"],
+                    tokens: &["no-token", "yes-token"],
+                    last_trade_price: "0.61",
+                    spread: "0.08",
+                    volume_24h: "500.0",
+                    liquidity: "2000.0",
+                    created_at: "2026-01-01T00:00:00Z",
+                    closed_time: "2026-01-02T99:99:99Z",
+                })
+            ]
+        }))
+        .expect("encode page"),
+    )
+    .expect("write page");
+
+    let loaded = load_admissible_markets(&input).expect("load");
+    assert_eq!(loaded.census.markets_seen, 2);
+    assert_eq!(loaded.census.admitted, 1);
+    assert_eq!(loaded.census.rejected_lookahead, 1);
+    assert_eq!(loaded.markets[0].0.condition_id, "0xdateonly");
+    assert_eq!(loaded.markets[0].0.secs_to_resolution, Some(86_400.0));
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn issue1321_loader_counts_object_pages_without_market_arrays() {
+    let root = test_root("malformed-page");
+    let input = root.join("gamma_markets_closed_large");
+    fs::create_dir_all(&input).expect("input dir");
+    fs::write(
+        input.join("page-000000.json"),
+        serde_json::to_vec_pretty(&json!({"cursor": "next-page"})).expect("encode page"),
+    )
+    .expect("write page");
+
+    let loaded = load_admissible_markets(&input).expect("load");
+    assert_eq!(loaded.census.files_read, 1);
+    assert_eq!(loaded.census.markets_seen, 0);
+    assert_eq!(loaded.census.malformed_page_objects, 1);
+    assert_eq!(loaded.census.admitted, 0);
 
     let _ = fs::remove_dir_all(root);
 }
