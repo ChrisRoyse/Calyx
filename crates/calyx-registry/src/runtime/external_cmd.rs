@@ -1,6 +1,7 @@
+use std::fmt;
 use std::io::{Read, Write};
-use std::process::{Command, Stdio};
-use std::sync::mpsc::{self, TryRecvError};
+use std::process::{Child, Command, Stdio};
+use std::sync::{Arc, Mutex, mpsc};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -10,7 +11,7 @@ use serde::{Deserialize, Serialize};
 use crate::frozen::{FrozenLensContract, LensDType, NormPolicy, sha256_digest};
 use crate::lens::ensure_input_modality;
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct ExternalCmdLens {
     id: LensId,
     cmd: String,
@@ -18,6 +19,20 @@ pub struct ExternalCmdLens {
     modality: Modality,
     dim: u32,
     timeout: Duration,
+    worker: Arc<Mutex<Option<Arc<ExternalWorker>>>>,
+}
+
+impl fmt::Debug for ExternalCmdLens {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ExternalCmdLens")
+            .field("id", &self.id)
+            .field("cmd", &self.cmd)
+            .field("args", &self.args)
+            .field("modality", &self.modality)
+            .field("dim", &self.dim)
+            .field("timeout", &self.timeout)
+            .finish_non_exhaustive()
+    }
 }
 
 #[derive(Serialize)]
@@ -60,6 +75,7 @@ impl ExternalCmdLens {
             modality,
             dim,
             timeout: Duration::from_secs(30),
+            worker: Arc::new(Mutex::new(None)),
         }
     }
 
@@ -104,7 +120,7 @@ impl Lens for ExternalCmdLens {
         let request = serde_json::to_vec(&request).map_err(|err| {
             CalyxError::lens_unreachable(format!("external request encode failed: {err}"))
         })?;
-        let response = run_frame(&self.cmd, &self.args, &request, self.timeout)?;
+        let response = self.request_frame(request)?;
         let response: ExternalResponse = serde_json::from_slice(&response).map_err(|err| {
             CalyxError::lens_unreachable(format!("external response decode failed: {err}"))
         })?;
@@ -123,100 +139,238 @@ impl Lens for ExternalCmdLens {
     }
 }
 
-fn run_frame(cmd: &str, args: &[String], request: &[u8], timeout: Duration) -> Result<Vec<u8>> {
-    if timeout.is_zero() {
-        return Err(CalyxError::lens_unreachable(
-            "external process timed out before spawn",
-        ));
+struct ExternalWorker {
+    tx: mpsc::Sender<WorkerRequest>,
+    child: Arc<Mutex<Child>>,
+    stderr_tail: Arc<Mutex<Vec<u8>>>,
+}
+
+struct WorkerRequest {
+    request: Vec<u8>,
+    reply: mpsc::Sender<Result<Vec<u8>>>,
+}
+
+enum RequestFailure {
+    Error(CalyxError),
+    Timeout(CalyxError),
+}
+
+impl RequestFailure {
+    fn into_error(self) -> CalyxError {
+        match self {
+            Self::Error(error) | Self::Timeout(error) => error,
+        }
     }
-    let mut child = Command::new(cmd)
-        .args(args)
+}
+
+impl ExternalCmdLens {
+    fn request_frame(&self, request: Vec<u8>) -> Result<Vec<u8>> {
+        if self.timeout.is_zero() {
+            return Err(CalyxError::lens_unreachable(
+                "external process timed out before spawn",
+            ));
+        }
+        let worker = self.worker()?;
+        match worker.request(self.timeout, request.clone()) {
+            Ok(body) => Ok(body),
+            Err(RequestFailure::Timeout(error)) => {
+                self.clear_worker(&worker);
+                Err(error)
+            }
+            Err(RequestFailure::Error(_)) => {
+                self.clear_worker(&worker);
+                let retry = self.worker()?;
+                retry
+                    .request(self.timeout, request)
+                    .map_err(RequestFailure::into_error)
+                    .inspect_err(|_| self.clear_worker(&retry))
+            }
+        }
+    }
+
+    fn worker(&self) -> Result<Arc<ExternalWorker>> {
+        let mut guard = self.worker.lock().map_err(|_| {
+            CalyxError::lens_unreachable("external worker cache mutex was poisoned")
+        })?;
+        if let Some(worker) = guard.as_ref() {
+            return Ok(worker.clone());
+        }
+        let worker = Arc::new(ExternalWorker::spawn(&self.cmd, &self.args)?);
+        *guard = Some(worker.clone());
+        Ok(worker)
+    }
+
+    fn clear_worker(&self, worker: &Arc<ExternalWorker>) {
+        if let Ok(mut guard) = self.worker.lock()
+            && guard
+                .as_ref()
+                .is_some_and(|cached| Arc::ptr_eq(cached, worker))
+        {
+            *guard = None;
+        }
+    }
+}
+
+impl ExternalWorker {
+    fn spawn(cmd: &str, args: &[String]) -> Result<Self> {
+        let mut child = spawn_child(cmd, args)?;
+        let stdin = child
+            .stdin
+            .take()
+            .ok_or_else(|| CalyxError::lens_unreachable("external stdin pipe missing"))?;
+        let stdout = child
+            .stdout
+            .take()
+            .ok_or_else(|| CalyxError::lens_unreachable("external stdout pipe missing"))?;
+        let stderr = child
+            .stderr
+            .take()
+            .ok_or_else(|| CalyxError::lens_unreachable("external stderr pipe missing"))?;
+        let child = Arc::new(Mutex::new(child));
+        let stderr_tail = Arc::new(Mutex::new(Vec::new()));
+        spawn_stderr_reader(stderr, stderr_tail.clone());
+
+        let (tx, rx) = mpsc::channel();
+        let child_for_worker = child.clone();
+        let stderr_for_worker = stderr_tail.clone();
+        thread::spawn(move || worker_loop(child_for_worker, stdin, stdout, rx, stderr_for_worker));
+        Ok(Self {
+            tx,
+            child,
+            stderr_tail,
+        })
+    }
+
+    fn request(
+        &self,
+        timeout: Duration,
+        request: Vec<u8>,
+    ) -> std::result::Result<Vec<u8>, RequestFailure> {
+        let (reply, rx) = mpsc::channel();
+        self.tx
+            .send(WorkerRequest { request, reply })
+            .map_err(|_| {
+                RequestFailure::Error(CalyxError::lens_unreachable(format!(
+                    "external worker stopped before request; stderr_tail={}",
+                    stderr_tail_text(&self.stderr_tail)
+                )))
+            })?;
+        match rx.recv_timeout(timeout) {
+            Ok(result) => result.map_err(RequestFailure::Error),
+            Err(mpsc::RecvTimeoutError::Timeout) => {
+                kill_child(&self.child);
+                Err(RequestFailure::Timeout(CalyxError::lens_unreachable(
+                    format!(
+                        "external process timed out after {} ms; stderr_tail={}",
+                        timeout.as_millis(),
+                        stderr_tail_text(&self.stderr_tail)
+                    ),
+                )))
+            }
+            Err(mpsc::RecvTimeoutError::Disconnected) => Err(RequestFailure::Error(
+                CalyxError::lens_unreachable(format!(
+                    "external worker disconnected; stderr_tail={}",
+                    stderr_tail_text(&self.stderr_tail)
+                )),
+            )),
+        }
+    }
+}
+
+fn spawn_child(cmd: &str, args: &[String]) -> Result<Child> {
+    let mut command = Command::new(cmd);
+    command.args(args);
+    command
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
+        .stderr(Stdio::piped());
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
+        command.creation_flags(CREATE_NO_WINDOW);
+    }
+    command
         .spawn()
-        .map_err(|err| CalyxError::lens_unreachable(format!("spawn {cmd} failed: {err}")))?;
-    let mut stdin = child
-        .stdin
-        .take()
-        .ok_or_else(|| CalyxError::lens_unreachable("external stdin pipe missing"))?;
-    let mut stdout = child
-        .stdout
-        .take()
-        .ok_or_else(|| CalyxError::lens_unreachable("external stdout pipe missing"))?;
+        .map_err(|err| CalyxError::lens_unreachable(format!("spawn {cmd} failed: {err}")))
+}
 
-    let (write_tx, write_rx) = mpsc::channel();
-    let request = request.to_vec();
-    thread::spawn(move || {
-        let result = write_request(&mut stdin, &request);
-        let _ = write_tx.send(result);
-    });
-
-    let (read_tx, read_rx) = mpsc::channel();
-    thread::spawn(move || {
-        let result = read_response(&mut stdout);
-        let _ = read_tx.send(result);
-    });
-
-    let deadline = Instant::now() + timeout;
-    let mut write_result = None;
-    let mut body = None;
-    let mut status = None;
-    loop {
-        if write_result.is_none() {
-            match write_rx.try_recv() {
-                Ok(result) => write_result = Some(result),
-                Err(TryRecvError::Empty) => {}
-                Err(TryRecvError::Disconnected) => {
-                    let _ = child.kill();
-                    finish_child(&mut child);
-                    return Err(CalyxError::lens_unreachable(
-                        "external write worker stopped",
-                    ));
-                }
-            }
-        }
-        if body.is_none() {
-            match read_rx.try_recv() {
-                Ok(result) => body = Some(result),
-                Err(TryRecvError::Empty) => {}
-                Err(TryRecvError::Disconnected) => {
-                    let _ = child.kill();
-                    finish_child(&mut child);
-                    return Err(CalyxError::lens_unreachable("external read worker stopped"));
-                }
-            }
-        }
-        if status.is_none() {
-            status = child.try_wait().map_err(|err| {
-                CalyxError::lens_unreachable(format!("external wait failed: {err}"))
-            })?;
-        }
-        if write_result.is_some() && body.is_some() && status.is_some() {
+fn worker_loop(
+    child: Arc<Mutex<Child>>,
+    mut stdin: std::process::ChildStdin,
+    mut stdout: std::process::ChildStdout,
+    rx: mpsc::Receiver<WorkerRequest>,
+    stderr_tail: Arc<Mutex<Vec<u8>>>,
+) {
+    for item in rx {
+        let result = write_request(&mut stdin, &item.request)
+            .and_then(|_| read_response(&mut stdout))
+            .map_err(|error| enrich_worker_error(error, &child, &stderr_tail));
+        let failed = result.is_err();
+        let _ = item.reply.send(result);
+        if failed {
             break;
         }
-        let now = Instant::now();
-        if now >= deadline {
-            let _ = child.kill();
-            finish_child(&mut child);
-            return Err(CalyxError::lens_unreachable(format!(
-                "external process timed out after {} ms",
-                timeout.as_millis()
-            )));
-        }
-        let remaining = deadline.saturating_duration_since(now);
-        thread::sleep(remaining.min(Duration::from_millis(5)));
     }
+    drop(stdin);
+    finish_child(&child);
+}
 
-    write_result.expect("write result is set")?;
-    let body = body.expect("body result is set")?;
-    let status = status.expect("child status is set");
-    if !status.success() {
-        return Err(CalyxError::lens_unreachable(format!(
-            "external process exited with {status}"
-        )));
+fn enrich_worker_error(
+    error: CalyxError,
+    child: &Arc<Mutex<Child>>,
+    stderr_tail: &Arc<Mutex<Vec<u8>>>,
+) -> CalyxError {
+    CalyxError::lens_unreachable(format!(
+        "{}; child_status={}; stderr_tail={}",
+        error.message,
+        child_status(child),
+        stderr_tail_text(stderr_tail)
+    ))
+}
+
+fn child_status(child: &Arc<Mutex<Child>>) -> String {
+    let Ok(mut child) = child.lock() else {
+        return "child_mutex_poisoned".to_string();
+    };
+    child
+        .try_wait()
+        .ok()
+        .flatten()
+        .map(|status| status.to_string())
+        .unwrap_or_else(|| "still_running".to_string())
+}
+
+fn spawn_stderr_reader(mut stderr: std::process::ChildStderr, tail: Arc<Mutex<Vec<u8>>>) {
+    thread::spawn(move || {
+        let mut chunk = [0_u8; 4096];
+        loop {
+            match stderr.read(&mut chunk) {
+                Ok(0) => break,
+                Ok(n) => append_tail(&tail, &chunk[..n]),
+                Err(_) => break,
+            }
+        }
+    });
+}
+
+fn append_tail(tail: &Arc<Mutex<Vec<u8>>>, bytes: &[u8]) {
+    const CAP: usize = 16 * 1024;
+    let Ok(mut tail) = tail.lock() else {
+        return;
+    };
+    tail.extend_from_slice(bytes);
+    if tail.len() > CAP {
+        let overflow = tail.len() - CAP;
+        tail.drain(0..overflow);
     }
-    Ok(body)
+}
+
+fn stderr_tail_text(tail: &Arc<Mutex<Vec<u8>>>) -> String {
+    let Ok(tail) = tail.lock() else {
+        return "stderr_tail_mutex_poisoned".to_string();
+    };
+    String::from_utf8_lossy(&tail).trim().to_string()
 }
 
 fn write_request(stdin: &mut impl Write, request: &[u8]) -> Result<()> {
@@ -241,7 +395,27 @@ fn read_response(stdout: &mut impl Read) -> Result<Vec<u8>> {
     Ok(body)
 }
 
-fn finish_child(child: &mut std::process::Child) {
+fn kill_child(child: &Arc<Mutex<Child>>) {
+    if let Ok(mut child) = child.lock() {
+        let _ = child.kill();
+    }
+}
+
+fn finish_child(child: &Arc<Mutex<Child>>) {
+    let Ok(mut child) = child.lock() else {
+        return;
+    };
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        if matches!(child.try_wait(), Ok(Some(_))) {
+            return;
+        }
+        if Instant::now() >= deadline {
+            break;
+        }
+        thread::sleep(Duration::from_millis(50));
+    }
+    let _ = child.kill();
     let _ = child.wait();
 }
 
@@ -267,125 +441,4 @@ impl ExternalCmdLens {
 }
 
 #[cfg(all(test, unix))]
-mod tests {
-    use super::*;
-    use calyx_core::Input;
-    use serde_json::json;
-    use std::fs;
-    use std::path::{Path, PathBuf};
-    use std::sync::atomic::{AtomicU64, Ordering};
-
-    static NEXT_DIR: AtomicU64 = AtomicU64::new(0);
-
-    #[test]
-    fn timeout_kills_slow_external_process_before_finished_marker() {
-        let fsv_root = calyx_fsv::fsv_root("CALYX_FSV_ROOT");
-        let dir = fsv_root.as_ref().map_or_else(
-            || test_dir("external-timeout"),
-            |root| {
-                let dir = root.join("external-timeout");
-                let _ = fs::remove_dir_all(&dir);
-                fs::create_dir_all(&dir).unwrap();
-                dir
-            },
-        );
-        let marker = dir.join("marker.txt");
-        let before_marker = read_marker(&marker);
-        let script = format!(
-            "import pathlib,time; p=pathlib.Path({}); p.write_text('started\\n'); time.sleep(2); p.write_text(p.read_text() + 'finished\\n')",
-            serde_json::to_string(marker.to_str().unwrap()).unwrap()
-        );
-        let lens = ExternalCmdLens::new(
-            "external-timeout",
-            "python3",
-            vec!["-c".to_string(), script],
-            Modality::Text,
-            4,
-        )
-        .with_timeout(Duration::from_millis(750));
-
-        let started = Instant::now();
-        let error = lens
-            .measure(&Input::new(Modality::Text, b"slow".to_vec()))
-            .expect_err("slow command times out");
-        let elapsed = started.elapsed();
-        let immediate_marker = read_marker(&marker);
-        std::thread::sleep(Duration::from_secs(3));
-        let after_wait_marker = read_marker(&marker);
-
-        assert_eq!(error.code, "CALYX_LENS_UNREACHABLE");
-        assert!(error.message.contains("timed out"));
-        assert_eq!(before_marker, None);
-        assert!(
-            !immediate_marker
-                .as_deref()
-                .unwrap_or("")
-                .contains("finished"),
-            "timeout returned after child wrote finished marker: {immediate_marker:?}"
-        );
-        assert!(
-            !after_wait_marker
-                .as_deref()
-                .unwrap_or("")
-                .contains("finished"),
-            "timed-out child kept running after kill: {after_wait_marker:?}"
-        );
-
-        if let Some(root) = fsv_root {
-            write_timeout_readback(
-                &root,
-                &marker,
-                before_marker.as_deref(),
-                immediate_marker.as_deref(),
-                after_wait_marker.as_deref(),
-                elapsed,
-                &error,
-            );
-        } else {
-            cleanup(dir);
-        }
-    }
-
-    fn write_timeout_readback(
-        root: &Path,
-        marker: &Path,
-        before_marker: Option<&str>,
-        immediate_marker: Option<&str>,
-        after_wait_marker: Option<&str>,
-        elapsed: Duration,
-        error: &CalyxError,
-    ) {
-        fs::create_dir_all(root).unwrap();
-        let readback = json!({
-            "marker": marker,
-            "before_marker": before_marker,
-            "immediate_marker": immediate_marker,
-            "after_wait_marker": after_wait_marker,
-            "elapsed_ms": elapsed.as_millis(),
-            "error_code": error.code,
-            "error_message": error.message,
-        });
-        fs::write(
-            root.join("external-cmd-timeout-readback.json"),
-            serde_json::to_vec_pretty(&readback).unwrap(),
-        )
-        .unwrap();
-    }
-
-    fn read_marker(marker: &Path) -> Option<String> {
-        fs::read_to_string(marker).ok()
-    }
-
-    fn test_dir(name: &str) -> PathBuf {
-        let id = NEXT_DIR.fetch_add(1, Ordering::Relaxed);
-        let dir =
-            std::env::temp_dir().join(format!("calyx-registry-{name}-{}-{id}", std::process::id()));
-        let _ = fs::remove_dir_all(&dir);
-        fs::create_dir_all(&dir).unwrap();
-        dir
-    }
-
-    fn cleanup(dir: PathBuf) {
-        fs::remove_dir_all(dir).unwrap();
-    }
-}
+mod tests;
