@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 
-use calyx_aster::cf::{ColumnFamily, base_key, recurrence_key};
+use calyx_aster::cf::{ColumnFamily, base_key, ledger_key, recurrence_key};
 use calyx_aster::dedup::{EpochSecs, OccurrenceId};
 use calyx_aster::recurrence::{
     Occurrence, OccurrenceContext, StoredRecurrenceRow, encode_recurrence_row,
@@ -8,12 +8,13 @@ use calyx_aster::recurrence::{
 use calyx_aster::vault::{AsterVault, encode};
 use calyx_core::{
     AnchorValue, Constellation, CxFlags, CxId, FixedClock, InputRef, LedgerRef, Modality, VaultId,
-    content_address,
+    VaultStore, content_address,
 };
 use proptest::prelude::*;
 use serde_json::json;
 
 use super::*;
+use crate::ORACLE_DOMAIN_METADATA_KEY;
 
 const DOMAIN: &str = "butterfly-fixture";
 
@@ -115,7 +116,7 @@ fn ungrounded_edge_is_provisional_and_not_traversed() {
 }
 
 #[test]
-fn malformed_recurrence_row_fails_closed_as_no_recurrence() {
+fn malformed_recurrence_row_fails_closed_as_evidence_corrupt() {
     let vault = vault();
     write_base(&vault, DOMAIN, "A", "bad-row");
     let cx_id = cx_id(DOMAIN, "A", "bad-row");
@@ -129,7 +130,21 @@ fn malformed_recurrence_row_fails_closed_as_no_recurrence() {
 
     let error = expand(&vault, &root("A", 1.0, 0), &FixedClock::new(14)).unwrap_err();
 
-    assert_eq!(error.code(), crate::CALYX_ORACLE_NO_RECURRENCE);
+    assert_eq!(error.code(), crate::CALYX_ORACLE_EVIDENCE_CORRUPT);
+}
+
+#[test]
+fn expansion_scans_base_corpus_once_per_tree() {
+    let vault = vault();
+    write_edge(&vault, "A", "B", AnchorValue::Text("b".to_string()), true);
+    write_edge(&vault, "B", "C", AnchorValue::Text("c".to_string()), true);
+    write_edge(&vault, "C", "D", AnchorValue::Text("d".to_string()), true);
+
+    let tree = build_tree(&vault, root("A", 1.0, 0), &FixedClock::new(16)).unwrap();
+    let payload = ledger_payload(&vault, &tree.children[0].root.provenance);
+
+    assert_eq!(payload["expand_calls"], 4);
+    assert_eq!(payload["base_rows_scanned"], 3);
 }
 
 proptest! {
@@ -286,6 +301,19 @@ fn ledger(seed: u64) -> LedgerRef {
         seq: seed,
         hash: [seed as u8; 32],
     }
+}
+
+fn ledger_payload(vault: &AsterVault<FixedClock>, ref_: &LedgerRef) -> serde_json::Value {
+    let bytes = vault
+        .read_cf_at(
+            vault.snapshot(),
+            ColumnFamily::Ledger,
+            &ledger_key(ref_.seq),
+        )
+        .unwrap()
+        .expect("ledger row");
+    let entry = calyx_ledger::decode(&bytes).expect("decode ledger");
+    serde_json::from_slice(&entry.payload).expect("payload json")
 }
 
 fn assert_close(actual: f32, expected: f32) {

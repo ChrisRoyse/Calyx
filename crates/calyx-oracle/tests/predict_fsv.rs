@@ -18,8 +18,8 @@ use calyx_core::{
     VaultId, content_address,
 };
 use calyx_oracle::{
-    Action, CALYX_ORACLE_INSUFFICIENT, CALYX_ORACLE_NO_RECURRENCE, DomainId,
-    ORACLE_ACTION_METADATA_KEY, ORACLE_DOMAIN_METADATA_KEY, OracleError, oracle_predict,
+    Action, CALYX_ORACLE_EVIDENCE_CORRUPT, CALYX_ORACLE_INSUFFICIENT, CALYX_ORACLE_NO_RECURRENCE,
+    DomainId, ORACLE_ACTION_METADATA_KEY, ORACLE_DOMAIN_METADATA_KEY, OracleError, oracle_predict,
     oracle_self_consistency,
 };
 use serde_json::json;
@@ -200,12 +200,12 @@ fn verify_corrupt_recurrence_edge(root: &Path, panel: &Panel, clock: &dyn Clock)
         clock,
     )
     .expect_err("corrupt recurrence must fail closed");
-    assert_eq!(error.code(), CALYX_ORACLE_NO_RECURRENCE);
+    assert_eq!(error.code(), CALYX_ORACLE_EVIDENCE_CORRUPT);
     vault.flush().expect("flush corrupt vault");
     print_json(json!({
         "fsv": "ph49_corrupt_recurrence_edge",
         "error_code": error.code(),
-        "expected": CALYX_ORACLE_NO_RECURRENCE
+        "expected": CALYX_ORACLE_EVIDENCE_CORRUPT
     }));
 }
 

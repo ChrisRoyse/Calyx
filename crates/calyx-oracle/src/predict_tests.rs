@@ -18,7 +18,8 @@ use serde_json::json;
 
 use super::*;
 use crate::{
-    CALYX_ORACLE_INSUFFICIENT, CALYX_ORACLE_LEDGER_WRITE_FAILURE, CALYX_ORACLE_NO_RECURRENCE,
+    CALYX_ORACLE_EVIDENCE_CORRUPT, CALYX_ORACLE_INSUFFICIENT, CALYX_ORACLE_LEDGER_WRITE_FAILURE,
+    CALYX_ORACLE_NO_RECURRENCE,
 };
 
 const DOMAIN: &str = "issue432";
@@ -99,6 +100,39 @@ fn no_matching_action_recurrence_fails_closed() {
     .expect_err("no action recurrence");
 
     assert_eq!(error.code(), CALYX_ORACLE_NO_RECURRENCE);
+}
+
+#[test]
+fn malformed_recurrence_row_fails_closed_as_evidence_corrupt() {
+    let vault = vault();
+    let panel = panel(&[1]);
+    put_sufficiency(&vault, &panel, 1.0, 0.8);
+    let cx_id = CxId::from_bytes([250; 16]);
+    vault
+        .write_cf(
+            ColumnFamily::Base,
+            base_key(cx_id),
+            encode::encode_constellation_base(&constellation(cx_id, DOMAIN, ACTION))
+                .expect("encode base"),
+        )
+        .expect("write base");
+    vault
+        .write_cf(
+            ColumnFamily::Recurrence,
+            recurrence_key(cx_id, 0),
+            b"not-json".to_vec(),
+        )
+        .expect("write corrupt recurrence");
+
+    let error = oracle_predict(
+        &vault,
+        &action(ACTION, panel),
+        DomainId::from(DOMAIN),
+        &FixedClock::new(906),
+    )
+    .expect_err("corrupt recurrence");
+
+    assert_eq!(error.code(), CALYX_ORACLE_EVIDENCE_CORRUPT);
 }
 
 #[test]

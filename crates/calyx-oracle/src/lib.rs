@@ -4,6 +4,7 @@ mod butterfly;
 mod complete;
 mod energy;
 mod error;
+mod evidence_error;
 mod honesty_gate;
 mod prd22;
 mod predict;
@@ -29,9 +30,9 @@ pub use energy::{
     energy_softmax_weights, get_beta,
 };
 pub use error::{
-    CALYX_ORACLE_DOMAIN_NOT_FOUND, CALYX_ORACLE_FLAKY_ANCHOR, CALYX_ORACLE_INSUFFICIENT,
-    CALYX_ORACLE_LEDGER_WRITE_FAILURE, CALYX_ORACLE_NO_RECURRENCE, CALYX_ORACLE_SLOT_CONFLICT,
-    OracleError,
+    CALYX_ORACLE_DOMAIN_NOT_FOUND, CALYX_ORACLE_EVIDENCE_CORRUPT, CALYX_ORACLE_FLAKY_ANCHOR,
+    CALYX_ORACLE_INSUFFICIENT, CALYX_ORACLE_LEDGER_WRITE_FAILURE, CALYX_ORACLE_NO_RECURRENCE,
+    CALYX_ORACLE_SLOT_CONFLICT, CALYX_ORACLE_STORAGE_READ_FAILURE, OracleError,
 };
 
 pub use honesty_gate::{

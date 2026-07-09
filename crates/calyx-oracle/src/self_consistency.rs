@@ -13,6 +13,7 @@ use calyx_core::{
 use calyx_ledger::{ActorId, EntryKind, SubjectId};
 use serde::{Deserialize, Serialize};
 
+use crate::evidence_error;
 use crate::{DomainId, OracleError, OracleSelfConsistency};
 
 pub const ORACLE_DOMAIN_METADATA_KEY: &str = "oracle.domain";
@@ -55,20 +56,15 @@ where
     let mut out = Vec::new();
     for (_, bytes) in vault
         .scan_cf_at(vault.snapshot(), ColumnFamily::Base)
-        .map_err(|_| OracleError::NoRecurrence {
-            domain: domain.clone(),
-        })?
+        .map_err(|_| evidence_error::storage_read(domain, "scan base corpus"))?
     {
-        let cx =
-            encode::decode_constellation_base(&bytes).map_err(|_| OracleError::NoRecurrence {
-                domain: domain.clone(),
-            })?;
+        let cx = encode::decode_constellation_base(&bytes)
+            .map_err(|_| evidence_error::corrupt(domain, "base constellation"))?;
         if !matches_domain(&cx, domain) {
             continue;
         }
-        let recurrence = read_series(vault, cx.cx_id).map_err(|_| OracleError::NoRecurrence {
-            domain: domain.clone(),
-        })?;
+        let recurrence = read_series(vault, cx.cx_id)
+            .map_err(|error| evidence_error::recurrence_read(error, domain))?;
         out.push(recurrence.occurrences);
     }
     if out.is_empty() {
@@ -135,14 +131,10 @@ fn observations_from_series(
             continue;
         }
         let parsed: RecurrenceEvidence = serde_json::from_slice(&occurrence.context.bytes)
-            .map_err(|_| OracleError::NoRecurrence {
-                domain: domain.clone(),
-            })?;
+            .map_err(|_| evidence_error::corrupt(domain, "recurrence context"))?;
         let Some(verdict) = parsed
             .verdict_label()
-            .map_err(|_| OracleError::NoRecurrence {
-                domain: domain.clone(),
-            })?
+            .map_err(|_| evidence_error::corrupt(domain, "verdict label"))?
         else {
             continue;
         };
@@ -150,9 +142,7 @@ fn observations_from_series(
             verdict,
             ground_truth: parsed
                 .ground_truth_label()
-                .map_err(|_| OracleError::NoRecurrence {
-                    domain: domain.clone(),
-                })?,
+                .map_err(|_| evidence_error::corrupt(domain, "ground truth label"))?,
         });
     }
     Ok(out)

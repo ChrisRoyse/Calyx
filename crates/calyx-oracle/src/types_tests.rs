@@ -9,8 +9,9 @@ use serde::Serialize;
 
 use super::*;
 use crate::{
-    CALYX_ORACLE_FLAKY_ANCHOR, CALYX_ORACLE_INSUFFICIENT, CALYX_ORACLE_NO_RECURRENCE,
-    CALYX_ORACLE_SLOT_CONFLICT, OracleError,
+    CALYX_ORACLE_EVIDENCE_CORRUPT, CALYX_ORACLE_FLAKY_ANCHOR, CALYX_ORACLE_INSUFFICIENT,
+    CALYX_ORACLE_NO_RECURRENCE, CALYX_ORACLE_SLOT_CONFLICT, CALYX_ORACLE_STORAGE_READ_FAILURE,
+    OracleError,
 };
 
 #[test]
@@ -267,10 +268,20 @@ fn oracle_error_display_contains_codes_and_remediation() {
     let recurrence = OracleError::NoRecurrence {
         domain: DomainId::from("fixture"),
     };
+    let read_failure = OracleError::StorageReadFailure {
+        domain: DomainId::from("fixture"),
+        operation: "scan base corpus",
+    };
+    let corrupt = OracleError::EvidenceCorrupt {
+        domain: DomainId::from("fixture"),
+        evidence: "recurrence context",
+    };
 
     assert_display_has_code_and_remediation(&insufficient, CALYX_ORACLE_INSUFFICIENT);
     assert_display_has_code_and_remediation(&flaky, CALYX_ORACLE_FLAKY_ANCHOR);
     assert_display_has_code_and_remediation(&recurrence, CALYX_ORACLE_NO_RECURRENCE);
+    assert_display_has_code_and_remediation(&read_failure, CALYX_ORACLE_STORAGE_READ_FAILURE);
+    assert_display_has_code_and_remediation(&corrupt, CALYX_ORACLE_EVIDENCE_CORRUPT);
 }
 
 #[test]
@@ -315,6 +326,8 @@ fn issue429_oracle_types_fsv_writes_readbacks() {
             CALYX_ORACLE_INSUFFICIENT,
             CALYX_ORACLE_FLAKY_ANCHOR,
             CALYX_ORACLE_NO_RECURRENCE,
+            CALYX_ORACLE_STORAGE_READ_FAILURE,
+            CALYX_ORACLE_EVIDENCE_CORRUPT,
         ]
         .join("\n"),
     )

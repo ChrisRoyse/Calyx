@@ -10,6 +10,8 @@ use crate::types::{DomainId, SufficiencyBound};
 pub const CALYX_ORACLE_INSUFFICIENT: &str = "CALYX_ORACLE_INSUFFICIENT";
 pub const CALYX_ORACLE_FLAKY_ANCHOR: &str = "CALYX_ORACLE_FLAKY_ANCHOR";
 pub const CALYX_ORACLE_NO_RECURRENCE: &str = "CALYX_ORACLE_NO_RECURRENCE";
+pub const CALYX_ORACLE_STORAGE_READ_FAILURE: &str = "CALYX_ORACLE_STORAGE_READ_FAILURE";
+pub const CALYX_ORACLE_EVIDENCE_CORRUPT: &str = "CALYX_ORACLE_EVIDENCE_CORRUPT";
 pub const CALYX_ORACLE_DOMAIN_NOT_FOUND: &str = "CALYX_ORACLE_DOMAIN_NOT_FOUND";
 pub const CALYX_ORACLE_LEDGER_WRITE_FAILURE: &str = "CALYX_ORACLE_LEDGER_WRITE_FAILURE";
 pub const CALYX_ORACLE_SLOT_CONFLICT: &str = "CALYX_ORACLE_SLOT_CONFLICT";
@@ -24,6 +26,14 @@ pub enum OracleError {
     },
     NoRecurrence {
         domain: DomainId,
+    },
+    StorageReadFailure {
+        domain: DomainId,
+        operation: &'static str,
+    },
+    EvidenceCorrupt {
+        domain: DomainId,
+        evidence: &'static str,
     },
     DomainNotFound,
     LedgerWriteFailure,
@@ -44,6 +54,8 @@ impl OracleError {
             Self::Insufficient { .. } => CALYX_ORACLE_INSUFFICIENT,
             Self::FlakyAnchor { .. } => CALYX_ORACLE_FLAKY_ANCHOR,
             Self::NoRecurrence { .. } => CALYX_ORACLE_NO_RECURRENCE,
+            Self::StorageReadFailure { .. } => CALYX_ORACLE_STORAGE_READ_FAILURE,
+            Self::EvidenceCorrupt { .. } => CALYX_ORACLE_EVIDENCE_CORRUPT,
             Self::DomainNotFound => CALYX_ORACLE_DOMAIN_NOT_FOUND,
             Self::LedgerWriteFailure => CALYX_ORACLE_LEDGER_WRITE_FAILURE,
             Self::SlotConflict { .. } => CALYX_ORACLE_SLOT_CONFLICT,
@@ -58,6 +70,12 @@ impl OracleError {
                 "re-measure the grounded oracle anchor and quarantine flaky outcomes"
             }
             Self::NoRecurrence { .. } => "collect grounded recurrence pairs for the domain",
+            Self::StorageReadFailure { .. } => {
+                "repair oracle vault storage/read path before prediction"
+            }
+            Self::EvidenceCorrupt { .. } => {
+                "repair or quarantine corrupt oracle evidence rows before prediction"
+            }
             Self::DomainNotFound => "register the oracle domain before prediction",
             Self::LedgerWriteFailure => "retry after repairing the ledger write path",
             Self::SlotConflict { .. } => {
@@ -78,6 +96,12 @@ impl OracleError {
             ),
             Self::NoRecurrence { domain } => {
                 format!("domain {domain} lacks enough grounded recurrence evidence")
+            }
+            Self::StorageReadFailure { domain, operation } => {
+                format!("oracle storage read failed for domain {domain} during {operation}")
+            }
+            Self::EvidenceCorrupt { domain, evidence } => {
+                format!("oracle evidence is corrupt for domain {domain}: {evidence}")
             }
             Self::DomainNotFound => "oracle domain was not found".to_string(),
             Self::LedgerWriteFailure => "oracle provenance ledger write failed".to_string(),

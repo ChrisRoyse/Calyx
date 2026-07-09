@@ -16,6 +16,7 @@ use serde::{Deserialize, Serialize};
 
 use context::{ConsequenceSeed, PredictionContext};
 
+use crate::evidence_error;
 use crate::{
     Consequence, DomainId, OracleError, Prediction, SufficiencyBound, check_sufficiency,
     oracle_self_consistency,
@@ -97,14 +98,10 @@ where
     let mut source_cx_ids = BTreeSet::new();
     for (_, bytes) in vault
         .scan_cf_at(vault.snapshot(), ColumnFamily::Base)
-        .map_err(|_| OracleError::NoRecurrence {
-            domain: domain.clone(),
-        })?
+        .map_err(|_| evidence_error::storage_read(domain, "scan base corpus"))?
     {
-        let cx =
-            encode::decode_constellation_base(&bytes).map_err(|_| OracleError::NoRecurrence {
-                domain: domain.clone(),
-            })?;
+        let cx = encode::decode_constellation_base(&bytes)
+            .map_err(|_| evidence_error::corrupt(domain, "base constellation"))?;
         if !matches_domain(&cx, domain) {
             continue;
         }
@@ -146,28 +143,22 @@ fn collect_series<C>(
 where
     C: Clock,
 {
-    let series = read_series(vault, cx.cx_id).map_err(|_| OracleError::NoRecurrence {
-        domain: domain.clone(),
-    })?;
+    let series = read_series(vault, cx.cx_id)
+        .map_err(|error| evidence_error::recurrence_read(error, domain))?;
     for occurrence in &series.occurrences {
         if occurrence.context.bytes.is_empty() {
             continue;
         }
-        let parsed: PredictionContext =
-            serde_json::from_slice(&occurrence.context.bytes).map_err(|_| {
-                OracleError::NoRecurrence {
-                    domain: domain.clone(),
-                }
-            })?;
+        let parsed: PredictionContext = serde_json::from_slice(&occurrence.context.bytes)
+            .map_err(|_| evidence_error::corrupt(domain, "recurrence context"))?;
         if !parsed.matches_action(action_id, base_action_match) {
             continue;
         }
         let Some(outcome) = parsed.outcome() else {
             continue;
         };
-        let label = outcome_label(&outcome).map_err(|_| OracleError::NoRecurrence {
-            domain: domain.clone(),
-        })?;
+        let label = outcome_label(&outcome)
+            .map_err(|_| evidence_error::corrupt(domain, "outcome label"))?;
         observations.push(OutcomeObservation {
             cx_id: cx.cx_id.to_string(),
             outcome,

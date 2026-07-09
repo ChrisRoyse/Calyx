@@ -12,6 +12,7 @@ use calyx_core::{AnchorValue, Clock, Constellation, LedgerRef, VaultStore, conte
 use calyx_ledger::{ActorId, EntryKind, SubjectId};
 use serde::Serialize;
 
+use crate::evidence_error;
 use crate::{
     Cause, DomainId, ORACLE_ACTION_METADATA_KEY, ORACLE_DOMAIN_METADATA_KEY,
     ORACLE_FALLBACK_DOMAIN_METADATA_KEY, OracleError,
@@ -95,16 +96,12 @@ where
 
     let rows = vault
         .scan_cf_at(vault.snapshot(), ColumnFamily::Base)
-        .map_err(|_| OracleError::NoRecurrence {
-            domain: domain.clone(),
-        })?;
+        .map_err(|_| evidence_error::storage_read(domain, "scan base corpus"))?;
     state.stats.base_rows_scanned += rows.len() as u64;
 
     for (_, bytes) in rows {
-        let cx =
-            encode::decode_constellation_base(&bytes).map_err(|_| OracleError::NoRecurrence {
-                domain: domain.clone(),
-            })?;
+        let cx = encode::decode_constellation_base(&bytes)
+            .map_err(|_| evidence_error::corrupt(domain, "base constellation"))?;
         if !matches_domain(&cx, domain) {
             continue;
         }
@@ -126,21 +123,16 @@ fn collect_recurrence_causes<C>(
 where
     C: Clock,
 {
-    let series = read_series(vault, cx.cx_id).map_err(|_| OracleError::NoRecurrence {
-        domain: domain.clone(),
-    })?;
+    let series = read_series(vault, cx.cx_id)
+        .map_err(|error| evidence_error::recurrence_read(error, domain))?;
     state.stats.recurrence_rows_scanned += series.occurrences.len() as u64;
     let base_action = action_from_constellation(cx);
     for occurrence in &series.occurrences {
         if occurrence.context.bytes.is_empty() {
             continue;
         }
-        let parsed: ReverseContext =
-            serde_json::from_slice(&occurrence.context.bytes).map_err(|_| {
-                OracleError::NoRecurrence {
-                    domain: domain.clone(),
-                }
-            })?;
+        let parsed: ReverseContext = serde_json::from_slice(&occurrence.context.bytes)
+            .map_err(|_| evidence_error::corrupt(domain, "recurrence context"))?;
         for edge in parsed.edges() {
             if !edge.matches_answer(answer, domain) {
                 continue;

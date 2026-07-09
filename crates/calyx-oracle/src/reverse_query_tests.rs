@@ -131,7 +131,7 @@ fn answer_not_found_fails_closed_as_domain_not_found() {
 }
 
 #[test]
-fn malformed_recurrence_context_fails_closed_as_no_recurrence() {
+fn malformed_recurrence_context_fails_closed_as_evidence_corrupt() {
     let vault = vault();
     write_base(&vault, "cause_A", "malformed");
     let cx_id = cx_id("cause_A", "malformed");
@@ -156,7 +156,7 @@ fn malformed_recurrence_context_fails_closed_as_no_recurrence() {
     )
     .unwrap_err();
 
-    assert_eq!(error.code(), crate::CALYX_ORACLE_NO_RECURRENCE);
+    assert_eq!(error.code(), crate::CALYX_ORACLE_EVIDENCE_CORRUPT);
 }
 
 #[test]
