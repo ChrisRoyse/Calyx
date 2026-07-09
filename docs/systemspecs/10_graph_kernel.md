@@ -38,10 +38,10 @@ Builder validation:
 `build()` (deterministic finalization):
 1. Sort nodes by `id` (`node_order.sort_by_key(|(_, node)| node.id)`), producing an `old_to_new` index remap.
 2. Deduplicate edges into a `BTreeMap<(src,dst), f32>`, keeping the **maximum** weight on collision (`current.max(edge.weight)`).
-3. Materialize `edges` from the map (already ordered by `(src,dst)`), then compute `adj` via `build_ranges` (counting-sort prefix sums over `src`).
+3. Materialize `edges` from the map (already ordered by `(src,dst)`), compute `adj` via `build_ranges` (counting-sort prefix sums over `src`), and compute reverse CSR (`in_edges` + `in_adj`) with a destination-keyed counting pass.
 4. Rebuild `id_to_idx`.
 
-Accessors of note: `out_neighbors`/`out_edges_by_index` (out-edges), `incoming_edges_by_index` (linear scan filtering `edge.dst == index`), `in_degree` (linear scan, O(E)), `out_degree`, `node_weight`, `edge_endpoints` (index→`CxId` pair), `require_node_index` (errors `GraphUnknownNode`).
+Accessors of note: `out_neighbors`/`out_edges_by_index` (out-edges), `incoming_edges_by_index` (reverse-CSR in-edges, O(in-degree)), `in_degree` (reverse range length, O(1)), `out_degree`, `node_weight`, `edge_endpoints` (index→`CxId` pair), `require_node_index` (errors `GraphUnknownNode`).
 
 ## A.2 Hop attenuation (`attenuation.rs`)
 
@@ -59,19 +59,19 @@ So an attenuated score is `base * 0.9^hops`. `deattenuate` is the exact inverse.
 
 | Function | Inputs | Output | Complexity |
 |----------|--------|--------|-----------|
-| `reach` | graph, src, dst, max_hops | `Option<Vec<CxId>>` (path) | Bidirectional BFS, ~O(V+E) |
+| `reach` | graph, src, dst, max_hops | `Option<Vec<CxId>>` (path) | bounded bidirectional BFS over forward/reverse CSR |
 | `bidirectional` | graph, question, answer, max_hops | `BidirectionalPath { forward, reverse }` | two `reach` calls |
-| `reach_scored` | graph, src, max_hops | `Vec<(CxId, f32)>` best-score-per-node | BFS over edges bounded by `max_hops` |
+| `reach_scored` | graph, src, max_hops | `Vec<(CxId, f32)>` best-score-per-node | bounded best-first over `(node, hop)` states |
 
 `reach` algorithm (steps):
 1. Empty graph → `NodeNotFound`. Resolve src/dst indices (`NodeNotFound` if absent). If `src == dst`, return `vec![src]`.
-2. Run `shortest_path_indices` (bidirectional BFS): two `Frontier`s (forward over out-edges, backward over in-edges), always expanding the smaller frontier. When an expansion reaches a node already in the other side's `parents`, that node is the meeting point.
+2. Run bounded `shortest_path_indices` (bidirectional BFS): two `Frontier`s (forward over out-edges, backward over reverse-CSR in-edges), always expanding the smaller frontier while `forward_depth + backward_depth < max_hops`. When an expansion reaches a node already in the other side's `parents`, that node is the meeting point.
 3. `reconstruct` walks forward parents from meet to src (reversed) then backward parents from meet to dst, yielding the index path.
-4. Hops = `path.len() - 1`. If `hops > max_hops` → `MaxHops { required, max_hops }`. Otherwise map indices to `CxId`s.
+4. If the combined depth reaches `max_hops` before a meet while both frontiers can still expand, return `MaxHops { required: max_hops + 1, max_hops }`; if a frontier exhausts first, return `Ok(None)`. Found paths are mapped to `CxId`s.
 
-Note: `reach` finds an unweighted shortest (fewest-hops) path; edge weights are ignored for path selection, then `max_hops` is enforced after the fact.
+Note: `reach` finds an unweighted shortest (fewest-hops) path within the hop bound; edge weights are ignored for path selection.
 
-`reach_scored` algorithm: a BFS from `src` carrying a `ScoredReach { node, hops, raw_score }` where `raw_score` is the running **product of edge weights** (`current.raw_score * edge.weight`), seeded at `1.0`. A node is updated/re-enqueued only when the candidate's `ranked_score()` exceeds the known best, where `ranked_score = attenuate(raw_score, hops)` (i.e. `raw_score * 0.9^hops`). Traversal stops expanding once `hops == max_hops`. Final output excludes `src` and reports `(CxId, attenuate(raw_score, hops))` per reachable node, ordered by node index (`BTreeMap` keyed by index).
+`reach_scored` algorithm: a bounded best-first walk from `src` carrying `ScoredReach { node, hops, raw_score }`, where `raw_score` is the running **product of edge weights** (`current.raw_score * edge.weight`) and `ranked_score = attenuate(raw_score, hops)` (i.e. `raw_score * 0.9^hops`). A `BinaryHeap` pops highest ranked score first. `best_by_state[node][hop]` suppresses stale `(node, hop)` states, while `best_by_node[node]` records the output label; equal ranked scores prefer fewer hops. States at `hops == max_hops` are recorded but not expanded. Final output excludes `src` and reports `(CxId, attenuate(raw_score, hops))` per reachable node, ordered by node index.
 
 `BidirectionalPath { forward: Option<Vec<CxId>>, reverse: Option<Vec<CxId>> }`.
 
@@ -510,8 +510,8 @@ Builds an `AssocGraph` from Loom cross-terms (see [09_loom_assay_dda.md](09_loom
 
 | Algorithm | Crate · file · fn | Complexity | Inputs → Output |
 |-----------|-------------------|------------|------------------|
-| Bidirectional BFS shortest path | paths · traversal.rs · `reach` | ~O(V+E) | graph, src, dst, max_hops → `Option<path>` |
-| Weight-product scored reach | paths · traversal.rs · `reach_scored` | ~O(V+E) bounded by max_hops | graph, src, max_hops → `[(CxId, score)]` |
+| Bidirectional BFS shortest path | paths · traversal.rs · `reach` | O(edges within bounded frontier) over forward/reverse CSR | graph, src, dst, max_hops → `Option<path>` |
+| Weight-product scored reach | paths · traversal.rs · `reach_scored` | O(max_hops·E·log(max_hops·V)) worst case | graph, src, max_hops → `[(CxId, score)]` |
 | Hop attenuation `base·0.9^h` | paths · attenuation.rs · `attenuate` | O(1) | score, hops → score |
 | Build assoc graph | mincut · graph_builder.rs · `build_assoc_graph` | O(N log N + E) | agreements, freqs, citations → `AssocGraph` |
 | Tarjan SCC | mincut · scc.rs · `tarjan_scc` | O(V+E) | graph → components + `component_of` |

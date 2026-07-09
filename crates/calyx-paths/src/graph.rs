@@ -24,6 +24,8 @@ pub struct AssocGraph {
     nodes: Vec<NodeEntry>,
     edges: Vec<Edge>,
     adj: Vec<Range<usize>>,
+    in_edges: Vec<Edge>,
+    in_adj: Vec<Range<usize>>,
     id_to_idx: HashMap<CxId, usize>,
 }
 
@@ -91,10 +93,8 @@ impl AssocGraph {
     }
 
     pub fn incoming_edges_by_index(&self, index: usize) -> impl Iterator<Item = Edge> + '_ {
-        self.edges
-            .iter()
-            .copied()
-            .filter(move |edge| edge.dst == index)
+        let range = self.in_adj[index].clone();
+        self.in_edges[range].iter().copied()
     }
 
     pub fn out_degree(&self, id: CxId) -> Result<usize> {
@@ -103,7 +103,7 @@ impl AssocGraph {
 
     pub fn in_degree(&self, id: CxId) -> Result<usize> {
         let index = self.require_node_index(id)?;
-        Ok(self.edges.iter().filter(|edge| edge.dst == index).count())
+        Ok(self.in_adj[index].len())
     }
 
     pub fn node_weight(&self, id: CxId) -> Result<f32> {
@@ -168,6 +168,7 @@ impl AssocGraphBuilder {
             .map(|((src, dst), weight)| Edge { src, dst, weight })
             .collect();
         let adj = build_ranges(nodes.len(), &edges);
+        let (in_edges, in_adj) = build_reverse_csr(nodes.len(), &edges);
         let id_to_idx = nodes
             .iter()
             .enumerate()
@@ -178,6 +179,8 @@ impl AssocGraphBuilder {
             nodes,
             edges,
             adj,
+            in_edges,
+            in_adj,
             id_to_idx,
         }
     }
@@ -195,6 +198,36 @@ fn build_ranges(node_count: usize, edges: &[Edge]) -> Vec<Range<usize>> {
         .windows(2)
         .map(|window| window[0]..window[1])
         .collect()
+}
+
+fn build_reverse_csr(node_count: usize, edges: &[Edge]) -> (Vec<Edge>, Vec<Range<usize>>) {
+    let mut starts = vec![0; node_count + 1];
+    for edge in edges {
+        starts[edge.dst + 1] += 1;
+    }
+    for index in 1..starts.len() {
+        starts[index] += starts[index - 1];
+    }
+
+    let ranges = starts
+        .windows(2)
+        .map(|window| window[0]..window[1])
+        .collect();
+    let mut cursors = starts[..node_count].to_vec();
+    let mut in_edges = vec![
+        Edge {
+            src: 0,
+            dst: 0,
+            weight: 0.0,
+        };
+        edges.len()
+    ];
+    for edge in edges {
+        let slot = cursors[edge.dst];
+        in_edges[slot] = *edge;
+        cursors[edge.dst] += 1;
+    }
+    (in_edges, ranges)
 }
 
 fn validate_frequency_weight(value: f32) -> Result<()> {

@@ -9188,7 +9188,7 @@ Public data structs (`Clone, Copy, Debug, PartialEq, Serialize, Deserialize`):
 | `NodeEntry` | `id: CxId`, `frequency_weight: f32` |
 | `Edge` | `src: usize`, `dst: usize`, `weight: f32` (endpoints are node *indices*, not CxIds) |
 
-`AssocGraph` (`Clone, Debug`; **not** Serialize) — private fields: `nodes: Vec<NodeEntry>`, `edges: Vec<Edge>`, `adj: Vec<Range<usize>>` (per-node slice into `edges`, CSR), `id_to_idx: HashMap<CxId, usize>`.
+`AssocGraph` (`Clone, Debug`; **not** Serialize) — private fields: `nodes: Vec<NodeEntry>`, `edges: Vec<Edge>`, `adj: Vec<Range<usize>>` (per-node out-edge slice into `edges`, CSR), `in_edges: Vec<Edge>`, `in_adj: Vec<Range<usize>>` (reverse CSR), `id_to_idx: HashMap<CxId, usize>`.
 
 `AssocGraphBuilder` (`Clone, Debug, Default`) — private `nodes`, `id_to_idx`, `edges`.
 
@@ -9196,7 +9196,7 @@ Public data structs (`Clone, Copy, Debug, PartialEq, Serialize, Deserialize`):
 - `AssocGraph::builder() -> AssocGraphBuilder`.
 - `add_node(&mut self, id, frequency_weight: f32) -> Result<&mut Self>` — `validate_frequency_weight`: finite **and `> 0.0`** (else `GraphInvalidWeight{field:"frequency"}`); duplicate id → `GraphDuplicateNode`. Assigns insertion index.
 - `add_edge(&mut self, src: CxId, dst: CxId, weight: f32) -> Result<&mut Self>` — `validate_edge_weight`: finite and in `[0.0,1.0]` (else `GraphInvalidWeight{field:"edge"}`); both endpoints must already exist (`GraphUnknownNode`). Stored as index pair. Returns `&mut Self` for chaining.
-- `build(self) -> AssocGraph` — (1) **re-sort nodes ascending by `CxId`**, building `old_to_new` index remap; (2) remap edge endpoints and **deduplicate parallel edges by `(src,dst)` keeping `max(weight)`** via a `BTreeMap` (self-loops are kept — only true parallels merge); (3) `build_ranges` constructs CSR offsets by counting out-edges per src and prefix-summing (edges are grouped contiguously per source because the dedup BTreeMap is `(src,dst)`-ordered); (4) rebuild `id_to_idx`. Test `graph_parallel_self_loop_and_invalid_weights_are_handled` confirms two parallel a→b edges (0.3, 0.7) collapse to weight 0.7 and a self-loop a→a (0.4) is retained ⇒ edge_count 2.
+- `build(self) -> AssocGraph` — (1) **re-sort nodes ascending by `CxId`**, building `old_to_new` index remap; (2) remap edge endpoints and **deduplicate parallel edges by `(src,dst)` keeping `max(weight)`** via a `BTreeMap` (self-loops are kept — only true parallels merge); (3) `build_ranges` constructs CSR offsets by counting out-edges per src and prefix-summing (edges are grouped contiguously per source because the dedup BTreeMap is `(src,dst)`-ordered); (4) `build_reverse_csr` constructs destination-keyed reverse CSR (`in_edges` + `in_adj`) with a counting pass; (5) rebuild `id_to_idx`. Test `graph_parallel_self_loop_and_invalid_weights_are_handled` confirms two parallel a→b edges (0.3, 0.7) collapse to weight 0.7 and a self-loop a→a (0.4) is retained ⇒ edge_count 2.
 
 Complexity: build is O(N log N + E log E).
 
@@ -9216,12 +9216,12 @@ Complexity: build is O(N log N + E log E).
 | `edge_endpoints` | `(&self, edge: Edge) -> (CxId, CxId)` | |
 | `out_edges_by_index` | `(&self, index) -> &[Edge]` | CSR slice, O(1) |
 | `out_neighbors` | `(&self, id) -> Result<&[Edge]>` | |
-| `incoming_edges_by_index` | `(&self, index) -> impl Iterator<Item=Edge>` | **linear scan of all edges**, O(E) |
+| `incoming_edges_by_index` | `(&self, index) -> impl Iterator<Item=Edge>` | reverse-CSR slice iterator, O(in-degree) |
 | `out_degree` | `(&self, id) -> Result<usize>` | |
-| `in_degree` | `(&self, id) -> Result<usize>` | O(E) scan |
+| `in_degree` | `(&self, id) -> Result<usize>` | reverse range length, O(1) |
 | `node_weight` | `(&self, id) -> Result<f32>` | frequency_weight |
 
-In-edge access is O(E) (no reverse CSR); this matters for the bidirectional backward expansion (§4).
+In-edge access is reverse-CSR backed; bidirectional backward expansion is proportional to in-degree, not total edge count.
 
 ### 3. Attenuation (`attenuation.rs`)
 
@@ -9239,23 +9239,22 @@ Test: `attenuate(1.0,0)=1.0`, `(1.0,1)=0.9`, `(1.0,10)≈0.34867844`; `deattenua
 **Algorithm: bidirectional BFS shortest (fewest-hops) path.**
 1. Empty graph → `NodeNotFound{src}`. Resolve `src`/`dst` indices (`require_present`, else `NodeNotFound`).
 2. `src==dst` → `Ok(Some(vec![src]))`.
-3. `shortest_path_indices`: two `Frontier`s (forward from src using out-edges, backward from dst using in-edges), each a `VecDeque` frontier plus `parents: HashMap<usize, Option<usize>>`. Each round expands the **smaller** frontier one BFS layer (`expand_forward`/`expand_backward`); when an expansion touches a node already in the other side's `parents`, that node is the meeting point. `reconstruct` walks forward parents src→meet (reversed) then backward parents meet→dst, producing the full index path.
-4. `hops = path.len()−1`; if `hops > max_hops` → `MaxHops{required:hops, max_hops}`. Else map indices to CxIds.
-5. No path found → `Ok(None)`.
+3. `shortest_path_indices`: two `Frontier`s (forward from src using out-edges, backward from dst using reverse-CSR in-edges), each a `VecDeque` frontier plus `parents: HashMap<usize, Option<usize>>` and a depth counter. Each round expands the **smaller** frontier one BFS layer while `forward_depth + backward_depth < max_hops`; when an expansion touches a node already in the other side's `parents`, that node is the meeting point. `reconstruct` walks forward parents src→meet (reversed) then backward parents meet→dst, producing the full index path.
+4. If combined depth reaches `max_hops` before a meet while both frontiers can still expand → `MaxHops{required:max_hops+1, max_hops}`. If a frontier exhausts first → `Ok(None)`. Found paths are mapped to CxIds.
 
-Complexity: O(V + E) worst case; backward expansion uses the O(E) in-edge iterator so each backward layer is O(E). Returns the unweighted shortest path (BFS — edge weights ignored for `reach`). Tests: linear chain 1→4 returns `[1,2,3,4]`; `reach(self,self,0)=Some([self])`; `reach(1,2,0)` on a chain → `MaxHops`; disconnected → `Ok(None)`; empty graph → `NodeNotFound`.
+Complexity: O(edges within the bounded frontier) over forward/reverse CSR. Returns the unweighted shortest path within the hop bound (BFS — edge weights ignored for `reach`). Tests: linear chain 1→4 returns `[1,2,3,4]`; `reach(self,self,0)=Some([self])`; `reach(1,2,0)` on a chain → `MaxHops`; disconnected → `Ok(None)`; empty graph → `NodeNotFound`.
 
 #### 4.2 `bidirectional(graph, question, answer, max_hops) -> Result<BidirectionalPath>`
 Calls `reach` twice: `forward = reach(question, answer)`, `reverse = reach(answer, question)`. Test confirms both directions reported independently.
 
 #### 4.3 `reach_scored(graph, src, max_hops) -> Result<Vec<(CxId, f32)>>`
-**Algorithm: weighted best-first BFS with multiplicative score and hop attenuation.**
+**Algorithm: bounded best-first traversal with multiplicative score and hop attenuation.**
 1. Empty graph → `NodeNotFound`. Resolve src.
-2. `best: BTreeMap<usize, ScoredReach>` and a `VecDeque` queue seeded with `{node:src, hops:0, raw_score:1.0}`. `ScoredReach{node,hops,raw_score}`; `ranked_score() = attenuate(raw_score, hops)`.
-3. Pop front; skip if `hops == max_hops`. For each out-edge: `hops+1`, `raw_score = current.raw_score * edge.weight` (product of edge weights along the path). Update `best[dst]` and re-enqueue **only if** the new node's `ranked_score()` exceeds the known one (`is_none_or`). This is a relaxation that re-expands when a better-scoring route is found.
-4. Result: all reached nodes except src, mapped to `(CxId, attenuate(raw_score, hops))` — final score = product-of-edge-weights × `0.9^hops`.
+2. A `BinaryHeap<ScoredReach>` is seeded with `{node:src, hops:0, raw_score:1.0}`. `ScoredReach{node,hops,raw_score}`; `ranked_score() = attenuate(raw_score, hops)`.
+3. Pop the highest ranked score; skip stale `(node, hop)` states using `best_by_state[node][hop]`. For each out-edge before `max_hops`: `hops+1`, `raw_score = current.raw_score * edge.weight` (product of edge weights along the path). Update `best_by_state[dst][hops]` and push if the state can still expand; update `best_by_node[dst]` for final output. Equal ranked scores prefer fewer hops.
+4. Result: all reached nodes except src, mapped from `best_by_node` to `(CxId, attenuate(raw_score, hops))` — final score = product-of-edge-weights × `0.9^hops`.
 
-Complexity: bounded by O((V+E) · re-relaxations) — not a strict Dijkstra; can re-enqueue. Tests: linear unit-weight chain from node 1 yields scores `0.9, 0.81, 0.729` at hops 1/2/3; scores strictly decrease with hops (proptest).
+Complexity: O(max_hops·E·log(max_hops·V)) worst case; no FIFO SPFA re-expansion. Tests: linear unit-weight chain from node 1 yields scores `0.9, 0.81, 0.729` at hops 1/2/3; reverse CSR matches a filter reference; scored reach matches a bounded DP reference (proptest).
 
 Private helpers: `require_present`, `shortest_path_indices`, `expand_forward`, `expand_backward`, `reconstruct`, `path_to_ids`; private structs `ScoredReach`, `Frontier`.
 
