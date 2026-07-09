@@ -46,6 +46,8 @@ pub enum ColumnFamily {
     Kernel,
     /// Persisted Ward guard calibration profiles.
     Guard,
+    /// Leapable sidecar metadata owned by the stdio engine.
+    Leapable,
     /// `(CxId, OccurrenceId) -> recurrence occurrence or summary`.
     Recurrence,
     /// Plain collection graph rows: nodes, typed edges, reverse index, CSR projection.
@@ -88,7 +90,7 @@ pub enum ColumnFamily {
 
 impl ColumnFamily {
     /// Static non-slot families in manifest order.
-    pub const STATIC: [Self; 33] = [
+    pub const STATIC: [Self; 34] = [
         Self::Base,
         Self::Collections,
         Self::Relational,
@@ -122,6 +124,7 @@ impl ColumnFamily {
         Self::AnnealOperators,
         Self::Kernel,
         Self::Guard,
+        Self::Leapable,
     ];
 
     /// Creates a quantized slot column family such as `slot_00`.
@@ -166,6 +169,7 @@ impl ColumnFamily {
             Self::Ledger => "ledger".to_string(),
             Self::Kernel => "kernel".to_string(),
             Self::Guard => "guard".to_string(),
+            Self::Leapable => "leapable".to_string(),
             Self::Recurrence => "recurrence".to_string(),
             Self::Graph => "graph".to_string(),
             Self::Online => "online".to_string(),
@@ -217,6 +221,7 @@ impl ColumnFamily {
             | Self::Assay
             | Self::Kernel
             | Self::Guard
+            | Self::Leapable
             | Self::Recurrence
             | Self::Graph
             | Self::Online

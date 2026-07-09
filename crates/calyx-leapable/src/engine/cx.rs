@@ -8,7 +8,8 @@ use serde_json::{Value, json};
 use super::{Engine, EngineResult, VaultHandle, parse_params, vault_not_open};
 use crate::paths::VaultRef;
 use codec::{
-    append_duplicate_anchors, append_recurrence_if_needed, constellation_value, cx_id_from_key,
+    append_duplicate_anchors, append_recurrence_if_needed, constellation_value,
+    constellation_value_from_base, cx_id_from_key, ensure_tombstone_index, index_erase_tombstone,
     parse_cx_id, predicted_id, prepare_put, scan_tombstones, validate_scan_limit,
 };
 use params::{
@@ -128,10 +129,9 @@ impl Engine {
             limit,
         )?;
         let mut items = Vec::with_capacity(rows.len());
-        for (key, _) in &rows {
+        for (key, value) in &rows {
             let id = cx_id_from_key(key)?;
-            let cx = handle.vault.get(id, snapshot)?;
-            items.push(constellation_value(&cx));
+            items.push(constellation_value_from_base(id, value)?);
         }
         let next_cursor = if rows.len() == limit {
             rows.last()
@@ -149,7 +149,8 @@ impl Engine {
             "limit": limit,
             "next_cursor": next_cursor,
             "items": items,
-            "tombstones": tombstones,
+            "tombstones": tombstones.items,
+            "tombstones_truncated": tombstones.truncated,
         }))
     }
 
@@ -181,6 +182,7 @@ impl Engine {
             &mut handle.context,
             &EraseRegistry::new(),
         )?;
+        index_erase_tombstone(handle, erase.tombstone.as_ref())?;
         handle.vault.flush()?;
         let tombstones = scan_tombstones(handle, handle.vault.snapshot())?;
         Ok(json!({
@@ -189,7 +191,8 @@ impl Engine {
             "cx_id": cx_id.to_string(),
             "latest_seq": handle.vault.latest_seq(),
             "erase": erase,
-            "tombstones": tombstones,
+            "tombstones": tombstones.items,
+            "tombstones_truncated": tombstones.truncated,
         }))
     }
 
@@ -202,9 +205,14 @@ impl Engine {
             return Err(vault_not_open(vault_ref.as_str()).into());
         };
         handle.touch(ts);
+        ensure_tombstone_index(handle)?;
         Ok(handle)
     }
 }
 
 mod codec;
 mod params;
+
+pub(super) fn ensure_cx_tombstone_index(handle: &VaultHandle) -> EngineResult<()> {
+    ensure_tombstone_index(handle)
+}

@@ -48,6 +48,7 @@ fn column_family_names_match_prd_layout() {
             "anneal_operators",
             "kernel",
             "guard",
+            "leapable",
         ]
     );
 

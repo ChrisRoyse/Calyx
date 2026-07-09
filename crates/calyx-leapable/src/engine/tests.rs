@@ -1,4 +1,6 @@
 use super::*;
+use calyx_aster::cf::ColumnFamily;
+use calyx_aster::erase::{EraseRegistry, EraseScope};
 use calyx_core::{
     Anchor, AnchorKind, AnchorValue, Clock, Constellation, CxFlags, InputRef, LedgerRef, Modality,
     SlotId, SlotVector, VaultStore,
@@ -203,5 +205,64 @@ fn lifecycle_snapshot_restore_clone_verify_and_delete_use_real_bytes() {
         .map(|vault| vault["vault_ref"].as_str().unwrap())
         .collect::<Vec<_>>();
     assert_eq!(refs, vec!["alpha", "beta"]);
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn vault_open_backfills_legacy_cx_tombstone_index() {
+    let root = temp_root("legacy-tombstone-index");
+    let cfg = config(root.clone());
+    let vault_ref = VaultRef::parse("legacy").unwrap();
+    let vault_id = vault_id_for(vault_ref.as_str());
+    let dir = root.join(vault_ref.storage_dir_name());
+    let vault = AsterVault::new_durable(
+        &dir,
+        vault_id,
+        salt_for(vault_ref.as_str()),
+        VaultOptions::default(),
+    )
+    .unwrap();
+    let cx = sample_constellation(&vault, 42);
+    let cx_id = cx.cx_id;
+    vault.put(cx).unwrap();
+    let mut context = VaultContext::new(
+        vault_id,
+        &cfg.master_key,
+        QuotaConfig::default(),
+        ZFS_DATASET_UNAVAILABLE,
+    )
+    .unwrap();
+    vault
+        .erase(EraseScope::Cx(cx_id), &mut context, &EraseRegistry::new())
+        .unwrap();
+    vault.flush().unwrap();
+    drop(vault);
+
+    let mut engine = Engine::new(cfg);
+    let open = engine.dispatch(req(
+        r#"{"jsonrpc":"2.0","id":1,"method":"vault.open","params":{"vault_ref":"legacy","ts":1785500100}}"#,
+    ));
+    assert!(open.error.is_none(), "{open:?}");
+    let scan = engine.dispatch(req(
+        r#"{"jsonrpc":"2.0","id":2,"method":"cx.scan","params":{"vault_ref":"legacy","ts":1785500110,"limit":10}}"#,
+    ));
+    let result = scan.result.unwrap();
+    assert_eq!(result["tombstones_truncated"], false);
+    let tombstones = result["tombstones"].as_array().unwrap();
+    let cx_id_text = cx_id.to_string();
+    assert!(
+        tombstones
+            .iter()
+            .any(|row| { row["compact"]["c"].as_str() == Some(cx_id_text.as_str()) })
+    );
+    let handle = engine.vaults.get("legacy").unwrap();
+    let indexed = handle
+        .vault
+        .scan_cf_at(handle.vault.snapshot(), ColumnFamily::Leapable)
+        .unwrap();
+    assert!(
+        indexed.len() >= 2,
+        "expected marker plus tombstone index row, got {indexed:?}"
+    );
     fs::remove_dir_all(root).unwrap();
 }

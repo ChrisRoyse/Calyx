@@ -9,7 +9,7 @@ use crate::cf::{
 use crate::mvcc::tombstone_value;
 use crate::vault::{AsterVault, VaultContext, encode};
 use calyx_core::{CalyxError, Clock, Constellation, CxId, Result, Ts, VaultId};
-use calyx_ledger::{EntryKind, SubjectId};
+use calyx_ledger::{EntryKind, ErasureTombstone, SubjectId};
 use serde::{Deserialize, Serialize};
 
 /// Metadata key used by `EraseScope::Subject`.
@@ -33,6 +33,8 @@ pub struct EraseResult {
     /// Number of base constellations erased. Derived CF rows are tombstoned too.
     pub records_deleted: usize,
     pub shredded_at: Ts,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tombstone: Option<ErasureTombstone>,
 }
 
 /// Pluggable cleanup hook for derived data owned outside Aster's core CFs.
@@ -136,6 +138,7 @@ where
                 scope,
                 records_deleted: targets.records_deleted,
                 shredded_at: vault.clock_now(),
+                tombstone: None,
             });
         }
         let affected = affected_cfs(&targets.rows);
@@ -149,6 +152,7 @@ where
                 value: row_tombstone.clone(),
             })
             .collect::<Vec<_>>();
+        let mut ledger_tombstone = None;
         if real_ledger {
             let tombstone =
                 ledger::tombstone_for(vault, &scope, targets.records_deleted, vault.clock_now())?;
@@ -160,6 +164,7 @@ where
                 tombstone.actor.clone(),
             )?;
             debug_assert_eq!(ledger_ref.seq, tombstone.seq);
+            ledger_tombstone = Some(tombstone);
         } else {
             vault.commit_rows_locked(&rows)?;
         }
@@ -173,6 +178,7 @@ where
             scope,
             records_deleted: targets.records_deleted,
             shredded_at: vault.clock_now(),
+            tombstone: ledger_tombstone,
         })
     })
 }

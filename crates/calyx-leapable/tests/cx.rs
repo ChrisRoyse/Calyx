@@ -182,10 +182,16 @@ fn cx_put_batch_get_anchor_delete_and_scan_round_trip() {
     assert_eq!(responses[3]["result"]["recurrence_occurrence"], 0);
     assert_eq!(responses[4]["result"]["anchor_count"], 1);
     assert_eq!(responses[5]["result"]["erase"]["records_deleted"], 1);
+    assert_eq!(responses[5]["result"]["tombstones_truncated"], false);
+    assert_eq!(
+        responses[5]["result"]["erase"]["tombstone"]["records_deleted"],
+        1
+    );
     assert_tombstone_for(&responses[5]["result"]["tombstones"], &first_id.to_string());
     let scan = &responses[6]["result"];
     assert_eq!(scan["items"].as_array().unwrap().len(), 1);
     assert_eq!(scan["items"][0]["cx_id"], second_id.to_string());
+    assert_eq!(scan["tombstones_truncated"], false);
     assert_tombstone_for(&scan["tombstones"], &first_id.to_string());
     assert!(
         !stderr.contains('{'),
@@ -198,6 +204,7 @@ fn cx_put_batch_get_anchor_delete_and_scan_round_trip() {
     assert!(vault.join("cf/slot_00").exists());
     assert!(vault.join("cf/slot_01").exists());
     assert!(vault.join("cf/slot_02").exists());
+    assert!(vault.join("cf/leapable").exists());
     assert!(vault.join("cf/ledger").exists());
     assert!(!wal_files(&vault).is_empty(), "WAL bytes were written");
 }

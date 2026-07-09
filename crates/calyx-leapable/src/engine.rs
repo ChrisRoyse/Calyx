@@ -184,6 +184,7 @@ impl Engine {
         }
         let dir = resolve_new_vault_dir(&self.config.data_dir, &vault_ref)?;
         let handle = self.open_handle(vault_ref.clone(), dir, params.ts)?;
+        cx::ensure_cx_tombstone_index(&handle)?;
         handle.vault.flush()?;
         let value = vault_handle_value("created", &handle);
         self.vaults.insert(vault_ref.as_str().to_string(), handle);
@@ -195,10 +196,12 @@ impl Engine {
         let vault_ref = VaultRef::parse(&params.vault_ref)?;
         if let Some(handle) = self.vaults.get_mut(vault_ref.as_str()) {
             handle.touch(params.ts);
+            cx::ensure_cx_tombstone_index(handle)?;
             return Ok(vault_handle_value("already_open", handle));
         }
         let dir = resolve_existing_vault_dir(&self.config.data_dir, &vault_ref)?;
         let handle = self.open_handle(vault_ref.clone(), dir, params.ts)?;
+        cx::ensure_cx_tombstone_index(&handle)?;
         let value = vault_handle_value("opened", &handle);
         self.vaults.insert(vault_ref.as_str().to_string(), handle);
         Ok(value)
