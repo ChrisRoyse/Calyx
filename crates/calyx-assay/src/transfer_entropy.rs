@@ -5,7 +5,7 @@
 //! returning provisional, code-tagged readbacks below quorum instead of
 //! silently treating underpowered streams as causal evidence.
 
-use rand::{Rng, SeedableRng};
+use rand::{SeedableRng, seq::SliceRandom};
 use rand_chacha::ChaCha8Rng;
 use serde::{Deserialize, Serialize};
 
@@ -238,7 +238,10 @@ fn lagged_samples(
         let Some(source_past) = history(&source, time, window_size) else {
             continue;
         };
-        let Some(target_past) = history(&target, time, window_size) else {
+        let Some(target_history_time) = future_time.checked_sub(1) else {
+            continue;
+        };
+        let Some(target_past) = history(&target, target_history_time, window_size) else {
             continue;
         };
         let mut joint_past = source_past.clone();
@@ -309,7 +312,7 @@ fn bootstrap_ci(
     let mut rng = ChaCha8Rng::seed_from_u64(seed);
     let mut estimates = Vec::with_capacity(config.bootstrap_resamples);
     for _ in 0..config.bootstrap_resamples {
-        let resampled = resample(samples, &mut rng);
+        let resampled = subsample_without_replacement(samples, &mut rng);
         estimates.push(estimate_te(&resampled, config.k)?);
     }
     Ok(percentile_ci(estimates, point))
@@ -325,16 +328,27 @@ fn bootstrap_difference_ci(
     let mut rng = ChaCha8Rng::seed_from_u64(seed);
     let mut estimates = Vec::with_capacity(config.bootstrap_resamples);
     for _ in 0..config.bootstrap_resamples {
-        let f = resample(forward, &mut rng);
-        let r = resample(reverse, &mut rng);
+        let f = subsample_without_replacement(forward, &mut rng);
+        let r = subsample_without_replacement(reverse, &mut rng);
         estimates.push(estimate_te(&f, config.k)? - estimate_te(&r, config.k)?);
     }
     Ok(percentile_ci(estimates, point))
 }
 
-fn resample(samples: &[LaggedSample], rng: &mut ChaCha8Rng) -> Vec<LaggedSample> {
-    (0..samples.len())
-        .map(|_| samples[rng.gen_range(0..samples.len())].clone())
+fn subsample_without_replacement(
+    samples: &[LaggedSample],
+    rng: &mut ChaCha8Rng,
+) -> Vec<LaggedSample> {
+    let mut indices = (0..samples.len()).collect::<Vec<_>>();
+    indices.shuffle(rng);
+    indices.truncate(
+        (samples.len() * 4 / 5)
+            .max(MIN_ASSAY_SAMPLES)
+            .min(samples.len()),
+    );
+    indices
+        .into_iter()
+        .map(|index| samples[index].clone())
         .collect()
 }
 
@@ -367,4 +381,21 @@ fn dominant_direction(
 
 fn insufficient(message: impl Into<String>) -> CalyxError {
     CalyxError::assay_insufficient_samples(message)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn lagged_samples_condition_on_target_immediate_past_for_lag_gt_one() {
+        let source = (0..8).map(|t| (t, t as f32)).collect::<Vec<_>>();
+        let target = (0..8).map(|t| (t, 100.0 + t as f32)).collect::<Vec<_>>();
+
+        let samples = lagged_samples(&source, &target, 2, 1).unwrap();
+
+        assert_eq!(samples[1].future, vec![103.0]);
+        assert_eq!(samples[1].joint_past, vec![1.0, 102.0]);
+        assert_eq!(samples[1].own_past, vec![102.0]);
+    }
 }

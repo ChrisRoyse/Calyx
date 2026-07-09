@@ -71,7 +71,7 @@ fn two_occurrences_are_insufficient() {
 }
 
 #[test]
-fn domain_without_recurring_cx_ids_is_permissive() {
+fn domain_without_recurring_cx_ids_scores_zero() {
     let vault = vault();
     put_base_with_frequency(&vault, cx_id(5), 0);
     put_base_with_frequency(&vault, cx_id(6), 2);
@@ -79,7 +79,7 @@ fn domain_without_recurring_cx_ids_is_permissive() {
 
     let score = oracle_self_consistency(&domain, &vault).expect("self consistency");
 
-    assert_eq!(score, 1.0);
+    assert_eq!(score, 0.0);
 }
 
 #[test]

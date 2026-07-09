@@ -229,9 +229,21 @@ pub fn partial_correlation_controlling(
             "partial correlation undefined: correlation matrix is singular (collinear columns)",
         )
     })?;
-    let pxx = p[0];
-    let pyy = p[d + 1];
-    let pxy = p[1];
+    partial_report_from_precision(r_mat[1], p[1], p[0], p[d + 1], n, k)
+}
+
+// ----- shared numerics -------------------------------------------------------
+
+/// Exact-t significance and Fisher-z 95% CI for a (partial) correlation `r` with
+/// `k` controls on `n` samples. `df = n − 2 − k`; Fisher SE = `1/√(n − 3 − k)`.
+pub(crate) fn partial_report_from_precision(
+    zero_order: f64,
+    pxy: f64,
+    pxx: f64,
+    pyy: f64,
+    n: usize,
+    k: usize,
+) -> Result<PartialReport> {
     let denom = (pxx * pyy).sqrt();
     if denom.is_nan() || denom <= 0.0 {
         return Err(CalyxError::assay_degenerate_input(
@@ -239,7 +251,6 @@ pub fn partial_correlation_controlling(
         ));
     }
     let partial = (-pxy / denom).clamp(-1.0, 1.0);
-    let zero_order = r_mat[1]; // R[0][1] = raw r_xy
     let (t_statistic, p_value, ci_low, ci_high) = correlation_inference(partial, n, k)?;
     Ok(PartialReport {
         partial_r: partial as f32,
@@ -253,11 +264,7 @@ pub fn partial_correlation_controlling(
     })
 }
 
-// ----- shared numerics -------------------------------------------------------
-
-/// Exact-t significance and Fisher-z 95% CI for a (partial) correlation `r` with
-/// `k` controls on `n` samples. `df = n − 2 − k`; Fisher SE = `1/√(n − 3 − k)`.
-fn correlation_inference(r: f64, n: usize, k: usize) -> Result<(f64, f64, f64, f64)> {
+pub(crate) fn correlation_inference(r: f64, n: usize, k: usize) -> Result<(f64, f64, f64, f64)> {
     let df = (n as f64) - 2.0 - k as f64;
     debug_assert!(df >= 1.0, "callers guarantee df ≥ 1");
     let one_minus = 1.0 - r * r;
@@ -284,7 +291,7 @@ fn correlation_inference(r: f64, n: usize, k: usize) -> Result<(f64, f64, f64, f
     Ok((t_statistic, p_value, ci_low, ci_high))
 }
 
-fn to_finite_f64(what: &str, name: &str, values: &[f32]) -> Result<Vec<f64>> {
+pub(crate) fn to_finite_f64(what: &str, name: &str, values: &[f32]) -> Result<Vec<f64>> {
     let mut out = Vec::with_capacity(values.len());
     for (idx, &v) in values.iter().enumerate() {
         if !v.is_finite() {
@@ -299,7 +306,7 @@ fn to_finite_f64(what: &str, name: &str, values: &[f32]) -> Result<Vec<f64>> {
 
 /// Pearson correlation of two equal-length vectors; `None` if either is constant
 /// (zero variance → correlation undefined).
-fn pearson_r(x: &[f64], y: &[f64]) -> Option<f64> {
+pub(crate) fn pearson_r(x: &[f64], y: &[f64]) -> Option<f64> {
     let n = x.len() as f64;
     let mx = x.iter().sum::<f64>() / n;
     let my = y.iter().sum::<f64>() / n;
@@ -322,7 +329,7 @@ fn pearson_r(x: &[f64], y: &[f64]) -> Option<f64> {
 /// Invert a `d×d` (symmetric, well-conditioned) matrix by Gauss–Jordan with
 /// partial pivoting. Returns `None` if the matrix is singular to working
 /// precision — the caller maps that to a fail-closed degenerate error.
-fn invert_symmetric(m: &[f64], d: usize) -> Option<Vec<f64>> {
+pub(crate) fn invert_symmetric(m: &[f64], d: usize) -> Option<Vec<f64>> {
     // Augmented [M | I].
     let mut a = vec![0.0f64; d * 2 * d];
     for i in 0..d {

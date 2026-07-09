@@ -90,6 +90,7 @@ pub fn exponential_hawkes_em(
         .map(|process| process.event_times.iter().map(|&t| t as f64).collect())
         .collect();
     let exposures = source_exposures(&events, observation_end, decay)?;
+    let kernel_sums = previous_kernel_sums(&events, decay);
     let mut baseline_rates: Vec<f64> = events
         .iter()
         .map(|event_times| 0.5 * event_times.len() as f64 / observation_end)
@@ -101,12 +102,12 @@ pub fn exponential_hawkes_em(
         let mut triggered_counts = vec![vec![0.0f64; d]; d];
 
         for target in 0..d {
-            for &event_time in &events[target] {
+            for source_kernel_sums in &kernel_sums[target] {
                 let mut source_contributions = vec![0.0f64; d];
                 let mut intensity = baseline_rates[target];
                 for source in 0..d {
-                    let kernel_sum = previous_kernel_sum(&events[source], event_time, decay);
-                    let contribution = branching_matrix[target][source] * kernel_sum;
+                    let contribution =
+                        branching_matrix[target][source] * source_kernel_sums[source];
                     source_contributions[source] = contribution;
                     intensity += contribution;
                 }
@@ -271,6 +272,23 @@ fn previous_kernel_sum(event_times: &[f64], target_time: f64, decay: f64) -> f64
         sum += decay * (-decay * (target_time - source_time)).exp();
     }
     sum
+}
+
+fn previous_kernel_sums(events: &[Vec<f64>], decay: f64) -> Vec<Vec<Vec<f64>>> {
+    let d = events.len();
+    let mut sums = Vec::with_capacity(d);
+    for target in 0..d {
+        let mut target_sums = Vec::with_capacity(events[target].len());
+        for &event_time in &events[target] {
+            target_sums.push(
+                (0..d)
+                    .map(|source| previous_kernel_sum(&events[source], event_time, decay))
+                    .collect(),
+            );
+        }
+        sums.push(target_sums);
+    }
+    sums
 }
 
 fn retained_edges(

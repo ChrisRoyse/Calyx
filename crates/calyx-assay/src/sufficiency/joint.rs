@@ -55,6 +55,6 @@ pub fn panel_joint_with_union_floor(
         raw_joint_ci_low: joint.ci_low,
         best_member_bits,
         best_member_ci_low,
-        floored: ci_low > joint.ci_low,
+        floored: bits > joint.bits || ci_low > joint.ci_low,
     })
 }

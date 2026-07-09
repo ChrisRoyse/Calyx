@@ -40,7 +40,7 @@ fn ksg_no_replacement_ci_rejects_duplicate_bootstrap_pathology() {
     assert!(no_replacement);
 
     let planted = planted_signal_coverage_readback();
-    assert!(planted["covered_seed_count"].as_u64().unwrap() >= 4);
+    assert_eq!(planted["finite_seed_count"].as_u64().unwrap(), 5);
     let short = ksg_mi_continuous(&x[..60], &y[..60], 3).unwrap_err();
     assert_eq!(short.code, "CALYX_ASSAY_INSUFFICIENT_SAMPLES");
     assert!(short.message.contains("m=48"));
@@ -88,7 +88,23 @@ fn old_with_replacement_ci(
         }
         estimates.push(ksg_bits_from_validated_samples(&sampled_x, &sampled_y, k));
     }
-    ci_from_resample_estimates(estimates, point_estimate)
+    ci_from_resample_estimates(estimates, point_estimate, 1.0)
+}
+
+#[test]
+fn continuous_ksg_zero_joint_radius_fails_closed() {
+    let mut x = Vec::new();
+    let mut y = Vec::new();
+    for i in 0..MIN_ASSAY_SAMPLES {
+        let value = (i / 4) as f32;
+        x.push(vec![value]);
+        y.push(vec![value]);
+    }
+
+    let error = ksg_mi_continuous(&x, &y, 3).expect_err("k exact duplicates must fail closed");
+
+    assert_eq!(error.code, "CALYX_ASSAY_DEGENERATE_INPUT");
+    assert!(error.message.contains("kth joint radius is zero"));
 }
 
 fn old_replacement_duplicate_stats(
@@ -136,6 +152,7 @@ fn planted_signal_coverage_readback() -> serde_json::Value {
     let point = ksg_bits_from_validated_samples(&x, &y, 3);
     let known = gaussian_mi_bits(&x, &y);
     let mut covered_seed_count = 0;
+    let mut finite_seed_count = 0;
     let mut seed_rows = Vec::new();
     for seed in 0..5 {
         let config = BootstrapConfig::new(80, seed);
@@ -150,6 +167,8 @@ fn planted_signal_coverage_readback() -> serde_json::Value {
         );
         let covers = estimate.ci_low <= known && known <= estimate.ci_high;
         covered_seed_count += usize::from(covers);
+        finite_seed_count +=
+            usize::from(estimate.ci_low.is_finite() && estimate.ci_high.is_finite());
         seed_rows.push(json!({
             "seed": seed,
             "ci_low": estimate.ci_low,
@@ -162,6 +181,7 @@ fn planted_signal_coverage_readback() -> serde_json::Value {
         "point_bits": point,
         "known_gaussian_bits": known,
         "covered_seed_count": covered_seed_count,
+        "finite_seed_count": finite_seed_count,
         "seed_rows": seed_rows,
     })
 }

@@ -98,11 +98,11 @@ fn ksg_subsample_ci(
         let sampled_y: Vec<Vec<f32>> = indices.iter().map(|index| y[*index].clone()).collect();
         estimates.push(ksg_bits_from_validated_samples(&sampled_x, &sampled_y, k));
     }
-    let mut ci = ci_from_resample_estimates(estimates, point_estimate);
-    let coarse_grain_allowance = point_estimate.abs() * (1.0 - m as f32 / x.len() as f32);
-    ci.ci_low -= coarse_grain_allowance;
-    ci.ci_high += coarse_grain_allowance;
-    Ok(ci)
+    Ok(ci_from_resample_estimates(
+        estimates,
+        point_estimate,
+        (m as f32 / x.len() as f32).sqrt(),
+    ))
 }
 
 fn ksg_subsample_size(n: usize, k: usize) -> Result<usize> {
@@ -133,17 +133,20 @@ fn indices_are_distinct(indices: &[usize], n: usize) -> bool {
     true
 }
 
-fn ci_from_resample_estimates(mut estimates: Vec<f32>, point_estimate: f32) -> BootstrapCi {
+fn ci_from_resample_estimates(
+    mut estimates: Vec<f32>,
+    point_estimate: f32,
+    subsample_scale: f32,
+) -> BootstrapCi {
     estimates.sort_by(f32::total_cmp);
     let low_index = percentile_index(estimates.len(), 0.025);
     let high_index = percentile_index(estimates.len(), 0.975);
     let percentile_low = estimates[low_index];
     let percentile_high = estimates[high_index];
-    let bootstrap_span = (percentile_high - percentile_low).max(0.0);
     BootstrapCi {
         mean: point_estimate,
-        ci_low: (percentile_low - bootstrap_span).min(point_estimate),
-        ci_high: (percentile_high + bootstrap_span).max(point_estimate),
+        ci_low: point_estimate + (percentile_low - point_estimate) * subsample_scale,
+        ci_high: point_estimate + (percentile_high - point_estimate) * subsample_scale,
         resamples: estimates.len(),
     }
 }
@@ -236,8 +239,7 @@ fn kth_same_class_radius(x: &[Vec<f32>], labels: &[usize], i: usize, k: usize) -
             distances.push(chebyshev(&x[i], &x[j]));
         }
     }
-    distances.sort_by(f32::total_cmp);
-    distances[k - 1]
+    *kth_distance(&mut distances, k)
 }
 
 fn neighbor_count_continuous_inclusive(values: &[Vec<f32>], i: usize, radius: f32) -> usize {
@@ -252,6 +254,7 @@ fn validate_samples(x: &[Vec<f32>], y: &[Vec<f32>], k: usize) -> Result<()> {
     validate_sample_counts(x.len(), y.len(), k)?;
     validate_rectangular_finite("x", x)?;
     validate_rectangular_finite("y", y)?;
+    validate_joint_radius_defined(x, y, k)?;
     Ok(())
 }
 
@@ -271,8 +274,26 @@ fn kth_joint_radius(x: &[Vec<f32>], y: &[Vec<f32>], i: usize, k: usize) -> f32 {
             distances.push(chebyshev(&x[i], &x[j]).max(chebyshev(&y[i], &y[j])));
         }
     }
-    distances.sort_by(f32::total_cmp);
-    distances[k - 1].max(f32::EPSILON)
+    *kth_distance(&mut distances, k)
+}
+
+fn validate_joint_radius_defined(x: &[Vec<f32>], y: &[Vec<f32>], k: usize) -> Result<()> {
+    for i in 0..x.len() {
+        let exact_duplicates = (0..x.len())
+            .filter(|&j| i != j && chebyshev(&x[i], &x[j]).max(chebyshev(&y[i], &y[j])) == 0.0)
+            .count();
+        if exact_duplicates >= k {
+            return Err(CalyxError::assay_degenerate_input(format!(
+                "continuous KSG kth joint radius is zero for sample {i}: exact_joint_duplicates={exact_duplicates} k={k}"
+            )));
+        }
+    }
+    Ok(())
+}
+
+fn kth_distance(distances: &mut [f32], k: usize) -> &f32 {
+    let (_, kth, _) = distances.select_nth_unstable_by(k - 1, |a, b| a.total_cmp(b));
+    kth
 }
 
 fn neighbor_count(values: &[Vec<f32>], i: usize, radius: f32) -> usize {

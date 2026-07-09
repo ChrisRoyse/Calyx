@@ -3,9 +3,6 @@
 use calyx_core::{Anchor, CalyxError, Result};
 use serde::{Deserialize, Serialize};
 
-use crate::bootstrap::{
-    BootstrapConfig, DEFAULT_BOOTSTRAP_RESAMPLES, DEFAULT_BOOTSTRAP_SEED, bootstrap_paired_ci,
-};
 use crate::calibration::{
     DEFAULT_MIN_POWER_RECOVERY_RATIO, PowerCalibration, ensure_informative_binary_labels,
 };
@@ -14,10 +11,11 @@ use crate::group_split::{GroupSplit, group_holdout_split, row_groups};
 use crate::ksg::MIN_ASSAY_SAMPLES;
 use crate::samples::validate_rectangular_finite;
 
-const LOGISTIC_BOOTSTRAP_CONFIG: BootstrapConfig =
-    BootstrapConfig::new(DEFAULT_BOOTSTRAP_RESAMPLES, DEFAULT_BOOTSTRAP_SEED);
 pub const DEFAULT_ASSAY_SEEDS: [u64; 5] = [20_260_612, 7, 101, 2_024, 99_999];
 pub const DEFAULT_HOLDOUT_FRACTION: f32 = 0.2;
+const LOGISTIC_STEPS: usize = 96;
+const LOGISTIC_LR: f32 = 0.35;
+const LOGISTIC_L2: f32 = 1.0e-4;
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct LogisticProbeReport {
@@ -134,9 +132,25 @@ fn logistic_probe_mi_multiseed_with_trust(
     groups: Option<&[String]>,
     trust: TrustTag,
 ) -> Result<LogisticProbeReport> {
-    if samples.len() != labels.len() || samples.len() < MIN_ASSAY_SAMPLES {
+    logistic_probe_mi_multiseed_with_trust_and_min_samples(
+        samples,
+        labels,
+        groups,
+        trust,
+        MIN_ASSAY_SAMPLES,
+    )
+}
+
+fn logistic_probe_mi_multiseed_with_trust_and_min_samples(
+    samples: &[Vec<f32>],
+    labels: &[bool],
+    groups: Option<&[String]>,
+    trust: TrustTag,
+    min_samples: usize,
+) -> Result<LogisticProbeReport> {
+    if samples.len() != labels.len() || samples.len() < min_samples {
         return Err(CalyxError::assay_insufficient_samples(format!(
-            "need at least {MIN_ASSAY_SAMPLES} labeled samples"
+            "need at least {min_samples} labeled samples"
         )));
     }
     let dim = validate_rectangular_finite("logistic", samples)?;
@@ -201,68 +215,18 @@ fn logistic_probe_mi_with_trust_and_min_samples(
     trust: TrustTag,
     min_samples: usize,
 ) -> Result<LogisticProbeReport> {
-    if samples.len() != labels.len() || samples.len() < min_samples {
-        return Err(CalyxError::assay_insufficient_samples(format!(
-            "need at least {min_samples} labeled samples"
-        )));
-    }
-    let dim = validate_rectangular_finite("logistic", samples)?;
-    let summary = logistic_summary(samples, labels, dim);
-    let ci = bootstrap_paired_ci(
+    logistic_probe_mi_multiseed_with_trust_and_min_samples(
         samples,
         labels,
-        summary.bits,
-        LOGISTIC_BOOTSTRAP_CONFIG,
-        |sampled_samples, sampled_labels| {
-            let dim = validate_rectangular_finite("logistic", sampled_samples)?;
-            Ok(logistic_summary(sampled_samples, sampled_labels, dim).bits)
-        },
-    )?
-    .ok_or_else(|| CalyxError::assay_insufficient_samples("bootstrap CI requires samples"))?;
-    Ok(LogisticProbeReport {
-        estimate: MiEstimate::new(
-            summary.bits,
-            ci.ci_low,
-            ci.ci_high,
-            labels.len(),
-            EstimatorKind::LogisticProbe,
-            trust,
-        ),
-        accuracy: summary.accuracy,
-        selected_field: "logistic_probe",
-    })
+        None,
+        trust,
+        min_samples,
+    )
 }
 
 struct LogisticSummary {
     bits: f32,
     accuracy: f32,
-}
-
-fn logistic_summary(samples: &[Vec<f32>], labels: &[bool], dim: usize) -> LogisticSummary {
-    let (pos_mean, neg_mean) = class_means(samples, labels, dim);
-    let direction: Vec<f32> = pos_mean
-        .iter()
-        .zip(&neg_mean)
-        .map(|(pos, neg)| pos - neg)
-        .collect();
-    let midpoint: Vec<f32> = pos_mean
-        .iter()
-        .zip(&neg_mean)
-        .map(|(pos, neg)| (pos + neg) * 0.5)
-        .collect();
-    let threshold = dot(&midpoint, &direction);
-    let predictions: Vec<bool> = samples
-        .iter()
-        .map(|row| dot(row, &direction) >= threshold)
-        .collect();
-    let accuracy = predictions
-        .iter()
-        .zip(labels)
-        .filter(|(prediction, label)| **prediction == **label)
-        .count() as f32
-        / labels.len() as f32;
-    let bits = binary_mi(labels, &predictions);
-    LogisticSummary { bits, accuracy }
 }
 
 fn logistic_heldout_summary(
@@ -307,61 +271,56 @@ fn logistic_train_test_summary(
     test_labels: &[bool],
     dim: usize,
 ) -> LogisticSummary {
-    let (pos_mean, neg_mean) = class_means(train_samples, train_labels, dim);
-    let direction: Vec<f32> = pos_mean
+    let model = fit_logistic(train_samples, train_labels, dim);
+    score_logistic(&model, test_samples, test_labels)
+}
+
+fn fit_logistic(samples: &[Vec<f32>], labels: &[bool], dim: usize) -> (Vec<f32>, f32) {
+    let mut weights = vec![0.0; dim];
+    let mut bias = 0.0;
+    let n = labels.len().max(1) as f32;
+    for _ in 0..LOGISTIC_STEPS {
+        let mut grad = vec![0.0; dim];
+        let mut bias_grad = 0.0;
+        for (row, label) in samples.iter().zip(labels) {
+            let p = sigmoid(dot(row, &weights) + bias);
+            let error = p - f32::from(*label);
+            for (slot, value) in grad.iter_mut().zip(row) {
+                *slot += error * value;
+            }
+            bias_grad += error;
+        }
+        for (weight, grad) in weights.iter_mut().zip(grad) {
+            *weight -= LOGISTIC_LR * (grad / n + LOGISTIC_L2 * *weight);
+        }
+        bias -= LOGISTIC_LR * bias_grad / n;
+    }
+    (weights, bias)
+}
+
+fn score_logistic(
+    model: &(Vec<f32>, f32),
+    samples: &[Vec<f32>],
+    labels: &[bool],
+) -> LogisticSummary {
+    let predictions = samples
         .iter()
-        .zip(&neg_mean)
-        .map(|(pos, neg)| pos - neg)
-        .collect();
-    let midpoint: Vec<f32> = pos_mean
-        .iter()
-        .zip(&neg_mean)
-        .map(|(pos, neg)| (pos + neg) * 0.5)
-        .collect();
-    let threshold = dot(&midpoint, &direction);
-    let predictions = test_samples
-        .iter()
-        .map(|row| dot(row, &direction) >= threshold)
+        .map(|row| sigmoid(dot(row, &model.0) + model.1) >= 0.5)
         .collect::<Vec<_>>();
     let accuracy = predictions
         .iter()
-        .zip(test_labels)
+        .zip(labels)
         .filter(|(prediction, label)| **prediction == **label)
         .count() as f32
-        / test_labels.len().max(1) as f32;
+        / labels.len().max(1) as f32;
     LogisticSummary {
-        bits: binary_mi(test_labels, &predictions),
+        bits: binary_mi(labels, &predictions),
         accuracy,
     }
 }
 
-fn class_means(samples: &[Vec<f32>], labels: &[bool], dim: usize) -> (Vec<f32>, Vec<f32>) {
-    let mut pos = vec![0.0; dim];
-    let mut neg = vec![0.0; dim];
-    let mut pos_n = 0_usize;
-    let mut neg_n = 0_usize;
-    for (row, label) in samples.iter().zip(labels) {
-        let target = if *label {
-            pos_n += 1;
-            &mut pos
-        } else {
-            neg_n += 1;
-            &mut neg
-        };
-        for (slot, value) in target.iter_mut().zip(row) {
-            *slot += value;
-        }
-    }
-    scale(&mut pos, pos_n);
-    scale(&mut neg, neg_n);
-    (pos, neg)
-}
-
-fn scale(values: &mut [f32], count: usize) {
-    let count = count.max(1) as f32;
-    for value in values {
-        *value /= count;
-    }
+fn sigmoid(logit: f32) -> f32 {
+    1.0 / (1.0 + (-logit.clamp(-40.0, 40.0)).exp())
 }
 
 fn dot(a: &[f32], b: &[f32]) -> f32 {

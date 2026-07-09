@@ -98,11 +98,10 @@ fn ci_from_estimates(mut estimates: Vec<f32>, point_estimate: f32) -> BootstrapC
     let high_index = percentile_index(estimates.len(), 0.975);
     let percentile_low = estimates[low_index];
     let percentile_high = estimates[high_index];
-    let bootstrap_span = (percentile_high - percentile_low).max(0.0);
     BootstrapCi {
         mean: point_estimate,
-        ci_low: (percentile_low - bootstrap_span).min(point_estimate),
-        ci_high: (percentile_high + bootstrap_span).max(point_estimate),
+        ci_low: percentile_low,
+        ci_high: percentile_high,
         resamples: estimates.len(),
     }
 }
@@ -110,4 +109,18 @@ fn ci_from_estimates(mut estimates: Vec<f32>, point_estimate: f32) -> BootstrapC
 fn percentile_index(len: usize, p: f32) -> usize {
     let last = len.saturating_sub(1);
     ((last as f32 * p).round() as usize).min(last)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn percentile_ci_does_not_pad_or_clamp_point_estimate() {
+        let ci = ci_from_estimates(vec![10.0, 20.0, 30.0, 40.0, 50.0], 0.0);
+
+        assert_eq!(ci.mean, 0.0);
+        assert_eq!(ci.ci_low, 10.0);
+        assert_eq!(ci.ci_high, 50.0);
+    }
 }

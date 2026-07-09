@@ -165,9 +165,11 @@ fn is_grounded_anchor(anchor: &Anchor) -> bool {
         return false;
     }
 
-    if source.starts_with(RESOLVED_UMA_ANCHOR_SOURCE_PREFIX) {
+    if matches!(source, "uma" | "uma-onchain")
+        || source.starts_with(RESOLVED_UMA_ANCHOR_SOURCE_PREFIX)
+    {
         return anchor.confidence == 1.0;
     }
 
-    true
+    false
 }

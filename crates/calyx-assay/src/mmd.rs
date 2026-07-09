@@ -72,40 +72,26 @@ pub fn gaussian_mmd_with_config(
     let shape = validate_pair(x, y, config)?;
     let pooled = pooled_samples(x, y);
     let bandwidth = resolve_bandwidth(&pooled, config.bandwidth)?;
-    let observed = mmd2_indexed(
-        &pooled,
-        &(0..x.len()).collect::<Vec<_>>(),
-        &(x.len()..pooled.len()).collect::<Vec<_>>(),
-        bandwidth,
-    );
+    let kernel = KernelMatrix::new(&pooled, bandwidth);
+    let left = (0..x.len()).collect::<Vec<_>>();
+    let right = (x.len()..pooled.len()).collect::<Vec<_>>();
+    let observed = kernel.mmd2(&left, &right);
     let mut rng = ChaCha8Rng::seed_from_u64(config.seed);
     let mut indices: Vec<usize> = (0..pooled.len()).collect();
     let mut null = Vec::with_capacity(config.permutations);
     for _ in 0..config.permutations {
         indices.shuffle(&mut rng);
-        null.push(mmd2_indexed(
-            &pooled,
-            &indices[..x.len()],
-            &indices[x.len()..],
-            bandwidth,
-        ));
+        null.push(kernel.mmd2(&indices[..x.len()], &indices[x.len()..]));
     }
-    null.sort_by(|a, b| a.total_cmp(b));
-    let ge_count = null.iter().filter(|&&sample| sample >= observed).count();
-    let p_value = (ge_count + 1) as f64 / (config.permutations + 1) as f64;
-    let critical_value = quantile(&null, 1.0 - config.alpha);
-    let null_mean = null.iter().sum::<f64>() / null.len() as f64;
-    Ok(MmdReport {
-        n_a: x.len(),
-        n_b: y.len(),
-        dimension: shape.dimension,
+    Ok(report_from_null(
+        x.len(),
+        y.len(),
+        shape.dimension,
         bandwidth,
-        mmd2: observed,
-        null_mean,
-        critical_value,
-        p_value,
-        significant: p_value <= config.alpha && observed > critical_value,
-    })
+        observed,
+        null,
+        config.alpha,
+    ))
 }
 
 pub fn mmd_change_point(
@@ -127,24 +113,18 @@ pub fn mmd_change_point(
         )));
     }
     let bandwidth = resolve_bandwidth(samples, config.bandwidth)?;
-    let mut best_split = min_window;
-    let mut best_mmd = f64::NEG_INFINITY;
-    for split in min_window..=(samples.len() - min_window) {
-        let left: Vec<usize> = (0..split).collect();
-        let right: Vec<usize> = (split..samples.len()).collect();
-        let value = mmd2_indexed(samples, &left, &right, bandwidth);
-        if value > best_mmd {
-            best_mmd = value;
-            best_split = split;
-        }
-    }
-    let mut split_config = *config;
-    split_config.bandwidth = Some(bandwidth);
-    let report = gaussian_mmd_with_config(
-        &samples[..best_split],
-        &samples[best_split..],
-        &split_config,
-    )?;
+    let kernel = KernelMatrix::new(samples, bandwidth);
+    let (best_split, best_mmd) = best_contiguous_split(&kernel, samples.len(), min_window);
+    let null = change_point_max_null(&kernel, samples.len(), min_window, config);
+    let report = report_from_null(
+        best_split,
+        samples.len() - best_split,
+        samples[0].len(),
+        bandwidth,
+        best_mmd,
+        null,
+        config.alpha,
+    );
     Ok(ChangePointReport {
         split_index: best_split,
         left_n: best_split,
@@ -278,19 +258,101 @@ fn resolve_bandwidth(samples: &[Vec<f64>], configured: Option<f64>) -> Result<f6
     Ok(quantile(&distances, 0.5))
 }
 
-fn mmd2_indexed(samples: &[Vec<f64>], x: &[usize], y: &[usize], bandwidth: f64) -> f64 {
-    mean_kernel(samples, x, x, bandwidth) + mean_kernel(samples, y, y, bandwidth)
-        - 2.0 * mean_kernel(samples, x, y, bandwidth)
+fn report_from_null(
+    n_a: usize,
+    n_b: usize,
+    dimension: usize,
+    bandwidth: f64,
+    observed: f64,
+    mut null: Vec<f64>,
+    alpha: f64,
+) -> MmdReport {
+    null.sort_by(|a, b| a.total_cmp(b));
+    let ge_count = null.iter().filter(|&&sample| sample >= observed).count();
+    let p_value = (ge_count + 1) as f64 / (null.len() + 1) as f64;
+    let critical_value = quantile(&null, 1.0 - alpha);
+    let null_mean = null.iter().sum::<f64>() / null.len() as f64;
+    MmdReport {
+        n_a,
+        n_b,
+        dimension,
+        bandwidth,
+        mmd2: observed,
+        null_mean,
+        critical_value,
+        p_value,
+        significant: p_value <= alpha && observed > critical_value,
+    }
 }
 
-fn mean_kernel(samples: &[Vec<f64>], left: &[usize], right: &[usize], bandwidth: f64) -> f64 {
-    let mut sum = 0.0;
-    for &i in left {
-        for &j in right {
-            sum += gaussian_kernel(&samples[i], &samples[j], bandwidth);
+fn best_contiguous_split(kernel: &KernelMatrix, n: usize, min_window: usize) -> (usize, f64) {
+    let mut best_split = min_window;
+    let mut best_mmd = f64::NEG_INFINITY;
+    for split in min_window..=(n - min_window) {
+        let left = (0..split).collect::<Vec<_>>();
+        let right = (split..n).collect::<Vec<_>>();
+        let value = kernel.mmd2(&left, &right);
+        if value > best_mmd {
+            best_mmd = value;
+            best_split = split;
         }
     }
-    sum / (left.len() * right.len()) as f64
+    (best_split, best_mmd)
+}
+
+fn change_point_max_null(
+    kernel: &KernelMatrix,
+    n: usize,
+    min_window: usize,
+    config: &MmdConfig,
+) -> Vec<f64> {
+    let mut rng = ChaCha8Rng::seed_from_u64(config.seed);
+    let mut indices = (0..n).collect::<Vec<_>>();
+    let mut null = Vec::with_capacity(config.permutations);
+    for _ in 0..config.permutations {
+        indices.shuffle(&mut rng);
+        let mut max_stat = f64::NEG_INFINITY;
+        for split in min_window..=(n - min_window) {
+            max_stat = max_stat.max(kernel.mmd2(&indices[..split], &indices[split..]));
+        }
+        null.push(max_stat);
+    }
+    null
+}
+
+struct KernelMatrix {
+    n: usize,
+    values: Vec<f64>,
+}
+
+impl KernelMatrix {
+    fn new(samples: &[Vec<f64>], bandwidth: f64) -> Self {
+        let n = samples.len();
+        let mut values = vec![0.0; n * n];
+        for i in 0..n {
+            values[i * n + i] = 1.0;
+            for j in (i + 1)..n {
+                let value = gaussian_kernel(&samples[i], &samples[j], bandwidth);
+                values[i * n + j] = value;
+                values[j * n + i] = value;
+            }
+        }
+        Self { n, values }
+    }
+
+    fn mmd2(&self, x: &[usize], y: &[usize]) -> f64 {
+        self.mean(x, x) + self.mean(y, y) - 2.0 * self.mean(x, y)
+    }
+
+    fn mean(&self, left: &[usize], right: &[usize]) -> f64 {
+        let mut sum = 0.0;
+        for &i in left {
+            for &j in right {
+                sum += self.values[i * self.n + j];
+            }
+        }
+        sum / (left.len() * right.len()) as f64
+    }
 }
 
 fn gaussian_kernel(a: &[f64], b: &[f64], bandwidth: f64) -> f64 {

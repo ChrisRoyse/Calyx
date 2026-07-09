@@ -175,7 +175,7 @@ fn planted_a_to_b(n: usize, lag: usize) -> (TestStream, TestStream) {
             driver + 0.01 * (noise(t as u64, 41) - 0.5)
         } else {
             noise(t as u64, 73)
-        };
+        } + t as f32 * 1.0e-6;
         b.push((t as u64, value));
     }
     (a, b)
@@ -187,6 +187,11 @@ fn independent_streams(n: usize) -> (TestStream, TestStream) {
 
 fn simple_stream(n: usize, salt: u64) -> TestStream {
     (0..n)
-        .map(|t| (t as u64, 0.2 + 0.6 * noise(t as u64, salt)))
+        .map(|t| {
+            (
+                t as u64,
+                0.2 + 0.6 * noise(t as u64, salt) + t as f32 * 1.0e-6,
+            )
+        })
         .collect()
 }

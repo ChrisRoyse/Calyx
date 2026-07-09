@@ -1,13 +1,16 @@
 //! Aster-backed Assay adapter for Loom materialization planning.
 
+use std::collections::BTreeMap;
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use calyx_core::{
     Anchor, AnchorKind, AnchorValue, CalyxError, CxId, Result, Seq, SlotId, SlotVector, VaultStore,
 };
 use calyx_loom::{MaterializationPlan, plan_cross_terms_checked};
 
-use crate::gate::{AssayGate, PairGain};
+use crate::estimate::require_grounded_anchor;
+use crate::gate::{AssayGate, PairGain, pair_gain_from_estimates};
 
 type PairSamples = (Vec<Vec<f32>>, Vec<Vec<f32>>, Vec<bool>);
 
@@ -18,6 +21,7 @@ pub struct AsterAssayMaterializationGate<'a, S: VaultStore + ?Sized> {
     anchor_kind: AnchorKind,
     assay: AssayGate,
     last_error: Mutex<Option<CalyxError>>,
+    error_count: AtomicU64,
 }
 
 impl<'a, S> AsterAssayMaterializationGate<'a, S>
@@ -41,6 +45,7 @@ where
             anchor_kind,
             assay: AssayGate::default(),
             last_error: Mutex::new(None),
+            error_count: AtomicU64::new(0),
         }
     }
 
@@ -55,17 +60,75 @@ where
     }
 
     pub fn materialization_plan(&self, slots: &[SlotId]) -> Result<MaterializationPlan> {
-        plan_cross_terms_checked(slots, |a, b| {
-            self.pair_gain(a, b).map(|gain| gain.gain_bits)
-        })
-        .inspect_err(|error| self.record_error(error.clone()))
+        self.materialization_plan_cached(slots)
+            .inspect_err(|error| self.record_error(error.clone()))
     }
 
     pub fn materialization_plan_fail_safe_lazy(&self, slots: &[SlotId]) -> MaterializationPlan {
-        plan_cross_terms_checked(slots, |a, b| Ok(self.pair_gain_bits_fail_safe_lazy(a, b)))
-            .expect("fail-safe lazy materialization planner is infallible")
+        match self.materialization_plan(slots) {
+            Ok(plan) => plan,
+            Err(_) => plan_cross_terms_checked(slots, |_a, _b| Ok(0.0))
+                .expect("fail-safe lazy materialization planner is infallible"),
+        }
     }
 
+    pub fn error_count(&self) -> u64 {
+        self.error_count.load(Ordering::Relaxed)
+    }
+
+    fn materialization_plan_cached(&self, slots: &[SlotId]) -> Result<MaterializationPlan> {
+        let samples = self.load_slot_samples(slots)?;
+        let solo = samples
+            .slots
+            .iter()
+            .map(|(slot, values)| {
+                self.assay
+                    .lens_signal(values, &samples.labels)
+                    .map(|signal| (*slot, signal.estimate))
+            })
+            .collect::<Result<BTreeMap<_, _>>>()?;
+        plan_cross_terms_checked(slots, |a, b| {
+            let combined = combine_samples(&samples.slots[&a], &samples.slots[&b]);
+            let pair = self.assay.lens_signal(&combined, &samples.labels)?.estimate;
+            Ok(pair_gain_from_estimates(&solo[&a], &solo[&b], &pair).gain_bits)
+        })
+    }
+
+    fn load_slot_samples(&self, slots: &[SlotId]) -> Result<SlotSampleSet> {
+        let mut values = slots
+            .iter()
+            .copied()
+            .map(|slot| (slot, Vec::with_capacity(self.cx_ids.len())))
+            .collect::<BTreeMap<_, _>>();
+        let mut labels = Vec::with_capacity(self.cx_ids.len());
+        for cx_id in &self.cx_ids {
+            let cx = self.store.get(*cx_id, self.snapshot)?;
+            for slot in slots {
+                let vector = cx.slots.get(slot).ok_or_else(|| {
+                    CalyxError::stale_derived(format!("slot {} missing for {cx_id}", slot.get()))
+                })?;
+                values
+                    .get_mut(slot)
+                    .expect("slot samples initialized")
+                    .push(features(vector)?);
+            }
+            let anchor = cx
+                .anchors
+                .iter()
+                .find(|anchor| anchor.kind == self.anchor_kind)
+                .ok_or_else(|| {
+                    CalyxError::stale_derived(format!(
+                        "anchor {:?} missing for {cx_id}",
+                        self.anchor_kind
+                    ))
+                })?;
+            labels.push(anchor_bool(anchor)?);
+        }
+        Ok(SlotSampleSet {
+            slots: values,
+            labels,
+        })
+    }
     pub fn pair_gain_bits_fail_safe_lazy(&self, a: SlotId, b: SlotId) -> f32 {
         match self.pair_gain(a, b) {
             Ok(gain) => gain.gain_bits,
@@ -84,6 +147,7 @@ where
     }
 
     fn record_error(&self, error: CalyxError) {
+        self.error_count.fetch_add(1, Ordering::Relaxed);
         *self
             .last_error
             .lock()
@@ -120,6 +184,18 @@ where
     }
 }
 
+struct SlotSampleSet {
+    slots: BTreeMap<SlotId, Vec<Vec<f32>>>,
+    labels: Vec<bool>,
+}
+
+fn combine_samples(left: &[Vec<f32>], right: &[Vec<f32>]) -> Vec<Vec<f32>> {
+    left.iter()
+        .zip(right)
+        .map(|(a, b)| a.iter().chain(b).copied().collect())
+        .collect()
+}
+
 fn features(vector: &SlotVector) -> Result<Vec<f32>> {
     match vector {
         SlotVector::Dense { data, .. } => Ok(data.clone()),
@@ -143,15 +219,7 @@ fn features(vector: &SlotVector) -> Result<Vec<f32>> {
 }
 
 fn anchor_bool(anchor: &Anchor) -> Result<bool> {
-    if anchor.source.trim().is_empty()
-        || !anchor.confidence.is_finite()
-        || anchor.confidence <= 0.0
-        || anchor.confidence > 1.0
-    {
-        return Err(CalyxError::assay_insufficient_samples(
-            "materialization gate requires grounded anchor evidence",
-        ));
-    }
+    require_grounded_anchor(anchor)?;
     match &anchor.value {
         AnchorValue::Bool(value) => Ok(*value),
         AnchorValue::Number(value) if value.is_finite() => Ok(*value > 0.0),

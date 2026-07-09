@@ -277,7 +277,8 @@ fn simplex_skill(
                 distances.push((euclidean_distance(&embedding[i], &embedding[j]), j));
             }
         }
-        distances.sort_by(|a, b| a.0.total_cmp(&b.0));
+        distances.select_nth_unstable_by(neighbor_count - 1, |a, b| a.0.total_cmp(&b.0));
+        distances[..neighbor_count].sort_by(|a, b| a.0.total_cmp(&b.0));
         let nearest = &distances[..neighbor_count];
         let prediction = simplex_prediction(nearest, target)?;
         predictions.push(prediction);

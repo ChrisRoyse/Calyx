@@ -152,7 +152,7 @@ pub fn oracle_self_consistency_from_agreements(agreements: &[OutcomeAgreement]) 
             count += 1;
         }
     }
-    if count == 0 { 1.0 } else { sum / count as f32 }
+    if count == 0 { 0.0 } else { sum / count as f32 }
 }
 
 pub fn outcome_agreement_from_observations(

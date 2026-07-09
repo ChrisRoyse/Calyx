@@ -187,12 +187,16 @@ fn validate_radii(radii: &[f64], duration: f64) -> Result<()> {
 
 fn count_pairs_within(events_a: &[f64], events_b: &[f64], radius: f64) -> usize {
     let mut count = 0usize;
+    let mut lo = 0usize;
+    let mut hi = 0usize;
     for &a in events_a {
-        for &b in events_b {
-            if (b - a).abs() <= radius {
-                count += 1;
-            }
+        while lo < events_b.len() && events_b[lo] < a - radius {
+            lo += 1;
         }
+        while hi < events_b.len() && events_b[hi] <= a + radius {
+            hi += 1;
+        }
+        count += hi.saturating_sub(lo);
     }
     count
 }

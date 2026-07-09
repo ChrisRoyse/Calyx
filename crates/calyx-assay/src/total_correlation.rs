@@ -4,7 +4,7 @@
 //! `TC(Phi) = sum_k H(slot_k) - H(Phi)`. It complements the cheap pairwise
 //! differentiation gate; it does not replace that first-pass admission filter.
 
-use rand::{Rng, SeedableRng};
+use rand::{SeedableRng, seq::SliceRandom};
 use rand_chacha::ChaCha8Rng;
 use serde::{Deserialize, Serialize};
 
@@ -404,9 +404,9 @@ fn joint_matrix(slots: &SlotVectors) -> Vec<Vec<f32>> {
 
 fn resample_slots(slots: &SlotVectors, rng: &mut ChaCha8Rng) -> Vec<Vec<f32>> {
     let n = slots[0].len();
-    let mut resampled = vec![Vec::with_capacity(n); slots.len()];
-    for _ in 0..n {
-        let index = rng.gen_range(0..n);
+    let indices = subsample_indices(n, rng);
+    let mut resampled = vec![Vec::with_capacity(indices.len()); slots.len()];
+    for index in indices {
         for (slot_index, slot) in slots.iter().enumerate() {
             resampled[slot_index].push(slot[index]);
         }
@@ -420,16 +420,23 @@ fn resample_triple(
     c: &[f32],
     rng: &mut ChaCha8Rng,
 ) -> (Vec<f32>, Vec<f32>, Vec<f32>) {
-    let mut ra = Vec::with_capacity(a.len());
-    let mut rb = Vec::with_capacity(a.len());
-    let mut rc = Vec::with_capacity(a.len());
-    for _ in 0..a.len() {
-        let index = rng.gen_range(0..a.len());
+    let indices = subsample_indices(a.len(), rng);
+    let mut ra = Vec::with_capacity(indices.len());
+    let mut rb = Vec::with_capacity(indices.len());
+    let mut rc = Vec::with_capacity(indices.len());
+    for index in indices {
         ra.push(a[index]);
         rb.push(b[index]);
         rc.push(c[index]);
     }
     (ra, rb, rc)
+}
+
+fn subsample_indices(n: usize, rng: &mut ChaCha8Rng) -> Vec<usize> {
+    let mut indices = (0..n).collect::<Vec<_>>();
+    indices.shuffle(rng);
+    indices.truncate((n * 4 / 5).max(MIN_ASSAY_SAMPLES).min(n));
+    indices
 }
 
 fn kth_radius(samples: &[Vec<f32>], i: usize, k: usize) -> f32 {
@@ -439,8 +446,8 @@ fn kth_radius(samples: &[Vec<f32>], i: usize, k: usize) -> f32 {
             distances.push(chebyshev(&samples[i], &samples[j]));
         }
     }
-    distances.sort_by(f32::total_cmp);
-    distances[k - 1]
+    let (_, kth, _) = distances.select_nth_unstable_by(k - 1, |a, b| a.total_cmp(b));
+    *kth
 }
 
 fn chebyshev(a: &[f32], b: &[f32]) -> f32 {

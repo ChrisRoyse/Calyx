@@ -127,7 +127,11 @@ impl AssayGate {
     }
 }
 
-fn pair_gain_from_estimates(left: &MiEstimate, right: &MiEstimate, pair: &MiEstimate) -> PairGain {
+pub(crate) fn pair_gain_from_estimates(
+    left: &MiEstimate,
+    right: &MiEstimate,
+    pair: &MiEstimate,
+) -> PairGain {
     let baseline_low = left.ci_low.max(right.ci_low);
     let baseline_high = left.ci_high.max(right.ci_high);
     let gain_bits = (pair.bits - left.bits.max(right.bits)).max(0.0);

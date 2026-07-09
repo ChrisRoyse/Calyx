@@ -64,7 +64,9 @@ fn aster_gate_errors_are_observable_by_default() {
     assert_eq!(err.code, "CALYX_STALE_DERIVED");
     assert_eq!(gate.last_error().unwrap().code, "CALYX_STALE_DERIVED");
     assert_eq!(gate.pair_gain_bits_fail_safe_lazy(slot(1), slot(2)), 0.0);
+    assert_eq!(gate.error_count(), 2);
     let fallback_plan = gate.materialization_plan_fail_safe_lazy(&[slot(1), slot(2)]);
+    assert_eq!(gate.error_count(), 3);
     assert_eq!(
         plan_count(
             &fallback_plan,
@@ -208,7 +210,7 @@ fn write_sample_vault(
             .then(|| Anchor {
                 kind: AnchorKind::Label("issue319-passfail".to_string()),
                 value: AnchorValue::Bool(labels[index]),
-                source: "issue319-grounded-synthetic".to_string(),
+                source: "uma:issue319-grounded-synthetic".to_string(),
                 observed_at: 1_785_400_000 + index as u64,
                 confidence: 1.0,
             })

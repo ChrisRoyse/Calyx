@@ -7,7 +7,9 @@
 use calyx_core::{CalyxError, Result};
 use serde::{Deserialize, Serialize};
 
-use crate::partial_correlation::{PartialReport, partial_correlation_controlling};
+use crate::partial_correlation::{
+    PartialReport, invert_symmetric, partial_report_from_precision, pearson_r, to_finite_f64,
+};
 
 pub const DEFAULT_PARTIAL_NETWORK_ALPHA: f32 = 0.05;
 pub const DEFAULT_PARTIAL_NETWORK_MIN_ABS_R: f32 = 0.10;
@@ -62,16 +64,13 @@ pub fn partial_correlation_network(
     validate_partial_network_inputs(series, alpha, min_abs_partial_r)?;
     let mut retained_edges = Vec::new();
     let mut pruned_edges = Vec::new();
+    let matrix = partial_network_matrix(series)?;
+    let k = series.len() - 2;
+    let n = series[0].values.len();
 
     for i in 0..series.len() {
         for j in (i + 1)..series.len() {
-            let controls: Vec<&[f32]> = series
-                .iter()
-                .enumerate()
-                .filter_map(|(idx, item)| (idx != i && idx != j).then_some(item.values))
-                .collect();
-            let partial =
-                partial_correlation_controlling(series[i].values, series[j].values, &controls)?;
+            let partial = matrix.partial_report(i, j, n, k)?;
             let significant = partial.p_value < alpha;
             let clears_floor = partial.partial_r.abs() >= min_abs_partial_r;
             if significant && clears_floor {
@@ -153,6 +152,52 @@ fn validate_partial_network_inputs(
         }
     }
     Ok(())
+}
+
+struct PartialNetworkMatrix {
+    d: usize,
+    corr: Vec<f64>,
+    precision: Vec<f64>,
+}
+
+impl PartialNetworkMatrix {
+    fn partial_report(&self, i: usize, j: usize, n: usize, k: usize) -> Result<PartialReport> {
+        partial_report_from_precision(
+            self.corr[i * self.d + j],
+            self.precision[i * self.d + j],
+            self.precision[i * self.d + i],
+            self.precision[j * self.d + j],
+            n,
+            k,
+        )
+    }
+}
+
+fn partial_network_matrix(series: &[PartialNetworkSeries<'_>]) -> Result<PartialNetworkMatrix> {
+    let d = series.len();
+    let vars = series
+        .iter()
+        .map(|item| to_finite_f64("partial-correlation network", item.name, item.values))
+        .collect::<Result<Vec<_>>>()?;
+    let mut corr = vec![0.0; d * d];
+    for i in 0..d {
+        corr[i * d + i] = 1.0;
+        for j in (i + 1)..d {
+            let r = pearson_r(&vars[i], &vars[j]).ok_or_else(|| {
+                CalyxError::assay_degenerate_input(
+                    "partial-correlation network undefined: a column is constant",
+                )
+            })?;
+            corr[i * d + j] = r;
+            corr[j * d + i] = r;
+        }
+    }
+    let precision = invert_symmetric(&corr, d).ok_or_else(|| {
+        CalyxError::assay_degenerate_input(
+            "partial-correlation network undefined: correlation matrix is singular",
+        )
+    })?;
+    Ok(PartialNetworkMatrix { d, corr, precision })
 }
 
 fn edge_record(

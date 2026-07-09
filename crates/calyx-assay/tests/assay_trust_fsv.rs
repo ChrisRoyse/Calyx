@@ -17,12 +17,15 @@ fn assay_trust_tags_follow_grounded_anchor_evidence() {
     let grounded = grounded_anchor();
     let ungrounded = ungrounded_anchor();
     let overconfident = overconfident_anchor();
+    let unrecognized = unrecognized_anchor();
     let discrete_labels: Vec<usize> = labels.iter().map(|label| usize::from(*label)).collect();
     let no_anchor = logistic_probe_mi(&samples, &labels).unwrap();
     let trusted = logistic_probe_mi_with_anchor(&samples, &labels, &grounded).unwrap();
     let provisional = logistic_probe_mi_with_anchor(&samples, &labels, &ungrounded).unwrap();
     let overconfident_provisional =
         logistic_probe_mi_with_anchor(&samples, &labels, &overconfident).unwrap();
+    let unrecognized_provisional =
+        logistic_probe_mi_with_anchor(&samples, &labels, &unrecognized).unwrap();
     let ksg_no_anchor = ksg_mi_continuous_discrete(&samples, &discrete_labels, 3).unwrap();
     let ksg_trusted =
         ksg_mi_continuous_discrete_with_anchor(&samples, &discrete_labels, 3, &grounded).unwrap();
@@ -72,6 +75,10 @@ fn assay_trust_tags_follow_grounded_anchor_evidence() {
         overconfident_provisional.estimate.trust,
         TrustTag::Provisional
     );
+    assert_eq!(
+        unrecognized_provisional.estimate.trust,
+        TrustTag::Provisional
+    );
     assert_eq!(ksg_no_anchor.trust, TrustTag::Provisional);
     assert_eq!(ksg_trusted.trust, TrustTag::Trusted);
     assert_eq!(ksg_provisional.trust, TrustTag::Provisional);
@@ -94,6 +101,10 @@ fn assay_trust_tags_follow_grounded_anchor_evidence() {
         (
             "logistic_overconfident_anchor",
             overconfident_provisional.estimate,
+        ),
+        (
+            "logistic_unrecognized_anchor",
+            unrecognized_provisional.estimate,
         ),
         ("ksg_no_anchor", ksg_no_anchor),
         ("ksg_grounded_anchor", ksg_trusted),
@@ -133,8 +144,11 @@ fn persist_and_read_trust_rows(rows: &[(&str, MiEstimate)]) -> serde_json::Value
             name if name.ends_with("_overconfident_anchor") => {
                 format!("case={name} anchor=ungrounded source=synthetic-outcome confidence=1.1")
             }
+            name if name.ends_with("_unrecognized_anchor") => {
+                format!("case={name} anchor=ungrounded source=synthetic-outcome confidence=1.0")
+            }
             name if name.ends_with("_grounded_anchor") => {
-                format!("case={name} anchor=grounded source=synthetic-outcome confidence=1.0")
+                format!("case={name} anchor=grounded source=uma:synthetic-outcome confidence=1.0")
             }
             name => format!("case={name} anchor=unknown"),
         };
@@ -202,7 +216,7 @@ fn grounded_anchor() -> Anchor {
     Anchor {
         kind: AnchorKind::Reward,
         value: AnchorValue::Bool(true),
-        source: "synthetic-outcome".to_string(),
+        source: "uma:synthetic-outcome".to_string(),
         observed_at: 1_785_400_000,
         confidence: 1.0,
     }
@@ -225,6 +239,16 @@ fn overconfident_anchor() -> Anchor {
         source: "synthetic-outcome".to_string(),
         observed_at: 1_785_400_002,
         confidence: 1.1,
+    }
+}
+
+fn unrecognized_anchor() -> Anchor {
+    Anchor {
+        kind: AnchorKind::Reward,
+        value: AnchorValue::Bool(true),
+        source: "synthetic-outcome".to_string(),
+        observed_at: 1_785_400_003,
+        confidence: 1.0,
     }
 }
 

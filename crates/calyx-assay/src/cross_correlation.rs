@@ -59,8 +59,8 @@ pub fn cross_correlation_profile(
 
     let mut points = Vec::with_capacity(max_lag * 2 + 1);
     for lag in -(max_lag as isize)..=(max_lag as isize) {
-        let (xs, ys) = shifted_pairs(x, y, lag);
-        let r = pearson(&xs, &ys)?;
+        let (xs, ys) = shifted_slices(x, y, lag);
+        let r = pearson(xs, ys)?;
         points.push(CrossCorrelationPoint {
             lag,
             correlation: r.r,
@@ -92,13 +92,13 @@ pub fn cross_correlation_profile(
     })
 }
 
-fn shifted_pairs(x: &[f32], y: &[f32], lag: isize) -> (Vec<f32>, Vec<f32>) {
+fn shifted_slices<'a>(x: &'a [f32], y: &'a [f32], lag: isize) -> (&'a [f32], &'a [f32]) {
     let n = x.len();
     if lag >= 0 {
         let shift = lag as usize;
-        (x[..n - shift].to_vec(), y[shift..].to_vec())
+        (&x[..n - shift], &y[shift..])
     } else {
         let shift = lag.unsigned_abs();
-        (x[shift..].to_vec(), y[..n - shift].to_vec())
+        (&x[shift..], &y[..n - shift])
     }
 }

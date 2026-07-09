@@ -18,8 +18,7 @@ pub struct NmiReport {
 }
 
 pub fn partitioned_histogram_nmi(x: &[f32], y: &[f32], bins: usize) -> Result<NmiReport> {
-    validate_nmi_samples(x, y)?;
-    let bins = bins.max(2);
+    validate_nmi_samples(x, y, bins)?;
     let xb = bin_values(x, bins);
     let yb = bin_values(y, bins);
     let hx = entropy(&xb);
@@ -42,7 +41,12 @@ pub fn partitioned_histogram_nmi(x: &[f32], y: &[f32], bins: usize) -> Result<Nm
     })
 }
 
-fn validate_nmi_samples(x: &[f32], y: &[f32]) -> Result<()> {
+fn validate_nmi_samples(x: &[f32], y: &[f32], bins: usize) -> Result<()> {
+    if bins < 2 {
+        return Err(CalyxError::assay_insufficient_samples(format!(
+            "NMI requires bins >= 2; got {bins}"
+        )));
+    }
     if x.len() != y.len() {
         return Err(CalyxError::assay_insufficient_samples(format!(
             "NMI requires paired samples: x={} y={}",
@@ -58,6 +62,8 @@ fn validate_nmi_samples(x: &[f32], y: &[f32]) -> Result<()> {
     }
     ensure_finite("x", x)?;
     ensure_finite("y", y)?;
+    ensure_nonconstant("x", x)?;
+    ensure_nonconstant("y", y)?;
     Ok(())
 }
 
@@ -69,6 +75,16 @@ fn ensure_finite(name: &str, values: &[f32]) -> Result<()> {
     {
         return Err(CalyxError::assay_insufficient_samples(format!(
             "NMI {name} sample {idx} contains NaN or infinity"
+        )));
+    }
+    Ok(())
+}
+
+fn ensure_nonconstant(name: &str, values: &[f32]) -> Result<()> {
+    let first = values[0];
+    if values.iter().all(|value| *value == first) {
+        return Err(CalyxError::assay_degenerate_input(format!(
+            "NMI {name} column is constant (zero entropy)"
         )));
     }
     Ok(())
@@ -160,5 +176,21 @@ mod tests {
             .expect_err("NaN NMI input must fail closed");
         assert_eq!(err.code, "CALYX_ASSAY_INSUFFICIENT_SAMPLES");
         assert!(err.message.contains("sample 7"));
+    }
+
+    #[test]
+    fn nmi_invalid_bins_and_constant_columns_fail_closed() {
+        let x: Vec<f32> = (0..MIN_ASSAY_SAMPLES).map(|value| value as f32).collect();
+        let y: Vec<f32> = x.iter().map(|value| value * 2.0).collect();
+
+        let bins = partitioned_histogram_nmi(&x, &y, 1).expect_err("bins=1 is invalid");
+        assert_eq!(bins.code, "CALYX_ASSAY_INSUFFICIENT_SAMPLES");
+        assert!(bins.message.contains("bins >= 2"));
+
+        let constant = vec![1.0; MIN_ASSAY_SAMPLES];
+        let degenerate = partitioned_histogram_nmi(&constant, &y, 10)
+            .expect_err("constant NMI column must fail closed");
+        assert_eq!(degenerate.code, "CALYX_ASSAY_DEGENERATE_INPUT");
+        assert!(degenerate.message.contains("zero entropy"));
     }
 }

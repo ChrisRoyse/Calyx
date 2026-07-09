@@ -124,7 +124,7 @@ fn assay_exit_gate(vault: &AsterVault) -> Value {
         (0.55..=0.75).contains(&mixed_score),
         "mixed score was {mixed_score}"
     );
-    assert_eq!(insufficient_score, 1.0);
+    assert_eq!(insufficient_score, 0.0);
 
     json!({
         "schema_version": 1,
