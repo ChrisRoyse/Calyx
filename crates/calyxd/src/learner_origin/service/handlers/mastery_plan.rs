@@ -12,12 +12,14 @@ use crate::learner_origin::model::MasteryEstimateRequest;
 
 use super::super::{OriginError, ensure_nonempty, storage_error};
 use super::mastery_support::{
-    MasteryCalibrationSource, MasteryConcept, MasteryGoodhartSource, MasteryKernelSource,
-    MasteryMistakeSource, MasteryOracleSource, MasteryRegion, MasteryTrustGate,
-    MasteryTrustSources, build_mastery_concepts, build_mastery_constellation, build_mastery_panel,
+    MASTERY_CLIENT_ATTESTED, MASTERY_MEASUREMENT_PROVENANCE, MasteryCalibrationSource,
+    MasteryConcept, MasteryGoodhartSource, MasteryKernelSource, MasteryMistakeSource,
+    MasteryOracleSource, MasteryRegion, MasteryTrustGate, MasteryTrustSources,
+    build_mastery_concepts, build_mastery_constellation, build_mastery_panel,
 };
 use super::shared::require_nonnegative_bits;
 pub(super) struct MasteryPlan {
+    request_id: String,
     pub(super) domain: DomainId,
     pub(super) panel: Panel,
     pub(super) cx: Constellation,
@@ -84,6 +86,7 @@ impl MasteryPlan {
             .collect::<SlotSet>();
         let held_out = trust_gate.held_out_split(request_id, cx_id);
         Ok(Self {
+            request_id: request_id.to_string(),
             domain,
             panel,
             cx,
@@ -109,30 +112,32 @@ impl MasteryPlan {
             vault.vault_id(),
             AnchorKind::Reward,
         );
-        store.put(
+        store.put_with_payload(
             key.clone(),
             AssaySubject::Panel,
             MiEstimate::point(
                 self.trust_gate.panel_bits,
                 self.trust_gate.sample_count,
                 EstimatorKind::PanelSufficiency,
-                TrustTag::Trusted,
+                TrustTag::Provisional,
             )
             .with_power_calibration(self.trust_gate.power_calibration(self.concepts.len())),
             "learner-origin mastery panel sufficiency",
             now,
+            self.assay_payload("panel_sufficiency"),
         );
-        store.put(
+        store.put_with_payload(
             key.clone(),
             AssaySubject::OutcomeEntropy,
             MiEstimate::point(
                 self.trust_gate.anchor_entropy_bits,
                 self.trust_gate.sample_count,
                 EstimatorKind::OutcomeEntropy,
-                TrustTag::Trusted,
+                TrustTag::Provisional,
             ),
             "learner-origin mastery outcome entropy",
             now,
+            self.assay_payload("outcome_entropy"),
         );
         let per_slot_bits = if self.concepts.is_empty() {
             0.0
@@ -140,7 +145,7 @@ impl MasteryPlan {
             self.trust_gate.panel_bits / self.concepts.len() as f32
         };
         for concept in &self.concepts {
-            store.put(
+            store.put_with_payload(
                 key.clone(),
                 AssaySubject::Lens {
                     slot: concept.slot_id,
@@ -149,13 +154,24 @@ impl MasteryPlan {
                     per_slot_bits,
                     self.trust_gate.sample_count,
                     EstimatorKind::Ksg,
-                    TrustTag::Trusted,
+                    TrustTag::Provisional,
                 ),
                 format!("learner-origin mastery lens {}", concept.concept_id),
                 now,
+                self.assay_payload("lens"),
             );
         }
         store.persist_to_vault(vault).map_err(storage_error)
+    }
+
+    fn assay_payload(&self, subject: &str) -> Value {
+        json!({
+            "clientAttested": MASTERY_CLIENT_ATTESTED,
+            "measurementProvenance": MASTERY_MEASUREMENT_PROVENANCE,
+            "requestId": self.request_id.as_str(),
+            "domain": self.domain.to_string(),
+            "subject": subject
+        })
     }
 
     pub(super) fn trust_sources(&self) -> MasteryTrustSources {

@@ -20,6 +20,11 @@ use crate::learner_origin::model::{
 
 use super::super::{OriginError, ensure_nonempty, sha256_array};
 use super::shared::require_unit_interval;
+
+pub(super) const MASTERY_CLIENT_ATTESTED: bool = true;
+pub(super) const MASTERY_MEASUREMENT_PROVENANCE: &str = "client_attested";
+pub(super) const MASTERY_CERTIFICATION_BLOCKED_REASON: &str = "client_attested_metrics";
+
 #[derive(Clone)]
 pub(super) struct MasteryConcept {
     pub(super) concept_id: String,
@@ -148,12 +153,12 @@ impl KernelRecallSource for MasteryKernelSource {
             ratio: self.ratio,
             approx_factor: 1.0,
             tau_star_estimate: held_out.held_out_count(),
-            tau_star_exact: true,
+            tau_star_exact: false,
             recall_test_params: None,
-            corpus_name: Some("calyxweb-learner-mastery".to_string()),
+            corpus_name: Some("client-attested:calyxweb-learner-mastery".to_string()),
             n_queries_tested: held_out.held_out_count(),
             held_out: held_out.held_out_ids.clone(),
-            warning: None,
+            warning: Some(MASTERY_CERTIFICATION_BLOCKED_REASON.to_string()),
         })
     }
 }
@@ -384,6 +389,14 @@ pub(super) fn build_mastery_constellation(input: MasteryConstellationInput<'_>) 
         ("request_id".to_string(), input.request_id.to_string()),
         ("learner_id".to_string(), input.request.learner_id.clone()),
         ("domain".to_string(), input.domain.to_string()),
+        (
+            "client_attested".to_string(),
+            MASTERY_CLIENT_ATTESTED.to_string(),
+        ),
+        (
+            "measurement_provenance".to_string(),
+            MASTERY_MEASUREMENT_PROVENANCE.to_string(),
+        ),
         (
             "concept_count".to_string(),
             input.concepts.len().to_string(),

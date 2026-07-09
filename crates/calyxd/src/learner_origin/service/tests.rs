@@ -1,5 +1,6 @@
 use serde_json::{Value, json};
 
+use calyx_assay::{AssayStore, TrustTag};
 use calyx_aster::cf::ColumnFamily;
 
 use super::*;
@@ -175,20 +176,47 @@ fn mastery_estimate_imputes_unprobed_concept_and_persists_trust_gate() {
     assert_eq!(body["completion"]["slots"][0]["tag"], "measured");
     assert_eq!(body["completion"]["slots"][1]["tag"], "inferred");
     assert_eq!(body["trust"]["overall"], true);
-    assert_eq!(body["certificationEligible"], true);
+    assert_eq!(body["trust"]["clientAttested"], true);
+    assert_eq!(body["source"]["clientAttested"], true);
+    assert_eq!(body["clientAttested"], true);
+    assert_eq!(body["measurementProvenance"], "client_attested");
+    assert_eq!(
+        body["certificationBlockedReason"],
+        "client_attested_metrics"
+    );
+    assert_eq!(body["certificationEligible"], false);
     assert_eq!(body["source"]["assayRows"], 4);
+
+    let assay_store = AssayStore::load_from_vault(&service.vault).unwrap();
+    let assay_rows = assay_store.rows();
+    assert_eq!(assay_rows.len(), 4);
+    assert!(
+        assay_rows
+            .iter()
+            .all(|row| row.estimate.trust == TrustTag::Provisional)
+    );
+    assert!(assay_rows.iter().all(|row| {
+        row.payload.as_ref().is_some_and(|payload| {
+            payload["clientAttested"].as_bool() == Some(true)
+                && payload["measurementProvenance"].as_str() == Some("client_attested")
+        })
+    }));
 
     let rows = service.base_rows();
     assert_eq!(rows.len(), 2);
     assert!(rows.iter().any(|row| {
         row.metadata_value("origin_kind") == Some("mastery_evidence")
             && row.metadata_value("request_id") == Some("mastery-a")
+            && row.metadata_value("client_attested") == Some("true")
+            && row.metadata_value("measurement_provenance") == Some("client_attested")
     }));
     assert!(rows.iter().any(|row| {
         row.metadata_value("origin_kind") == Some(KIND_MASTERY_ESTIMATE)
             && row.metadata_value("completion_ledger_seq").is_some()
             && row.metadata_value("trust_ledger_seq").is_some()
-            && row.metadata_value("certification_eligible") == Some("true")
+            && row.metadata_value("certification_eligible") == Some("false")
+            && row.metadata_value("client_attested") == Some("true")
+            && row.metadata_value("certification_blocked_reason") == Some("client_attested_metrics")
     }));
 }
 

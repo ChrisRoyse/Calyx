@@ -18,7 +18,10 @@ use super::super::{
     storage_error,
 };
 use super::mastery_plan::MasteryPlan;
-use super::mastery_support::MasteryAnneal;
+use super::mastery_support::{
+    MASTERY_CERTIFICATION_BLOCKED_REASON, MASTERY_CLIENT_ATTESTED, MASTERY_MEASUREMENT_PROVENANCE,
+    MasteryAnneal,
+};
 use super::shared::oracle_origin_error;
 
 impl LearnerOriginService {
@@ -105,7 +108,9 @@ impl LearnerOriginService {
 
         let provisional_count = completion.provisional_slots().len();
         let inferred_count = completion.inferred_slots().len();
-        let certification_eligible = trust_report.overall && provisional_count == 0;
+        let client_attested = MASTERY_CLIENT_ATTESTED;
+        let certification_eligible =
+            !client_attested && trust_report.overall && provisional_count == 0;
         let mut metadata = base_metadata(KIND_MASTERY_ESTIMATE, &body_hash);
         metadata.insert("request_id".to_string(), request_id.clone());
         metadata.insert("learner_id".to_string(), request.learner_id.clone());
@@ -125,6 +130,15 @@ impl LearnerOriginService {
         metadata.insert(
             "certification_eligible".to_string(),
             certification_eligible.to_string(),
+        );
+        metadata.insert("client_attested".to_string(), client_attested.to_string());
+        metadata.insert(
+            "measurement_provenance".to_string(),
+            MASTERY_MEASUREMENT_PROVENANCE.to_string(),
+        );
+        metadata.insert(
+            "certification_blocked_reason".to_string(),
+            MASTERY_CERTIFICATION_BLOCKED_REASON.to_string(),
         );
         insert_optional(
             &mut metadata,
@@ -149,6 +163,10 @@ impl LearnerOriginService {
             (
                 "mastery.certification_eligible".to_string(),
                 if certification_eligible { 1.0 } else { 0.0 },
+            ),
+            (
+                "mastery.client_attested".to_string(),
+                if client_attested { 1.0 } else { 0.0 },
             ),
             ("mastery.inferred_count".to_string(), inferred_count as f64),
         ]);
@@ -179,7 +197,9 @@ impl LearnerOriginService {
                     "cxId": source_row.cx_id,
                     "ledgerSeq": source_row.ledger_seq,
                     "ledgerHash": source_row.ledger_hash,
-                    "assayRows": assay_rows
+                    "assayRows": assay_rows,
+                    "clientAttested": client_attested,
+                    "measurementProvenance": MASTERY_MEASUREMENT_PROVENANCE
                 },
                 "completion": {
                     "confidence": completion.confidence,
@@ -195,8 +215,14 @@ impl LearnerOriginService {
                     "cheapestFix": trust_report.cheapest_fix,
                     "tiers": trust_report.tiers,
                     "ledgerSeq": trust_ledger.seq,
-                    "ledgerHash": hex(&trust_ledger.hash)
+                    "ledgerHash": hex(&trust_ledger.hash),
+                    "clientAttested": client_attested,
+                    "measurementProvenance": MASTERY_MEASUREMENT_PROVENANCE,
+                    "certificationBlockedReason": MASTERY_CERTIFICATION_BLOCKED_REASON
                 },
+                "clientAttested": client_attested,
+                "measurementProvenance": MASTERY_MEASUREMENT_PROVENANCE,
+                "certificationBlockedReason": MASTERY_CERTIFICATION_BLOCKED_REASON,
                 "certificationEligible": certification_eligible,
                 "cxId": stored.cx_id,
                 "ledgerSeq": stored.ledger_seq,
