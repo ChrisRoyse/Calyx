@@ -95,6 +95,7 @@ pub(super) fn measured_cost(
         total_ms: elapsed_ms,
         ms_per_input: elapsed_ms / measured,
         vram_bytes: 0,
+        vram_observed: true,
         ram_bytes: corpus_input_bytes(corpus).saturating_add(vector_bytes(vectors)),
         batch_ceiling: batch_ceiling(elapsed_ms / measured),
     }
@@ -372,6 +373,7 @@ fn target_cost(cost: ExpectedTargetCost, n: usize) -> CostMetrics {
         total_ms: cost.ms_per_input as f32 * n.max(1) as f32,
         ms_per_input: cost.ms_per_input as f32,
         vram_bytes: mib_to_bytes(cost.vram_mb),
+        vram_observed: true,
         ram_bytes: mib_to_bytes(cost.ram_mb),
         batch_ceiling: batch_ceiling(cost.ms_per_input as f32),
     }

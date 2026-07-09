@@ -237,6 +237,45 @@ fn sextant_index_adapter_returns_cxid_hits() {
 }
 
 #[test]
+fn partial_insert_marks_degraded_and_blocks_queries() {
+    let root = scratch("partial-insert");
+    let (a, b) = dual_rows(32, 8);
+    let mut index =
+        build_dual_with_search(&root, 0, &a, &b, params(8), search_params(32)).expect("build");
+    let reverse_path = dual_graph_path(&root, 0, Direction::Reverse);
+    std::fs::remove_file(&reverse_path).expect("remove reverse graph");
+    std::fs::create_dir(&reverse_path).expect("block reverse graph rewrite");
+
+    let err = index
+        .insert(
+            cx(0xdead),
+            SlotVector::Dense {
+                dim: 8,
+                data: query(8),
+            },
+            99,
+        )
+        .expect_err("reverse insert must fail");
+
+    assert!(index.is_degraded());
+    assert_eq!(err.code, "CALYX_INDEX_IO");
+    assert_eq!(
+        index
+            .search_directional(&query(8), Direction::Forward, 5)
+            .unwrap_err()
+            .code,
+        "CALYX_INDEX_DIRECTION_UNAVAILABLE"
+    );
+    assert_eq!(
+        index
+            .search_merged(&query(8), 5, DirectionalBoost::default())
+            .unwrap_err()
+            .code,
+        "CALYX_INDEX_DIRECTION_UNAVAILABLE"
+    );
+}
+
+#[test]
 #[ignore = "server-only FSV trigger writes dual DiskANN graph files"]
 fn fsv_issue548_writes_dual_graphs_and_directional_hits() {
     let root = PathBuf::from(

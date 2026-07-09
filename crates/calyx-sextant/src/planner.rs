@@ -1,6 +1,6 @@
 //! Deterministic intent classifier and bounded query planner.
 
-use calyx_core::{Result, SlotId};
+use calyx_core::Result;
 use serde::{Deserialize, Serialize};
 
 use crate::error::{
@@ -135,9 +135,12 @@ impl QueryPlanner {
 
     pub fn strategy_for(&self, intent: IntentLabel, query: &Query) -> FusionStrategy {
         match intent {
-            IntentLabel::Code => FusionStrategy::SingleLens {
-                slot: query.slots.first().copied().unwrap_or(SlotId::new(8)),
-            },
+            IntentLabel::Code => query
+                .slots
+                .first()
+                .copied()
+                .map(|slot| FusionStrategy::SingleLens { slot })
+                .unwrap_or(FusionStrategy::Rrf),
             IntentLabel::Lexical => FusionStrategy::WeightedRrf {
                 profile: RrfProfile::Lexical,
             },
@@ -157,11 +160,11 @@ impl QueryPlanner {
     pub fn estimate_cost(&self, query: &Query, index_size: usize) -> u64 {
         let slots = query.slots.len().max(1) as u64;
         let ef = query.ef.unwrap_or(64) as u64;
+        let corpus_factor = usize::BITS as u64 - index_size.max(1).leading_zeros() as u64;
         slots
             .saturating_mul(ef)
             .saturating_mul(query.k as u64)
-            .saturating_mul(index_size.max(1) as u64)
-            / 100
+            .saturating_mul(corpus_factor.max(1))
     }
 
     fn enforce_bounds(&self, query: &Query, index_size: usize) -> Result<()> {

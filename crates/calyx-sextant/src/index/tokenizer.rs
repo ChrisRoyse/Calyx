@@ -1,10 +1,15 @@
 //! Deterministic lowercase whitespace/punctuation tokenizer.
 
+use std::collections::BTreeMap;
+
 use calyx_core::Result;
+use calyx_core::SparseEntry;
 
 use crate::error::{
     CALYX_SEXTANT_POSTINGS_CORRUPT, CALYX_SEXTANT_POSTINGS_NOT_SORTED, sextant_error,
 };
+
+pub const TEXT_SPARSE_DIM: u32 = 1_000_000;
 
 pub fn tokenize(text: &str) -> Vec<String> {
     let mut out = Vec::new();
@@ -20,6 +25,31 @@ pub fn tokenize(text: &str) -> Vec<String> {
         out.push(current);
     }
     out
+}
+
+pub fn token_sparse_idx(token: &str) -> u32 {
+    let hash = blake3::hash(token.as_bytes());
+    let raw = u32::from_be_bytes(
+        hash.as_bytes()[0..4]
+            .try_into()
+            .expect("4-byte hash prefix"),
+    );
+    raw % TEXT_SPARSE_DIM
+}
+
+pub fn token_sparse_key(token: &str) -> String {
+    format!("t{}", token_sparse_idx(token))
+}
+
+pub fn text_sparse_entries(text: &str) -> Vec<SparseEntry> {
+    let mut counts = BTreeMap::<u32, f32>::new();
+    for token in tokenize(text) {
+        *counts.entry(token_sparse_idx(&token)).or_default() += 1.0;
+    }
+    counts
+        .into_iter()
+        .map(|(idx, val)| SparseEntry { idx, val })
+        .collect()
 }
 
 pub fn encode_varint_deltas(ids: &[u32]) -> Result<Vec<u8>> {

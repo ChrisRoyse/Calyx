@@ -6,10 +6,7 @@ use calyx_core::{
     VaultStore,
 };
 
-use crate::error::{
-    CALYX_ANSWER_SYNTHESIS_UNAVAILABLE, CALYX_ANSWER_UNGROUNDED, CALYX_INVALID_ARGUMENT,
-    CALYX_LENS_NOT_FOUND,
-};
+use crate::error::{CALYX_ANSWER_UNGROUNDED, CALYX_INVALID_ARGUMENT};
 
 use super::{AskSpec, ask};
 
@@ -31,7 +28,7 @@ fn spec(question: &str, context_cx_ids: Vec<CxId>, top_k: usize, oracle: bool) -
 }
 
 #[test]
-fn grounded_retrieval_fails_closed_without_answer_engine() {
+fn visible_candidates_fail_closed_without_real_retriever() {
     let vault = vault();
     let cx_id = put_dense(&vault, b"fail-closed-grounding", 11, [0.1, 0.9]);
 
@@ -42,17 +39,17 @@ fn grounded_retrieval_fails_closed_without_answer_engine() {
     )
     .unwrap_err();
 
-    assert_eq!(error.code, CALYX_ANSWER_SYNTHESIS_UNAVAILABLE);
+    assert_eq!(error.code, CALYX_ANSWER_UNGROUNDED);
     assert!(
         error
             .message
-            .contains("answer synthesis/oracle execution is not wired")
+            .contains("no real query lens or lexical retriever")
     );
-    assert!(error.message.contains(&hex(cx_id.as_bytes())));
+    assert!(error.message.contains("1 visible candidate"));
 }
 
 #[test]
-fn provenance_tag_uses_constellation_ledger_ref_at_snapshot() {
+fn provenance_is_not_fabricated_without_real_retriever() {
     let vault = vault();
     let cx_id = put_dense(&vault, b"provenance", 77, [0.4, 0.6]);
     let snapshot = vault.latest_seq();
@@ -64,12 +61,12 @@ fn provenance_tag_uses_constellation_ledger_ref_at_snapshot() {
     )
     .unwrap_err();
 
-    assert_eq!(error.code, CALYX_ANSWER_SYNTHESIS_UNAVAILABLE);
-    assert!(error.message.contains(&hex(cx_id.as_bytes())));
+    assert_eq!(error.code, CALYX_ANSWER_UNGROUNDED);
+    assert!(!error.message.contains(&hex(cx_id.as_bytes())));
 }
 
 #[test]
-fn empty_context_retrieves_full_vault_then_fails_closed_without_answer_engine() {
+fn empty_context_counts_visible_full_vault_then_fails_closed() {
     let vault = vault();
     put_dense(&vault, b"full-a", 21, [0.8, 0.2]);
     put_dense(&vault, b"full-b", 22, [0.2, 0.8]);
@@ -81,12 +78,12 @@ fn empty_context_retrieves_full_vault_then_fails_closed_without_answer_engine() 
     )
     .unwrap_err();
 
-    assert_eq!(error.code, CALYX_ANSWER_SYNTHESIS_UNAVAILABLE);
-    assert!(error.message.contains("retrieved 2 grounded candidate"));
+    assert_eq!(error.code, CALYX_ANSWER_UNGROUNDED);
+    assert!(error.message.contains("2 visible candidate"));
 }
 
 #[test]
-fn top_k_one_limits_grounding_before_fail_closed() {
+fn top_k_one_does_not_fabricate_grounding_order() {
     let vault = vault();
     put_dense(&vault, b"top-a", 31, [0.8, 0.2]);
     put_dense(&vault, b"top-b", 32, [0.2, 0.8]);
@@ -98,8 +95,8 @@ fn top_k_one_limits_grounding_before_fail_closed() {
     )
     .unwrap_err();
 
-    assert_eq!(error.code, CALYX_ANSWER_SYNTHESIS_UNAVAILABLE);
-    assert!(error.message.contains("retrieved 1 grounded candidate"));
+    assert_eq!(error.code, CALYX_ANSWER_UNGROUNDED);
+    assert!(error.message.contains("2 visible candidate"));
 }
 
 #[test]
@@ -140,7 +137,12 @@ fn unavailable_lens_fails_closed() {
     )
     .unwrap_err();
 
-    assert_eq!(error.code, CALYX_LENS_NOT_FOUND);
+    assert_eq!(error.code, CALYX_ANSWER_UNGROUNDED);
+    assert!(
+        error
+            .message
+            .contains("no real query lens or lexical retriever")
+    );
 }
 
 fn put_dense(vault: &AsterVault, input: &[u8], seq: u64, data: [f32; 2]) -> CxId {

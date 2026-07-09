@@ -58,6 +58,36 @@ while True:
 }
 
 #[test]
+fn stderr_is_drained_while_external_process_returns_response() {
+    let script = r#"
+import json, struct, sys
+sys.stderr.buffer.write(b"warning-noise\n" * 8192)
+sys.stderr.buffer.flush()
+header = sys.stdin.buffer.read(4)
+size = struct.unpack(">I", header)[0]
+json.loads(sys.stdin.buffer.read(size))
+body = json.dumps({"vectors": [[0.25, 0.75, 0.5, 0.0]]}).encode()
+sys.stdout.buffer.write(struct.pack(">I", len(body)))
+sys.stdout.buffer.write(body)
+sys.stdout.buffer.flush()
+"#;
+    let lens = ExternalCmdLens::new(
+        "external-stderr-drain",
+        "python3",
+        vec!["-c".to_string(), script.to_string()],
+        Modality::Text,
+        4,
+    )
+    .with_timeout(Duration::from_secs(5));
+
+    let vector = lens
+        .measure(&Input::new(Modality::Text, b"stderr-heavy".to_vec()))
+        .expect("stderr drain keeps child unblocked");
+
+    assert_dense_dim(vector, 4);
+}
+
+#[test]
 fn timeout_kills_slow_external_process_before_finished_marker() {
     let fsv_root = calyx_fsv::fsv_root("CALYX_FSV_ROOT");
     let dir = fsv_root.as_ref().map_or_else(

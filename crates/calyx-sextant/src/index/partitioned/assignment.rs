@@ -87,10 +87,10 @@ pub(super) fn stream_assign_to_ids_with_routing(
                     AssignmentRouting::Exact => centroids.assign(&row),
                     AssignmentRouting::Hnsw => centroids.assign_hnsw(&row),
                     AssignmentRouting::RawL2Graph => centroids.assign_raw_l2_graph(&row),
-                };
-                (idx, region)
+                }?;
+                Ok((idx, region))
             })
-            .collect();
+            .collect::<Result<_>>()?;
         for &(idx, region) in &assigned {
             let region = region as usize;
             if region >= counts.len() {

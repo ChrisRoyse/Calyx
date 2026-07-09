@@ -1,5 +1,5 @@
 use super::*;
-use calyx_core::{Asymmetry, Modality, QuantPolicy, SlotShape};
+use calyx_core::{Asymmetry, Modality, QuantPolicy, SlotId, SlotShape};
 
 use crate::frozen::{FrozenLensContract, LensDType, NormPolicy, sha256_digest};
 use crate::spec::LensRuntime;
@@ -34,6 +34,27 @@ fn registry_measures_registered_lens() {
             data: vec![3.0]
         }
     );
+}
+
+#[test]
+fn measure_dual_refuses_byte_reversed_surrogate() {
+    let mut registry = Registry::new();
+    let lens = OneDimLens::new("dual-no-surrogate");
+    let mut spec = lens_spec_for(&lens);
+    spec.asymmetry = Asymmetry::Dual {
+        a: SlotId::new(1),
+        b: SlotId::new(2),
+    };
+    let id = registry
+        .register_frozen_with_spec(lens.clone(), lens.contract.clone(), spec)
+        .unwrap();
+
+    let error = registry
+        .measure_dual(id, &Input::new(Modality::Text, "héllo".as_bytes().to_vec()))
+        .unwrap_err();
+
+    assert_eq!(error.code, "CALYX_LENS_UNREACHABLE");
+    assert!(error.message.contains("refusing byte-reversed surrogate"));
 }
 
 #[test]

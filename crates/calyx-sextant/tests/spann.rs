@@ -252,6 +252,26 @@ fn spann_boundary_duplication_writes_member_to_adjacent_postings() {
 }
 
 #[test]
+fn empty_centroid_assignment_fails_closed_and_lookup_is_indexed() {
+    let empty = SpannCentroidIndex::empty(2);
+    assert_eq!(
+        empty.assign(&[1.0, 0.0]).unwrap_err().code,
+        "CALYX_INDEX_INVALID_PARAMS"
+    );
+
+    let centroids = SpannCentroidIndex::from_parts(
+        2,
+        vec![vec![1.0, 0.0], vec![0.0, 1.0]],
+        Vec::new(),
+        vec![(42, 1), (7, 0)],
+    )
+    .expect("centroids");
+    assert_eq!(centroids.assignment(42), Some(1));
+    assert_eq!(centroids.assignment(7), Some(0));
+    assert_eq!(centroids.assignment(9), None);
+}
+
+#[test]
 fn empty_list_and_probe_clamp_are_non_errors() {
     let dir = scratch("edges");
     let reader = PostingListReader::new(&dir);

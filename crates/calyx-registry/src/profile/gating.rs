@@ -441,6 +441,7 @@ mod tests {
                 total_ms: 1.0,
                 ms_per_input: 1.0,
                 vram_bytes: 0,
+                vram_observed: true,
                 ram_bytes: 0,
                 batch_ceiling: 1_000,
             },

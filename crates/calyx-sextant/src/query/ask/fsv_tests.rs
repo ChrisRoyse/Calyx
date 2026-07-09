@@ -10,7 +10,7 @@ use calyx_core::{
 };
 use serde_json::json;
 
-use crate::error::CALYX_ANSWER_SYNTHESIS_UNAVAILABLE;
+use crate::error::CALYX_ANSWER_UNGROUNDED;
 use crate::query::{AskSpec, CrossModelPlan, PlanStep, ask, execute};
 
 #[test]
@@ -127,12 +127,12 @@ fn issue466_ask_fsv_writes_readback_artifacts() {
     println!("[EDGE  ] ungrounded = {}", ungrounded.code);
     println!("[EDGE  ] unavailable = {}", unavailable.code);
 
-    assert_eq!(grounded.code, CALYX_ANSWER_SYNTHESIS_UNAVAILABLE);
-    assert_eq!(top_one.code, CALYX_ANSWER_SYNTHESIS_UNAVAILABLE);
-    assert_eq!(full_vault.code, CALYX_ANSWER_SYNTHESIS_UNAVAILABLE);
-    assert_eq!(executor.code, CALYX_ANSWER_SYNTHESIS_UNAVAILABLE);
-    assert!(grounded.message.contains(&hex(first.as_bytes())));
-    assert!(grounded.message.contains(&hex(second.as_bytes())));
+    assert_eq!(grounded.code, CALYX_ANSWER_UNGROUNDED);
+    assert_eq!(top_one.code, CALYX_ANSWER_UNGROUNDED);
+    assert_eq!(full_vault.code, CALYX_ANSWER_UNGROUNDED);
+    assert_eq!(executor.code, CALYX_ANSWER_UNGROUNDED);
+    assert!(!grounded.message.contains(&hex(first.as_bytes())));
+    assert!(!grounded.message.contains(&hex(second.as_bytes())));
 
     let readback = json!({
         "source_of_truth": "Aster durable Base/Ledger/slot_00 CF rows plus ASK error payload readback",
@@ -140,11 +140,10 @@ fn issue466_ask_fsv_writes_readback_artifacts() {
         "snapshot": snapshot,
         "before": before,
         "after": after,
-        "fail_closed_after_grounding": {
+        "fail_closed_before_fabricated_grounding": {
             "code": grounded.code,
             "message": grounded.message,
-            "expected_grounding_cx_ids": [first.to_string(), second.to_string()],
-            "expected_grounding_hex": [hex(first.as_bytes()), hex(second.as_bytes())],
+            "visible_context_cx_ids": [first.to_string(), second.to_string()],
         },
         "top_one_error": {
             "code": top_one.code,

@@ -10,6 +10,7 @@ use calyx_core::{
 use crate::fusion::{self, FusionContext, FusionStrategy};
 use crate::guarded::{GuardedSearchReport, apply_query_guard};
 use crate::hit::{FreshnessTag, Hit, ProvenanceSource};
+use crate::index::IndexStats;
 use crate::planner::QueryPlanner;
 use crate::planner_explain::PlannerExplain;
 use crate::query::{FreshnessRequirement, Query, QueryFilters};
@@ -128,7 +129,8 @@ impl SearchEngine {
                 "no registered slot indexes are available for search",
             ));
         }
-        self.enforce_freshness(&slots, &query.freshness)?;
+        let stats = self.indexes.stats();
+        self.enforce_freshness(&slots, &query.freshness, &stats)?;
         let strategy = query
             .fusion
             .clone()
@@ -142,22 +144,19 @@ impl SearchEngine {
         let search_k = self.candidate_window(&slots, query, &strategy);
         let mut per_slot = BTreeMap::new();
         for slot in &slots {
-            let stats = self
-                .indexes
-                .stats()
-                .into_iter()
+            let slot_stats = stats
+                .iter()
                 .find(|stats| stats.slot == *slot)
                 .ok_or_else(|| SlotIndexMap::missing_slot_error(*slot))?;
-            let hits = if stats.kind == "inverted" {
+            let hits = if slot_stats.kind == "inverted" {
                 self.indexes.search_text(*slot, &query.text, search_k)?
             } else {
-                let vector = self.query_vector_for_slot(query, *slot)?;
+                let vector = self.query_vector_for_slot(query, slot_stats.kind)?;
                 self.indexes.search(*slot, &vector, search_k, query.ef)?
             };
             per_slot.insert(*slot, hits);
         }
         let weights = strategy_weights(&strategy);
-        let stats = self.indexes.stats();
         let stage1_slots: Vec<SlotId> = slots
             .iter()
             .filter(|slot| {
@@ -334,14 +333,8 @@ impl SearchEngine {
         }
     }
 
-    fn query_vector_for_slot(&self, query: &Query, slot: SlotId) -> Result<SlotVector> {
-        let stats = self
-            .indexes
-            .stats()
-            .into_iter()
-            .find(|stats| stats.slot == slot)
-            .ok_or_else(|| SlotIndexMap::missing_slot_error(slot))?;
-        if stats.kind == "inverted" {
+    fn query_vector_for_slot(&self, query: &Query, kind: &str) -> Result<SlotVector> {
+        if kind == "inverted" {
             return Ok(text_to_sparse(&query.text));
         }
         query.vector.clone().ok_or_else(|| {
@@ -356,12 +349,11 @@ impl SearchEngine {
         &self,
         slots: &[SlotId],
         requirement: &FreshnessRequirement,
+        stats: &[IndexStats],
     ) -> Result<()> {
         for slot in slots {
-            let stats = self
-                .indexes
-                .stats()
-                .into_iter()
+            let stats = stats
+                .iter()
                 .find(|stats| stats.slot == *slot)
                 .ok_or_else(|| SlotIndexMap::missing_slot_error(*slot))?;
             let stale_by = stats.base_seq.saturating_sub(stats.built_at_seq);

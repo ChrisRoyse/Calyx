@@ -125,7 +125,10 @@ fn split_oversized(
     let mut sub_buckets: Vec<Vec<u64>> = vec![Vec::new(); sub.centroid_count()];
     for &idx in members {
         let row = source.row(idx);
-        sub_buckets[sub.assign(&row) as usize].push(idx);
+        let Ok(region) = sub.assign(&row) else {
+            return chunk_centroids_by_cap(members, source, cap, distance_metric);
+        };
+        sub_buckets[region as usize].push(idx);
     }
     let largest = sub_buckets.iter().map(Vec::len).max().unwrap_or(0);
     if largest >= members.len() {
@@ -227,7 +230,10 @@ fn split_oversized_synthetic(
     let sub = build_centroids(&rows, k_sub, seed ^ salt.wrapping_mul(IDX_MIX));
     let mut sub_buckets: Vec<Vec<u64>> = vec![Vec::new(); sub.centroid_count()];
     for (i, &idx) in members.iter().enumerate() {
-        sub_buckets[sub.assign(&rows[i].1) as usize].push(idx);
+        let Ok(region) = sub.assign(&rows[i].1) else {
+            return chunk_by_cap_synthetic(members, seed, dim, cap);
+        };
+        sub_buckets[region as usize].push(idx);
     }
     let largest = sub_buckets.iter().map(Vec::len).max().unwrap_or(0);
     if largest >= members.len() {

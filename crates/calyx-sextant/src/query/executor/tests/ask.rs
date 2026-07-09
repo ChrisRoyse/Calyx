@@ -34,7 +34,7 @@ fn ask_step_fails_closed_until_real_synthesis_is_wired() {
     let after_seq = vault.latest_seq();
     let stored = vault.get(cx_id, after_seq).unwrap();
 
-    assert_eq!(err.code, crate::error::CALYX_ANSWER_SYNTHESIS_UNAVAILABLE);
+    assert_eq!(err.code, crate::error::CALYX_ANSWER_UNGROUNDED);
     assert_eq!(after_seq, before_seq);
     assert_eq!(stored.provenance.seq, 42);
     assert_eq!(stored.provenance.hash, [7; 32]);

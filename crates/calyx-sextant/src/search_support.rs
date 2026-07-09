@@ -5,6 +5,7 @@ use std::collections::BTreeMap;
 use calyx_core::{Anchor, Constellation, SlotId, SlotVector};
 
 use crate::fusion::FusionStrategy;
+use crate::index::tokenizer::{TEXT_SPARSE_DIM, text_sparse_entries};
 use crate::query::{AnchorPredicate, MetadataPredicate, ScalarOp, ScalarPredicate};
 
 pub(crate) fn scalar_matches(cx: &Constellation, filter: &ScalarPredicate) -> bool {
@@ -56,15 +57,8 @@ pub(crate) fn strategy_weights(strategy: &FusionStrategy) -> BTreeMap<SlotId, f3
 
 pub(crate) fn text_to_sparse(text: &str) -> SlotVector {
     SlotVector::Sparse {
-        dim: 1_000_000,
-        entries: crate::index::tokenizer::tokenize(text)
-            .into_iter()
-            .enumerate()
-            .map(|(idx, _)| calyx_core::SparseEntry {
-                idx: idx as u32,
-                val: 1.0,
-            })
-            .collect(),
+        dim: TEXT_SPARSE_DIM,
+        entries: text_sparse_entries(text),
     }
 }
 

@@ -264,27 +264,34 @@ impl KernelFirstSearch {
             return Err(kernel_unavailable("kernel probe returned no regions"));
         }
         self.validate_region_graph()?;
+        let kernel_hit_set = kernel_hits.iter().copied().collect::<BTreeSet<_>>();
         let sp = DiskAnnSearchParams {
             beamwidth: params.n_region_beam,
-            ef_search: params.n_region_beam.max(params.n_regions_to_expand),
-            rescore_k: params.n_region_beam.max(params.n_regions_to_expand),
+            ef_search: params
+                .n_region_beam
+                .max(self.region_ann.stats().len)
+                .max(params.n_regions_to_expand),
+            rescore_k: self.region_ann.stats().len.max(params.n_regions_to_expand),
             ..DiskAnnSearchParams::default()
         };
         let mut out = Vec::new();
         for (region, dist) in self.region_ann.search_ids(query, sp.rescore_k, &sp)? {
-            let kernel_region = if kernel_hits.contains(&region) {
-                region
-            } else {
-                kernel_hits[0]
-            };
+            if !kernel_hit_set.contains(&region) {
+                continue;
+            }
             out.push(RegionCandidate {
-                kernel_region,
+                kernel_region: region,
                 region,
                 score: 1.0 - dist,
             });
             if out.len() >= params.n_regions_to_expand {
                 break;
             }
+        }
+        if out.is_empty() {
+            return Err(kernel_unavailable(
+                "kernel probe did not map to any searchable region",
+            ));
         }
         Ok(out)
     }

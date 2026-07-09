@@ -113,6 +113,7 @@ fn resource_budget_excess_rejects_profiled_candidate() {
             total_ms: 10.0,
             ms_per_input: 1.0,
             vram_bytes: 512 * 1024 * 1024,
+            vram_observed: true,
             ram_bytes: 0,
             batch_ceiling: 1,
         },
@@ -424,6 +425,7 @@ fn default_cost() -> CostMetrics {
         total_ms: 1.0,
         ms_per_input: 1.0,
         vram_bytes: 0,
+        vram_observed: true,
         ram_bytes: 0,
         batch_ceiling: 1_000,
     }

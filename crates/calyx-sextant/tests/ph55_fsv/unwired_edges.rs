@@ -1,7 +1,7 @@
 use calyx_aster::vault::AsterVault;
 use calyx_core::{CxId, FixedClock, LedgerRef, LensId, VaultStore};
 use calyx_sextant::query::{AskSpec, GraphHop, UniversalQuery, VectorQuery, execute, plan};
-use calyx_sextant::{CALYX_ANSWER_SYNTHESIS_UNAVAILABLE, CALYX_SEXTANT_ASSOC_GRAPH_MISSING};
+use calyx_sextant::{CALYX_ANSWER_UNGROUNDED, CALYX_SEXTANT_ASSOC_GRAPH_MISSING};
 use serde_json::{Value, json};
 
 use super::hex;
@@ -80,7 +80,7 @@ pub(super) fn ask_synthesis_fail_closed(
     let err = execute(vault, plan(vault, &query).unwrap()).unwrap_err();
     let after_seq = vault.latest_seq();
     let after_stored = vault.get(cx_id, after_seq).unwrap();
-    assert_eq!(err.code, CALYX_ANSWER_SYNTHESIS_UNAVAILABLE);
+    assert_eq!(err.code, CALYX_ANSWER_UNGROUNDED);
     assert_eq!(before_seq, after_seq);
     assert_eq!(after_stored.provenance, stored_provenance);
     json!({

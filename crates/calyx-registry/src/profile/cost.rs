@@ -12,6 +12,8 @@ pub struct CostMetrics {
     pub ms_per_input: f32,
     pub vram_bytes: u64,
     #[serde(default)]
+    pub vram_observed: bool,
+    #[serde(default)]
     pub ram_bytes: u64,
     #[serde(default)]
     pub batch_ceiling: u32,
@@ -22,15 +24,20 @@ impl CostMetrics {
         total_ms: f32,
         probes: &[ProfileProbe],
         observations: &[Observation],
-        vram_before: u64,
-        vram_after: u64,
+        vram_before: Option<u64>,
+        vram_after: Option<u64>,
     ) -> Self {
         let measured = observations.len().max(1) as f32;
         let ms_per_input = total_ms / measured;
+        let vram_observed = vram_before.is_some() && vram_after.is_some();
         Self {
             total_ms,
             ms_per_input,
-            vram_bytes: vram_after.saturating_sub(vram_before),
+            vram_bytes: vram_before
+                .zip(vram_after)
+                .map(|(before, after)| after.saturating_sub(before))
+                .unwrap_or(0),
+            vram_observed,
             ram_bytes: ram_bytes(probes, observations),
             batch_ceiling: batch_ceiling(ms_per_input),
         }
@@ -55,6 +62,7 @@ impl From<LensCost> for CostMetrics {
             total_ms: cost.total_ms,
             ms_per_input: cost.ms_per_input,
             vram_bytes: cost.vram_bytes,
+            vram_observed: true,
             ram_bytes: cost.ram_bytes,
             batch_ceiling: cost.batch_ceiling,
         }
@@ -107,12 +115,27 @@ mod tests {
             },
         ];
 
-        let cost = CostMetrics::from_profile(20.0, &probes, &observations, 10, 12);
+        let cost = CostMetrics::from_profile(20.0, &probes, &observations, Some(10), Some(12));
 
         assert_eq!(cost.ms_per_input, 10.0);
         assert_eq!(cost.vram_bytes, 2);
+        assert!(cost.vram_observed);
         assert_eq!(cost.ram_bytes, 24);
         assert_eq!(cost.batch_ceiling, 100);
+    }
+
+    #[test]
+    fn unavailable_vram_probe_is_distinct_from_observed_zero() {
+        let probes = vec![ProfileProbe::new(Input::new(Modality::Text, b"a".to_vec()))];
+        let observations = vec![Observation {
+            data: vec![1.0],
+            label: None,
+        }];
+
+        let cost = CostMetrics::from_profile(1.0, &probes, &observations, None, None);
+
+        assert_eq!(cost.vram_bytes, 0);
+        assert!(!cost.vram_observed);
     }
 
     #[test]

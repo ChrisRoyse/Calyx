@@ -189,7 +189,7 @@ impl BwPostcutoffTuner {
 
     pub fn with_config(initial: BwPostcutoffConfig, config: TunerConfig) -> Self {
         let initial = clamp_config(initial, config);
-        let mut out = Self {
+        Self {
             config,
             window: VecDeque::new(),
             bandit: ConfigBandit::new(BanditPolicy::EpsilonGreedy { epsilon: 0.0 }, 550)
@@ -203,9 +203,7 @@ impl BwPostcutoffTuner {
             adjustments: Vec::new(),
             warnings: Vec::new(),
             standalone: false,
-        };
-        out.rebuild_bandit(initial);
-        out
+        }
     }
 
     pub fn observe(&mut self, obs: TunerObservation) {
@@ -231,11 +229,10 @@ impl BwPostcutoffTuner {
         {
             return None;
         }
-        let (candidate, direction, arm_idx) = self.best_latency_candidate()?;
-        if candidate == self.current || self.hysteresis_blocks(direction) {
+        let (candidate, direction) = self.best_latency_candidate()?;
+        if candidate == self.current {
             return None;
         }
-        let _ = self.bandit.record_result(arm_idx, true);
         self.last_direction = Some(direction);
         self.last_direction_at = self.observations_seen;
         let entry = TunerLedgerEntry {
@@ -306,25 +303,27 @@ impl BwPostcutoffTuner {
         })
     }
 
-    fn best_latency_candidate(&mut self) -> Option<(BwPostcutoffConfig, TuneDirection, usize)> {
-        self.rebuild_bandit(self.current);
+    fn best_latency_candidate(&mut self) -> Option<(BwPostcutoffConfig, TuneDirection)> {
         let directions = [
             TuneDirection::BeamwidthDown,
             TuneDirection::PostingCutoffDown,
             TuneDirection::BeamwidthUp,
             TuneDirection::PostingCutoffUp,
         ];
-        directions
+        let candidates = directions
             .into_iter()
-            .enumerate()
-            .map(|(idx, direction)| {
-                (
-                    candidate_for(self.current, self.config, direction),
-                    direction,
-                    idx + 1,
-                )
+            .filter_map(|direction| {
+                let candidate = candidate_for(self.current, self.config, direction);
+                (candidate != self.current && !self.hysteresis_blocks(direction))
+                    .then_some((candidate, direction))
             })
-            .find(|(candidate, _, _)| *candidate != self.current)
+            .collect::<Vec<_>>();
+        if candidates.is_empty() {
+            return None;
+        }
+        self.rebuild_bandit(&candidates);
+        let arm_idx = self.bandit.select_arm().ok()?;
+        candidates.get(arm_idx).copied()
     }
 
     fn hysteresis_blocks(&self, direction: TuneDirection) -> bool {
@@ -367,17 +366,11 @@ impl BwPostcutoffTuner {
         adjustment
     }
 
-    fn rebuild_bandit(&mut self, current: BwPostcutoffConfig) {
+    fn rebuild_bandit(&mut self, candidates: &[(BwPostcutoffConfig, TuneDirection)]) {
         let mut bandit =
             ConfigBandit::new(BanditPolicy::EpsilonGreedy { epsilon: 0.0 }, 550).with_hysteresis(1);
-        bandit.add_arm(config_bytes(current));
-        for direction in [
-            TuneDirection::BeamwidthDown,
-            TuneDirection::PostingCutoffDown,
-            TuneDirection::BeamwidthUp,
-            TuneDirection::PostingCutoffUp,
-        ] {
-            bandit.add_arm(config_bytes(candidate_for(current, self.config, direction)));
+        for (candidate, _) in candidates {
+            bandit.add_arm(config_bytes(*candidate));
         }
         self.bandit = bandit;
     }

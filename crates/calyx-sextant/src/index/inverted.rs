@@ -5,7 +5,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use calyx_core::{CxId, Result, SlotId, SlotShape, SlotVector};
 
 use super::bm25::Bm25;
-use super::tokenizer::tokenize;
+use super::tokenizer::{TEXT_SPARSE_DIM, text_sparse_entries, token_sparse_key, tokenize};
 use super::{IndexSearchHit, IndexStats, SextantIndex, ranked};
 use crate::util::top_k;
 
@@ -50,8 +50,10 @@ impl InvertedIndex {
     }
 
     pub fn lookup(&self, term: &str) -> Vec<CxId> {
+        let encoded = token_sparse_key(term);
         self.postings
             .get(term)
+            .or_else(|| self.postings.get(&encoded))
             .map(|items| items.iter().map(|item| item.cx_id).collect())
             .unwrap_or_default()
     }
@@ -67,22 +69,27 @@ impl InvertedIndex {
     }
 
     fn remove_doc(&mut self, cx_id: CxId, remove_vector: bool) -> bool {
-        let existed = self.docs.remove(&cx_id).is_some();
+        let removed_doc = self.docs.remove(&cx_id);
+        let existed = removed_doc.is_some();
         self.doc_len.remove(&cx_id);
         let vector_existed = if remove_vector {
             self.vectors.remove(&cx_id).is_some()
         } else {
             false
         };
-        for postings in self.postings.values_mut() {
-            postings.retain(|posting| posting.cx_id != cx_id);
+        if let Some(text) = removed_doc {
+            for term in text_terms(&text) {
+                if let Some(postings) = self.postings.get_mut(&term) {
+                    postings.retain(|posting| posting.cx_id != cx_id);
+                }
+            }
         }
         self.postings.retain(|_, postings| !postings.is_empty());
         existed || vector_existed
     }
 
     fn index_text(&mut self, cx_id: CxId, text: &str, seq: u64) {
-        let terms = tokenize(text);
+        let terms = text_terms(text);
         self.doc_len.insert(cx_id, terms.len());
         self.docs.insert(cx_id, text.to_string());
         let mut counts = BTreeMap::<String, usize>::new();
@@ -100,7 +107,7 @@ impl InvertedIndex {
     }
 
     pub fn search_text(&self, text: &str, k: usize) -> Vec<IndexSearchHit> {
-        let terms: BTreeSet<_> = tokenize(text).into_iter().collect();
+        let terms: BTreeSet<_> = text_terms(text).into_iter().collect();
         let total_docs = self.docs.len();
         let avg_len = if total_docs == 0 {
             0.0
@@ -131,7 +138,7 @@ impl SextantIndex for InvertedIndex {
     }
 
     fn shape(&self) -> SlotShape {
-        SlotShape::Sparse(1_000_000)
+        SlotShape::Sparse(TEXT_SPARSE_DIM)
     }
 
     fn insert(&mut self, cx_id: CxId, vector: SlotVector, seq: u64) -> Result<()> {
@@ -188,15 +195,8 @@ impl SextantIndex for InvertedIndex {
             return Some(vector.clone());
         }
         self.docs.get(&cx_id).map(|text| SlotVector::Sparse {
-            dim: 1_000_000,
-            entries: tokenize(text)
-                .into_iter()
-                .enumerate()
-                .map(|(idx, _)| calyx_core::SparseEntry {
-                    idx: idx as u32,
-                    val: 1.0,
-                })
-                .collect(),
+            dim: TEXT_SPARSE_DIM,
+            entries: text_sparse_entries(text),
         })
     }
 
@@ -228,4 +228,11 @@ impl SextantIndex for InvertedIndex {
     fn candidate_text(&self, cx_id: CxId) -> Option<String> {
         self.docs.get(&cx_id).cloned()
     }
+}
+
+fn text_terms(text: &str) -> Vec<String> {
+    tokenize(text)
+        .into_iter()
+        .map(|term| token_sparse_key(&term))
+        .collect()
 }

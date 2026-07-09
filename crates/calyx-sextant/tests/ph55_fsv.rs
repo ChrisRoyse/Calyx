@@ -2,7 +2,7 @@ use std::fs;
 use std::sync::Arc;
 
 use calyx_core::CxId;
-use calyx_sextant::{CALYX_ANSWER_SYNTHESIS_UNAVAILABLE, CALYX_PLANNER_COST_CAP};
+use calyx_sextant::{CALYX_ANSWER_UNGROUNDED, CALYX_PLANNER_COST_CAP};
 use serde_json::json;
 
 #[path = "ph55_fsv/artifact.rs"]
@@ -45,7 +45,7 @@ fn ph55_fsv_cross_model_gate() {
             "scenario_a_shared_seq": commit_seq,
             "scenario_b_rows": ["relational:qty=7", "kv:last_order=1"],
             "scenario_c_error": CALYX_PLANNER_COST_CAP,
-            "scenario_d_error": CALYX_ANSWER_SYNTHESIS_UNAVAILABLE
+            "scenario_d_error": CALYX_ANSWER_UNGROUNDED
         },
         "scenario_a": scenario_a,
         "scenario_b": scenario_b,

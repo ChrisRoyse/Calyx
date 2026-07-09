@@ -110,6 +110,12 @@ fn fusion_planner_freshness_and_navigation_work() {
     let plan = planner.plan(query.clone(), 100).unwrap();
     assert_eq!(plan.intent, IntentLabel::Causal);
     assert!(matches!(plan.strategy, FusionStrategy::WeightedRrf { .. }));
+    let code_plan = planner
+        .plan(Query::new("rust function compile stacktrace"), 3_200_000)
+        .unwrap();
+    assert_eq!(code_plan.intent, IntentLabel::Code);
+    assert!(matches!(code_plan.strategy, FusionStrategy::Rrf));
+    assert!(code_plan.cost_estimate < PlanLimits::default().max_cost);
     let mut bad = query.clone();
     bad.k = 10_000;
     assert_eq!(

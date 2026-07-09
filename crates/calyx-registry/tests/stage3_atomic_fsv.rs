@@ -178,14 +178,13 @@ fn norm_health_dual_and_drift_readback(out: &mut BTreeMap<&'static str, serde_js
     let dual_id = registry
         .register_frozen_with_spec(dual.clone(), dual.contract().clone(), spec)
         .unwrap();
-    let measured = registry
+    let dual_error = registry
         .measure_dual(
             dual_id,
             &Input::new(Modality::Text, b"cause -> effect".to_vec()),
         )
-        .unwrap();
-    out.insert("dual_a", vector_summary(&measured.a));
-    out.insert("dual_b", vector_summary(&measured.b));
+        .unwrap_err();
+    out.insert("dual_error", json!(dual_error.code));
 
     let golden = RuntimeGolden {
         lens_id: id,

@@ -150,6 +150,23 @@ proptest! {
 }
 
 #[test]
+fn pooling_rejects_short_attention_mask_for_masked_policies() {
+    let shape = [1, 4, 3];
+    let values = vec![1.0; 12];
+    let short_mask = [1, 1];
+
+    for policy in [
+        PoolingPolicy::Cls,
+        PoolingPolicy::Mean,
+        PoolingPolicy::LastToken,
+    ] {
+        let error = pool_output(&shape, &values, &short_mask, policy, 3).unwrap_err();
+        assert_eq!(error.code, "CALYX_LENS_DIM_MISMATCH");
+        assert!(error.message.contains("seq"));
+    }
+}
+
+#[test]
 #[ignore = "requires manual HF cache/network and downloads ONNX all-MiniLM"]
 fn onnx_all_minilm_manual_fsv() {
     let lens = OnnxLens::all_minilm_l6_v2_cpu_explicit("onnx-manual-fsv").unwrap();

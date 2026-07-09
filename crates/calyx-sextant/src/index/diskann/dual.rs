@@ -67,6 +67,7 @@ pub struct DualDiskAnnSearch {
     slot: SlotId,
     ids: Vec<u32>,
     cx_ids: Vec<CxId>,
+    cx_positions: BTreeMap<CxId, u32>,
     search_a: DiskAnnSearch,
     search_b: DiskAnnSearch,
     default_search: DiskAnnSearchParams,
@@ -89,10 +90,16 @@ impl DualDiskAnnSearch {
             .map(|id| u32::try_from(id).map_err(|_| invalid("dual graph exceeds u32 id space")))
             .collect::<Result<_>>()?;
         let cx_ids: Vec<_> = ids.iter().copied().map(cx_from_local).collect();
+        let cx_positions = cx_ids
+            .iter()
+            .copied()
+            .zip(ids.iter().copied())
+            .collect::<BTreeMap<_, _>>();
         Ok(Self {
             slot,
             ids,
             cx_ids: cx_ids.clone(),
+            cx_positions,
             search_a: DiskAnnSearch::open(slot, a_path, cx_ids.clone(), None, params)
                 .map_err(open_err)?,
             search_b: DiskAnnSearch::open(slot, b_path, cx_ids, None, params).map_err(open_err)?,
@@ -107,6 +114,7 @@ impl DualDiskAnnSearch {
             slot,
             ids: Vec::new(),
             cx_ids: Vec::new(),
+            cx_positions: BTreeMap::new(),
             search_a: DiskAnnSearch::empty(
                 slot,
                 dim,
@@ -132,14 +140,29 @@ impl DualDiskAnnSearch {
         direction: Direction,
         k: usize,
     ) -> Result<Vec<(u32, f32)>> {
+        self.ensure_not_degraded()?;
         let search = self.search_for(direction);
         self.validate_current_graph(direction)?;
         let params = self.params_for(k);
         let mut hits = search
             .search_ids(query, k, &params)?
             .into_iter()
-            .map(|(node_id, dist)| (self.ids[node_id as usize], 1.0 - dist))
-            .collect::<Vec<_>>();
+            .map(|(node_id, dist)| {
+                self.ids
+                    .get(node_id as usize)
+                    .copied()
+                    .map(|id| (id, 1.0 - dist))
+                    .ok_or_else(|| {
+                        sextant_error(
+                            CALYX_INDEX_CORRUPT,
+                            format!(
+                                "dual diskann {direction:?} returned node {node_id} beyond id map len {}",
+                                self.ids.len()
+                            ),
+                        )
+                    })
+            })
+            .collect::<Result<Vec<_>>>()?;
         sort_scores_desc(&mut hits);
         Ok(hits)
     }
@@ -150,6 +173,7 @@ impl DualDiskAnnSearch {
         k: usize,
         boost: DirectionalBoost,
     ) -> Result<Vec<(u32, f32)>> {
+        self.ensure_not_degraded()?;
         boost.validate()?;
         if k == 0 || self.ids.is_empty() {
             return Ok(Vec::new());
@@ -187,6 +211,16 @@ impl DualDiskAnnSearch {
             rescore_k: self.default_search.rescore_k.max(want),
             ..self.default_search
         }
+    }
+
+    fn ensure_not_degraded(&self) -> Result<()> {
+        if self.degraded {
+            return Err(sextant_error(
+                CALYX_INDEX_DIRECTION_UNAVAILABLE,
+                "dual diskann graphs diverged after a partial insert; rebuild from source before search",
+            ));
+        }
+        Ok(())
     }
 
     fn validate_current_graph(&self, direction: Direction) -> Result<()> {
@@ -229,11 +263,12 @@ impl SextantIndex for DualDiskAnnSearch {
             self.degraded = true;
             return Err(err);
         }
-        if !self.cx_ids.contains(&cx_id) {
+        if !self.cx_positions.contains_key(&cx_id) {
             let local = u32::try_from(self.ids.len())
                 .map_err(|_| invalid("dual diskann local id exceeds u32"))?;
             self.ids.push(local);
             self.cx_ids.push(cx_id);
+            self.cx_positions.insert(cx_id, local);
         }
         Ok(())
     }
@@ -248,8 +283,22 @@ impl SextantIndex for DualDiskAnnSearch {
         let scored = self
             .search_merged(query, k, DirectionalBoost::default())?
             .into_iter()
-            .map(|(id, score)| (self.cx_ids[id as usize], score))
-            .collect();
+            .map(|(id, score)| {
+                self.cx_ids
+                    .get(id as usize)
+                    .copied()
+                    .map(|cx_id| (cx_id, score))
+                    .ok_or_else(|| {
+                        sextant_error(
+                            CALYX_INDEX_CORRUPT,
+                            format!(
+                                "dual diskann merged hit {id} beyond cx id map len {}",
+                                self.cx_ids.len()
+                            ),
+                        )
+                    })
+            })
+            .collect::<Result<Vec<_>>>()?;
         Ok(ranked(scored))
     }
 

@@ -34,6 +34,7 @@ pub struct SpannCentroidIndex {
     centroids: Vec<Vec<f32>>,
     posting_list_offsets: Vec<u64>,
     assignments: Vec<(u32, u32)>,
+    assignment_lookup: BTreeMap<u32, u32>,
     hnsw: HnswIndex,
     centroid_lookup: BTreeMap<CxId, u32>,
     raw_l2_graph: RawL2CentroidGraph,
@@ -73,11 +74,13 @@ impl SpannCentroidIndex {
         }
         let (hnsw, lookup) = build_hnsw(dim, &centroids)?;
         let raw_l2_graph = RawL2CentroidGraph::build(&centroids);
+        let assignment_lookup = assignments.iter().copied().collect();
         Ok(Self {
             dim,
             centroids,
             posting_list_offsets: offsets,
             assignments,
+            assignment_lookup,
             hnsw,
             centroid_lookup: lookup,
             raw_l2_graph,
@@ -105,13 +108,12 @@ impl SpannCentroidIndex {
     }
 
     pub fn assignment(&self, vector_id: u32) -> Option<u32> {
-        self.assignments
-            .iter()
-            .find_map(|(id, centroid)| (*id == vector_id).then_some(*centroid))
+        self.assignment_lookup.get(&vector_id).copied()
     }
 
-    pub fn assign(&self, vector: &[f32]) -> u32 {
-        nearest_by_l2(&self.centroids, vector).unwrap_or(0)
+    pub fn assign(&self, vector: &[f32]) -> Result<u32> {
+        nearest_by_l2(&self.centroids, vector)
+            .ok_or_else(|| invalid("cannot assign against empty centroid index"))
     }
 
     /// Approximate nearest-centroid assignment via the HNSW routing layer —
@@ -121,21 +123,27 @@ impl SpannCentroidIndex {
     /// HNSW keeps it O(N*log R*dim). Falls back to the exact scan if the HNSW
     /// returns nothing (degenerate/empty index) so assignment never silently drops
     /// a vector.
-    pub fn assign_hnsw(&self, vector: &[f32]) -> u32 {
+    pub fn assign_hnsw(&self, vector: &[f32]) -> Result<u32> {
+        if self.centroids.is_empty() {
+            return Err(invalid("cannot assign against empty centroid index"));
+        }
         self.nearest_centroids(vector, 1)
             .first()
             .copied()
-            .unwrap_or_else(|| self.assign(vector))
+            .map_or_else(|| self.assign(vector), Ok)
     }
 
     /// Approximate raw-L2 nearest-centroid assignment through the metric-aware
     /// centroid graph. This avoids the cosine-only HNSW route while keeping the
     /// assignment phase sublinear in the final centroid count.
-    pub fn assign_raw_l2_graph(&self, vector: &[f32]) -> u32 {
+    pub fn assign_raw_l2_graph(&self, vector: &[f32]) -> Result<u32> {
+        if self.centroids.is_empty() {
+            return Err(invalid("cannot assign against empty centroid index"));
+        }
         self.nearest_centroids_raw_l2_graph(vector, 1)
             .first()
             .copied()
-            .unwrap_or_else(|| self.assign(vector))
+            .map_or_else(|| self.assign(vector), Ok)
     }
 
     pub fn nearest_centroids(&self, query: &[f32], n_probe: usize) -> Vec<u32> {

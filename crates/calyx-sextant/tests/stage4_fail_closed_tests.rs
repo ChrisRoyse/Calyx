@@ -272,7 +272,7 @@ fn planner_bounds_cost_and_no_lenses_fail_closed_distinctly() {
         max_k: 10,
         max_ef: 20,
         max_slots: 2,
-        max_cost: 50,
+        max_cost: 500,
         timeout_ms: 7,
     });
     let mut valid = Query::new("why bounded")

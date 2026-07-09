@@ -220,16 +220,10 @@ impl Registry {
                 "lens {lens_id} is not registered as a dual-direction lens"
             )));
         }
-        let a = self.measure(lens_id, input)?;
-        let mut reversed = input.clone();
-        reversed.bytes.reverse();
-        let b = self.measure(lens_id, &reversed)?;
-        if serde_json::to_vec(&a).ok() == serde_json::to_vec(&b).ok() {
-            return Err(CalyxError::lens_numerical_invariant(format!(
-                "lens {lens_id} produced identical dual directions"
-            )));
-        }
-        Ok(DualMeasurement { a, b })
+        let _ = input;
+        Err(CalyxError::lens_unreachable(format!(
+            "lens {lens_id} declares dual asymmetry but registry has no directional runtime; refusing byte-reversed surrogate"
+        )))
     }
 
     /// Returns the frozen contract registered for a lens id.

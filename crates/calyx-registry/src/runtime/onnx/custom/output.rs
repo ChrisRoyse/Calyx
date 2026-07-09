@@ -293,6 +293,7 @@ fn pool_tokens(
     match policy {
         PoolingPolicy::Cls => Ok(values[..dim].to_vec()),
         PoolingPolicy::LastToken => {
+            validate_mask_len(mask, seq)?;
             let index = mask
                 .iter()
                 .take(seq)
@@ -301,6 +302,7 @@ fn pool_tokens(
             Ok(values[index * dim..(index + 1) * dim].to_vec())
         }
         PoolingPolicy::Mean => {
+            validate_mask_len(mask, seq)?;
             let mut out = vec![0.0; dim];
             let mut count = 0usize;
             for token in 0..seq {
@@ -323,6 +325,16 @@ fn pool_tokens(
             Ok(out)
         }
     }
+}
+
+fn validate_mask_len(mask: &[i64], seq: usize) -> Result<()> {
+    if mask.len() < seq {
+        return Err(CalyxError::lens_dim_mismatch(format!(
+            "custom ONNX attention mask has {} tokens, expected at least {seq}",
+            mask.len()
+        )));
+    }
+    Ok(())
 }
 
 fn dense_rows(values: &[f32], batch: usize, dim: usize) -> Result<Vec<Vec<f32>>> {

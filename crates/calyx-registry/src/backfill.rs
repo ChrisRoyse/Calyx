@@ -1,6 +1,6 @@
 //! Durable lazy backfill scheduler state.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 #[cfg(unix)]
 use std::fs::File;
 use std::fs::{self, OpenOptions};
@@ -130,25 +130,27 @@ impl BackfillScheduler {
     pub fn enqueue(&mut self, request: BackfillRequest) -> Result<()> {
         self.mutate_and_persist(|state| {
             let key = request_key(request.slot_id, request.lens_id);
-            state.requests.entry(key).or_insert_with(|| RequestState {
-                request,
-                next_index: 0,
-                in_flight: Vec::new(),
-                last_processed: None,
-                complete: false,
-            });
+            match state.requests.entry(key) {
+                std::collections::btree_map::Entry::Vacant(entry) => {
+                    entry.insert(RequestState {
+                        request,
+                        next_index: 0,
+                        in_flight: Vec::new(),
+                        last_processed: None,
+                        complete: false,
+                    });
+                }
+                std::collections::btree_map::Entry::Occupied(mut entry) => {
+                    merge_request(entry.get_mut(), request);
+                }
+            }
             Ok(())
         })
     }
 
     pub fn claim_next_batch(&mut self, now_ms: u64) -> Result<Option<BackfillBatch>> {
         if now_ms < self.state.next_allowed_ms {
-            return Ok(Some(BackfillBatch {
-                slot_id: SlotId::new(0),
-                lens_id: LensId::from_bytes([0; 16]),
-                candidates: Vec::new(),
-                throttled: true,
-            }));
+            return Ok(None);
         }
         if self.active_count() >= self.state.config.max_concurrent.max(1) {
             return Ok(None);
@@ -279,6 +281,28 @@ impl BackfillScheduler {
     }
 }
 
+fn merge_request(existing: &mut RequestState, request: BackfillRequest) {
+    if request.priority.rank() > existing.request.priority.rank() {
+        existing.request.priority = request.priority;
+    }
+    let mut seen = existing
+        .request
+        .candidates
+        .iter()
+        .copied()
+        .collect::<BTreeSet<_>>();
+    let mut added = false;
+    for candidate in request.candidates {
+        if seen.insert(candidate) {
+            existing.request.candidates.push(candidate);
+            added = true;
+        }
+    }
+    if added {
+        existing.complete = false;
+    }
+}
+
 fn request_key(slot_id: SlotId, lens_id: LensId) -> String {
     format!("{slot_id}:{lens_id}")
 }
@@ -360,116 +384,4 @@ fn io_error(path: &Path, err: std::io::Error) -> CalyxError {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn durable_scheduler_orders_throttles_and_resumes() {
-        let path = test_path("durable_scheduler_orders_throttles_and_resumes");
-        let _ = fs::remove_file(&path);
-        let mut scheduler = BackfillScheduler::open(
-            &path,
-            BackfillConfig {
-                max_concurrent: 1,
-                batch_size: 2,
-                throttle_ms: 10,
-            },
-        )
-        .unwrap();
-        scheduler
-            .enqueue(request(1, BackfillPriority::Normal, 3))
-            .unwrap();
-        scheduler
-            .enqueue(request(2, BackfillPriority::Kernel, 2))
-            .unwrap();
-
-        let first = scheduler.claim_next_batch(100).unwrap().unwrap();
-        assert_eq!(first.slot_id, SlotId::new(2));
-        assert_eq!(first.candidates.len(), 2);
-        scheduler
-            .complete_batch(first.slot_id, first.lens_id, 100)
-            .unwrap();
-        assert!(scheduler.claim_next_batch(105).unwrap().unwrap().throttled);
-
-        let reopened = BackfillScheduler::open(
-            &path,
-            BackfillConfig {
-                max_concurrent: 1,
-                batch_size: 2,
-                throttle_ms: 10,
-            },
-        )
-        .unwrap();
-        let marks = reopened.watermarks();
-        let kernel = marks
-            .iter()
-            .find(|mark| mark.slot_id == SlotId::new(2))
-            .unwrap();
-        assert!(kernel.complete);
-        assert_eq!(kernel.processed, 2);
-    }
-
-    #[test]
-    fn claimed_uncompleted_batch_is_retried_after_reopen() {
-        let path = test_path("claimed_uncompleted_batch_is_retried_after_reopen");
-        let _ = fs::remove_file(&path);
-        let mut scheduler = BackfillScheduler::open(&path, BackfillConfig::default()).unwrap();
-        scheduler
-            .enqueue(request(7, BackfillPriority::Hot, 2))
-            .unwrap();
-        let first = scheduler.claim_next_batch(0).unwrap().unwrap();
-        assert_eq!(first.candidates.len(), 2);
-
-        let mut reopened = BackfillScheduler::open(&path, BackfillConfig::default()).unwrap();
-        let retry = reopened.claim_next_batch(0).unwrap().unwrap();
-        assert_eq!(retry.candidates, first.candidates);
-    }
-
-    #[test]
-    fn corrupt_scheduler_state_fails_closed() {
-        let path = test_path("corrupt_scheduler_state_fails_closed");
-        let _ = fs::remove_file(&path);
-        fs::write(&path, b"{").unwrap();
-
-        let error = BackfillScheduler::open(&path, BackfillConfig::default()).unwrap_err();
-
-        assert_eq!(error.code, "CALYX_STALE_DERIVED");
-    }
-
-    #[test]
-    fn post_rename_persist_failure_rolls_back_file_and_state() {
-        let path = test_path("post_rename_persist_failure_rolls_back_file_and_state");
-        let _ = fs::remove_file(&path);
-        let mut scheduler = BackfillScheduler::open(&path, BackfillConfig::default()).unwrap();
-        scheduler
-            .enqueue(request(1, BackfillPriority::Normal, 1))
-            .unwrap();
-        let before_bytes = fs::read(&path).unwrap();
-        let before_marks = scheduler.watermarks();
-        fs::write(post_rename_failure_marker(&path).unwrap(), b"fail-once").unwrap();
-
-        let error = scheduler
-            .enqueue(request(2, BackfillPriority::Kernel, 2))
-            .unwrap_err();
-        let after_bytes = fs::read(&path).unwrap();
-        let reopened = BackfillScheduler::open(&path, BackfillConfig::default()).unwrap();
-
-        assert_eq!(error.code, "CALYX_STALE_DERIVED");
-        assert_eq!(scheduler.watermarks(), before_marks);
-        assert_eq!(reopened.watermarks(), before_marks);
-        assert_eq!(after_bytes, before_bytes);
-    }
-
-    fn request(slot: u16, priority: BackfillPriority, count: u8) -> BackfillRequest {
-        BackfillRequest {
-            slot_id: SlotId::new(slot),
-            lens_id: LensId::from_bytes([slot as u8; 16]),
-            priority,
-            candidates: (0..count).map(|idx| CxId::from_bytes([idx; 16])).collect(),
-        }
-    }
-
-    fn test_path(name: &str) -> PathBuf {
-        std::env::temp_dir().join(format!("calyx-{name}-{}.json", std::process::id()))
-    }
-}
+mod tests;

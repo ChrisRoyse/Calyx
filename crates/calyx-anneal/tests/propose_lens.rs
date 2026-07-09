@@ -127,6 +127,7 @@ fn resource_budget_rejection_skips_substrate_and_hot_add() {
         total_ms: 1.0,
         ms_per_input: 1.0,
         vram_bytes: 512 * 1024 * 1024,
+        vram_observed: true,
         ram_bytes: 0,
         batch_ceiling: 1,
     });

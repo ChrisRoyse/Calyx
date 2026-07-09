@@ -175,6 +175,23 @@ fn explain_path_proves_kernel_hop_was_used() {
 }
 
 #[test]
+fn region_expansion_never_stamps_non_kernel_region_with_kernel_hit() {
+    let fx = fixture("no-fabricated-kernel-region", 10, 100);
+    let candidates = fx
+        .search
+        .expand_regions(&[3], &region_vector(0, 8), &params())
+        .expect("expand constrained regions");
+
+    assert!(!candidates.is_empty());
+    assert!(candidates.iter().all(|candidate| candidate.region == 3));
+    assert!(
+        candidates
+            .iter()
+            .all(|candidate| candidate.kernel_region == candidate.region)
+    );
+}
+
+#[test]
 fn small_vault_guard_fails_closed() {
     let root = scratch("small");
     let fx = fixture_at(root, 10, 100);

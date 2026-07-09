@@ -190,21 +190,23 @@ impl Profiler {
     }
 }
 
-fn vram_bytes() -> u64 {
+fn vram_bytes() -> Option<u64> {
     let output = std::process::Command::new("nvidia-smi")
         .args(["--query-gpu=memory.used", "--format=csv,noheader,nounits"])
         .output();
     let Ok(output) = output else {
-        return 0;
+        return None;
     };
     if !output.status.success() {
-        return 0;
+        return None;
     }
-    String::from_utf8_lossy(&output.stdout)
-        .lines()
-        .filter_map(|line| line.trim().parse::<u64>().ok())
-        .map(|mib| mib * 1024 * 1024)
-        .sum()
+    Some(
+        String::from_utf8_lossy(&output.stdout)
+            .lines()
+            .filter_map(|line| line.trim().parse::<u64>().ok())
+            .map(|mib| mib * 1024 * 1024)
+            .sum(),
+    )
 }
 
 pub fn profile_lens(
