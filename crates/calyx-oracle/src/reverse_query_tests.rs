@@ -247,7 +247,11 @@ fn reverse_corpus_load_at_uses_one_snapshot_for_recurrence_ranges() {
         true,
         0,
     );
-    let label = answer_label(&AnchorValue::Text("late_effect".to_string())).unwrap();
+    let label = answer_label(
+        &AnchorValue::Text("late_effect".to_string()),
+        &DomainId::from(DOMAIN),
+    )
+    .unwrap();
 
     let stale = ReverseCorpus::load_at(&vault, &DomainId::from(DOMAIN), pinned).unwrap();
     assert!(stale.recurrence_edges(&label).is_empty());

@@ -31,6 +31,8 @@ const ACTION: &str = "action_A";
 mod issue1345;
 #[path = "predict_tests/issue1347.rs"]
 mod issue1347;
+#[path = "predict_tests/issue1348.rs"]
+mod issue1348;
 
 #[test]
 fn action_a_twenty_pass_observations_predict_pass_under_ceiling() {

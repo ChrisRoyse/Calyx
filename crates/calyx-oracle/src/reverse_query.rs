@@ -12,7 +12,7 @@ use calyx_core::{AnchorValue, Clock, Constellation, LedgerRef, content_address};
 use calyx_ledger::{ActorId, EntryKind, SubjectId};
 use serde::Serialize;
 
-use crate::{Cause, DomainId, ORACLE_ACTION_METADATA_KEY, OracleError};
+use crate::{Cause, DomainId, ORACLE_ACTION_METADATA_KEY, OracleError, evidence_error};
 use corpus::{ActionGroup, ReverseCorpus, ReverseStats};
 
 pub const MAX_REVERSE_DEPTH: u8 = 3;
@@ -34,7 +34,7 @@ where
     C: Clock,
 {
     let corpus = ReverseCorpus::load(vault, &domain)?;
-    let mut state = WalkState::new(answer, corpus.stats())?;
+    let mut state = WalkState::new(answer, &domain, corpus.stats())?;
     let candidates = walk_answer(&corpus, answer, &domain, 0, &mut state)?;
 
     if !state.found {
@@ -69,9 +69,13 @@ struct WalkState {
 }
 
 impl WalkState {
-    fn new(answer: &AnchorValue, stats: ReverseStats) -> Result<Self, OracleError> {
+    fn new(
+        answer: &AnchorValue,
+        domain: &DomainId,
+        stats: ReverseStats,
+    ) -> Result<Self, OracleError> {
         Ok(Self {
-            visited_answers: HashSet::from([answer_label(answer)?]),
+            visited_answers: HashSet::from([answer_label(answer, domain)?]),
             visited_actions: action_labels_for_answer(answer),
             expanded_cache: HashMap::new(),
             causes: BTreeMap::new(),
@@ -94,7 +98,7 @@ fn walk_answer(
         return Ok(Vec::new());
     }
 
-    let label = answer_label(answer)?;
+    let label = answer_label(answer, domain)?;
     let mut candidates = collect_structural_causes(corpus, &label, domain, state);
     let grouped = grouped_recurrence_edges(corpus, &label);
     for (action, group) in grouped {
@@ -172,7 +176,7 @@ fn expand_action(
         return Ok(Vec::new());
     }
     let next = AnchorValue::Text(action.to_string());
-    let label = answer_label(&next)?;
+    let label = answer_label(&next, domain)?;
     if !state.visited_answers.insert(label.clone()) {
         state.stats.cycle_skips += 1;
         return Ok(Vec::new());
@@ -221,7 +225,7 @@ where
     let payload = ReverseLedgerPayload {
         tag: LEDGER_TAG,
         domain: domain.as_str().to_string(),
-        answer_digest: hex_bytes(&content_address([answer_label(answer)?.as_bytes()])),
+        answer_digest: hex_bytes(&content_address([answer_label(answer, domain)?.as_bytes()])),
         cause_count: causes.len(),
         grounded_count: causes.iter().filter(|cause| !cause.provisional).count(),
         provisional_count: causes.iter().filter(|cause| cause.provisional).count(),
@@ -247,7 +251,7 @@ where
 fn reverse_subject(domain: &DomainId, answer: &AnchorValue) -> Result<[u8; 16], OracleError> {
     Ok(content_address([
         domain.as_str().as_bytes(),
-        answer_label(answer)?.as_bytes(),
+        answer_label(answer, domain)?.as_bytes(),
         LEDGER_TAG.as_bytes(),
     ]))
 }
@@ -280,10 +284,8 @@ fn grounded_confidence(count: u64) -> f32 {
     count as f32 / (count.saturating_add(1) as f32)
 }
 
-fn answer_label(answer: &AnchorValue) -> Result<String, OracleError> {
-    serde_json::to_string(answer).map_err(|_| OracleError::NoRecurrence {
-        domain: DomainId::from("unknown"),
-    })
+fn answer_label(answer: &AnchorValue, domain: &DomainId) -> Result<String, OracleError> {
+    serde_json::to_string(answer).map_err(|_| evidence_error::corrupt(domain, "answer label"))
 }
 
 fn action_labels_for_answer(answer: &AnchorValue) -> HashSet<String> {

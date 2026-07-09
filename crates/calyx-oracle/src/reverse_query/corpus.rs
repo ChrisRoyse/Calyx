@@ -64,7 +64,7 @@ impl ReverseCorpus {
                 continue;
             }
             corpus.stats.domain_rows_scanned += 1;
-            corpus.collect_structural_edges(&cx)?;
+            corpus.collect_structural_edges(&cx, domain)?;
             corpus.collect_recurrence_edges(vault, &cx, domain)?;
         }
         Ok(corpus)
@@ -96,7 +96,11 @@ impl ReverseCorpus {
             .unwrap_or_default()
     }
 
-    fn collect_structural_edges(&mut self, cx: &Constellation) -> Result<(), OracleError> {
+    fn collect_structural_edges(
+        &mut self,
+        cx: &Constellation,
+        domain: &DomainId,
+    ) -> Result<(), OracleError> {
         let Some(action) = action_from_constellation(cx) else {
             return Ok(());
         };
@@ -104,7 +108,7 @@ impl ReverseCorpus {
             action_or_event: action,
             confidence: structural_confidence(cx),
         };
-        for label in structural_answer_labels(cx)? {
+        for label in structural_answer_labels(cx, domain)? {
             self.structural_by_answer
                 .entry(label)
                 .or_default()
@@ -152,7 +156,7 @@ impl ReverseCorpus {
                 if edge.domain_id() != *domain {
                     continue;
                 }
-                let outcome_label = answer_label(edge.outcome())?;
+                let outcome_label = answer_label(edge.outcome(), domain)?;
                 let occurrence_edge = OccurrenceEdge {
                     action_id: action.to_string(),
                     cx_id: cx.cx_id,
@@ -173,17 +177,20 @@ impl ReverseCorpus {
     }
 }
 
-fn structural_answer_labels(cx: &Constellation) -> Result<BTreeSet<String>, OracleError> {
+fn structural_answer_labels(
+    cx: &Constellation,
+    domain: &DomainId,
+) -> Result<BTreeSet<String>, OracleError> {
     let mut labels = BTreeSet::new();
     for anchor in &cx.anchors {
-        labels.insert(answer_label(&anchor.value)?);
+        labels.insert(answer_label(&anchor.value, domain)?);
     }
     if let Some(raw) = cx.metadata_value(ORACLE_EFFECT_METADATA_KEY) {
         if let Ok(value) = serde_json::from_str::<AnchorValue>(raw) {
-            labels.insert(answer_label(&value)?);
+            labels.insert(answer_label(&value, domain)?);
         }
-        labels.insert(answer_label(&AnchorValue::Text(raw.to_string()))?);
-        labels.insert(answer_label(&AnchorValue::Enum(raw.to_string()))?);
+        labels.insert(answer_label(&AnchorValue::Text(raw.to_string()), domain)?);
+        labels.insert(answer_label(&AnchorValue::Enum(raw.to_string()), domain)?);
     }
     Ok(labels)
 }

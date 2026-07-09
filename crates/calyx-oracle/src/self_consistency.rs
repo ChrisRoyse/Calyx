@@ -108,14 +108,12 @@ fn consistency_stats(
     })
 }
 
-fn validity(domain: &DomainId, samples: &[ValiditySample]) -> Result<(f32, bool), OracleError> {
+fn validity(_domain: &DomainId, samples: &[ValiditySample]) -> Result<(f32, bool), OracleError> {
     if samples.is_empty() {
         return Ok((0.0, true));
     }
     if samples.len() < MIN_VALIDITY_SAMPLES {
-        return Err(OracleError::NoRecurrence {
-            domain: domain.clone(),
-        });
+        return Ok((0.0, true));
     }
     if samples
         .iter()
@@ -139,11 +137,8 @@ fn validity(domain: &DomainId, samples: &[ValiditySample]) -> Result<(f32, bool)
         .iter()
         .map(|sample| one_hot(verdict_index[&sample.verdict], verdict_index.len()))
         .collect::<Vec<_>>();
-    let estimate = ksg_mi_continuous_discrete(&x, &truth_codes, KSG_K).map_err(|_| {
-        OracleError::NoRecurrence {
-            domain: domain.clone(),
-        }
-    })?;
+    let estimate =
+        ksg_mi_continuous_discrete(&x, &truth_codes, KSG_K).map_err(OracleError::from)?;
     Ok(((estimate.bits / entropy).clamp(0.0, 1.0), false))
 }
 

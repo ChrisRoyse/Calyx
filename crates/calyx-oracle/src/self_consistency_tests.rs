@@ -143,6 +143,47 @@ fn missing_ground_truth_is_provisional_zero_validity() {
 }
 
 #[test]
+fn sparse_ground_truth_samples_are_provisional_zero_validity() {
+    let vault = vault_with_series(&[vec![
+        v("pass", Some("pass")),
+        v("pass", None),
+        v("pass", None),
+        v("pass", None),
+        v("pass", None),
+        v("pass", None),
+    ]]);
+    let result = oracle_self_consistency(&vault, DomainId::from(DOMAIN), &FixedClock::new(650))
+        .expect("measure self consistency with one truth sample");
+
+    assert_close(result.flakiness, 0.0, 0.001);
+    assert_eq!(result.validity, 0.0);
+    assert_eq!(result.ceiling, 0.0);
+    assert!(result.provisional);
+}
+
+#[test]
+fn ksg_validity_failure_remains_assay_failure() {
+    let mut samples = Vec::new();
+    for _ in 0..47 {
+        samples.push(ValiditySample {
+            verdict: "pass".to_string(),
+            ground_truth: "pass".to_string(),
+        });
+    }
+    for _ in 0..3 {
+        samples.push(ValiditySample {
+            verdict: "pass".to_string(),
+            ground_truth: "fail".to_string(),
+        });
+    }
+
+    let error = validity(&DomainId::from(DOMAIN), &samples).expect_err("KSG should fail");
+
+    assert_eq!(error.code(), "CALYX_ASSAY_INSUFFICIENT_SAMPLES");
+    assert!(matches!(error, OracleError::AssayFailure { .. }));
+}
+
+#[test]
 #[ignore = "manual FSV fixture for issue #430 durable readbacks"]
 fn issue430_oracle_self_consistency_fsv_fixture() {
     let root =
