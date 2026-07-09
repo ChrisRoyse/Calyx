@@ -340,7 +340,7 @@ fn prediction_fixture() -> Prediction {
             per_sensor_deficit: vec![(LensId::from_bytes([7; 16]), 0.0)],
         },
         provenance: ledger(9),
-        guard: guard(true),
+        guard: Some(guard(true)),
     }
 }
 

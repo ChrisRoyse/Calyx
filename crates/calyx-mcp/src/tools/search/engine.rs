@@ -69,7 +69,7 @@ pub(super) fn search(request: &SearchRequest) -> ToolResult<SearchOutcome> {
         k: docs.len().max(request.k),
         explain: request.explain,
         strategy: strategy.clone(),
-        weights: weights_for(&strategy, &slots),
+        weights: weights_for(&strategy, &slots)?,
         stage1_slots: stage1_slots(&strategy, &query_vectors, &slots),
     };
     let mut hits = fusion::fuse(&per_slot, &context);
@@ -366,17 +366,21 @@ pub(super) fn same_index_shape(query: &SlotVector, stored: &SlotVector) -> bool 
     }
 }
 
-fn weights_for(strategy: &FusionStrategy, slots: &[SlotId]) -> BTreeMap<SlotId, f32> {
+fn weights_for(strategy: &FusionStrategy, slots: &[SlotId]) -> ToolResult<BTreeMap<SlotId, f32>> {
     let Some(profile) = weighted_profile(strategy) else {
-        return BTreeMap::new();
+        return Ok(BTreeMap::new());
     };
     let profile_weights = fusion::profiles::lookup(profile)
-        .map(|profile| profile.weights)
-        .unwrap_or_default();
-    slots
+        .ok_or_else(|| {
+            CalyxError::stale_derived(format!(
+                "weighted-rrf profile {profile:?} is not registered"
+            ))
+        })?
+        .weights;
+    Ok(slots
         .iter()
         .map(|slot| (*slot, profile_weights.get(slot).copied().unwrap_or(1.0)))
-        .collect()
+        .collect())
 }
 
 fn weighted_profile(strategy: &FusionStrategy) -> Option<RrfProfile> {

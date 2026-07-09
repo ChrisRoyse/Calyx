@@ -146,7 +146,9 @@ fn read_calibration_set(path: &Path) -> ToolResult<BTreeMap<SlotId, SlotScores>>
         let score = row.score.ok_or_else(|| {
             ToolError::invalid_params(format!("calibration line {} missing score", idx + 1))
         })?;
-        let slot = SlotId::new(row.slot.unwrap_or(0));
+        let slot = SlotId::new(row.slot.ok_or_else(|| {
+            ToolError::invalid_params(format!("calibration line {} missing slot", idx + 1))
+        })?);
         let entry = scores.entry(slot).or_default();
         if row_is_good(&row)? {
             entry.good.push(score);
@@ -295,4 +297,31 @@ fn ward_to_tool(error: WardError) -> ToolError {
         },
     }
     .into()
+}
+
+#[cfg(test)]
+mod tests {
+    use std::fs;
+
+    use super::*;
+
+    #[test]
+    fn calibration_row_missing_slot_fails_closed() {
+        let path = std::env::temp_dir().join(format!(
+            "calyx_guard_missing_slot_{}.jsonl",
+            std::process::id()
+        ));
+        fs::write(&path, r#"{"score":0.7,"good":true}"#).expect("write calibration");
+
+        let error = match read_calibration_set(&path) {
+            Ok(_) => panic!("missing slot should fail"),
+            Err(error) => error,
+        };
+        fs::remove_file(&path).expect("remove calibration");
+
+        assert!(matches!(
+            error,
+            ToolError::InvalidParams(message) if message.contains("missing slot")
+        ));
+    }
 }

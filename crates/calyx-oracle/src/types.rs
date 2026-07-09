@@ -47,7 +47,7 @@ pub struct Prediction {
     pub consequences: Vec<Consequence>,
     pub bound: SufficiencyBound,
     pub provenance: LedgerRef,
-    pub guard: GuardVerdict,
+    pub guard: Option<GuardVerdict>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

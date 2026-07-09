@@ -17,6 +17,7 @@ pub const DEFAULT_ZFS_DATASETS: [&str; 3] =
     ["hotpool/calyx", "archive/calyx", "archive/calyx-restic"];
 pub const ZFS_SCRUB_MAX_AGE_SECONDS: i64 = 40 * 24 * 60 * 60;
 const UNKNOWN_SCRUB_AGE_SECONDS: i64 = ZFS_SCRUB_MAX_AGE_SECONDS + 1;
+const UNKNOWN_CKSUM_ERRORS_TOTAL: u64 = 1_000_000_000_000_000;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ZfsDatasetChecksum {
@@ -160,10 +161,16 @@ pub fn collect_zfs_integrity(
     for pool in pools_from_datasets(datasets) {
         let status_x = run_command("zpool", &["status", "-x", &pool])?;
         let status_x_text = status_x.combined_output();
-        let healthy = status_x.success && status_x_text.contains("is healthy");
         let status_v = run_command("zpool", &["status", "-v", &pool])?;
         let status_v_text = status_v.combined_output();
-        let cksum_errors = parse_cksum_errors(&status_v_text, &pool).unwrap_or(0);
+        let cksum_errors = if status_v.success {
+            parse_cksum_errors(&status_v_text, &pool).unwrap_or(UNKNOWN_CKSUM_ERRORS_TOTAL)
+        } else {
+            UNKNOWN_CKSUM_ERRORS_TOTAL
+        };
+        let healthy = status_x.success
+            && status_x_text.contains("is healthy")
+            && cksum_errors != UNKNOWN_CKSUM_ERRORS_TOTAL;
         let scrub_age_seconds = parse_scan_line(&status_v_text)
             .and_then(parse_scrub_date)
             .and_then(|scrub_date| date_to_epoch(scrub_date).ok())
@@ -366,6 +373,29 @@ mod tests {
         assert_eq!(parse_cksum_errors(status, "hotpool"), Some(7));
         assert_eq!(parse_cksum_errors(status, "archive"), None);
         assert_eq!(parse_zpool_count("1.5K"), Some(1536));
+    }
+
+    #[test]
+    fn malformed_cksum_rows_record_fail_closed_sentinel() {
+        let registry = Registry::new();
+        let metrics = ZfsIntegrityMetrics::register(&registry, &["hotpool/calyx"]);
+        metrics.record(&ZfsIntegritySnapshot {
+            datasets: Vec::new(),
+            pools: vec![ZfsPoolIntegrity {
+                pool: "hotpool".to_string(),
+                healthy: false,
+                cksum_errors: UNKNOWN_CKSUM_ERRORS_TOTAL,
+                scrub_age_seconds: None,
+            }],
+        });
+
+        let text = encode(&registry);
+        assert!(text.contains("calyx_zfs_pool_healthy{pool=\"hotpool\"} 0"));
+        assert!(text.contains(&format!(
+            "calyx_zfs_cksum_errors_total{{pool=\"hotpool\"}} {}",
+            UNKNOWN_CKSUM_ERRORS_TOTAL
+        )));
+        assert!(text.contains("calyx_zfs_scrub_age_seconds{pool=\"hotpool\"} 3456001"));
     }
 
     fn encode(registry: &Registry) -> String {

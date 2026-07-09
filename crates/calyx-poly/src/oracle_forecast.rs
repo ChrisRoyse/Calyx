@@ -125,7 +125,10 @@ where
     let oracle_confidence = round6(unit_clamp(prediction.confidence as f64));
     let p_yes = round6(map_p_yes(oracle_confidence, predicted_is_yes));
 
-    let provisional = prediction.guard.provisional;
+    let provisional = prediction
+        .guard
+        .as_ref()
+        .map_or(true, |guard| guard.provisional);
     let trust = if provisional {
         TrustTag::Provisional
     } else {

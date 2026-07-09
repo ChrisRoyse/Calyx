@@ -78,6 +78,25 @@ fn tier5_goodhart_source_failure_returns_failed_tier() {
 }
 
 #[test]
+fn goodhart_report_missing_in_region_fraction_fails_closed() {
+    let report = GoodhartReport {
+        passed: true,
+        violations: Vec::new(),
+        p_goodhart_increment: 0.0,
+        j_train_delta: 0.0,
+        j_heldout_delta: Some(0.0),
+        in_region_frac: None,
+        warnings: Vec::new(),
+    };
+
+    let error = report
+        .goodhart_defense_measurement(&domain(), &held_out(), &clock())
+        .expect_err("missing in_region_frac");
+
+    assert_eq!(error.code(), "CALYX_ORACLE_GOODHART_MEASUREMENT_MISSING");
+}
+
+#[test]
 fn tier6_mistake_closed_requires_zero_recurring_mistakes() {
     let pass = measure_tier_mistake_closed(&MistakeFixture::ok(0, 3), &domain(), &clock()).unwrap();
     let fail = measure_tier_mistake_closed(&MistakeFixture::ok(1, 3), &domain(), &clock()).unwrap();

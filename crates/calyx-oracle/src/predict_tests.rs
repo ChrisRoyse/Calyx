@@ -53,7 +53,8 @@ fn action_a_twenty_pass_observations_predict_pass_under_ceiling() {
     assert!(prediction.confidence <= 0.95 + f32::EPSILON);
     assert!(prediction.confidence <= prediction.bound.dpi_ceiling);
     assert!(!prediction.consequences.is_empty());
-    assert!(prediction.guard.provisional);
+    assert_eq!(prediction.guard, None);
+    assert!(serde_json::to_value(&prediction).unwrap()["guard"].is_null());
     let payload = ledger_payload(&vault, prediction.provenance);
     assert_eq!(payload["tag"], LEDGER_TAG);
     assert_eq!(payload["recurrence_observations"], 20);

@@ -316,5 +316,5 @@ impl ColumnFamily {
 }
 
 /// Discriminant byte that marks a slot CF tag. Distinct from every static-CF
-/// discriminant because `STATIC.len()` (29) is far below this value.
+/// discriminant because `STATIC.len()` remains far below this value.
 const SLOT_KEYSPACE_TAG: u8 = 0xF0;

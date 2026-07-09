@@ -3,7 +3,6 @@
 mod context;
 
 use std::collections::{BTreeMap, BTreeSet};
-use std::str::FromStr;
 
 use calyx_aster::cf::ColumnFamily;
 use calyx_aster::recurrence::read_series;
@@ -12,7 +11,7 @@ use calyx_core::{
     AnchorValue, Clock, Constellation, LedgerRef, Panel, VaultStore, content_address,
 };
 use calyx_ledger::{ActorId, EntryKind, SubjectId};
-use calyx_ward::{DEFAULT_TAU, GuardId, GuardVerdict, SlotVerdict};
+use calyx_ward::GuardVerdict;
 use serde::{Deserialize, Serialize};
 
 use context::{ConsequenceSeed, PredictionContext};
@@ -28,7 +27,6 @@ const ORACLE_FALLBACK_ACTION_METADATA_KEY: &str = "action";
 const LEDGER_ACTOR: &str = "calyx-oracle";
 const LEDGER_TAG: &str = "oracle_predict_v1";
 const HOP_ATTENUATION: f32 = 0.7;
-const PROVISIONAL_GUARD_ID: &str = "018f48a4-9a79-74d2-8a5c-9ad7f6b8c104";
 
 /// Action plus the exact `panel_t` snapshot whose sufficiency gates prediction.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -57,10 +55,7 @@ where
         consistency.ceiling,
         bound.dpi_ceiling,
     );
-    let guard = action
-        .guard
-        .clone()
-        .unwrap_or_else(|| provisional_guard(&action.panel));
+    let guard = action.guard.clone();
     let ledger_ref = write_prediction_ledger(
         vault,
         LedgerWriteInput {
@@ -331,25 +326,6 @@ where
             ActorId::Service(LEDGER_ACTOR.to_string()),
         )
         .map_err(|_| OracleError::LedgerWriteFailure)
-}
-
-fn provisional_guard(panel: &Panel) -> GuardVerdict {
-    GuardVerdict {
-        guard_id: GuardId::from_str(PROVISIONAL_GUARD_ID).expect("static guard id"),
-        overall_pass: true,
-        provisional: true,
-        per_slot: panel
-            .slots
-            .iter()
-            .map(|slot| SlotVerdict {
-                slot: slot.slot_id,
-                cos: 1.0,
-                tau: DEFAULT_TAU,
-                pass: true,
-            })
-            .collect(),
-        action: None,
-    }
 }
 
 fn matches_domain(cx: &Constellation, domain: &DomainId) -> bool {

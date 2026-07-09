@@ -120,9 +120,15 @@ impl GoodhartDefenseSource for GoodhartReport {
         held_out: &HeldOutSplit,
         _clock: &dyn Clock,
     ) -> Result<GoodhartDefenseMeasurement, OracleError> {
-        let pass_rate = self
-            .in_region_frac
-            .unwrap_or(if self.passed { 1.0 } else { 0.0 }) as f32;
+        let pass_rate = self.in_region_frac.ok_or_else(|| {
+            OracleError::AssayFailure {
+                source: CalyxError {
+                    code: "CALYX_ORACLE_GOODHART_MEASUREMENT_MISSING",
+                    message: "Goodhart report is missing measured in_region_frac".to_string(),
+                    remediation: "rerun Goodhart defense measurement and persist in_region_frac before super-intelligence gating",
+                },
+            }
+        })? as f32;
         Ok(GoodhartDefenseMeasurement {
             pass_rate,
             held_out_count: held_out.held_out_count(),
