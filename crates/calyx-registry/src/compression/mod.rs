@@ -28,6 +28,8 @@ pub enum StoredSlotCodec {
     TurboQuantBits2p5,
     TurboQuantV2Bits3p5,
     TurboQuantV2Bits2p5,
+    TurboQuantV3Bits3p5,
+    TurboQuantV3Bits2p5,
     ScalarInt8,
     MxFp4,
     MxFp8,

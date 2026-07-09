@@ -1,3 +1,4 @@
+mod lloyd;
 mod prepared;
 
 use crate::quant::qjl::{append_qjl_section, encode_qjl_residual, read_qjl_section};
@@ -157,6 +158,14 @@ impl Quantizer for TurboQuantCodec {
             });
         }
         let scalar = rotate_quantize_scalar_parts(&self.rotation, vec, self.level);
+        if !scalar.scale.is_finite() {
+            return Err(ForgeError::NumericalInvariant {
+                op: "turboquant_encode".to_string(),
+                detail: "input norm overflowed TurboQuant f32 scale".to_string(),
+                remediation: "Normalize or reject vectors whose norm cannot be represented"
+                    .to_string(),
+            });
+        }
         let residual = encode_qjl_residual(&scalar.rotated, &scalar.decoded, &self.rademacher);
         let mut bytes = scalar.bytes;
         append_qjl_section(&mut bytes, &residual);
@@ -225,8 +234,9 @@ fn rotate_quantize_scalar_parts(
     apply_rotation(seed, &mut rotated);
     let scale = rotated
         .iter()
-        .map(|value| value.abs())
-        .fold(0.0_f32, f32::max);
+        .map(|value| f64::from(*value) * f64::from(*value))
+        .sum::<f64>()
+        .sqrt() as f32;
     let codes = quantize_codes(&rotated, scale, level);
     let bytes = pack_codes(&codes, level);
     let decoded = dequantize_scalar(&bytes, scale, seed.dim, level);
@@ -239,27 +249,25 @@ fn rotate_quantize_scalar_parts(
 }
 
 fn dequantize_scalar(bytes: &[u8], scale: f32, dim: usize, level: QuantLevel) -> Vec<f32> {
-    if scale == 0.0 {
+    if scale == 0.0 || dim == 0 {
         return vec![0.0; dim];
     }
     let codes = unpack_codes(bytes, dim, level);
-    let max_code = f32::from(level_steps(level) - 1);
+    let unit_scale = scale / (dim as f32).sqrt();
     codes
         .iter()
-        .map(|code| f32::from(*code) * (2.0 * scale) / max_code - scale)
+        .map(|code| lloyd::centroid(level, *code) * unit_scale)
         .collect()
 }
 
 fn quantize_codes(rotated: &[f32], scale: f32, level: QuantLevel) -> Vec<u16> {
-    if scale == 0.0 {
+    if scale == 0.0 || rotated.is_empty() {
         return vec![0; rotated.len()];
     }
-    let max_code = f32::from(level_steps(level) - 1);
+    let unit = (rotated.len() as f32).sqrt() / scale;
     rotated
         .iter()
-        .map(|value| {
-            (((*value / scale + 1.0) * max_code / 2.0).round()).clamp(0.0, max_code) as u16
-        })
+        .map(|value| lloyd::quantize_unit(*value * unit, level))
         .collect()
 }
 

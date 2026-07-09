@@ -2,7 +2,7 @@ use crate::quant::qjl::{qjl_bipolar_mean, read_qjl_section, sign_words};
 use crate::quant::{QuantLevel, QuantizedVec};
 use crate::{ForgeError, Result};
 
-use super::{TurboQuantCodec, level_steps, packed_len, unpack_codes};
+use super::{TurboQuantCodec, lloyd, packed_len, unpack_codes};
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct PreparedQuant {
@@ -71,17 +71,8 @@ fn scalar_dot(a: &PreparedQuant, b: &PreparedQuant) -> f32 {
     if a.scale == 0.0 || b.scale == 0.0 {
         return 0.0;
     }
-    let code_dot = a
-        .codes
-        .iter()
-        .zip(b.codes.iter())
-        .map(|(left, right)| u64::from(*left) * u64::from(*right))
-        .sum::<u64>() as f32;
-    let steps = f32::from(level_steps(a.level) - 1);
-    let k_a = 2.0 * a.scale / steps;
-    let k_b = 2.0 * b.scale / steps;
-    k_a * k_b * code_dot - b.scale * k_a * a.code_sum as f32 - a.scale * k_b * b.code_sum as f32
-        + a.rot_width as f32 * a.scale * b.scale
+    let centroid_dot = lloyd::centroid_product_sum(a.level, &a.codes, &b.codes);
+    a.scale * b.scale * centroid_dot / a.rot_width as f32
 }
 
 fn quant_error(op: &str, level: QuantLevel, detail: impl Into<String>) -> ForgeError {

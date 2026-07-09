@@ -6,7 +6,7 @@ use sha2::{Digest, Sha256};
 use crate::quant::SeedId;
 use crate::{ForgeError, Result};
 
-pub const CURRENT_SEED_VERSION: u8 = 2;
+pub const CURRENT_SEED_VERSION: u8 = 3;
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct RotationSeed {

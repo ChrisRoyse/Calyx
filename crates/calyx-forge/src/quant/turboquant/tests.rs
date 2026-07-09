@@ -9,13 +9,6 @@ fn max_abs_delta(left: &[f32], right: &[f32]) -> f32 {
         .fold(0.0_f32, f32::max)
 }
 
-fn bin_width(scale: f32, level: QuantLevel) -> f32 {
-    if scale == 0.0 {
-        return 0.0;
-    }
-    2.0 * scale / f32::from(level_steps(level) - 1)
-}
-
 fn encoded_len(dim: usize, level: QuantLevel) -> usize {
     let rot_width = dim.next_power_of_two();
     packed_len(rot_width, level) + 1 + 32 + 4 + rot_width.div_ceil(8)
@@ -50,13 +43,24 @@ fn scalar_roundtrip_bits3p5() {
     let qv = codec.encode(&input).expect("encode");
     let decoded = codec.decode(&qv).expect("decode");
     let max_err = max_abs_delta(&decoded, &input);
-    let limit = bin_width(qv.scale, QuantLevel::Bits3p5) * 1.5;
-    assert!(max_err <= limit, "max_err={max_err} limit={limit}");
+    assert!((qv.scale - 1.0).abs() <= 1e-6, "scale={}", qv.scale);
+    assert!(max_err <= 0.05, "max_err={max_err}");
     println!(
-        "scalar_roundtrip_bits3p5 PASSED max_err={max_err:.8} bin_width={:.8} scale={:.8} len={}",
-        bin_width(qv.scale, QuantLevel::Bits3p5),
+        "scalar_roundtrip_bits3p5 PASSED max_err={max_err:.8} norm_scale={:.8} len={}",
         qv.scale,
         qv.bytes.len()
+    );
+}
+
+#[test]
+fn scalar_scale_tracks_norm_not_max_abs() {
+    let seed = new_seed(2, b"tq_norm_scale");
+    let codec = TurboQuantCodec::new(seed, QuantLevel::Bits3p5).expect("codec");
+    let qv = codec.encode(&[3.0, 4.0]).expect("encode");
+    assert!((qv.scale - 5.0).abs() <= 1e-6, "scale={}", qv.scale);
+    println!(
+        "scalar_scale_tracks_norm_not_max_abs PASSED norm_scale={:.6}",
+        qv.scale
     );
 }
 
@@ -112,7 +116,7 @@ fn scalar_edges_dim1_dim1536_and_identical() {
     let one_codec = TurboQuantCodec::new(one_seed.clone(), QuantLevel::Bits3p5).expect("one");
     let one_qv = one_codec.encode(&[2.0]).expect("one encode");
     let one_decoded = one_codec.decode(&one_qv).expect("one decode");
-    assert!(max_abs_delta(&one_decoded, &[2.0]) <= 1e-6);
+    assert!(one_decoded[0].is_finite() && one_decoded[0] > 0.0);
 
     let large_seed = new_seed(1536, b"tq_large");
     let large_codec = TurboQuantCodec::new(large_seed, QuantLevel::Bits3p5).expect("large codec");
@@ -200,7 +204,7 @@ proptest! {
         let qv = codec.encode(&values).expect("encode");
         let decoded = codec.decode(&qv).expect("decode");
         let max_err = max_abs_delta(&decoded, &values);
-        let limit = qv.scale * 2.0 / (7.0 - 1.0);
+        let limit = 0.35;
         prop_assert!(max_err <= limit + 1e-6, "max_err={max_err} limit={limit}");
     }
 

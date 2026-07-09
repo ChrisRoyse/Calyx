@@ -6,7 +6,7 @@ use rand::{Rng, SeedableRng};
 use rand_chacha::ChaCha8Rng;
 use std::path::PathBuf;
 
-const GOLDEN_SEED_REL: &str = "tests/golden/turboquant_seed_v2.json";
+const GOLDEN_SEED_REL: &str = "tests/golden/turboquant_seed_v3.json";
 
 fn run_cosine_error_trial(level: QuantLevel, dim: usize, n_pairs: usize, seed: u64) -> f32 {
     run_cosine_error_trial_with_seed(level, new_seed(dim, b"ph14_fsv"), n_pairs, seed)
