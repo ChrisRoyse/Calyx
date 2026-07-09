@@ -33,7 +33,7 @@ fn turboquant_and_mxfp4_roundtrip_fixture_vectors() {
 
     assert_eq!(
         turbo_report.stored_codec,
-        StoredSlotCodec::TurboQuantV3Bits3p5
+        StoredSlotCodec::TurboQuantV4Bits3p5
     );
     assert!(turbo_report.stored_bytes_total < turbo_report.raw_bytes_total);
     assert!(turbo_report.recall_at_k_compressed >= 0.75);
@@ -52,7 +52,7 @@ fn turboquant_and_mxfp4_roundtrip_fixture_vectors() {
     maybe_write_json(
         "roundtrip-codecs.json",
         &json!({
-            "turbo_codec": "turbo_quant_v3_bits3p5",
+            "turbo_codec": "turbo_quant_v4_bits3p5",
             "turbo_raw_bytes": turbo_report.raw_bytes_total,
             "turbo_stored_bytes": turbo_report.stored_bytes_total,
             "turbo_recall_at_k": turbo_report.recall_at_k_compressed,
@@ -98,13 +98,15 @@ fn scalar_int8_codec_has_real_bits8_envelope() {
 }
 
 #[test]
-fn turboquant_v1_v2_and_v3_envelope_codes_dual_read() {
+fn turboquant_v1_v2_v3_and_v4_envelope_codes_dual_read() {
     let v1_bits3 = decode_stored_slot_envelope(&minimal_envelope(1, 4)).unwrap();
     let v1_bits2 = decode_stored_slot_envelope(&minimal_envelope(2, 5)).unwrap();
     let v2_bits3 = decode_stored_slot_envelope(&minimal_envelope(7, 4)).unwrap();
     let v2_bits2 = decode_stored_slot_envelope(&minimal_envelope(8, 5)).unwrap();
     let v3_bits3 = decode_stored_slot_envelope(&minimal_envelope(9, 4)).unwrap();
     let v3_bits2 = decode_stored_slot_envelope(&minimal_envelope(10, 5)).unwrap();
+    let v4_bits3 = decode_stored_slot_envelope(&minimal_envelope(11, 4)).unwrap();
+    let v4_bits2 = decode_stored_slot_envelope(&minimal_envelope(12, 5)).unwrap();
 
     assert_eq!(v1_bits3.codec, StoredSlotCodec::TurboQuantBits3p5);
     assert_eq!(v1_bits2.codec, StoredSlotCodec::TurboQuantBits2p5);
@@ -112,10 +114,14 @@ fn turboquant_v1_v2_and_v3_envelope_codes_dual_read() {
     assert_eq!(v2_bits2.codec, StoredSlotCodec::TurboQuantV2Bits2p5);
     assert_eq!(v3_bits3.codec, StoredSlotCodec::TurboQuantV3Bits3p5);
     assert_eq!(v3_bits2.codec, StoredSlotCodec::TurboQuantV3Bits2p5);
+    assert_eq!(v4_bits3.codec, StoredSlotCodec::TurboQuantV4Bits3p5);
+    assert_eq!(v4_bits2.codec, StoredSlotCodec::TurboQuantV4Bits2p5);
     assert_eq!(v2_bits3.level, "Bits3p5");
     assert_eq!(v2_bits2.level, "Bits2p5");
     assert_eq!(v3_bits3.level, "Bits3p5");
     assert_eq!(v3_bits2.level, "Bits2p5");
+    assert_eq!(v4_bits3.level, "Bits3p5");
+    assert_eq!(v4_bits2.level, "Bits2p5");
     maybe_write_json(
         "turboquant-dual-read-envelope.json",
         &json!({
@@ -125,6 +131,8 @@ fn turboquant_v1_v2_and_v3_envelope_codes_dual_read() {
             "v2_bits2_codec": format!("{:?}", v2_bits2.codec),
             "v3_bits3_codec": format!("{:?}", v3_bits3.codec),
             "v3_bits2_codec": format!("{:?}", v3_bits2.codec),
+            "v4_bits3_codec": format!("{:?}", v4_bits3.codec),
+            "v4_bits2_codec": format!("{:?}", v4_bits2.codec),
             "source_of_truth": "decode_stored_slot_envelope over explicit envelope codec bytes",
         }),
     );
@@ -227,7 +235,7 @@ fn compressed_vault_rows_use_slot_cf_and_raw_sidecar() {
         SlotShape::Dense(128),
         QuantPolicy::Float8,
     );
-    let lens = lens_spec("mrl-semantic", slot.quant, Some(64), 128, 0.10);
+    let lens = lens_spec("mrl-semantic", slot.quant, Some(64), 128, 0.34);
     let mxfp8_lens = lens_spec("mxfp8-companion", mxfp8_slot.quant, None, 128, 1.0);
     let panel_vault = root.join("panel-status-vault");
     fs::create_dir_all(&panel_vault).unwrap();
@@ -293,7 +301,7 @@ fn compressed_vault_rows_use_slot_cf_and_raw_sidecar() {
         .expect_err("VaultStore::get must not raw-sidecar fallback compressed slot rows");
 
     assert_eq!(compressed[0], calyx_registry::COMPRESSED_SLOT_TAG);
-    assert_eq!(envelope.codec, StoredSlotCodec::TurboQuantV3Bits3p5);
+    assert_eq!(envelope.codec, StoredSlotCodec::TurboQuantV4Bits3p5);
     assert!(!envelope.fallback);
     assert_eq!(envelope.raw_dim, 128);
     assert_eq!(envelope.stored_dim, 64);

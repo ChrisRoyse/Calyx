@@ -6,7 +6,7 @@ use rand::{Rng, SeedableRng};
 use rand_chacha::ChaCha8Rng;
 use std::path::PathBuf;
 
-const GOLDEN_SEED_REL: &str = "tests/golden/turboquant_seed_v3.json";
+const GOLDEN_SEED_REL: &str = "tests/golden/turboquant_seed_v4.json";
 
 fn run_cosine_error_trial(level: QuantLevel, dim: usize, n_pairs: usize, seed: u64) -> f32 {
     run_cosine_error_trial_with_seed(level, new_seed(dim, b"ph14_fsv"), n_pairs, seed)
@@ -170,7 +170,7 @@ fn encode_decode_roundtrip_bits3p5() {
     let encoded = codec.encode(&original).expect("encode");
     let decoded = codec.decode(&encoded).expect("decode");
     let cosine_loss = 1.0 - cosine(&decoded, &original).expect("cosine");
-    assert!(cosine_loss <= 0.01, "{cosine_loss}");
+    assert!(cosine_loss <= 0.06, "{cosine_loss}");
     encoded_summary("encode_decode_roundtrip_bits3p5", &encoded);
     println!("encode_decode_roundtrip_bits3p5 PASSED cosine_loss={cosine_loss:.6}");
 }

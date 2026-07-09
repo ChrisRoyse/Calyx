@@ -1,9 +1,5 @@
 use std::sync::OnceLock;
 
-use crate::quant::QuantLevel;
-
-use super::level_steps;
-
 const SQRT_2: f64 = std::f64::consts::SQRT_2;
 const INV_SQRT_2PI: f64 = 0.398_942_280_401_432_7;
 
@@ -13,33 +9,42 @@ pub(super) struct LloydCodebook {
     thresholds: Vec<f32>,
 }
 
-static BITS3P5_CODEBOOK: OnceLock<LloydCodebook> = OnceLock::new();
-static BITS2P5_CODEBOOK: OnceLock<LloydCodebook> = OnceLock::new();
+static BITS1_CODEBOOK: OnceLock<LloydCodebook> = OnceLock::new();
+static BITS2_CODEBOOK: OnceLock<LloydCodebook> = OnceLock::new();
+static BITS3_CODEBOOK: OnceLock<LloydCodebook> = OnceLock::new();
 
-pub(super) fn quantize_unit(value: f32, level: QuantLevel) -> u16 {
-    let thresholds = &codebook(level).thresholds;
+pub(super) fn quantize_bits(value: f32, bits: u8) -> u16 {
+    let thresholds = &codebook_bits(bits).thresholds;
     thresholds.partition_point(|threshold| value > *threshold) as u16
 }
 
-pub(super) fn centroid(level: QuantLevel, code: u16) -> f32 {
-    codebook(level).centroids[usize::from(code)]
+pub(super) fn centroid_bits(bits: u8, code: u16) -> f32 {
+    codebook_bits(bits).centroids[usize::from(code)]
 }
 
-pub(super) fn centroid_product_sum(level: QuantLevel, left: &[u8], right: &[u8]) -> f32 {
-    let centroids = &codebook(level).centroids;
-    left.iter()
-        .zip(right.iter())
-        .map(|(left, right)| centroids[usize::from(*left)] * centroids[usize::from(*right)])
+pub(super) fn centroid_product_sum_mixed(
+    left_codes: &[u8],
+    left_widths: &[u8],
+    right_codes: &[u8],
+    right_widths: &[u8],
+) -> f32 {
+    left_codes
+        .iter()
+        .zip(left_widths.iter())
+        .zip(right_codes.iter().zip(right_widths.iter()))
+        .map(|((left_code, left_bits), (right_code, right_bits))| {
+            centroid_bits(*left_bits, u16::from(*left_code))
+                * centroid_bits(*right_bits, u16::from(*right_code))
+        })
         .sum()
 }
 
-fn codebook(level: QuantLevel) -> &'static LloydCodebook {
-    match level {
-        QuantLevel::Bits3p5 => BITS3P5_CODEBOOK
-            .get_or_init(|| build_standard_normal_codebook(usize::from(level_steps(level)))),
-        QuantLevel::Bits2p5 => BITS2P5_CODEBOOK
-            .get_or_init(|| build_standard_normal_codebook(usize::from(level_steps(level)))),
-        _ => unreachable!("TurboQuant level validated before Lloyd-Max lookup"),
+fn codebook_bits(bits: u8) -> &'static LloydCodebook {
+    match bits {
+        1 => BITS1_CODEBOOK.get_or_init(|| build_standard_normal_codebook(2)),
+        2 => BITS2_CODEBOOK.get_or_init(|| build_standard_normal_codebook(4)),
+        3 => BITS3_CODEBOOK.get_or_init(|| build_standard_normal_codebook(8)),
+        _ => unreachable!("mixed TurboQuant scalar lanes use 1, 2, or 3 bits"),
     }
 }
 

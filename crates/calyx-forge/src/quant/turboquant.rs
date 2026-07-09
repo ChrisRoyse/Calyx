@@ -1,4 +1,5 @@
 mod lloyd;
+mod mixed;
 mod prepared;
 
 use crate::quant::qjl::{append_qjl_section, encode_qjl_residual, read_qjl_section};
@@ -9,9 +10,6 @@ use crate::quant::{
 use crate::{ForgeError, Result};
 pub use prepared::PreparedQuant;
 
-const BITS3P5_CODE_BITS: usize = 7;
-const BITS3P5_LEVELS: u16 = 1 << BITS3P5_CODE_BITS;
-const BITS2P5_LEVELS: u16 = 5;
 const TURBOQUANT_LEVEL_DETAIL: &str = "TurboQuant only supports Bits3p5 and Bits2p5";
 
 #[derive(Clone, Debug)]
@@ -237,8 +235,7 @@ fn rotate_quantize_scalar_parts(
         .map(|value| f64::from(*value) * f64::from(*value))
         .sum::<f64>()
         .sqrt() as f32;
-    let codes = quantize_codes(&rotated, scale, level);
-    let bytes = pack_codes(&codes, level);
+    let bytes = mixed::quantize(&rotated, scale, level);
     let decoded = dequantize_scalar(&bytes, scale, seed.dim, level);
     ScalarQuantized {
         bytes,
@@ -252,126 +249,22 @@ fn dequantize_scalar(bytes: &[u8], scale: f32, dim: usize, level: QuantLevel) ->
     if scale == 0.0 || dim == 0 {
         return vec![0.0; dim];
     }
-    let codes = unpack_codes(bytes, dim, level);
+    let mixed = unpack_codes(bytes, dim, level);
     let unit_scale = scale / (dim as f32).sqrt();
-    codes
+    mixed
+        .codes
         .iter()
-        .map(|code| lloyd::centroid(level, *code) * unit_scale)
+        .zip(mixed.widths.iter())
+        .map(|(code, bits)| lloyd::centroid_bits(*bits, u16::from(*code)) * unit_scale)
         .collect()
 }
 
-fn quantize_codes(rotated: &[f32], scale: f32, level: QuantLevel) -> Vec<u16> {
-    if scale == 0.0 || rotated.is_empty() {
-        return vec![0; rotated.len()];
-    }
-    let unit = (rotated.len() as f32).sqrt() / scale;
-    rotated
-        .iter()
-        .map(|value| lloyd::quantize_unit(*value * unit, level))
-        .collect()
-}
-
-fn pack_codes(codes: &[u16], level: QuantLevel) -> Vec<u8> {
-    match level {
-        QuantLevel::Bits3p5 => pack_bits3p5(codes),
-        QuantLevel::Bits2p5 => pack_bits2p5(codes),
-        _ => unreachable!("TurboQuant level validated before packing"),
-    }
-}
-
-pub(crate) fn unpack_codes(bytes: &[u8], dim: usize, level: QuantLevel) -> Vec<u16> {
-    match level {
-        QuantLevel::Bits3p5 => unpack_bits3p5(bytes, dim),
-        QuantLevel::Bits2p5 => unpack_bits2p5(bytes, dim),
-        _ => unreachable!("TurboQuant level validated before unpacking"),
-    }
-}
-
-fn pack_bits3p5(codes: &[u16]) -> Vec<u8> {
-    let mut out = vec![0; packed_len(codes.len(), QuantLevel::Bits3p5)];
-    // Bits3p5 stores one 7-bit scalar code per coordinate. Codes are written
-    // little-endian into a bitstream, so 8 values occupy 56 bits = 7 bytes.
-    for (idx, code) in codes.iter().enumerate() {
-        write_bits(&mut out, idx * BITS3P5_CODE_BITS, BITS3P5_CODE_BITS, *code);
-    }
-    out
-}
-
-fn unpack_bits3p5(bytes: &[u8], dim: usize) -> Vec<u16> {
-    (0..dim)
-        .map(|idx| read_bits(bytes, idx * BITS3P5_CODE_BITS, BITS3P5_CODE_BITS))
-        .collect()
-}
-
-fn pack_bits2p5(codes: &[u16]) -> Vec<u8> {
-    let mut out = vec![0; packed_len(codes.len(), QuantLevel::Bits2p5)];
-    // Bits2p5 stores four base-5 scalar codes in one 10-bit lane:
-    // packed = c0 + 5*c1 + 25*c2 + 125*c3. The upper 6 bits of the 2-byte
-    // group are padding, giving exactly 4 values per 2 bytes.
-    for (group, chunk) in codes.chunks(4).enumerate() {
-        let mut packed = 0u16;
-        let mut factor = 1u16;
-        for code in chunk {
-            packed += *code * factor;
-            factor *= BITS2P5_LEVELS;
-        }
-        let base = group * 2;
-        out[base] = packed as u8;
-        out[base + 1] = (packed >> 8) as u8;
-    }
-    out
-}
-
-fn unpack_bits2p5(bytes: &[u8], dim: usize) -> Vec<u16> {
-    let mut codes = Vec::with_capacity(dim);
-    for group in 0..dim.div_ceil(4) {
-        let base = group * 2;
-        let mut packed = u16::from(bytes[base]) | (u16::from(bytes[base + 1]) << 8);
-        for _ in 0..4 {
-            if codes.len() == dim {
-                break;
-            }
-            codes.push(packed % BITS2P5_LEVELS);
-            packed /= BITS2P5_LEVELS;
-        }
-    }
-    codes
-}
-
-fn write_bits(out: &mut [u8], offset: usize, width: usize, value: u16) {
-    for bit in 0..width {
-        if ((value >> bit) & 1) == 1 {
-            let absolute = offset + bit;
-            out[absolute / 8] |= 1 << (absolute % 8);
-        }
-    }
-}
-
-fn read_bits(bytes: &[u8], offset: usize, width: usize) -> u16 {
-    let mut value = 0u16;
-    for bit in 0..width {
-        let absolute = offset + bit;
-        if ((bytes[absolute / 8] >> (absolute % 8)) & 1) == 1 {
-            value |= 1 << bit;
-        }
-    }
-    value
+pub(crate) fn unpack_codes(bytes: &[u8], dim: usize, level: QuantLevel) -> mixed::MixedCodes {
+    mixed::unpack(bytes, dim, level)
 }
 
 pub(crate) fn packed_len(dim: usize, level: QuantLevel) -> usize {
-    match level {
-        QuantLevel::Bits3p5 => (dim * BITS3P5_CODE_BITS).div_ceil(8),
-        QuantLevel::Bits2p5 => dim.div_ceil(4) * 2,
-        _ => unreachable!("TurboQuant level validated before sizing"),
-    }
-}
-
-pub(crate) fn level_steps(level: QuantLevel) -> u16 {
-    match level {
-        QuantLevel::Bits3p5 => BITS3P5_LEVELS,
-        QuantLevel::Bits2p5 => BITS2P5_LEVELS,
-        _ => unreachable!("TurboQuant level validated before stepping"),
-    }
+    mixed::packed_len(dim, level)
 }
 
 fn validate_level(level: QuantLevel) -> Result<()> {

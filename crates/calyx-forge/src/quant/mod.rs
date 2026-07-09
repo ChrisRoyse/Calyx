@@ -43,8 +43,8 @@ impl QuantLevel {
             Self::Bits8 => 8.0,
             Self::Bits8Fp => 8.0,
             Self::Bits4Fp => 4.0,
-            Self::Bits3p5 => 8.0,
-            Self::Bits2p5 => 5.0_f32.log2() + 1.0,
+            Self::Bits3p5 => 3.5,
+            Self::Bits2p5 => 2.5,
             Self::Bits1 => 1.0,
         }
     }
@@ -107,7 +107,7 @@ mod tests {
 
     #[test]
     fn quant_level_bits_and_lossiness_are_declared() {
-        assert_eq!(QuantLevel::Bits3p5.bits_per_channel(), 8.0);
+        assert_eq!(QuantLevel::Bits3p5.bits_per_channel(), 3.5);
         assert!(QuantLevel::Bits8.is_lossy());
         assert_eq!(QuantLevel::Bits8Fp.bits_per_channel(), 8.0);
         assert!(QuantLevel::Bits8Fp.is_lossy());
@@ -153,7 +153,7 @@ mod tests {
     #[test]
     fn quant_edges_cover_f32_bits2p5_and_empty_bytes() {
         assert!(!QuantLevel::F32.is_lossy());
-        assert_eq!(QuantLevel::Bits2p5.bits_per_channel(), 5.0_f32.log2() + 1.0);
+        assert_eq!(QuantLevel::Bits2p5.bits_per_channel(), 2.5);
         let empty = sample_quantized_vec(Vec::new());
         let json = serde_json::to_string(&empty).expect("empty bytes quantized vec serializes");
         assert!(json.contains("\"bytes\":[]"));

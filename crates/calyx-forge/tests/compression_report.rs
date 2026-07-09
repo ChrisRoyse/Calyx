@@ -82,10 +82,7 @@ fn compression_report_aggregates_doc23_fields() {
     assert_eq!(report.slots.len(), 2);
     assert_eq!(report.totals.slot_count, 2);
     assert_eq!(report.totals.channel_count, 256);
-    assert_close(
-        report.totals.weighted_bits_per_channel,
-        (8.0 + f64::from(5.0_f32.log2() + 1.0)) / 2.0,
-    );
+    assert_close(report.totals.weighted_bits_per_channel, (3.5 + 2.5) / 2.0);
     assert_eq!(report.totals.original_bytes, 5120);
     assert_eq!(report.totals.compressed_bytes, expected_compressed);
     assert_eq!(report.totals.bytes_saved, expected_bytes_saved);
@@ -95,7 +92,7 @@ fn compression_report_aggregates_doc23_fields() {
     );
 
     let text = &report.slots[0];
-    assert_eq!(text.bits_per_channel, 8.0);
+    assert_eq!(text.bits_per_channel, 3.5);
     assert_eq!(text.stored_dim, 128);
     assert_eq!(text.stored_payload_sha256.len(), 64);
     assert_close(text.distortion_vs_floor, 2.0);
