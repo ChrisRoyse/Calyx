@@ -161,6 +161,26 @@ pub fn named_fsv_root(env: &str, fallback_name: &str) -> (PathBuf, bool) {
     dead_code,
     reason = "shared FSV helper is included by tests that use different subsets"
 )]
+pub fn assert_host_fsv_root(path: &Path, label: &str) {
+    let text = path.display().to_string();
+    #[cfg(windows)]
+    assert!(
+        text.replace('/', "\\")
+            .to_ascii_lowercase()
+            .starts_with("c:\\"),
+        "{label} must stay on C:, got {text}"
+    );
+    #[cfg(not(windows))]
+    assert!(
+        path.is_absolute(),
+        "{label} must be an absolute host-local path, got {text}"
+    );
+}
+
+#[allow(
+    dead_code,
+    reason = "shared FSV helper is included by tests that use different subsets"
+)]
 pub fn reset_dir(path: &Path) {
     if path.exists() {
         fs::remove_dir_all(path).expect("remove previous FSV root");

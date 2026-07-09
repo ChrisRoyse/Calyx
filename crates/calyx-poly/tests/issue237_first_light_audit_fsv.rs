@@ -419,9 +419,5 @@ fn blake3_hex(path: &Path) -> String {
 }
 
 fn assert_c_drive(path: &Path) {
-    let text = PathBuf::from(path).display().to_string().replace('/', "\\");
-    assert!(
-        text.to_ascii_lowercase().starts_with("c:\\"),
-        "FSV root must stay on C:, got {text}"
-    );
+    support::assert_host_fsv_root(path, "FSV root");
 }

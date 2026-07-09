@@ -6,7 +6,7 @@
 mod support;
 
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use calyx_poly::crypto_ingestor::{
     CryptoIngestorConfig, ERR_CRYPTO_INGESTOR_NO_MARKET, select_crypto_capture_market,
@@ -158,9 +158,5 @@ fn market(id: &str, end_ts: u64, binary: bool, enable_order_book: bool) -> Gamma
 }
 
 fn assert_c_drive(path: &Path) {
-    let text = PathBuf::from(path).display().to_string().replace('/', "\\");
-    assert!(
-        text.to_ascii_lowercase().starts_with("c:\\"),
-        "FSV root must stay on C:, got {text}"
-    );
+    support::assert_host_fsv_root(path, "FSV root");
 }

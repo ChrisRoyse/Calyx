@@ -7,7 +7,7 @@
 mod support;
 
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use calyx_aster::cf::{ColumnFamily, ledger_key};
@@ -475,9 +475,5 @@ fn ledger_payload(vault: &AsterVault<impl Clock>, seq: u64) -> Value {
 }
 
 fn assert_c_drive(path: &Path) {
-    let text = PathBuf::from(path).display().to_string().replace('/', "\\");
-    assert!(
-        text.to_ascii_lowercase().starts_with("c:\\"),
-        "FSV root must stay on C:, got {text}"
-    );
+    support::assert_host_fsv_root(path, "FSV root");
 }

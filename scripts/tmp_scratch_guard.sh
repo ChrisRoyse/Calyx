@@ -64,6 +64,13 @@ assert_current_user_owns_path() {
   fi
 }
 
+current_user_owns_path() {
+  local path="$1"
+  local path_uid
+  path_uid="$(stat -c '%u' -- "$path" 2>/dev/null)" || return 1
+  [[ "$path_uid" == "$current_uid" ]]
+}
+
 list_owned() {
   find "$tmp_root" -mindepth 1 -maxdepth 1 "${owned_find_expr[@]}" -print | sort
 }
@@ -94,9 +101,14 @@ remove_owned_path() {
 }
 
 cleanup_stale_owned() {
-  local removed=0
+  local removed=0 skipped_unowned=0
   while IFS= read -r path; do
     [[ -n "$path" ]] || continue
+    if ! current_user_owns_path "$path"; then
+      echo "calyx_tmp_guard_stale_unowned_skipped: path=$path $(path_stat_summary "$path")" >&2
+      skipped_unowned=$((skipped_unowned + 1))
+      continue
+    fi
     remove_owned_path "$path"
     removed=$((removed + 1))
   done < <(
@@ -104,16 +116,23 @@ cleanup_stale_owned() {
       -mmin "+$stale_minutes" -print
   )
   echo "calyx_tmp_guard_stale_removed=$removed"
+  echo "calyx_tmp_guard_stale_unowned_skipped=$skipped_unowned"
 }
 
 cleanup_all_owned() {
-  local removed=0
+  local removed=0 skipped_unowned=0
   while IFS= read -r path; do
     [[ -n "$path" ]] || continue
+    if ! current_user_owns_path "$path"; then
+      echo "calyx_tmp_guard_all_unowned_skipped: path=$path $(path_stat_summary "$path")" >&2
+      skipped_unowned=$((skipped_unowned + 1))
+      continue
+    fi
     remove_owned_path "$path"
     removed=$((removed + 1))
   done < <(list_owned)
   echo "calyx_tmp_guard_all_removed=$removed"
+  echo "calyx_tmp_guard_all_unowned_skipped=$skipped_unowned"
 }
 
 cleanup_new_owned() {
@@ -121,16 +140,22 @@ cleanup_new_owned() {
   # under $tmp_root and matches the owned patterns, so removing entries while
   # re-reading it from disk can delete the reference mid-sweep and make every
   # remaining entry look "new".
-  local removed=0 baseline_content
+  local removed=0 skipped_unowned=0 baseline_content
   baseline_content="$(cat -- "$baseline_file")"
   while IFS= read -r path; do
     [[ -n "$path" ]] || continue
     if ! grep -Fxq "$path" <<<"$baseline_content"; then
+      if ! current_user_owns_path "$path"; then
+        echo "calyx_tmp_guard_new_unowned_skipped: path=$path $(path_stat_summary "$path")" >&2
+        skipped_unowned=$((skipped_unowned + 1))
+        continue
+      fi
       remove_owned_path "$path"
       removed=$((removed + 1))
     fi
   done < <(list_owned)
   echo "calyx_tmp_guard_new_removed=$removed"
+  echo "calyx_tmp_guard_new_unowned_skipped=$skipped_unowned"
 }
 
 inode_snapshot() {

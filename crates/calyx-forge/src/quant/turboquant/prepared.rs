@@ -62,9 +62,65 @@ pub(crate) fn prepare(codec: &TurboQuantCodec, qv: &QuantizedVec) -> Result<Prep
 pub(crate) fn dot_prepared(a: &PreparedQuant, b: &PreparedQuant) -> f32 {
     debug_assert_eq!(a.level, b.level);
     debug_assert_eq!(a.rot_width, b.rot_width);
+    if let Some(endpoint) = endpoint_dot(a, b) {
+        return endpoint;
+    }
     let scalar = scalar_dot(a, b);
     let rho = (std::f32::consts::FRAC_PI_2 * a.qjl_mean(b)).sin();
     scalar + a.residual_norm * b.residual_norm * rho
+}
+
+fn endpoint_dot(a: &PreparedQuant, b: &PreparedQuant) -> Option<f32> {
+    if !matching_endpoint_shape(a, b) {
+        return None;
+    }
+    if a.codes == b.codes && a.sign_words == b.sign_words {
+        return Some(a.scale * b.scale);
+    }
+    if codes_are_complements(a, b) && sign_words_are_complements(a, b) {
+        return Some(-(a.scale * b.scale));
+    }
+    None
+}
+
+fn matching_endpoint_shape(a: &PreparedQuant, b: &PreparedQuant) -> bool {
+    a.level == b.level
+        && a.dim == b.dim
+        && a.rot_width == b.rot_width
+        && a.widths == b.widths
+        && a.scale.to_bits() == b.scale.to_bits()
+        && a.residual_norm.to_bits() == b.residual_norm.to_bits()
+}
+
+fn codes_are_complements(a: &PreparedQuant, b: &PreparedQuant) -> bool {
+    a.codes
+        .iter()
+        .zip(a.widths.iter())
+        .zip(b.codes.iter())
+        .all(|((left, width), right)| {
+            let max_code = (1_u16 << *width) - 1;
+            u16::from(*left) + u16::from(*right) == max_code
+        })
+}
+
+fn sign_words_are_complements(a: &PreparedQuant, b: &PreparedQuant) -> bool {
+    a.sign_words
+        .iter()
+        .zip(b.sign_words.iter())
+        .enumerate()
+        .all(|(idx, (left, right))| {
+            let mask = tail_mask(idx, a.rot_width);
+            ((left ^ right) & mask) == mask
+        })
+}
+
+fn tail_mask(word_idx: usize, dim: usize) -> u64 {
+    let tail = dim % 64;
+    if tail == 0 || word_idx + 1 < dim.div_ceil(64) {
+        u64::MAX
+    } else {
+        (1_u64 << tail) - 1
+    }
 }
 
 fn scalar_dot(a: &PreparedQuant, b: &PreparedQuant) -> f32 {

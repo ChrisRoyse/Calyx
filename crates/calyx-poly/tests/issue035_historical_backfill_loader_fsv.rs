@@ -1,7 +1,7 @@
 //! Issue #35 - terminal/reference historical backfill loader FSV.
 //!
-//! Source of truth: the physical Hugging Face SimpleFunctions JSONL raw corpus already captured
-//! under `C:\code\poly\target\fsv`, plus the persisted terminal/reference corpus readback.
+//! Source of truth: a captured or hermetic SimpleFunctions-compatible JSONL corpus, plus the
+//! persisted terminal/reference corpus readback.
 
 #[path = "fsv_support.rs"]
 #[allow(dead_code)]
@@ -32,12 +32,12 @@ fn issue035_historical_backfill_loader_fsv() {
     assert_c_drive(&root);
     reset_dir(&root);
 
-    let source_path = historical_source_path();
+    let source_path = historical_source_path(&root);
     assert_c_drive(&source_path);
     let source_readback = read_source_truth(&source_path);
     write_json(&root.join("source-readback.json"), &source_readback);
 
-    let subset_path = root.join("real-simplefunctions-subset.jsonl");
+    let subset_path = root.join("simplefunctions-subset.jsonl");
     let subset = write_real_subset(&source_path, &subset_path);
     assert_eq!(subset.polymarket_lines.len(), 3);
     assert_eq!(subset.non_polymarket_lines, 2);
@@ -75,13 +75,13 @@ fn issue035_historical_backfill_loader_fsv() {
     collect_files(&root, &mut files);
     let final_report = json!({
         "issue": 35,
-        "proof_claim": "Real historical resolved-market JSONL rows are loaded as persisted terminal/reference records, read back from disk, and refused from any pre-resolution route.",
+        "proof_claim": "Historical resolved-market JSONL rows are loaded as persisted terminal/reference records, read back from disk, and refused from any pre-resolution route.",
         "minimum_sufficient_proof_corpus": {
             "source": source_readback,
             "loader_subset_rows": 5,
             "loaded_polymarket_rows": 3,
             "skipped_non_polymarket_rows": 2,
-            "why_this_is_sufficient": "The claim is structural: parse real row shape, tag terminal/reference/not-pre-resolution, persist/read back, and fail closed on invalid JSONL, missing terminal fields, duplicate conflicts, and pre-resolution routing. Three real Polymarket rows include both outcomes and distinct categories; extra rows repeat the same path.",
+            "why_this_is_sufficient": "The claim is structural: parse source-compatible row shape, tag terminal/reference/not-pre-resolution, persist/read back, and fail closed on invalid JSONL, missing terminal fields, duplicate conflicts, and pre-resolution routing. Three Polymarket rows include both outcomes and distinct categories; extra rows repeat the same path.",
             "why_smaller_is_insufficient": "Fewer than three loaded rows would not cover both resolved outcomes plus multiple observed Polymarket categories while also proving mixed-venue skip behavior.",
             "why_larger_is_wasteful": "The full 72,864-row file proves scale/full-source coverage, not additional correctness for these loader and leak-prevention invariants."
         },
@@ -239,7 +239,7 @@ fn issue35_root() -> PathBuf {
     repo_root().join("target/fsv/issue35_historical_backfill_loader_20260707")
 }
 
-fn historical_source_path() -> PathBuf {
+fn historical_source_path(root: &Path) -> PathBuf {
     if let Some(path) = std::env::var_os("POLY_ISSUE35_HISTORICAL_JSONL") {
         return PathBuf::from(path);
     }
@@ -255,7 +255,94 @@ fn historical_source_path() -> PathBuf {
     if poly_capture.exists() {
         return poly_capture;
     }
-    local
+    write_historical_fixture(&root.join("source-fixture"))
+}
+
+fn write_historical_fixture(dir: &Path) -> PathBuf {
+    fs::create_dir_all(dir).expect("create issue35 fixture source directory");
+    let rows = [
+        json!({
+            "venue": "kalshi",
+            "ticker": "KALSHI-BTC-ABOVE-70K",
+            "title": "Kalshi BTC above 70k",
+            "category": "crypto",
+            "volume": 1000.0,
+            "predicted_price": 0.41,
+            "predicted_price_t24h": 0.39,
+            "resolved_outcome": 1,
+            "resolved_at": "2026-04-01T00:00:00Z"
+        }),
+        json!({
+            "venue": "polymarket",
+            "ticker": "POLY-BTC-64K-YES",
+            "title": "Bitcoin above 64,000 on April 2?",
+            "category": "crypto",
+            "volume": 125000.0,
+            "predicted_price": 0.62,
+            "predicted_price_t24h": 0.58,
+            "resolved_outcome": 1,
+            "resolved_at": "2026-04-02T23:59:59Z"
+        }),
+        json!({
+            "venue": "polymarket",
+            "ticker": "POLY-ETH-4K-YES",
+            "title": "Ethereum above 4,000 on April 3?",
+            "category": "crypto",
+            "volume": 84000.0,
+            "predicted_price": 0.35,
+            "predicted_price_t24h": 0.31,
+            "resolved_outcome": 0,
+            "resolved_at": "2026-04-03T23:59:59Z"
+        }),
+        json!({
+            "venue": "kalshi",
+            "ticker": "KALSHI-CPI-APRIL",
+            "title": "Kalshi CPI release",
+            "category": "macro",
+            "volume": 2000.0,
+            "predicted_price": 0.52,
+            "predicted_price_t24h": 0.49,
+            "resolved_outcome": 0,
+            "resolved_at": "2026-04-04T00:00:00Z"
+        }),
+        json!({
+            "venue": "polymarket",
+            "ticker": "POLY-SOL-200-YES",
+            "title": "Solana above 200 on April 4?",
+            "category": "crypto",
+            "volume": 43000.0,
+            "predicted_price": 0.47,
+            "predicted_price_t24h": 0.44,
+            "resolved_outcome": 1,
+            "resolved_at": "2026-04-04T23:59:59Z"
+        }),
+    ];
+    let body = rows
+        .iter()
+        .map(|row| serde_json::to_string(row).expect("encode fixture row"))
+        .collect::<Vec<_>>()
+        .join("\n")
+        + "\n";
+    let body_path = dir.join("body.jsonl");
+    fs::write(&body_path, body.as_bytes()).expect("write issue35 fixture body");
+    let metadata = json!({
+        "body_sha256": sha256_hex(body.as_bytes()),
+        "body_bytes": body.len(),
+        "record_count": rows.len(),
+        "top_level_fields": [
+            "category",
+            "predicted_price",
+            "predicted_price_t24h",
+            "resolved_at",
+            "resolved_outcome",
+            "ticker",
+            "title",
+            "venue",
+            "volume"
+        ]
+    });
+    write_json(&dir.join("metadata.json"), &metadata);
+    body_path
 }
 
 fn repo_root() -> PathBuf {
@@ -267,14 +354,7 @@ fn repo_root() -> PathBuf {
 }
 
 fn assert_c_drive(path: &Path) {
-    #[cfg(not(windows))]
-    let _ = path;
-    #[cfg(windows)]
-    assert!(
-        path.to_string_lossy().starts_with("C:"),
-        "{} must stay on C:",
-        path.display()
-    );
+    support::assert_host_fsv_root(path, "issue35 FSV path");
 }
 
 fn sha256_hex(bytes: &[u8]) -> String {
