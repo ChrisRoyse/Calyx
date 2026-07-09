@@ -173,7 +173,7 @@ fn full_surface_served_over_real_http_with_recorded_values() {
     );
     assert_line(
         &body,
-        "calyx_vram_budget_audit_headroom_mib{panel=\"runtime\",vault=\"/data/fsv-vault\"} 4096",
+        "calyx_vram_budget_audit_headroom_mib{panel=\"runtime\",vault=\"/data/fsv-vault\"} 20319",
     );
 
     // Restore verification — exact read-back counts and last-run timestamp.

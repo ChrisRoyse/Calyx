@@ -199,7 +199,7 @@ impl CalyxMetrics {
             IntGaugeVec::new(
                 Opts::new(
                     "calyx_vram_budget_audit_headroom_mib",
-                    "Configured Calyx VRAM budget minus resident footprint at audit time, in MiB",
+                    "Device VRAM headroom remaining after resident footprint plus configured Calyx budget, in MiB",
                 ),
                 &["vault", "panel"],
             )

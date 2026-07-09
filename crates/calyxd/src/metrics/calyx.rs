@@ -222,7 +222,12 @@ impl CalyxMetrics {
         let resident_mib = i64::from(audit.tei_used_mib);
         let budget_mib = i64::from(audit.calyx_budget_mib);
         let device_total_mib = i64::from(audit.device_total_mib);
-        let headroom_mib = i64::from(audit.calyx_budget_mib.saturating_sub(audit.tei_used_mib));
+        let headroom_mib = i64::from(
+            audit
+                .device_total_mib
+                .saturating_sub(audit.tei_used_mib)
+                .saturating_sub(audit.calyx_budget_mib),
+        );
         self.set_vram_budget(resident_mib, budget_mib);
         self.vram_audit_resident_mib
             .with_label_values(&[vault, panel])

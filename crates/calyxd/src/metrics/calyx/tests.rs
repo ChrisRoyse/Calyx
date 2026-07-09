@@ -97,7 +97,7 @@ fn vram_audit_records_labeled_nvml_readback() {
         );
     assert!(
         text.contains(
-            "calyx_vram_budget_audit_headroom_mib{panel=\"runtime\",vault=\"/data/vault-a\"} 4096"
+            "calyx_vram_budget_audit_headroom_mib{panel=\"runtime\",vault=\"/data/vault-a\"} 20319"
         ),
         "{text}"
     );
