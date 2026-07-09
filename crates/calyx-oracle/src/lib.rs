@@ -4,6 +4,7 @@ mod butterfly;
 mod complete;
 mod energy;
 mod error;
+mod evidence;
 mod evidence_error;
 mod honesty_gate;
 mod prd22;

@@ -171,8 +171,15 @@ impl AssayStore {
     where
         C: Clock,
     {
+        Self::load_from_vault_at(vault, vault.snapshot())
+    }
+
+    pub fn load_from_vault_at<C>(vault: &AsterVault<C>, snapshot: u64) -> Result<Self>
+    where
+        C: Clock,
+    {
         let mut store = Self::default();
-        for (key, value) in vault.scan_cf_at(vault.snapshot(), ColumnFamily::Assay)? {
+        for (key, value) in vault.scan_cf_at(snapshot, ColumnFamily::Assay)? {
             store.insert_aster_row(key, value)?;
         }
         Ok(store)

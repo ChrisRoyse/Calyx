@@ -7,7 +7,7 @@ use calyx_assay::{
     TrustTag, panel_sufficiency_from_estimate_with_context, per_sensor_attribution,
 };
 use calyx_aster::vault::AsterVault;
-use calyx_core::{AnchorKind, CalyxError, Clock, LensId, Panel, SlotId};
+use calyx_core::{AnchorKind, CalyxError, Clock, LensId, Panel, SlotId, VaultId};
 
 use crate::{DomainId, OracleError, SufficiencyBound};
 
@@ -66,6 +66,17 @@ where
     }
 }
 
+pub(crate) fn check_sufficiency_with_store(
+    store: &AssayStore,
+    vault_id: VaultId,
+    panel: &Panel,
+    domain: DomainId,
+    clock: &dyn Clock,
+) -> Result<SufficiencyBound, OracleError> {
+    let assay = StoreSufficiencyAssay { store, vault_id };
+    check_sufficiency_with_assay(&assay, panel, domain, clock)
+}
+
 pub struct VaultSufficiencyAssay<'a, C>
 where
     C: Clock,
@@ -82,6 +93,22 @@ where
     }
 }
 
+struct StoreSufficiencyAssay<'a> {
+    store: &'a AssayStore,
+    vault_id: VaultId,
+}
+
+impl SufficiencyAssay for StoreSufficiencyAssay<'_> {
+    fn panel_sufficiency(
+        &self,
+        panel: &Panel,
+        domain: &DomainId,
+        clock: &dyn Clock,
+    ) -> Result<PanelSufficiency, OracleError> {
+        panel_sufficiency_from_store(self.store, self.vault_id, panel, domain, clock)
+    }
+}
+
 impl<C> SufficiencyAssay for VaultSufficiencyAssay<'_, C>
 where
     C: Clock,
@@ -93,41 +120,46 @@ where
         clock: &dyn Clock,
     ) -> Result<PanelSufficiency, OracleError> {
         let store = AssayStore::load_from_vault(self.vault).map_err(OracleError::from)?;
-        let key = AssayCacheKey::scoped(
-            panel.version,
-            domain.as_str(),
-            self.vault.vault_id(),
-            AnchorKind::Reward,
-        );
-        let panel_estimate = &required_row(&store, &key, &AssaySubject::Panel)?.estimate;
-        let outcome_entropy_bits = bits(
-            required_row(&store, &key, &AssaySubject::OutcomeEntropy)?,
-            "outcome entropy",
-        )?;
-        let slot_bits = panel
-            .slots
-            .iter()
-            .map(|slot| {
-                let row = required_row(&store, &key, &AssaySubject::Lens { slot: slot.slot_id })?;
-                Ok((slot.slot_id, bits(row, "lens")?))
-            })
-            .collect::<Result<Vec<_>, OracleError>>()?;
-
-        let attributions = per_sensor_attribution(&slot_bits, SOLE_CARRIER_BITS);
-        panel_sufficiency_from_estimate_with_context(
-            panel_estimate,
-            outcome_entropy_bits,
-            &attributions,
-            trust(&store, &key),
-            DeficitRoutingContext {
-                panel_id: format!("oracle:{domain}:panel:{}", panel.version),
-                anchor: AnchorKind::Reward,
-                computed_at_seq: clock.now(),
-                observation_scope: None,
-            },
-        )
-        .map_err(OracleError::from)
+        panel_sufficiency_from_store(&store, self.vault.vault_id(), panel, domain, clock)
     }
+}
+
+fn panel_sufficiency_from_store(
+    store: &AssayStore,
+    vault_id: VaultId,
+    panel: &Panel,
+    domain: &DomainId,
+    clock: &dyn Clock,
+) -> Result<PanelSufficiency, OracleError> {
+    let key = AssayCacheKey::scoped(panel.version, domain.as_str(), vault_id, AnchorKind::Reward);
+    let panel_estimate = &required_row(store, &key, &AssaySubject::Panel)?.estimate;
+    let outcome_entropy_bits = bits(
+        required_row(store, &key, &AssaySubject::OutcomeEntropy)?,
+        "outcome entropy",
+    )?;
+    let slot_bits = panel
+        .slots
+        .iter()
+        .map(|slot| {
+            let row = required_row(store, &key, &AssaySubject::Lens { slot: slot.slot_id })?;
+            Ok((slot.slot_id, bits(row, "lens")?))
+        })
+        .collect::<Result<Vec<_>, OracleError>>()?;
+
+    let attributions = per_sensor_attribution(&slot_bits, SOLE_CARRIER_BITS);
+    panel_sufficiency_from_estimate_with_context(
+        panel_estimate,
+        outcome_entropy_bits,
+        &attributions,
+        trust(store, &key),
+        DeficitRoutingContext {
+            panel_id: format!("oracle:{domain}:panel:{}", panel.version),
+            anchor: AnchorKind::Reward,
+            computed_at_seq: clock.now(),
+            observation_scope: None,
+        },
+    )
+    .map_err(OracleError::from)
 }
 
 fn required_row<'a>(

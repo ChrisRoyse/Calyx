@@ -16,6 +16,8 @@ use calyx_core::{
 use proptest::prelude::*;
 use serde_json::json;
 
+use crate::ORACLE_DOMAIN_METADATA_KEY;
+
 use super::*;
 use crate::{
     CALYX_ORACLE_EVIDENCE_CORRUPT, CALYX_ORACLE_INSUFFICIENT, CALYX_ORACLE_LEDGER_WRITE_FAILURE,
@@ -24,6 +26,9 @@ use crate::{
 
 const DOMAIN: &str = "issue432";
 const ACTION: &str = "action_A";
+
+#[path = "predict_tests/issue1345.rs"]
+mod issue1345;
 
 #[test]
 fn action_a_twenty_pass_observations_predict_pass_under_ceiling() {
@@ -59,6 +64,10 @@ fn action_a_twenty_pass_observations_predict_pass_under_ceiling() {
     let payload = ledger_payload(&vault, prediction.provenance);
     assert_eq!(payload["tag"], LEDGER_TAG);
     assert_eq!(payload["recurrence_observations"], 20);
+    assert_eq!(payload["evidence_assay_scans"], 1);
+    assert_eq!(payload["evidence_base_scans"], 1);
+    assert!(payload["evidence_snapshot"].as_u64().is_some());
+    assert_eq!(payload["source_cx_ids"].as_array().unwrap().len(), 20);
 }
 
 #[test]
