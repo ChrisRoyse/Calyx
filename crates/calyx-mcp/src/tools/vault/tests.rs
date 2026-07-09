@@ -248,3 +248,41 @@ fn add_lens_tei_http_without_endpoint_fails_closed() {
     assert_eq!(data["calyx_code"], "CALYX_LENS_UNREACHABLE");
     assert_eq!(data["remediation"], "restore lens service");
 }
+
+#[test]
+fn profile_lens_without_probe_is_invalid_params() {
+    let _env = TestEnv::new("profile-no-probe");
+    let server = server();
+
+    let error = call_err(
+        &server,
+        11,
+        "calyx.profile_lens",
+        json!({"runtime": "algorithmic"}),
+    );
+
+    assert_eq!(error.code, -32602);
+    assert!(error.message.contains("requires an explicit probe set"));
+}
+
+#[test]
+fn profile_lens_malformed_json_probe_is_invalid_params() {
+    let _env = TestEnv::new("profile-bad-json");
+    let server = server();
+    let probe_path = std::env::temp_dir().join(format!(
+        "calyx-mcp-profile-bad-json-{}.jsonl",
+        std::process::id()
+    ));
+    fs::write(&probe_path, "{\"input\":\"unterminated\"\n").expect("write bad probe");
+
+    let error = call_err(
+        &server,
+        12,
+        "calyx.profile_lens",
+        json!({"runtime": "algorithmic", "probe": probe_path}),
+    );
+    let _ = fs::remove_file(&probe_path);
+
+    assert_eq!(error.code, -32602);
+    assert!(error.message.contains("parse profile probe JSONL"));
+}

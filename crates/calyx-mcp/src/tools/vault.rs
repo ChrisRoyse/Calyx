@@ -287,7 +287,7 @@ impl Tool for ProfileLensTool {
                 ),
                 ("endpoint", string_schema(), false),
                 ("weights", string_schema(), false),
-                ("probe", string_schema(), false),
+                ("probe", string_schema(), true),
                 (
                     "modality",
                     enum_string(&[

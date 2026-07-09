@@ -328,7 +328,7 @@ impl Lens for DeclaredLens {
 }
 
 fn profile_probes(path: Option<&str>, modality: Modality) -> ToolResult<Vec<ProfileProbe>> {
-    let values = if let Some(path) = path {
+    if let Some(path) = path {
         let text = fs::read_to_string(path)
             .map_err(|err| CalyxError::lens_unreachable(format!("read probe set failed: {err}")))?;
         let mut probes = Vec::new();
@@ -343,16 +343,10 @@ fn profile_probes(path: Option<&str>, modality: Modality) -> ToolResult<Vec<Prof
             Ok(probes)
         };
     } else {
-        vec![
-            "calyx profile alpha".to_string(),
-            "calyx profile beta".to_string(),
-            "calyx profile gamma".to_string(),
-        ]
-    };
-    Ok(values
-        .into_iter()
-        .map(|value| ProfileProbe::new(Input::new(modality, value.into_bytes())))
-        .collect())
+        Err(ToolError::invalid_params(
+            "profile_lens requires an explicit probe set",
+        ))
+    }
 }
 
 fn profile_probe_from_line(line: &str, modality: Modality) -> ToolResult<ProfileProbe> {
@@ -378,9 +372,81 @@ fn profile_probe_from_line(line: &str, modality: Modality) -> ToolResult<Profile
         Ok(_) => Err(ToolError::invalid_params(
             "profile probe JSONL must be a string or object",
         )),
+        Err(error) if starts_like_json(line) => Err(ToolError::invalid_params(format!(
+            "parse profile probe JSONL: {error}"
+        ))),
         Err(_) => Ok(ProfileProbe::new(Input::new(
             modality,
             line.as_bytes().to_vec(),
         ))),
+    }
+}
+
+fn starts_like_json(line: &str) -> bool {
+    matches!(
+        line.as_bytes().first(),
+        Some(b'{') | Some(b'[') | Some(b'"')
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn profile_lens_requires_explicit_probe_set() {
+        let error = profile_probes(None, Modality::Text).unwrap_err();
+
+        match error {
+            ToolError::InvalidParams(message) => {
+                assert!(message.contains("requires an explicit probe set"));
+            }
+            other => panic!("expected invalid params, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn malformed_json_probe_line_fails_closed() {
+        let error = profile_probe_from_line(r#"{"input": "x""#, Modality::Text).unwrap_err();
+
+        match error {
+            ToolError::InvalidParams(message) => {
+                assert!(message.contains("parse profile probe JSONL"));
+            }
+            other => panic!("expected invalid params, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn non_json_raw_probe_line_remains_supported() {
+        let probe = profile_probe_from_line("plain text probe", Modality::Text).unwrap();
+
+        assert_eq!(probe.input.modality, Modality::Text);
+        assert_eq!(probe.input.bytes, b"plain text probe");
+        assert_eq!(probe.label, None);
+    }
+
+    #[test]
+    fn profile_probe_file_accepts_json_and_raw_text() {
+        let path = std::env::temp_dir().join(format!(
+            "calyx-profile-probes-{}-{}.jsonl",
+            std::process::id(),
+            "json-and-raw"
+        ));
+        fs::write(
+            &path,
+            "{\"input\":\"alpha\",\"label\":\"a\"}\nplain beta\n\"gamma\"\n",
+        )
+        .expect("write probe set");
+
+        let probes = profile_probes(path.to_str(), Modality::Text).unwrap();
+        let _ = fs::remove_file(&path);
+
+        assert_eq!(probes.len(), 3);
+        assert_eq!(probes[0].input.bytes, b"alpha");
+        assert_eq!(probes[0].label.as_deref(), Some("a"));
+        assert_eq!(probes[1].input.bytes, b"plain beta");
+        assert_eq!(probes[1].label, None);
+        assert_eq!(probes[2].input.bytes, b"gamma");
     }
 }
