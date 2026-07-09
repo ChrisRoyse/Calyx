@@ -112,17 +112,10 @@ fn evaluate_corpus(
     let mfvs_size = kernel.members.len();
     ensure_searchable_members(corpus, &mut kernel);
     let initial_kernel_size = kernel.members.len();
-    let raw_recall = recall_for(&kernel, &embeddings, &full, corpus, &recall_params);
-    let raw_passed = raw_recall
-        .as_ref()
-        .is_some_and(|report| passes(report, request.min_ratio));
+    let raw_recall = recall_for(&kernel, &embeddings, &full, corpus, &recall_params)?;
+    let raw_passed = passes(&raw_recall, request.min_ratio);
     let (final_kernel, tuned_added_members, pass_mode, tuned_recall) = if raw_passed {
-        (
-            kernel.clone(),
-            0,
-            RecallPassMode::Raw,
-            raw_recall.clone().expect("raw recall exists"),
-        )
+        (kernel.clone(), 0, RecallPassMode::Raw, raw_recall.clone())
     } else {
         tune_kernel(
             kernel,
@@ -159,7 +152,7 @@ fn evaluate_corpus(
         raw_passed,
         tuned_passed,
         pass_mode,
-        raw_recall,
+        raw_recall: Some(raw_recall),
         tuned_recall,
         grounding_gaps: gaps,
     })
@@ -207,7 +200,7 @@ fn tune_kernel(
 ) -> crate::error::CliResult<(Kernel, usize, RecallPassMode, RecallReport)> {
     let initial_count = kernel.members.len();
     let mut members = kernel.members.iter().copied().collect::<BTreeSet<_>>();
-    let mut best = recall_for(&kernel, embeddings, full, corpus, final_params);
+    let mut best = recall_for(&kernel, embeddings, full, corpus, final_params)?;
     for (seed, fraction) in TRAINING_ROUNDS {
         let params = RecallTestParams {
             rng_seed: *seed,
@@ -217,25 +210,16 @@ fn tune_kernel(
         add_full_hits(&mut members, full, corpus, &params)?;
         kernel.members = members.iter().copied().collect();
         kernel.kernel_id = kernel_id(&corpus.name, &kernel.members);
-        best = recall_for(&kernel, embeddings, full, corpus, final_params);
-        if best
-            .as_ref()
-            .is_some_and(|report| passes(report, min_ratio))
-        {
+        best = recall_for(&kernel, embeddings, full, corpus, final_params)?;
+        if passes(&best, min_ratio) {
             break;
         }
     }
-    let report = best.ok_or_else(|| {
-        CliError::runtime(format!(
-            "{BELOW_GATE_CODE}: corpus={} ratio=0.000000",
-            corpus.name
-        ))
-    })?;
     Ok((
         kernel,
         members.len().saturating_sub(initial_count),
         RecallPassMode::Tuned,
-        report,
+        best,
     ))
 }
 
@@ -245,15 +229,15 @@ fn recall_for(
     full: &InMemoryAnnIndex,
     corpus: &GraphCorpus,
     params: &RecallTestParams,
-) -> Option<RecallReport> {
-    let index = build_kernel_index(kernel, embeddings).ok()?;
+) -> crate::error::CliResult<RecallReport> {
+    let index = build_kernel_index(kernel, embeddings)?;
     kernel_recall_test(
         &index,
         full,
         &InMemoryCorpus::new(corpus.name.clone(), corpus.rows.clone()),
         params,
     )
-    .ok()
+    .map_err(Into::into)
 }
 
 fn add_full_hits(

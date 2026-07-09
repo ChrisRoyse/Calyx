@@ -75,12 +75,18 @@ pub(super) fn load_hypotheses(args: &HypothesisFalsificationArgs) -> CliResult<H
                 required_target_modulation: optional_target_modulation(
                     row,
                     "required_target_modulation",
-                ),
+                    &report_path,
+                )?,
                 observed_target_modulation: optional_target_modulation(
                     row,
                     "observed_target_modulation",
-                ),
-                mutation_consequence: optional_mutation_consequence(row, "mutation_consequence"),
+                    &report_path,
+                )?,
+                mutation_consequence: optional_mutation_consequence(
+                    row,
+                    "mutation_consequence",
+                    &report_path,
+                )?,
                 direction_reason_codes: string_array(row, "direction_reason_codes", usize::MAX),
             };
             if hypothesis.hypothesis_id.is_empty() {
@@ -401,14 +407,36 @@ fn string_array(value: &Value, key: &str, max: usize) -> Vec<String> {
     }
 }
 
-fn optional_target_modulation(value: &Value, key: &str) -> Option<TargetModulation> {
-    let raw = value.get(key)?;
-    serde_json::from_value(raw.clone()).ok().flatten()
+fn optional_target_modulation(
+    value: &Value,
+    key: &str,
+    report_path: &Path,
+) -> CliResult<Option<TargetModulation>> {
+    let Some(raw) = value.get(key) else {
+        return Ok(None);
+    };
+    serde_json::from_value(raw.clone()).map_err(|error| {
+        CliError::runtime(format!(
+            "CALYX_FALSIFY_MALFORMED_DIRECTION_FIELD: report={} field={key} error={error}",
+            report_path.display()
+        ))
+    })
 }
 
-fn optional_mutation_consequence(value: &Value, key: &str) -> Option<MutationConsequence> {
-    let raw = value.get(key)?;
-    serde_json::from_value(raw.clone()).ok().flatten()
+fn optional_mutation_consequence(
+    value: &Value,
+    key: &str,
+    report_path: &Path,
+) -> CliResult<Option<MutationConsequence>> {
+    let Some(raw) = value.get(key) else {
+        return Ok(None);
+    };
+    serde_json::from_value(raw.clone()).map_err(|error| {
+        CliError::runtime(format!(
+            "CALYX_FALSIFY_MALFORMED_DIRECTION_FIELD: report={} field={key} error={error}",
+            report_path.display()
+        ))
+    })
 }
 
 pub(super) fn is_target_disease_hypothesis(hypothesis: &InputHypothesis) -> bool {

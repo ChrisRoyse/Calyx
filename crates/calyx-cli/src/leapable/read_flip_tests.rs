@@ -60,6 +60,28 @@ fn read_flip_is_idempotent_after_calyx_mode() {
 }
 
 #[test]
+fn idempotent_read_flip_rejects_corrupt_receipt_features() {
+    let (root, _sqlite, _vault, mut shadow) = prepared_shadow("bad-receipt", "bad_receipt_db");
+    PanelGuardEnable::enable(&mut shadow, &PanelSpec::default()).unwrap();
+    PanelGuardEnable::enable_kernel(&mut shadow).unwrap();
+    PanelGuardEnable::enable_guard(&mut shadow, 0.72).unwrap();
+    ReadFlip::execute(&mut shadow).unwrap();
+    shadow
+        .set_mode_with_features(
+            VaultMode::Calyx,
+            &[("flip_ledger_hash", "not-hex".to_string())],
+        )
+        .unwrap();
+
+    let error = ReadFlip::execute(&mut shadow).unwrap_err();
+
+    assert_eq!(error.code, "CALYX_VAULT_FLIP_FAILED");
+    assert!(error.message.contains("flip_ledger_hash"));
+    shadow.close().unwrap();
+    cleanup(root);
+}
+
+#[test]
 fn guard_tau_zero_fails_closed() {
     let (root, _sqlite, _vault, mut shadow) = prepared_shadow("tau-zero", "tau_db");
 

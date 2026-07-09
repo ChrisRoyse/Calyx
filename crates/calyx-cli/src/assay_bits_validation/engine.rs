@@ -440,7 +440,12 @@ fn persist_estimates(
             vault_id,
             AnchorKind::Label(format!("target_class_{}", request.target_class)),
         );
-        let slot = SlotId::new(u16::try_from(measurement.index).unwrap_or(u16::MAX));
+        let slot = SlotId::new(u16::try_from(measurement.index).map_err(|_| {
+            format!(
+                "CALYX_FSV_ASSAY_SLOT_INDEX_OVERFLOW: lens index {} exceeds u16 slot id range",
+                measurement.index
+            )
+        })?);
         store.put(
             key,
             AssaySubject::Lens { slot },

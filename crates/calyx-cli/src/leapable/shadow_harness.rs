@@ -446,8 +446,17 @@ fn sync_file(path: &Path) -> Result<(), CalyxError> {
 fn sync_dir(path: &Path) -> Result<(), CalyxError> {
     #[cfg(windows)]
     {
-        let _ = path;
-        Ok(())
+        use std::{fs::OpenOptions, os::windows::fs::OpenOptionsExt};
+
+        use windows_sys::Win32::Storage::FileSystem::FILE_FLAG_BACKUP_SEMANTICS;
+
+        OpenOptions::new()
+            .read(true)
+            .write(true)
+            .custom_flags(FILE_FLAG_BACKUP_SEMANTICS)
+            .open(path)
+            .and_then(|file| file.sync_all())
+            .map_err(|error| vault_sync(format!("sync Windows dir {}: {error}", path.display())))
     }
     #[cfg(not(windows))]
     File::open(path)

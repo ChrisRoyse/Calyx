@@ -89,12 +89,7 @@ fn list_sst_files_for_adoption(dir: &Path) -> CliResult<Vec<PathBuf>> {
             files.push(path);
         }
     }
-    files.sort_by(|left, right| {
-        crate::cf_read::sst_order(left)
-            .cmp(&crate::cf_read::sst_order(right))
-            .then(left.cmp(right))
-    });
-    Ok(files)
+    crate::cf_read::order_sst_files(files)
 }
 
 fn durable_input_is_manifest_bounded(path: &Path, durable_seq: u64) -> bool {

@@ -1,4 +1,3 @@
-use std::cmp::Ordering;
 use std::path::{Path, PathBuf};
 
 use calyx_aster::cf::ColumnFamily;
@@ -12,10 +11,16 @@ use super::panel_guard_enable::{PanelGuardEnable, PanelSpec};
 use super::shadow_harness::read_shadow_manifest;
 use super::{ShadowVault, VaultMode};
 use crate::error::{CliError, CliResult};
-use crate::migrate::adapter::{BASE_SLOT, METADATA_GTE_LENS_ID};
+use crate::migrate::adapter::BASE_SLOT;
 use crate::migrate::manifest::{MigrationManifest, hex_decode, hex_encode};
 use crate::migrate::{self};
 use crate::output::print_json;
+
+mod ask;
+
+#[cfg(test)]
+pub(crate) use ask::Hit;
+pub(crate) use ask::{AskResult, ask_calyx};
 
 pub(crate) const CALYX_VAULT_FLIP_FAILED: &str = "CALYX_VAULT_FLIP_FAILED";
 pub(crate) const CALYX_INVALID_ASK_QUERY: &str = "CALYX_INVALID_ASK_QUERY";
@@ -28,31 +33,6 @@ pub(crate) struct FlipReceipt {
     pub(crate) kernel_enabled: bool,
     pub(crate) guard_enabled: bool,
     pub(crate) ledger_ref: LedgerRef,
-}
-
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub(crate) struct LensProvenance {
-    pub(crate) slot_id: u16,
-    pub(crate) lens_id: String,
-    pub(crate) ledger_ref: LedgerRef,
-}
-
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub(crate) struct Hit {
-    pub(crate) rank: usize,
-    pub(crate) chunk_id: String,
-    pub(crate) database_name: String,
-    pub(crate) cx_id: String,
-    pub(crate) score: f64,
-    pub(crate) ledger_ref: LedgerRef,
-    pub(crate) per_lens_provenance: Vec<LensProvenance>,
-}
-
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub(crate) struct AskResult {
-    pub(crate) mode: VaultMode,
-    pub(crate) top_k: usize,
-    pub(crate) hits: Vec<Hit>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
@@ -182,68 +162,6 @@ pub(crate) fn run_ask(args: &[String]) -> CliResult {
     print_json(&result)
 }
 
-pub(crate) fn ask_calyx(
-    calyx_dir: &Path,
-    mode: VaultMode,
-    query_vec: &[f32],
-    top_k: usize,
-) -> Result<AskResult, CalyxError> {
-    validate_query(query_vec, top_k)?;
-    let (aster, _manifest) = open_aster(calyx_dir)?;
-    let snapshot = aster.snapshot();
-    let mut hits = Vec::new();
-    for (_key, bytes) in aster.scan_cf_at(snapshot, ColumnFamily::Base)? {
-        let cx = decode_constellation_base(&bytes)?;
-        let Some(SlotVector::Dense { dim, data }) =
-            aster.read_slot_vector_at(snapshot, cx.cx_id, BASE_SLOT)?
-        else {
-            continue;
-        };
-        if dim as usize != query_vec.len() || data.len() != query_vec.len() {
-            return Err(error(
-                CALYX_INVALID_ASK_QUERY,
-                format!(
-                    "query dim {} does not match base slot dim {dim}",
-                    query_vec.len()
-                ),
-                "ask with a finite query vector matching the vault base slot dimension",
-            ));
-        }
-        let chunk_id = cx.chunk_id().unwrap_or("").to_string();
-        let database_name = cx.database_name().unwrap_or("").to_string();
-        let lens_id = cx
-            .metadata
-            .get(METADATA_GTE_LENS_ID)
-            .cloned()
-            .unwrap_or_else(|| "unknown".to_string());
-        hits.push(Hit {
-            rank: 0,
-            chunk_id,
-            database_name,
-            cx_id: cx.cx_id.to_string(),
-            score: cosine(query_vec, &data),
-            ledger_ref: cx.provenance.clone(),
-            per_lens_provenance: vec![LensProvenance {
-                slot_id: BASE_SLOT.get(),
-                lens_id,
-                ledger_ref: cx.provenance,
-            }],
-        });
-    }
-    hits.sort_by(|left, right| {
-        right
-            .score
-            .partial_cmp(&left.score)
-            .unwrap_or(Ordering::Equal)
-            .then_with(|| left.chunk_id.cmp(&right.chunk_id))
-    });
-    hits.truncate(top_k);
-    for (idx, hit) in hits.iter_mut().enumerate() {
-        hit.rank = idx + 1;
-    }
-    Ok(AskResult { mode, top_k, hits })
-}
-
 fn open_aster(
     calyx_dir: &Path,
 ) -> Result<(calyx_aster::vault::AsterVault, MigrationManifest), CalyxError> {
@@ -259,15 +177,15 @@ fn existing_receipt(vault: &ShadowVault) -> Result<Option<FlipReceipt>, CalyxErr
         return Ok(None);
     };
     let ledger_ref = LedgerRef {
-        seq: parse_u64(&readback.features, "flip_ledger_seq").unwrap_or(0),
-        hash: parse_hash(&readback.features, "flip_ledger_hash").unwrap_or([0; 32]),
+        seq: parse_required_u64(&readback.features, "flip_ledger_seq")?,
+        hash: parse_required_hash(&readback.features, "flip_ledger_hash")?,
     };
     Ok(Some(FlipReceipt {
         database_name: readback.database_name,
         flipped_at_seq,
-        panel_lens_count: parse_usize(&readback.features, "panel_lens_count").unwrap_or(0),
-        kernel_enabled: feature_bool(&readback.features, "kernel_enabled"),
-        guard_enabled: feature_bool(&readback.features, "guard_enabled"),
+        panel_lens_count: parse_required_usize(&readback.features, "panel_lens_count")?,
+        kernel_enabled: parse_required_bool(&readback.features, "kernel_enabled")?,
+        guard_enabled: parse_required_bool(&readback.features, "guard_enabled")?,
         ledger_ref,
     }))
 }
@@ -462,9 +380,59 @@ fn parse_usize(map: &std::collections::BTreeMap<String, String>, key: &str) -> O
     map.get(key)?.parse().ok()
 }
 
-fn parse_hash(map: &std::collections::BTreeMap<String, String>, key: &str) -> Option<[u8; 32]> {
-    let bytes = hex_decode(map.get(key)?).ok()?;
-    bytes.try_into().ok()
+fn parse_required_u64(
+    map: &std::collections::BTreeMap<String, String>,
+    key: &str,
+) -> Result<u64, CalyxError> {
+    let raw = required_feature(map, key)?;
+    raw.parse()
+        .map_err(|error| flip_failed(format!("parse MANIFEST feature {key}={raw:?}: {error}")))
+}
+
+fn parse_required_usize(
+    map: &std::collections::BTreeMap<String, String>,
+    key: &str,
+) -> Result<usize, CalyxError> {
+    let raw = required_feature(map, key)?;
+    raw.parse()
+        .map_err(|error| flip_failed(format!("parse MANIFEST feature {key}={raw:?}: {error}")))
+}
+
+fn parse_required_bool(
+    map: &std::collections::BTreeMap<String, String>,
+    key: &str,
+) -> Result<bool, CalyxError> {
+    match required_feature(map, key)? {
+        "true" => Ok(true),
+        "false" => Ok(false),
+        raw => Err(flip_failed(format!(
+            "parse MANIFEST feature {key}={raw:?}: expected true or false"
+        ))),
+    }
+}
+
+fn parse_required_hash(
+    map: &std::collections::BTreeMap<String, String>,
+    key: &str,
+) -> Result<[u8; 32], CalyxError> {
+    let raw = required_feature(map, key)?;
+    let bytes = hex_decode(raw)
+        .map_err(|error| flip_failed(format!("parse MANIFEST feature {key}: {error}")))?;
+    bytes.try_into().map_err(|bytes: Vec<u8>| {
+        flip_failed(format!(
+            "parse MANIFEST feature {key}: expected 32 bytes, got {}",
+            bytes.len()
+        ))
+    })
+}
+
+fn required_feature<'a>(
+    map: &'a std::collections::BTreeMap<String, String>,
+    key: &str,
+) -> Result<&'a str, CalyxError> {
+    map.get(key)
+        .map(String::as_str)
+        .ok_or_else(|| flip_failed(format!("MANIFEST missing read-flip feature {key}")))
 }
 
 fn flip_failed(message: impl Into<String>) -> CalyxError {

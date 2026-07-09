@@ -1,6 +1,9 @@
 use std::collections::BTreeMap;
 
-use calyx_core::{CxId, LedgerRef, SlotId};
+use calyx_core::{
+    Anchor, AnchorKind, AnchorValue, Constellation, CxFlags, CxId, InputRef, LedgerRef, Modality,
+    SlotId, VaultId,
+};
 use calyx_sextant::{CausalConfidence, FreshnessTag, Hit, PerLensContribution, ProvenanceSource};
 use proptest::prelude::*;
 
@@ -70,6 +73,18 @@ fn kernel_answer_ungrounded_error_mentions_remediation() {
 
     assert_eq!(err.code(), "CALYX_KERNEL_UNGROUNDED");
     assert!(json.contains("add anchors"));
+}
+
+#[test]
+fn kernel_answer_rejects_unmatched_grounded_fallback() {
+    let grounded = cx(2);
+    let mut docs = BTreeMap::new();
+    docs.insert(grounded, anchored_doc(grounded));
+
+    let err = engine::kernel_report_from_docs(&docs, &[sample_hit(cx(9))], None).unwrap_err();
+
+    assert_eq!(err.code(), "CALYX_KERNEL_UNGROUNDED");
+    assert!(err.message().contains("no grounded hits"));
 }
 
 #[test]
@@ -179,6 +194,36 @@ fn sample_hit(cx_id: CxId) -> Hit {
 
 fn cx(seed: u8) -> CxId {
     CxId::from_bytes([seed; 16])
+}
+
+fn anchored_doc(cx_id: CxId) -> Constellation {
+    Constellation {
+        cx_id,
+        vault_id: VaultId::from_ulid(ulid::Ulid::from_bytes([1; 16])),
+        panel_version: 1,
+        created_at: 1,
+        input_ref: InputRef {
+            hash: [3; 32],
+            pointer: None,
+            redacted: false,
+        },
+        modality: Modality::Text,
+        slots: BTreeMap::new(),
+        scalars: BTreeMap::new(),
+        metadata: BTreeMap::new(),
+        anchors: vec![Anchor {
+            kind: AnchorKind::TestPass,
+            value: AnchorValue::Bool(true),
+            source: "unit-test".to_string(),
+            observed_at: 1,
+            confidence: 1.0,
+        }],
+        provenance: LedgerRef {
+            seq: 1,
+            hash: [4; 32],
+        },
+        flags: CxFlags::default(),
+    }
 }
 
 fn tokens<const N: usize>(items: [&str; N]) -> Vec<String> {

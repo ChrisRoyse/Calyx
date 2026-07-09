@@ -361,14 +361,17 @@ pub(super) fn kernel_report_from_docs(
     if grounded.is_empty() {
         return Err(CalyxError::kernel_ungrounded("kernel-answer has no grounded anchors").into());
     }
-    let mut kernel_ids = hits
+    let kernel_ids = hits
         .iter()
         .map(|hit| hit.cx_id)
         .filter(|cx_id| grounded.contains(cx_id))
         .take(5)
         .collect::<Vec<_>>();
     if kernel_ids.is_empty() {
-        kernel_ids.extend(grounded.iter().copied().take(5));
+        return Err(CalyxError::kernel_ungrounded(
+            "kernel-answer search returned no grounded hits",
+        )
+        .into());
     }
     let gap_count = docs.len().saturating_sub(grounded.len());
     let gaps = (gap_count > 0)

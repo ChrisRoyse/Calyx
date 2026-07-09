@@ -1,5 +1,5 @@
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 
 use calyx_aster::manifest::{ImmutableRef, ManifestStore, VaultManifest};
 use calyx_core::{CalyxError, Panel};
@@ -167,8 +167,7 @@ fn read_registry_asset(
 }
 
 fn read_validated_asset(vault: &Path, logical: &str) -> CliResult<Vec<u8>> {
-    let placeholder_hash = "0".repeat(64);
-    ImmutableRef::new(logical, placeholder_hash)?;
+    validate_manifest_asset_logical_path(logical)?;
     fs::read(vault.join(logical)).map_err(|error| {
         CliError::from(CalyxError::aster_corrupt_shard(format!(
             "manifest restore asset {logical} unreadable: {error}"
@@ -185,6 +184,31 @@ fn require_asset_prefix(logical: &str, prefix: &str) -> CliResult {
         message: format!("asset path {logical} must be under {prefix}"),
         remediation: "pass vault-relative immutable asset paths such as panel/panel-vNNNN.json and registry/registry-xxxx.json",
     }))
+}
+
+fn validate_manifest_asset_logical_path(logical: &str) -> CliResult {
+    let path = Path::new(logical);
+    let invalid = logical.is_empty()
+        || logical.contains('\\')
+        || logical.contains(':')
+        || path.is_absolute()
+        || path
+            .components()
+            .any(|component| !matches!(component, Component::Normal(_)))
+        || matches!(logical, "CURRENT" | "MANIFEST")
+        || logical.ends_with(".tmp");
+    if invalid {
+        return Err(bad_asset_path(logical));
+    }
+    Ok(())
+}
+
+fn bad_asset_path(logical: &str) -> CliError {
+    CliError::from(CalyxError {
+        code: "CALYX_MANIFEST_RESTORE_BAD_ASSET_PATH",
+        message: format!("asset path {logical} must be a vault-relative immutable asset path"),
+        remediation: "pass vault-relative immutable asset paths such as panel/panel-vNNNN.json and registry/registry-xxxx.json",
+    })
 }
 
 impl ManifestRestoreFlags {
@@ -322,6 +346,16 @@ mod tests {
         .unwrap_err();
 
         assert_eq!(error.code(), "CALYX_MANIFEST_RESTORE_ASSET_MISMATCH");
+    }
+
+    #[test]
+    fn manifest_restore_rejects_asset_path_traversal() {
+        let root = temp_root("manifest-restore-traversal");
+
+        let error = read_panel_asset(&root, "panel/../CURRENT").unwrap_err();
+
+        assert_eq!(error.code(), "CALYX_MANIFEST_RESTORE_BAD_ASSET_PATH");
+        fs::remove_dir_all(root).ok();
     }
 
     fn temp_root(name: &str) -> PathBuf {

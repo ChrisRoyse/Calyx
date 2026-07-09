@@ -188,6 +188,33 @@ fn open_targets_direction_conflict_is_counter_evidence() {
 }
 
 #[test]
+fn malformed_mechanistic_direction_field_fails_closed() {
+    let root = temp_root("falsification-bad-direction");
+    write(
+        root.join("miner_report.json"),
+        concat!(
+            r#"{"hypotheses":[{"hypothesis_id":"typed-assoc:tnf::psoriasis","#,
+            r#""source_id":"concept:gene:TNF","source_name":"TNF","source_type":"gene","#,
+            r#""target_id":"concept:disease:psoriasis","target_name":"psoriasis","target_type":"disease","#,
+            r#""support_count":3,"score":0.9,"mechanistic_direction_status":"direction_inferred","#,
+            r#""required_target_modulation":"sideways"}]}"#
+        ),
+    );
+    seed_empty_sources(&root);
+
+    let error = build_report(&args(&root)).unwrap_err();
+
+    assert_eq!(error.code(), "CALYX_CLI_RUNTIME_ERROR");
+    assert!(
+        error
+            .message()
+            .contains("CALYX_FALSIFY_MALFORMED_DIRECTION_FIELD")
+    );
+    assert!(error.message().contains("required_target_modulation"));
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
 fn unstructured_classifiable_row_is_skipped_not_counted() {
     let root = temp_root("falsification-unstructured");
     seed_hypothesis(

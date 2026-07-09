@@ -29,17 +29,25 @@ pub(crate) fn list_sst_files(dir: &Path) -> CliResult<Vec<PathBuf>> {
         }
     }
     ensure_unambiguous_sst_order(files.iter().map(PathBuf::as_path))?;
-    files.sort_by(|left, right| sst_order(left).cmp(&sst_order(right)).then(left.cmp(right)));
-    Ok(files)
+    order_sst_files(files)
 }
 
-pub(crate) fn sst_order(path: &Path) -> SstOrderKey {
-    sst_order_key(path).ok().flatten().unwrap_or(SstOrderKey {
-        epoch: 0,
-        seq: 0,
-        class_rank: 0,
-        index: 0,
+pub(crate) fn sst_order(path: &Path) -> CliResult<SstOrderKey> {
+    sst_order_key(path)?.ok_or_else(|| {
+        CliError::runtime(format!(
+            "unrecognized canonical SST order for {}",
+            path.display()
+        ))
     })
+}
+
+pub(crate) fn order_sst_files(files: Vec<PathBuf>) -> CliResult<Vec<PathBuf>> {
+    let mut ordered = Vec::with_capacity(files.len());
+    for path in files {
+        ordered.push((sst_order(&path)?, path));
+    }
+    ordered.sort_by(|left, right| left.0.cmp(&right.0).then(left.1.cmp(&right.1)));
+    Ok(ordered.into_iter().map(|(_, path)| path).collect())
 }
 
 pub(crate) fn latest_cf_rows(
@@ -157,9 +165,14 @@ mod tests {
     #[test]
     fn sst_order_places_compacted_last_for_same_seq() {
         assert!(
-            sst_order(Path::new("00000000000000000007-0001.sst"))
-                < sst_order(Path::new("compacted-00000000000000000007.sst"))
+            sst_order(Path::new("00000000000000000007-0001.sst")).unwrap()
+                < sst_order(Path::new("compacted-00000000000000000007.sst")).unwrap()
         );
+    }
+
+    #[test]
+    fn sst_order_rejects_unrecognized_names() {
+        assert!(sst_order(Path::new("not-a-calyx-sst.sst")).is_err());
     }
 
     #[test]
