@@ -61,7 +61,7 @@ scan_push_range() {
   fi
 
   echo "pre-push: scanning pushed commits for secrets: $local_ref -> $remote_ref ($log_opts)" >&2
-  "$repo_root/scripts/secret-scan.sh" --git-log-opts "$log_opts"
+  bash "$repo_root/scripts/secret-scan.sh" --git-log-opts "$log_opts"
 }
 
 ref_updates=0

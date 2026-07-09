@@ -12,7 +12,7 @@ set -euo pipefail
 repo_root="$(git rev-parse --show-toplevel)"
 
 echo "pre-commit: scanning staged files for secrets ..." >&2
-"$repo_root/scripts/secret-scan.sh" --staged
+bash "$repo_root/scripts/secret-scan.sh" --staged
 
 echo "pre-commit: scanning public-bound source for internal identifiers ..." >&2
 "$repo_root/scripts/public-leak-scan.sh" --cached
