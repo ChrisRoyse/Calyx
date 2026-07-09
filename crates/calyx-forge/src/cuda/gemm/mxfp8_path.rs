@@ -4,10 +4,12 @@ use super::gemm_cublas;
 use crate::{CudaContext, ForgeError, MXFP8_BLOCK_SIZE, MxFp8Block, Result, decode_mxfp8};
 
 const MXFP8_DEVICE_REMEDIATION: &str =
-    "Run MXFP8 GEMM on Blackwell sm_120 with CUDA 13.3 and cuBLAS available";
+    "Run the host-dequantized MXFP8 compatibility GEMM with CUDA and cuBLAS available";
 const MXFP8_NUMERICAL_REMEDIATION: &str =
     "Reject invalid MXFP8 GEMM dimensions or non-finite outputs before using scores";
 
+/// Compatibility path: dequantizes MXFP8 blocks on the host and runs FP32 cuBLAS.
+/// This is not a native FP8 tensor-core GEMM path.
 pub fn gemm_mxfp8_fp32_accum(
     ctx: &CudaContext,
     a_blocks: &[MxFp8Block],
@@ -17,7 +19,6 @@ pub fn gemm_mxfp8_fp32_accum(
     n: usize,
     out: &mut CudaSlice<f32>,
 ) -> Result<()> {
-    ensure_mxfp8_sm120(ctx.compute_capability(), &device_label(ctx))?;
     validate_shapes(a_blocks, b_blocks, m, k, n, out.len())?;
     let stream = ctx.inner().default_stream();
     if m == 0 || n == 0 || k == 0 {
@@ -43,20 +44,6 @@ pub fn gemm_mxfp8_fp32_accum(
         .synchronize()
         .map_err(|err| device_unavailable(ctx, format!("sync MXFP8 GEMM failed: {err}")))?;
     check_output_finite(ctx, out)
-}
-
-fn ensure_mxfp8_sm120(compute: (i32, i32), device: &str) -> Result<()> {
-    if compute >= (12, 0) {
-        return Ok(());
-    }
-    Err(ForgeError::DeviceUnavailable {
-        device: device.to_string(),
-        detail: format!(
-            "MXFP8 requires sm_120 (Blackwell). Got sm_{}{}",
-            compute.0, compute.1
-        ),
-        remediation: MXFP8_DEVICE_REMEDIATION.to_string(),
-    })
 }
 
 fn validate_shapes(
@@ -157,14 +144,6 @@ mod tests {
             .zip(expected.iter())
             .map(|(a, e)| (*a - *e).abs() / e.abs().max(1.0))
             .fold(0.0, f32::max)
-    }
-
-    #[test]
-    fn mxfp8_sm_check_rejects_pre_blackwell() {
-        let err = ensure_mxfp8_sm120((11, 0), "cuda:test")
-            .expect_err("pre-Blackwell device must fail closed");
-        println!("mxfp8_sm_check PASSED {err}");
-        assert!(matches!(err, ForgeError::DeviceUnavailable { .. }));
     }
 
     #[test]

@@ -1,3 +1,5 @@
+use std::sync::OnceLock;
+
 use crate::Result;
 use crate::cpu::check_finite;
 
@@ -82,11 +84,52 @@ fn encode_e4m3(value: f32) -> u8 {
     if value == 0.0 {
         return 0;
     }
+    let sign = if value.is_sign_negative() {
+        E4M3_SIGN_MASK
+    } else {
+        0
+    };
+    let magnitude = value.abs();
+    let levels = e4m3_positive_levels();
+    let idx = levels.partition_point(|(decoded, _)| *decoded < magnitude);
+    let code = match idx {
+        0 => levels[0].1,
+        len if len == levels.len() => levels[levels.len() - 1].1,
+        _ => {
+            let lower = levels[idx - 1];
+            let upper = levels[idx];
+            if magnitude - lower.0 <= upper.0 - magnitude {
+                lower.1
+            } else {
+                upper.1
+            }
+        }
+    };
+    if code == 0 { 0 } else { code | sign }
+}
+
+fn e4m3_positive_levels() -> &'static [(f32, u8)] {
+    static LEVELS: OnceLock<Vec<(f32, u8)>> = OnceLock::new();
+    LEVELS
+        .get_or_init(|| {
+            let mut levels = (0u8..=0x7f)
+                .map(|code| (decode_e4m3(code), code))
+                .collect::<Vec<_>>();
+            levels.sort_by(|left, right| left.0.total_cmp(&right.0).then(left.1.cmp(&right.1)));
+            levels
+        })
+        .as_slice()
+}
+
+#[cfg(test)]
+fn encode_e4m3_exhaustive(value: f32) -> u8 {
+    if value == 0.0 {
+        return 0;
+    }
     let mut best_code = 0;
     let mut best_err = f32::INFINITY;
     for code in 0u8..=u8::MAX {
-        let decoded = decode_e4m3(code);
-        let err = (decoded - value).abs();
+        let err = (decode_e4m3(code) - value).abs();
         if err < best_err {
             best_err = err;
             best_code = code;
@@ -191,5 +234,30 @@ mod tests {
             encoded.scale_e8m0
         );
         Ok(())
+    }
+
+    #[test]
+    fn e4m3_fast_encoder_matches_exhaustive_reference() {
+        let levels = e4m3_positive_levels();
+        for (decoded, code) in levels {
+            assert_eq!(encode_e4m3(*decoded), *code);
+            if *decoded == 0.0 {
+                assert_eq!(encode_e4m3(-*decoded), 0);
+            } else {
+                assert_eq!(encode_e4m3(-*decoded), code | E4M3_SIGN_MASK);
+            }
+        }
+        for window in levels.windows(2) {
+            let midpoint = (window[0].0 + window[1].0) * 0.5;
+            assert_eq!(encode_e4m3(midpoint), encode_e4m3_exhaustive(midpoint));
+            assert_eq!(encode_e4m3(-midpoint), encode_e4m3_exhaustive(-midpoint));
+        }
+        for value in [-512.0, -481.0, -1.3, -0.02, 0.0, 0.02, 1.3, 481.0, 512.0] {
+            assert_eq!(encode_e4m3(value), encode_e4m3_exhaustive(value));
+        }
+        println!(
+            "e4m3_fast_encoder_matches_exhaustive_reference PASSED levels={}",
+            levels.len()
+        );
     }
 }
