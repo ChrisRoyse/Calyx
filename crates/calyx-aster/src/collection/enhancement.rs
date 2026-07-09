@@ -1,9 +1,4 @@
-use std::collections::BTreeMap;
-
-use calyx_core::{
-    AbsentReason, CalyxError, Clock, Constellation, CxFlags, InputRef, LedgerRef, LensId, Modality,
-    Result, Seq, SlotId, SlotVector, VaultStore,
-};
+use calyx_core::{CalyxError, Clock, LensId, Modality, Result, Seq};
 use serde_json::json;
 
 use super::{
@@ -14,11 +9,13 @@ use crate::vault::AsterVault;
 
 pub const CALYX_COLLECTION_LENS_DUPLICATE: &str = "CALYX_COLLECTION_LENS_DUPLICATE";
 pub const CALYX_LENS_NOT_FOUND: &str = "CALYX_LENS_NOT_FOUND";
+pub const CALYX_COLLECTION_LENS_UNMEASURED: &str = "CALYX_COLLECTION_LENS_UNMEASURED";
 
 const BACKFILL_PENDING_PREFIX: &[u8] = b"backfill\0";
 const COLLECTION_ID_DOMAIN: &[u8] = b"calyx:collection:metadata:v1";
-const COLLECTION_INPUT_DOMAIN: &[u8] = b"calyx:collection-constellation-input:v1";
 const LENS_REGISTRY_PREFIX: &[u8] = b"lens\0";
+const LENS_REGISTRATION_KIND: &str = "calyx_collection_lens_registration_v1";
+const LENS_SLOT_CONTRACT: &str = "measured_slots_required";
 
 pub fn collection_has_lens(collection: &Collection) -> bool {
     collection
@@ -61,8 +58,9 @@ where
     C: Clock,
 {
     let value = serde_json::to_vec(&json!({
-        "kind": "ph53_lens_registry_stub",
+        "kind": LENS_REGISTRATION_KIND,
         "lens_id": lens_id.to_string(),
+        "slot_contract": LENS_SLOT_CONTRACT,
         "status": "registered"
     }))
     .map_err(|error| CalyxError::aster_corrupt_shard(format!("encode lens marker: {error}")))?;
@@ -97,11 +95,11 @@ pub fn lens_registry_key(lens_id: LensId) -> Vec<u8> {
 }
 
 pub fn ingest_collection_constellation<C>(
-    vault: &AsterVault<C>,
+    _vault: &AsterVault<C>,
     collection: &Collection,
-    layer: &str,
-    parts: &[(&str, &[u8])],
-    modality: Modality,
+    _layer: &str,
+    _parts: &[(&str, &[u8])],
+    _modality: Modality,
 ) -> Result<Seq>
 where
     C: Clock,
@@ -111,97 +109,34 @@ where
         .as_ref()
         .filter(|panel| !panel.lenses.is_empty())
         .ok_or_else(|| invalid_argument("constellation ingest requires a collection lens"))?;
-    let input = constellation_input(collection, layer, parts);
-    let mut slots = BTreeMap::new();
-    for (index, _) in panel.lenses.iter().enumerate() {
-        let slot = u16::try_from(index).map_err(|_| {
-            invalid_argument("collection panel has more lenses than addressable slot ids")
-        })?;
-        slots.insert(
-            SlotId::new(slot),
-            SlotVector::Absent {
-                reason: AbsentReason::Deferred,
-            },
-        );
-    }
-    let constellation = Constellation {
-        cx_id: vault.cx_id_for_input(&input, panel.panel_version),
-        vault_id: vault.vault_id(),
-        panel_version: panel.panel_version,
-        created_at: vault.clock_now(),
-        input_ref: InputRef {
-            hash: *blake3::hash(&input).as_bytes(),
-            pointer: None,
-            redacted: false,
-        },
-        modality,
-        slots,
-        scalars: BTreeMap::new(),
-        metadata: constellation_metadata(collection, layer, panel),
-        anchors: Vec::new(),
-        provenance: LedgerRef {
-            seq: 0,
-            hash: [0; 32],
-        },
-        flags: CxFlags {
-            ungrounded: true,
-            ..CxFlags::default()
-        },
-    };
-    vault.put(constellation)?;
-    Ok(vault.latest_seq())
+    Err(lens_unmeasured(collection, panel.lenses.len()))
 }
 
 fn lens_registered<C>(vault: &AsterVault<C>, lens_id: LensId) -> Result<bool>
 where
     C: Clock,
 {
-    vault
-        .read_cf_at(
-            vault.latest_seq(),
-            ColumnFamily::Online,
-            &lens_registry_key(lens_id),
-        )
-        .map(|row| row.is_some())
-}
-
-fn constellation_input(collection: &Collection, layer: &str, parts: &[(&str, &[u8])]) -> Vec<u8> {
-    let mut input = Vec::new();
-    append_part(&mut input, "domain", COLLECTION_INPUT_DOMAIN);
-    append_part(&mut input, "collection", collection.name.as_bytes());
-    append_part(&mut input, "layer", layer.as_bytes());
-    for (label, value) in parts {
-        append_part(&mut input, label, value);
-    }
-    input
-}
-
-fn append_part(out: &mut Vec<u8>, label: &str, value: &[u8]) {
-    out.extend_from_slice(&(label.len() as u64).to_be_bytes());
-    out.extend_from_slice(label.as_bytes());
-    out.extend_from_slice(&(value.len() as u64).to_be_bytes());
-    out.extend_from_slice(value);
-}
-
-fn constellation_metadata(
-    collection: &Collection,
-    layer: &str,
-    panel: &PanelRef,
-) -> BTreeMap<String, String> {
-    let mut metadata = BTreeMap::new();
-    metadata.insert("collection".to_string(), collection.name.clone());
-    metadata.insert("collection_layer".to_string(), layer.to_string());
-    metadata.insert("panel_version".to_string(), panel.panel_version.to_string());
-    metadata.insert(
-        "lenses".to_string(),
-        panel
-            .lenses
-            .iter()
-            .map(ToString::to_string)
-            .collect::<Vec<_>>()
-            .join(","),
-    );
-    metadata
+    let Some(row) = vault.read_cf_at(
+        vault.latest_seq(),
+        ColumnFamily::Online,
+        &lens_registry_key(lens_id),
+    )?
+    else {
+        return Ok(false);
+    };
+    let marker: serde_json::Value = serde_json::from_slice(&row)
+        .map_err(|error| CalyxError::aster_corrupt_shard(format!("decode lens marker: {error}")))?;
+    let expected_lens = lens_id.to_string();
+    Ok(
+        marker.get("kind").and_then(serde_json::Value::as_str) == Some(LENS_REGISTRATION_KIND)
+            && marker.get("lens_id").and_then(serde_json::Value::as_str)
+                == Some(expected_lens.as_str())
+            && marker
+                .get("slot_contract")
+                .and_then(serde_json::Value::as_str)
+                == Some(LENS_SLOT_CONTRACT)
+            && marker.get("status").and_then(serde_json::Value::as_str) == Some("registered"),
+    )
 }
 
 fn backfill_marker_value(collection_name: &str, lens_id: LensId) -> Result<Vec<u8>> {
@@ -236,6 +171,17 @@ fn lens_not_found(lens_id: LensId) -> CalyxError {
         CALYX_LENS_NOT_FOUND,
         format!("lens `{lens_id}` is not registered"),
         "register the lens before adding it to a collection",
+    )
+}
+
+fn lens_unmeasured(collection: &Collection, lens_count: usize) -> CalyxError {
+    collection_error(
+        CALYX_COLLECTION_LENS_UNMEASURED,
+        format!(
+            "collection `{}` has {lens_count} registered lens(es), but no measured slot vectors were provided",
+            collection.name
+        ),
+        "ingest through a measured lens pipeline before writing constellation collection rows",
     )
 }
 

@@ -20,7 +20,9 @@ use crate::vault::encode::WriteRow;
 use super::validation::{
     expires_at, invalid_argument, reject_lens_collection, require_mode, validate_row,
 };
-use super::{CALYX_TXN_COST_CAP, IsolationLevel, TxnHandle, txn_error};
+use super::{
+    CALYX_TXN_COST_CAP, CALYX_TXN_SERIALIZABLE_CONFLICT, IsolationLevel, TxnHandle, txn_error,
+};
 
 const EMPTY_TXN_KEY_PREFIX: &[u8] = b"txn\0empty\0";
 
@@ -28,6 +30,7 @@ pub struct CrossModelTxn<'h> {
     handle: &'h TxnHandle,
     batch: Vec<WriteRow>,
     snapshot_seq: Seq,
+    snapshot_pinned: bool,
     isolation: IsolationLevel,
     started_at: Instant,
     cost_cap_ms: Option<u32>,
@@ -40,12 +43,14 @@ impl<'h> CrossModelTxn<'h> {
         isolation: IsolationLevel,
         cost_cap_ms: Option<u32>,
         snapshot_seq: Seq,
+        snapshot_pinned: bool,
         started_at: Instant,
     ) -> Self {
         Self {
             handle,
             batch: Vec::new(),
             snapshot_seq,
+            snapshot_pinned,
             isolation,
             started_at,
             cost_cap_ms,
@@ -56,11 +61,9 @@ impl<'h> CrossModelTxn<'h> {
     pub fn snapshot_seq(&self) -> Seq {
         self.snapshot_seq
     }
-
     pub fn batch_len(&self) -> usize {
         self.batch.len()
     }
-
     pub fn isolation(&self) -> IsolationLevel {
         self.isolation
     }
@@ -87,7 +90,6 @@ impl<'h> CrossModelTxn<'h> {
         self.extend_rows(rows);
         Ok(())
     }
-
     pub fn put_doc<C: Clock>(
         &mut self,
         vault: &AsterVault<C>,
@@ -101,7 +103,6 @@ impl<'h> CrossModelTxn<'h> {
         self.extend_rows(rows);
         Ok(())
     }
-
     pub fn kv_set<C: Clock>(
         &mut self,
         vault: &AsterVault<C>,
@@ -221,7 +222,6 @@ impl<'h> CrossModelTxn<'h> {
         });
         Ok(())
     }
-
     pub fn put_constellation<C: Clock>(
         &mut self,
         vault: &AsterVault<C>,
@@ -280,12 +280,11 @@ impl<'h> CrossModelTxn<'h> {
         key: &[u8],
     ) -> Result<Option<Vec<u8>>> {
         self.handle.verify_vault(vault)?;
-        if self.isolation == IsolationLevel::Serializable
-            && let Some(row) = self
-                .batch
-                .iter()
-                .rev()
-                .find(|row| row.cf == cf && row.key.as_slice() == key)
+        if let Some(row) = self
+            .batch
+            .iter()
+            .rev()
+            .find(|row| row.cf == cf && row.key.as_slice() == key)
         {
             return Ok(Some(row.value.clone()));
         }
@@ -309,6 +308,13 @@ impl<'h> CrossModelTxn<'h> {
             if self.started_at.elapsed() > cap {
                 return self.fail(CALYX_TXN_COST_CAP, "transaction exceeded its cost cap");
             }
+        }
+        if self.isolation == IsolationLevel::Serializable && vault.latest_seq() != self.snapshot_seq
+        {
+            return self.fail(
+                CALYX_TXN_SERIALIZABLE_CONFLICT,
+                "serializable snapshot changed before commit",
+            );
         }
         if self.batch.is_empty() {
             self.stage_empty_marker(vault);
@@ -343,8 +349,9 @@ impl<'h> CrossModelTxn<'h> {
     }
 
     fn ensure_snapshot<C: Clock>(&mut self, vault: &AsterVault<C>) {
-        if self.snapshot_seq == 0 {
+        if !self.snapshot_pinned {
             self.snapshot_seq = vault.latest_seq();
+            self.snapshot_pinned = true;
         }
     }
 

@@ -1,5 +1,5 @@
-use super::{AsterVault, encode, ledger_hook, ledger_stub};
-use crate::cf::{ColumnFamily, base_key, ledger_key};
+use super::{AsterVault, encode, ledger_hook};
+use crate::cf::{ColumnFamily, base_key};
 use calyx_core::{CalyxError, Clock, Constellation, CxId, Result, Seq};
 
 impl<C> AsterVault<C>
@@ -79,17 +79,10 @@ where
                 }
                 Some(staged)
             } else {
-                let seq = self
-                    .latest_seq()
-                    .checked_add(1)
-                    .ok_or_else(|| CalyxError::ledger_chain_broken("ledger sequence exhausted"))?;
-                rows.push(encode::WriteRow {
-                    cf: ColumnFamily::Ledger,
-                    key: ledger_key(seq),
-                    value: ledger_stub::encode(seq),
-                });
+                let ledger_ref =
+                    self.stage_raw_ingest_ledger_locked(&mut rows, subject, ledger_payload)?;
                 if let Some(cx) = constellation.as_mut() {
-                    cx.provenance = calyx_core::LedgerRef { seq, hash: [0; 32] };
+                    cx.provenance = ledger_ref;
                 }
                 None
             };
@@ -153,15 +146,7 @@ where
                     ledger_payload,
                 )?)
             } else {
-                let seq = self
-                    .latest_seq()
-                    .checked_add(1)
-                    .ok_or_else(|| CalyxError::ledger_chain_broken("ledger sequence exhausted"))?;
-                rows.push(encode::WriteRow {
-                    cf: ColumnFamily::Ledger,
-                    key: ledger_key(seq),
-                    value: ledger_stub::encode(seq),
-                });
+                self.stage_raw_ingest_ledger_locked(&mut rows, subject, ledger_payload)?;
                 None
             };
             for cx in &restored {

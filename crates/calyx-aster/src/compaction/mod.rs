@@ -24,7 +24,8 @@ use rolling::compact_shards_with_target;
 pub use scan::{catalog_from_vault_dir, catalog_from_vault_tiers};
 pub use scheduler::{
     AdaptiveCompactionSchedule, CompactionScheduleDecision, CompactionScheduleHook,
-    CompactionScheduleState, CompactionScheduler, CompactionSchedulerOptions,
+    CompactionScheduleState, CompactionScheduler, CompactionSchedulerHealth,
+    CompactionSchedulerOptions,
 };
 pub use tiering::{StorageTier, TierPlacement, TierWrite, TieringPolicy};
 

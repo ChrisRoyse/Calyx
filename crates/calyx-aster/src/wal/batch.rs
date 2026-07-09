@@ -1,6 +1,6 @@
 use super::{AppendAck, Wal};
 use calyx_core::{CalyxError, Clock, Result};
-use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
+use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender, TryRecvError};
 use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
@@ -119,6 +119,14 @@ fn run_batcher(
             continue;
         }
         let mut requests = vec![first];
+        match receiver.try_recv() {
+            Ok(request) => requests.push(request),
+            Err(TryRecvError::Empty) => {
+                flush_requests(&wal, requests);
+                continue;
+            }
+            Err(TryRecvError::Disconnected) => break,
+        }
         let deadline = std::time::Instant::now() + group_commit_window;
         loop {
             let now = std::time::Instant::now();
@@ -143,44 +151,48 @@ fn flush_requests(wal: &Mutex<Wal>, requests: Vec<BatchRequest>) {
             BatchOp::Flush | BatchOp::TipSeq => None,
         })
         .collect();
-    let result = if payloads.is_empty() {
-        Ok(Vec::new())
-    } else {
-        wal.lock()
-            .expect("group commit WAL lock poisoned")
-            .append_batch(&payloads)
+    let wants_tip = requests
+        .iter()
+        .any(|request| matches!(request.op, BatchOp::TipSeq));
+    let (acks, tip_seq) = {
+        let mut wal = wal.lock().expect("group commit WAL lock poisoned");
+        let acks = if payloads.is_empty() {
+            Vec::new()
+        } else {
+            match wal.append_batch(&payloads) {
+                Ok(acks) => acks,
+                Err(error) => return send_error(&requests, error),
+            }
+        };
+        let tip_seq = if wants_tip {
+            match wal.durable_tip_seq() {
+                Ok(seq) => Some(seq),
+                Err(error) => return send_error(&requests, error),
+            }
+        } else {
+            None
+        };
+        (acks, tip_seq)
     };
-    match result {
-        Ok(acks) => {
-            let mut acks = acks.into_iter();
-            let mut tip_seq = None;
-            for request in requests {
-                let response = match request.op {
-                    BatchOp::Append(_) => acks
-                        .next()
-                        .map(BatchResponse::Ack)
-                        .ok_or_else(|| CalyxError::disk_pressure("missing WAL ack")),
-                    BatchOp::Flush => Ok(BatchResponse::Flush),
-                    BatchOp::TipSeq => {
-                        let seq = match tip_seq {
-                            Some(seq) => Ok(seq),
-                            None => wal
-                                .lock()
-                                .expect("group commit WAL lock poisoned")
-                                .durable_tip_seq()
-                                .inspect(|seq| tip_seq = Some(*seq)),
-                        };
-                        seq.map(BatchResponse::TipSeq)
-                    }
-                };
-                let _ = request.respond.send(response);
-            }
-        }
-        Err(error) => {
-            for request in requests {
-                let _ = request.respond.send(Err(error.clone()));
-            }
-        }
+    let mut acks = acks.into_iter();
+    for request in requests {
+        let response = match request.op {
+            BatchOp::Append(_) => acks
+                .next()
+                .map(BatchResponse::Ack)
+                .ok_or_else(|| CalyxError::disk_pressure("missing WAL ack")),
+            BatchOp::Flush => Ok(BatchResponse::Flush),
+            BatchOp::TipSeq => tip_seq
+                .map(BatchResponse::TipSeq)
+                .ok_or_else(|| CalyxError::disk_pressure("missing WAL tip")),
+        };
+        let _ = request.respond.send(response);
+    }
+}
+
+fn send_error(requests: &[BatchRequest], error: CalyxError) {
+    for request in requests {
+        let _ = request.respond.send(Err(error.clone()));
     }
 }
 

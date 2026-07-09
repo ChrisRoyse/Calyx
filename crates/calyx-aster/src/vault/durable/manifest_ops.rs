@@ -116,8 +116,6 @@ fn ensure_manifest_assets(
     root: &Path,
     panel: Option<&Panel>,
 ) -> Result<(ImmutableRef, Vec<ImmutableRef>)> {
-    let codebook_path = root.join("codebooks/default.bin");
-    let codebook_bytes = b"calyx-stage1-codebook";
     let panel_ref = if let Some(panel) = panel {
         let panel_bytes = serde_json::to_vec_pretty(panel).map_err(|error| {
             CalyxError::aster_corrupt_shard(format!("encode durable panel asset: {error}"))
@@ -127,18 +125,33 @@ fn ensure_manifest_assets(
         write_asset(&root.join(&logical), &panel_bytes)?;
         ImmutableRef::from_bytes(logical, &panel_bytes)?
     } else {
-        let panel_bytes = b"calyx-stage1-panel";
-        write_asset(&root.join("panel/current.bin"), panel_bytes)?;
-        ImmutableRef::from_bytes("panel/current.bin", panel_bytes)?
+        let panel_bytes = generated_asset_bytes("panel", "no-active-panel");
+        let hash = blake3::hash(&panel_bytes).to_hex().to_string();
+        let logical = format!("panel/generated-no-active-panel-{}.json", &hash[..16]);
+        write_asset(&root.join(&logical), &panel_bytes)?;
+        ImmutableRef::from_bytes(logical, &panel_bytes)?
     };
-    write_asset(&codebook_path, codebook_bytes)?;
+    let codebook_bytes = generated_asset_bytes("codebook", "no-active-codebook");
+    let hash = blake3::hash(&codebook_bytes).to_hex().to_string();
+    let codebook_logical = format!(
+        "codebooks/generated-no-active-codebook-{}.json",
+        &hash[..16]
+    );
+    write_asset(&root.join(&codebook_logical), &codebook_bytes)?;
     Ok((
         panel_ref,
-        vec![ImmutableRef::from_bytes(
-            "codebooks/default.bin",
-            codebook_bytes,
-        )?],
+        vec![ImmutableRef::from_bytes(codebook_logical, &codebook_bytes)?],
     ))
+}
+
+fn generated_asset_bytes(kind: &str, status: &str) -> Vec<u8> {
+    serde_json::json!({
+        "kind": "calyx_manifest_generated_asset_v1",
+        "asset_kind": kind,
+        "status": status
+    })
+    .to_string()
+    .into_bytes()
 }
 
 fn write_asset(path: &Path, bytes: &[u8]) -> Result<()> {

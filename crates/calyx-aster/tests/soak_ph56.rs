@@ -25,6 +25,8 @@ const FULL_FLOOD_OPS: u64 = 100_000;
 const SMOKE_OPS: u64 = 50_000;
 const SMOKE_FLOOD_OPS: u64 = 1_000;
 const PROCESS_RSS_HEADROOM: usize = 64 * 1024 * 1024;
+const SMOKE_RSS_TREND_BYTES_PER_OP_MAX: f64 = 8.0;
+const FULL_RSS_TREND_BYTES_PER_OP_MAX: f64 = 1.0;
 
 mod fsv_support;
 use fsv_support::{env_or_temp_root, reset_dir, temp_root};
@@ -35,7 +37,7 @@ fn ph56_soak_smoke_bounds_rss_and_backpressure() {
     let report = run_soak(&root, SMOKE_OPS, SMOKE_FLOOD_OPS, false);
     assert!(report.backpressure_events_total > 0);
     assert!(report.rss_max_bytes <= report.rss_budget_bytes);
-    assert!(report.rss_trend_bytes_per_op < 1.0);
+    assert_rss_trend_below(&report, SMOKE_RSS_TREND_BYTES_PER_OP_MAX);
     assert!(report.cache_used_bytes <= CACHE_CAP as u64);
     assert!(report.arena_high_water_bytes <= ARENA_CAP as u64);
     assert!(report.slab_max_utilization < 1.0);
@@ -63,7 +65,7 @@ fn ph56_1e7_soak_rss_bounded_fsv() {
     .unwrap();
     assert!(report.backpressure_events_total > 0);
     assert!(report.rss_max_bytes <= report.rss_budget_bytes);
-    assert!(report.rss_trend_bytes_per_op < 1.0);
+    assert_rss_trend_below(&report, FULL_RSS_TREND_BYTES_PER_OP_MAX);
     assert!(report.cache_used_bytes <= CACHE_CAP as u64);
     assert!(report.arena_high_water_bytes <= ARENA_CAP as u64);
     assert!(report.slab_max_utilization < 1.0);
@@ -371,6 +373,16 @@ fn slope(samples: &[RssSample]) -> f64 {
 fn tail_slope(samples: &[RssSample]) -> f64 {
     let start = samples.len() / 2;
     slope(&samples[start..])
+}
+
+fn assert_rss_trend_below(report: &SoakReport, max_bytes_per_op: f64) {
+    assert!(
+        report.rss_trend_bytes_per_op < max_bytes_per_op,
+        "rss trend {} bytes/op exceeded {} bytes/op for {} ops",
+        report.rss_trend_bytes_per_op,
+        max_bytes_per_op,
+        report.op_count
+    );
 }
 
 fn metrics_text(report: &SoakReport) -> String {

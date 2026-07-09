@@ -1,12 +1,12 @@
 use std::collections::BTreeMap;
 
-use super::{AsterVault, anchor_merge, encode, ledger_hook, ledger_stub};
-use crate::cf::{ColumnFamily, base_key, ledger_key};
+use super::{AsterVault, anchor_merge, encode, ledger_hook};
+use crate::cf::{ColumnFamily, base_key};
 use crate::media_artifact::{
     DerivedMediaArtifactDraft, DerivedMediaArtifactRecord, derived_media_artifact_write_rows,
     ensure_no_artifact_collision,
 };
-use calyx_core::{CalyxError, Clock, Constellation, CxId, LedgerRef, Result, VaultStore};
+use calyx_core::{CalyxError, Clock, Constellation, CxId, Result, VaultStore};
 use calyx_ledger::{ActorId, EntryKind, PayloadBuilder, RedactionPolicy, SubjectId};
 use serde_json::json;
 
@@ -179,8 +179,8 @@ where
             Some(hook) => Some(ledger_hook::lock_hook(hook)?),
             None => None,
         };
-        let staged_ledger = if let Some(hook) = hook_guard.as_deref() {
-            Some(match ledger_entry {
+        let (staged_ledger, ledger_ref) = if let Some(hook) = hook_guard.as_deref() {
+            let staged = match ledger_entry {
                 Some(entry) => ledger_hook::stage_entry_payload(
                     hook,
                     &mut rows,
@@ -202,23 +202,36 @@ where
                         .cx_id,
                     batch_payload(&accepted),
                 )?,
-            })
+            };
+            let ledger_ref = staged
+                .first()
+                .ok_or_else(|| CalyxError::ledger_group_commit_failed("no staged ledger rows"))?
+                .ledger_ref();
+            (Some(staged), ledger_ref)
         } else {
-            rows.push(encode::WriteRow {
-                cf: ColumnFamily::Ledger,
-                key: ledger_key(self.latest_seq().saturating_add(1)),
-                value: ledger_stub::encode(self.latest_seq().saturating_add(1)),
-            });
-            None
+            let ledger_ref = match ledger_entry {
+                Some(entry) => self.stage_raw_ledger_entry_locked(
+                    &mut rows,
+                    EntryKind::Ingest,
+                    entry.subject,
+                    entry.payload,
+                    entry.actor,
+                )?,
+                None => self.stage_raw_ingest_ledger_locked(
+                    &mut rows,
+                    accepted
+                        .first()
+                        .ok_or_else(|| {
+                            CalyxError::ledger_group_commit_failed(
+                                "batch ingest without accepted rows requires explicit ledger entry",
+                            )
+                        })?
+                        .cx_id,
+                    batch_payload(&accepted),
+                )?,
+            };
+            (None, ledger_ref)
         };
-        let ledger_ref = staged_ledger
-            .as_ref()
-            .and_then(|staged| staged.first())
-            .map(|row| row.ledger_ref())
-            .unwrap_or(LedgerRef {
-                seq: self.latest_seq().saturating_add(1),
-                hash: [0; 32],
-            });
         let artifact_record = if let Some(artifact) = artifact {
             let record = artifact.into_record(ledger_ref.clone())?;
             ensure_no_artifact_collision(self, latest, &record)?;

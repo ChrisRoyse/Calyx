@@ -78,7 +78,10 @@ fn put_get_roundtrips_base_and_slot_cfs() {
     vault.put(cx.clone()).expect("put");
     let got = vault.get(id, vault.snapshot()).expect("get");
 
-    assert_eq!(got, cx);
+    let mut expected = cx;
+    expected.provenance = got.provenance.clone();
+    assert_eq!(got, expected);
+    assert_ne!(got.provenance.hash, [0; 32]);
     assert!(matches!(
         got.slots.get(&SlotId::new(1)),
         Some(SlotVector::Absent {

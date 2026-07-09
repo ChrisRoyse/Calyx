@@ -277,6 +277,40 @@ fn scheduler_compacts_debt_and_stops_cleanly() {
 }
 
 #[test]
+fn scheduler_records_background_errors_without_panicking() {
+    let dir = test_dir("scheduler-health");
+    let bad = dir.join("not-an-sst-name.bin");
+    fs::write(&bad, b"bad").expect("write bad input");
+    let catalog = Arc::new(CompactionCatalog::new(vec![SstShard {
+        cf: ColumnFamily::Base,
+        path: bad,
+        level: 0,
+        bytes: 3,
+    }]));
+    let scheduler = CompactionScheduler::start(
+        catalog,
+        CompactionSchedulerOptions {
+            interval_ms: 1,
+            min_interval_ms: 1,
+            debt_trigger_score_milli: 0,
+            output_root: dir.join("scheduled"),
+            ..CompactionSchedulerOptions::default()
+        },
+    );
+
+    let deadline = Instant::now() + Duration::from_secs(2);
+    while scheduler.error_count() == 0 {
+        assert!(
+            Instant::now() < deadline,
+            "scheduler error counter stayed at zero"
+        );
+        thread::yield_now();
+    }
+    scheduler.stop().expect("scheduler joins");
+    cleanup(dir);
+}
+
+#[test]
 fn adaptive_schedule_backs_off_quiet_periods_and_accelerates_debt() {
     let hook = AdaptiveCompactionSchedule;
     let quiet = hook.decide(&CompactionScheduleState {

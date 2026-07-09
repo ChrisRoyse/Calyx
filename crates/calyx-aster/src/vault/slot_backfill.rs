@@ -98,7 +98,11 @@ mod tests {
                 .expect("read dense"),
             Some(dense)
         );
-        assert_eq!(vault.get(id, dense_seq).expect("historical get"), cx);
+        let got = vault.get(id, dense_seq).expect("historical get");
+        let mut expected = cx;
+        expected.provenance = got.provenance.clone();
+        assert_eq!(got, expected);
+        assert_ne!(got.provenance.hash, [0; 32]);
     }
 
     #[test]

@@ -12,9 +12,9 @@ use crate::cf::ColumnFamily;
 use crate::vault::AsterVault;
 
 pub use enhancement::{
-    CALYX_COLLECTION_LENS_DUPLICATE, CALYX_LENS_NOT_FOUND, add_lens, backfill_pending_key,
-    collection_has_lens, collection_id, ingest_collection_constellation, lens_registry_key,
-    register_lens,
+    CALYX_COLLECTION_LENS_DUPLICATE, CALYX_COLLECTION_LENS_UNMEASURED, CALYX_LENS_NOT_FOUND,
+    add_lens, backfill_pending_key, collection_has_lens, collection_id,
+    ingest_collection_constellation, lens_registry_key, register_lens,
 };
 pub use policy::{
     DEFAULT_TEMPORAL_BOOST_WEIGHTS, DedupAction, DedupPolicy, IsolationLevel, PanelRef,

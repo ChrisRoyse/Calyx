@@ -326,7 +326,7 @@ pub(super) fn commit_staged(
     Ok(data_ref)
 }
 
-fn ingest_payload(constellation: &Constellation) -> Vec<u8> {
+pub(super) fn ingest_payload(constellation: &Constellation) -> Vec<u8> {
     let mut payload = PayloadBuilder::default();
     let mut metadata = serde_json::Map::new();
     for key in [METADATA_CHUNK_ID, METADATA_DATABASE_NAME] {

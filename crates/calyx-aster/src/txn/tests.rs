@@ -235,7 +235,7 @@ fn rollback_drop_overlay_and_empty_commit_edges() {
         .unwrap();
     rc.put_record(&vault, &cols.orders, &pk3, &order_row("rc", 4))
         .unwrap();
-    assert!(rc.get_record(&vault, &cols.orders, &pk3).unwrap().is_none());
+    assert!(rc.get_record(&vault, &cols.orders, &pk3).unwrap().is_some());
     rc.rollback().unwrap();
 
     let before = vault.latest_seq();
@@ -285,7 +285,7 @@ fn read_committed_staging_keeps_rollups_consistent() {
     assert!(
         txn.read_cf(&vault, ColumnFamily::TimeSeries, &rollup_key)
             .unwrap()
-            .is_none()
+            .is_some()
     );
 
     let seq = txn.commit(&vault).unwrap();

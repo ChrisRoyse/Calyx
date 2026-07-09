@@ -2,7 +2,7 @@ use crate::cf::ColumnFamily;
 use std::env;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
@@ -75,6 +75,22 @@ pub trait CompactionScheduleHook: std::fmt::Debug + Send + Sync {
     fn decide(&self, state: &CompactionScheduleState) -> CompactionScheduleDecision;
 }
 
+/// Background scheduler health counters exposed to vault health surfaces.
+#[derive(Debug, Default)]
+pub struct CompactionSchedulerHealth {
+    error_count: AtomicU64,
+}
+
+impl CompactionSchedulerHealth {
+    fn record_error(&self) {
+        self.error_count.fetch_add(1, Ordering::AcqRel);
+    }
+
+    pub fn error_count(&self) -> u64 {
+        self.error_count.load(Ordering::Acquire)
+    }
+}
+
 /// Default adaptive hook: quiet periods back off, debt accelerates, and write
 /// amplification or budget pressure slows the loop to avoid compaction storms.
 #[derive(Debug, Clone, Copy, Default)]
@@ -115,12 +131,15 @@ impl CompactionScheduleHook for AdaptiveCompactionSchedule {
 pub struct CompactionScheduler {
     stop: Arc<AtomicBool>,
     thread: JoinHandle<()>,
+    health: Arc<CompactionSchedulerHealth>,
 }
 
 impl CompactionScheduler {
     pub fn start(catalog: Arc<CompactionCatalog>, options: CompactionSchedulerOptions) -> Self {
         let stop = Arc::new(AtomicBool::new(false));
         let thread_stop = stop.clone();
+        let health = Arc::new(CompactionSchedulerHealth::default());
+        let thread_health = health.clone();
         let thread = thread::spawn(move || {
             let mut interval_ms = options.interval_ms.max(1);
             let mut io_budget_bytes = options.io_budget_bytes;
@@ -150,12 +169,9 @@ impl CompactionScheduler {
                     );
                     let output = match commit_domain_output_path(&dir, &inputs) {
                         Ok(output) => output,
-                        Err(error) => {
-                            panic!(
-                                "calyx compaction scheduler error: cannot name commit-domain output for CF {} in {}: {error}",
-                                cf.name(),
-                                dir.display()
-                            );
+                        Err(_) => {
+                            thread_health.record_error();
+                            continue;
                         }
                     };
                     let input_bytes = inputs.iter().map(|shard| shard.bytes).sum::<u64>();
@@ -179,11 +195,9 @@ impl CompactionScheduler {
                             );
                         }
                         Ok(CompactionResult::Skipped { .. }) => {}
-                        Err(error) => panic!(
-                            "calyx compaction scheduler error: compact CF {} into {}: {error}",
-                            cf.name(),
-                            dir.display()
-                        ),
+                        Err(_) => {
+                            thread_health.record_error();
+                        }
                     }
                 }
                 let state = CompactionScheduleState {
@@ -206,7 +220,15 @@ impl CompactionScheduler {
                 io_budget_bytes = decision.io_budget_bytes;
             }
         });
-        Self { stop, thread }
+        Self {
+            stop,
+            thread,
+            health,
+        }
+    }
+
+    pub fn error_count(&self) -> u64 {
+        self.health.error_count()
     }
 
     pub fn stop(self) -> thread::Result<()> {

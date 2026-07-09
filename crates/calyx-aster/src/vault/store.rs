@@ -1,9 +1,9 @@
-use crate::cf::{ColumnFamily, anchor_key, base_key, ledger_key, slot_key};
+use crate::cf::{ColumnFamily, anchor_key, base_key, slot_key};
 use crate::mvcc::{CfRead, Snapshot};
 use calyx_core::{Anchor, CalyxError, Clock, Constellation, CxId, Result, Seq, SlotId, VaultStore};
 use std::collections::{BTreeMap, BTreeSet};
 
-use super::{AsterVault, anchor_merge, encode, ledger_hook, ledger_stub};
+use super::{AsterVault, anchor_merge, encode, ledger_hook};
 
 const COMPRESSED_SLOT_TAG: u8 = 16;
 
@@ -177,11 +177,11 @@ where
                     .ledger_ref();
                 Some(staged)
             } else {
-                rows.push(encode::WriteRow {
-                    cf: ColumnFamily::Ledger,
-                    key: ledger_key(constellation.provenance.seq),
-                    value: ledger_stub::encode(constellation.provenance.seq),
-                });
+                constellation.provenance = self.stage_raw_ingest_ledger_locked(
+                    &mut rows,
+                    constellation.cx_id,
+                    ledger_hook::ingest_payload(&constellation),
+                )?;
                 None
             };
             let base_bytes = encode::encode_constellation_base(&constellation)?;

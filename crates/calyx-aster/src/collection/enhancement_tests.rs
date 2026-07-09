@@ -100,7 +100,7 @@ fn add_lens_sets_constellations_mode_and_backfill_marker() {
 }
 
 #[test]
-fn post_upgrade_records_write_routes_to_slot_zero() {
+fn post_upgrade_records_write_requires_measured_slots() {
     let vault = AsterVault::with_clock(vault_id(), b"salt", FixedClock::new(30));
     let lens = lens_id();
     create_collection(&vault, records_collection("orders")).unwrap();
@@ -108,15 +108,16 @@ fn post_upgrade_records_write_routes_to_slot_zero() {
     add_lens(&vault, "orders", lens).unwrap();
 
     let upgraded = get_collection(&vault, "orders").unwrap();
-    RelationalLayer::new(&vault)
+    let error = RelationalLayer::new(&vault)
         .put_record(
             &upgraded,
             &RecordKey::from_u64(7),
             &Row::new([("pk", RecordValue::I64(7))]),
         )
-        .unwrap();
+        .unwrap_err();
 
-    assert_eq!(slot_rows(&vault).len(), 1);
+    assert_eq!(error.code, CALYX_COLLECTION_LENS_UNMEASURED);
+    assert!(slot_rows(&vault).is_empty());
     assert!(
         vault
             .scan_cf_at(vault.latest_seq(), ColumnFamily::Relational)
@@ -153,10 +154,11 @@ fn add_lens_edges_fail_closed_and_kv_upgrades() {
     add_lens(&vault, "cache", other_lens_id()).unwrap();
     let upgraded = get_collection(&vault, "cache").unwrap();
     assert_eq!(upgraded.mode, CollectionMode::Constellations);
-    KvLayer::new(&vault)
+    let error = KvLayer::new(&vault)
         .kv_set(&upgraded, 0, b"k", b"v", None)
-        .unwrap();
-    assert_eq!(slot_rows(&vault).len(), 1);
+        .unwrap_err();
+    assert_eq!(error.code, CALYX_COLLECTION_LENS_UNMEASURED);
+    assert!(slot_rows(&vault).is_empty());
 }
 
 #[test]
@@ -230,13 +232,13 @@ fn progressive_enhancement_fsv_writes_durable_readback() {
     register_lens(&vault, lens).unwrap();
     add_lens(&vault, "orders", lens).unwrap();
     let upgraded = get_collection(&vault, "orders").unwrap();
-    layer
+    let post_upgrade_error = layer
         .put_record(
             &upgraded,
             &RecordKey::from_u64(2),
             &Row::new([("pk", RecordValue::I64(2))]),
         )
-        .unwrap();
+        .unwrap_err();
     let marker_key = backfill_pending_key("orders").unwrap();
     let marker_value = online_row(&vault, &marker_key).unwrap();
     let after_slot_rows = slot_rows(&vault);
@@ -267,6 +269,7 @@ fn progressive_enhancement_fsv_writes_durable_readback() {
         "before_slot_00_rows": before_slot_rows.len(),
         "before_backfill_marker": before_marker.is_some(),
         "after_slot_00_rows": after_slot_rows.len(),
+        "post_upgrade_write_code": post_upgrade_error.code,
         "decoded_after_upgrade": serde_json::to_value(&upgraded).unwrap(),
         "decoded_after_reopen": serde_json::to_value(&reopened_collection).unwrap(),
         "edge_cases": edge_cases,
@@ -279,7 +282,11 @@ fn progressive_enhancement_fsv_writes_durable_readback() {
     });
     assert_eq!(readback["before_slot_00_rows"], serde_json::json!(0));
     assert_eq!(readback["before_backfill_marker"], serde_json::json!(false));
-    assert_eq!(readback["after_slot_00_rows"], serde_json::json!(1));
+    assert_eq!(readback["after_slot_00_rows"], serde_json::json!(0));
+    assert_eq!(
+        readback["post_upgrade_write_code"],
+        serde_json::json!(CALYX_COLLECTION_LENS_UNMEASURED)
+    );
     assert_eq!(reopened_collection.mode, CollectionMode::Constellations);
 
     if let Some(root) = fsv_root {
@@ -326,9 +333,10 @@ fn progressive_edge_cases<C: Clock>(vault: &AsterVault<C>) -> Vec<serde_json::Va
     register_lens(vault, other_lens).unwrap();
     add_lens(vault, "cache_edge", other_lens).unwrap();
     let kv_after = get_collection(vault, "cache_edge").unwrap();
-    KvLayer::new(vault)
+    let kv_error = KvLayer::new(vault)
         .kv_set(&kv_after, 0, b"k", b"v", None)
-        .unwrap();
+        .unwrap_err();
+    assert_eq!(kv_error.code, CALYX_COLLECTION_LENS_UNMEASURED);
 
     vec![
         serde_json::json!({
@@ -351,6 +359,7 @@ fn progressive_edge_cases<C: Clock>(vault: &AsterVault<C>) -> Vec<serde_json::Va
             "case": "kv_upgrade",
             "before_mode": format!("{:?}", kv_before.mode),
             "after_mode": format!("{:?}", kv_after.mode),
+            "code": kv_error.code,
             "after_marker": online_row(vault, &backfill_pending_key("cache_edge").unwrap())
                 .is_some(),
             "slot_00_rows_after_kv_write": slot_rows(vault).len(),

@@ -293,10 +293,8 @@ impl CfRouter {
             }
         }
         if let Some(table) = self.memtables.get(&cf) {
-            for (key, value) in table.iter() {
-                if key.as_slice() >= start && key.as_slice() < end {
-                    rows.insert(key, value);
-                }
+            for (key, value) in table.range(start, end) {
+                rows.insert(key, value);
             }
         }
         self.open_entries(
@@ -321,9 +319,8 @@ impl CfRouter {
             .get(&cf)
             .map(|table| {
                 table
-                    .iter()
-                    .filter(|(key, _)| key.as_slice() >= start)
-                    .filter(|(key, _)| end.is_none_or(|end| key.as_slice() < end))
+                    .range_until(start, end)
+                    .into_iter()
                     .map(|(key, value)| SstEntry { key, value })
                     .collect::<Vec<_>>()
             })
@@ -354,10 +351,8 @@ impl CfRouter {
             }
         }
         if let Some(table) = self.memtables.get(&cf) {
-            for (key, value) in table.iter() {
-                if key.as_slice() >= start && end.is_none_or(|end| key.as_slice() < end) {
-                    rows.insert(key, crate::mvcc::is_tombstone_value(&value));
-                }
+            for (key, value) in table.range_until(start, end) {
+                rows.insert(key, crate::mvcc::is_tombstone_value(&value));
             }
         }
         Ok(rows

@@ -1,6 +1,6 @@
 //! Dedup decision engine for PH41 T02.
 
-use crate::cf::{ColumnFamily, base_key};
+use crate::cf::{ColumnFamily, KeyRange, base_key};
 use crate::dedup::{
     AnchorConflictResult, CALYX_DEDUP_ANCHOR_CONFLICT, CALYX_DEDUP_DPI_EXCEEDED,
     CALYX_DEDUP_INVALID_TAU, CALYX_DEDUP_MISSING_GUARD_PROFILE,
@@ -153,12 +153,14 @@ where
                 return Ok(exact);
             }
             let snapshot = vault.snapshot();
-            let candidates = vault.scan_cf_at(snapshot, ColumnFamily::Base)?;
+            let candidates = vault.scan_cf_range_page_at(
+                snapshot,
+                ColumnFamily::Base,
+                &KeyRange::all(),
+                None,
+                candidate_limit.saturating_add(1),
+            )?;
             if candidates.len() > candidate_limit {
-                let exact = exact_match(new_cx, vault)?;
-                if matches!(exact, DedupDecision::Match { .. }) {
-                    return Ok(exact);
-                }
                 return Err(dedup_error(
                     CALYX_DEDUP_DPI_EXCEEDED,
                     format!(

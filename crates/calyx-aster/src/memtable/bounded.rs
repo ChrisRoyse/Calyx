@@ -155,6 +155,29 @@ impl BoundedMemtable {
         self.snapshot_entries().into_iter()
     }
 
+    /// Returns cloned entries in `[start, end)` key order without cloning the whole table.
+    pub fn range(&self, start: &[u8], end: &[u8]) -> Vec<(Vec<u8>, Vec<u8>)> {
+        self.range_until(start, Some(end))
+    }
+
+    /// Returns cloned entries in `[start, end)` or `[start, +inf)` key order.
+    pub fn range_until(&self, start: &[u8], end: Option<&[u8]>) -> Vec<(Vec<u8>, Vec<u8>)> {
+        let entries = self
+            .entries
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        match end {
+            Some(end) => entries
+                .range(start.to_vec()..end.to_vec())
+                .map(|(key, value)| (key.clone(), value.clone()))
+                .collect(),
+            None => entries
+                .range(start.to_vec()..)
+                .map(|(key, value)| (key.clone(), value.clone()))
+                .collect(),
+        }
+    }
+
     /// Flushes the current memtable snapshot into an immutable SSTable.
     pub fn flush_to_sst(&self, path: impl AsRef<Path>) -> Result<SstSummary> {
         let entries = self.snapshot_entries();
@@ -254,13 +277,20 @@ mod tests {
 
         table.put(b"k2", b"two").expect("put k2");
         table.put(b"k1", b"one").expect("put k1");
+        table.put(b"k3", b"three").expect("put k3");
 
         let keys: Vec<_> = table.iter().map(|(key, _)| key).collect();
-        assert_eq!(keys, [b"k1".to_vec(), b"k2".to_vec()]);
+        assert_eq!(keys, [b"k1".to_vec(), b"k2".to_vec(), b"k3".to_vec()]);
+        assert_eq!(
+            table.range(b"k2", b"k3"),
+            vec![(b"k2".to_vec(), b"two".to_vec())]
+        );
         assert_eq!(table.get(b"k2"), Some(b"two".to_vec()));
         assert_eq!(
             table.estimated_bytes(),
-            Memtable::entry_size(b"k2", b"two") + Memtable::entry_size(b"k1", b"one")
+            Memtable::entry_size(b"k2", b"two")
+                + Memtable::entry_size(b"k1", b"one")
+                + Memtable::entry_size(b"k3", b"three")
         );
     }
 

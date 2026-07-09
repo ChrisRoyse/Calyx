@@ -6,13 +6,14 @@ use calyx_aster::sst::write_sst;
 use calyx_aster::vault::encode::{
     WriteRow, decode_write_batch, encode_constellation_base, encode_slot_vector, encode_write_batch,
 };
-use calyx_aster::vault::ledger_stub;
 use calyx_aster::vault::{AsterVault, VaultOptions};
 use calyx_aster::wal::{Wal, WalOptions, replay_dir};
 use calyx_core::{
     Constellation, CxFlags, CxId, InputRef, LedgerRef, Modality, SlotId, SlotVector, VaultId,
     VaultStore,
 };
+use calyx_ledger::{ActorId, EntryKind, LedgerEntry, PayloadBuilder, RedactionPolicy, SubjectId};
+use serde_json::json;
 use std::collections::BTreeMap;
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Write};
@@ -77,7 +78,7 @@ pub fn crash_drill(
     drop(writer);
 
     let target = synthetic_constellation(vault_id, TARGET_RECORD);
-    let rows = constellation_rows(&target)?;
+    let rows = constellation_rows(vault, vault_id, &target)?;
     match point {
         CrashPoint::BeforeWalFsync => append_torn_header(vault, TARGET_RECORD as u64)?,
         CrashPoint::AfterWalBeforeCommit => {
@@ -167,9 +168,16 @@ pub fn open_check(vault: &Path, index: u8) -> crate::error::CliResult {
     )?;
     let snapshot = opened.snapshot();
     let got = opened.get(id, snapshot)?;
+    let mut expected = expected;
+    expected.provenance = got.provenance.clone();
     if got != expected {
         return Err(CliError::runtime(format!(
             "open-check mismatch for index {index}"
+        )));
+    }
+    if got.provenance.hash == [0; 32] {
+        return Err(CliError::runtime(format!(
+            "open-check found zero ledger hash for index {index}"
         )));
     }
     println!(
@@ -260,19 +268,33 @@ fn write_manifest(vault: &Path, seq: u64) -> CliResult<calyx_aster::manifest::Ma
 }
 
 fn ensure_manifest_assets(vault: &Path) -> CliResult<(ImmutableRef, Vec<ImmutableRef>)> {
-    let panel_path = vault.join("panel/current.bin");
-    let codebook_path = vault.join("codebooks/default.bin");
-    let panel_bytes = b"calyx-stage1-panel";
-    let codebook_bytes = b"calyx-stage1-codebook";
-    write_asset(&panel_path, panel_bytes)?;
-    write_asset(&codebook_path, codebook_bytes)?;
+    let panel_bytes = generated_asset_bytes("panel", "no-active-panel");
+    let panel_hash = blake3::hash(&panel_bytes).to_hex().to_string();
+    let panel_logical = format!("panel/generated-no-active-panel-{}.json", &panel_hash[..16]);
+    let panel_path = vault.join(&panel_logical);
+    let codebook_bytes = generated_asset_bytes("codebook", "no-active-codebook");
+    let codebook_hash = blake3::hash(&codebook_bytes).to_hex().to_string();
+    let codebook_logical = format!(
+        "codebooks/generated-no-active-codebook-{}.json",
+        &codebook_hash[..16]
+    );
+    let codebook_path = vault.join(&codebook_logical);
+    write_asset(&panel_path, &panel_bytes)?;
+    write_asset(&codebook_path, &codebook_bytes)?;
     Ok((
-        ImmutableRef::from_bytes("panel/current.bin", panel_bytes)?,
-        vec![ImmutableRef::from_bytes(
-            "codebooks/default.bin",
-            codebook_bytes,
-        )?],
+        ImmutableRef::from_bytes(panel_logical, &panel_bytes)?,
+        vec![ImmutableRef::from_bytes(codebook_logical, &codebook_bytes)?],
     ))
+}
+
+fn generated_asset_bytes(kind: &str, status: &str) -> Vec<u8> {
+    json!({
+        "kind": "calyx_manifest_generated_asset_v1",
+        "asset_kind": kind,
+        "status": status
+    })
+    .to_string()
+    .into_bytes()
 }
 
 fn write_asset(path: &Path, bytes: &[u8]) -> CliResult {
@@ -285,11 +307,23 @@ fn write_asset(path: &Path, bytes: &[u8]) -> CliResult {
     Ok(())
 }
 
-fn constellation_rows(cx: &Constellation) -> CliResult<Vec<WriteRow>> {
+fn constellation_rows(
+    vault: &Path,
+    vault_id: VaultId,
+    cx: &Constellation,
+) -> CliResult<Vec<WriteRow>> {
+    let tip = ledger_tip(vault, vault_id)?;
+    let ledger_entry = ledger_entry_after_tip(cx, tip);
+    let ledger_ref = LedgerRef {
+        seq: ledger_entry.seq,
+        hash: ledger_entry.entry_hash,
+    };
+    let mut cx = cx.clone();
+    cx.provenance = ledger_ref;
     let mut rows = vec![WriteRow {
         cf: ColumnFamily::Base,
         key: base_key(cx.cx_id),
-        value: encode_constellation_base(cx)?,
+        value: encode_constellation_base(&cx)?,
     }];
     for (slot, vector) in &cx.slots {
         rows.push(WriteRow {
@@ -300,10 +334,86 @@ fn constellation_rows(cx: &Constellation) -> CliResult<Vec<WriteRow>> {
     }
     rows.push(WriteRow {
         cf: ColumnFamily::Ledger,
-        key: ledger_key(cx.provenance.seq),
-        value: ledger_stub::encode(cx.provenance.seq),
+        key: ledger_key(ledger_entry.seq),
+        value: calyx_ledger::encode(&ledger_entry),
     });
     Ok(rows)
+}
+
+#[derive(Clone, Copy, Debug)]
+struct LedgerTip {
+    next_seq: u64,
+    prev_hash: [u8; 32],
+    last_ts: u64,
+}
+
+fn ledger_tip(vault: &Path, vault_id: VaultId) -> CliResult<LedgerTip> {
+    let reader = AsterVault::open(
+        vault,
+        vault_id,
+        b"calyx-crash-drill-salt",
+        VaultOptions {
+            read_only: true,
+            ..VaultOptions::default()
+        },
+    )?;
+    let mut rows = reader.scan_cf_at(reader.snapshot(), ColumnFamily::Ledger)?;
+    rows.sort_by_key(|(key, _)| parse_ledger_key(key).unwrap_or(u64::MAX));
+    let Some((key, bytes)) = rows.last() else {
+        return Ok(LedgerTip {
+            next_seq: 0,
+            prev_hash: [0; 32],
+            last_ts: 0,
+        });
+    };
+    let key_seq = parse_ledger_key(key)?;
+    let entry = calyx_ledger::decode(bytes)?;
+    if entry.seq != key_seq {
+        return Err(CliError::runtime(format!(
+            "ledger key seq {key_seq} != encoded seq {}",
+            entry.seq
+        )));
+    }
+    Ok(LedgerTip {
+        next_seq: entry.seq.saturating_add(1),
+        prev_hash: entry.entry_hash,
+        last_ts: entry.ts,
+    })
+}
+
+fn parse_ledger_key(key: &[u8]) -> CliResult<u64> {
+    let bytes: [u8; 8] = key
+        .try_into()
+        .map_err(|_| CliError::runtime(format!("ledger key length {} != 8", key.len())))?;
+    Ok(u64::from_be_bytes(bytes))
+}
+
+fn ledger_entry_after_tip(cx: &Constellation, tip: LedgerTip) -> LedgerEntry {
+    LedgerEntry::new(
+        tip.next_seq,
+        tip.prev_hash,
+        EntryKind::Ingest,
+        SubjectId::Cx(cx.cx_id),
+        crash_ledger_payload(cx),
+        ActorId::Service("calyx-aster".to_string()),
+        tip.last_ts.saturating_add(1),
+    )
+}
+
+fn crash_ledger_payload(cx: &Constellation) -> Vec<u8> {
+    let mut payload = PayloadBuilder::default();
+    payload
+        .insert_str("cx_id", cx.cx_id.to_string())
+        .insert_str("input_hash", hex_bytes(&cx.input_ref.hash))
+        .insert_value(
+            "input_ref",
+            json!({
+                "hash": cx.input_ref.hash,
+                "redacted": true,
+            }),
+        )
+        .insert_u64("ts", cx.created_at);
+    RedactionPolicy::default().apply_to_payload(&payload)
 }
 
 fn synthetic_constellation(vault_id: VaultId, index: u8) -> Constellation {

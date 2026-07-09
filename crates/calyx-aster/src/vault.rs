@@ -21,7 +21,6 @@ mod layer_commit;
 mod ledger_anchor_batch;
 mod ledger_append;
 mod ledger_hook;
-pub mod ledger_stub;
 mod open;
 pub mod quota;
 mod retention_horizon;

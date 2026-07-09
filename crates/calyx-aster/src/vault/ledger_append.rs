@@ -19,6 +19,41 @@ impl<C> AsterVault<C>
 where
     C: Clock,
 {
+    pub(crate) fn stage_raw_ledger_entry_locked(
+        &self,
+        rows: &mut Vec<encode::WriteRow>,
+        kind: EntryKind,
+        subject: SubjectId,
+        payload: Vec<u8>,
+        actor: ActorId,
+    ) -> Result<LedgerRef> {
+        let store = AsterRawLedgerStore { vault: self };
+        let appender = LedgerAppender::open(store, SystemClock)?;
+        let prepared = appender.prepare(kind, subject, payload, actor)?;
+        let ledger_ref = prepared.ledger_ref();
+        rows.push(encode::WriteRow {
+            cf: ColumnFamily::Ledger,
+            key: ledger_key(prepared.seq()),
+            value: prepared.bytes().to_vec(),
+        });
+        Ok(ledger_ref)
+    }
+
+    pub(crate) fn stage_raw_ingest_ledger_locked(
+        &self,
+        rows: &mut Vec<encode::WriteRow>,
+        subject: calyx_core::CxId,
+        payload: Vec<u8>,
+    ) -> Result<LedgerRef> {
+        self.stage_raw_ledger_entry_locked(
+            rows,
+            EntryKind::Ingest,
+            SubjectId::Cx(subject),
+            payload,
+            ActorId::Service("calyx-aster".to_string()),
+        )
+    }
+
     /// Adds an anchor and stamps the stored base row with the same ledger ref.
     pub fn anchor_with_ledger_entry(
         &self,

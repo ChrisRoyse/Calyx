@@ -15,6 +15,7 @@ pub use cross_model::CrossModelTxn;
 
 pub const CALYX_TXN_TIMEOUT: &str = "CALYX_TXN_TIMEOUT";
 pub const CALYX_TXN_COST_CAP: &str = "CALYX_TXN_COST_CAP";
+pub const CALYX_TXN_SERIALIZABLE_CONFLICT: &str = "CALYX_TXN_SERIALIZABLE_CONFLICT";
 
 pub(crate) const CALYX_TXN_INVALID_ARGUMENT: &str = "CALYX_TXN_INVALID_ARGUMENT";
 
@@ -67,7 +68,7 @@ impl TxnHandle {
         cost_cap_ms: Option<u32>,
         timeout: Duration,
     ) -> Result<CrossModelTxn<'_>> {
-        self.begin_at(0, isolation, cost_cap_ms, timeout)
+        self.begin_at_inner(0, false, isolation, cost_cap_ms, timeout)
     }
 
     pub fn begin_on<C: Clock>(
@@ -78,12 +79,23 @@ impl TxnHandle {
         timeout: Duration,
     ) -> Result<CrossModelTxn<'_>> {
         self.verify_vault(vault)?;
-        self.begin_at(vault.latest_seq(), isolation, cost_cap_ms, timeout)
+        self.begin_at_inner(vault.latest_seq(), true, isolation, cost_cap_ms, timeout)
     }
 
     pub fn begin_at(
         &self,
         snapshot_seq: Seq,
+        isolation: IsolationLevel,
+        cost_cap_ms: Option<u32>,
+        timeout: Duration,
+    ) -> Result<CrossModelTxn<'_>> {
+        self.begin_at_inner(snapshot_seq, true, isolation, cost_cap_ms, timeout)
+    }
+
+    fn begin_at_inner(
+        &self,
+        snapshot_seq: Seq,
+        snapshot_pinned: bool,
         isolation: IsolationLevel,
         cost_cap_ms: Option<u32>,
         timeout: Duration,
@@ -101,6 +113,7 @@ impl TxnHandle {
             isolation,
             cost_cap_ms,
             snapshot_seq,
+            snapshot_pinned,
             started_at,
         ))
     }
@@ -180,5 +193,7 @@ pub(crate) fn txn_timeout() -> CalyxError {
     )
 }
 
+#[cfg(test)]
+mod conflict_tests;
 #[cfg(test)]
 mod tests;
