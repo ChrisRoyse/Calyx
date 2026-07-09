@@ -143,13 +143,7 @@ impl LensProfiler for LiveProfiler<'_> {
         let cost = measured
             .cost
             .unwrap_or_else(|| measured_cost(elapsed_ms, corpus_sample, &measured.vectors));
-        let card = capability_card(
-            measured.lens_id,
-            measured.bits,
-            corpus_sample.len(),
-            cost,
-            measured.signal_kind,
-        );
+        let card = capability_card(&measured, corpus_sample, self.anchor, cost)?;
         self.state
             .profiles
             .borrow_mut()

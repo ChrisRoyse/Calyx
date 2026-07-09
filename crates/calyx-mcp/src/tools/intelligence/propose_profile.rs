@@ -9,8 +9,8 @@ use calyx_core::{
     CalyxError, Constellation, CxId, Lens, LensId, Modality, Result, SlotId, SlotVector,
 };
 use calyx_registry::{
-    AlgorithmicLens, CapabilityCard, CapabilitySignalKind, CostMetrics, CoverageMetrics,
-    LensHealth, MetricSource, Registry, SeparationMetrics, SpreadMetrics,
+    AlgorithmicLens, CapabilityCard, CapabilitySignalKind, CostMetrics, LensHealth, Registry,
+    profile_dense_vectors,
 };
 
 use super::core::{cosine, dense, has_anchor, has_anchor_kind};
@@ -101,48 +101,30 @@ pub(super) fn measured_cost(
 }
 
 pub(super) fn capability_card(
-    lens_id: LensId,
-    bits: f64,
-    probe_count: usize,
+    measured: &ProfileMeasurement,
+    corpus: &[Constellation],
+    anchor: &calyx_core::AnchorKind,
     cost: CostMetrics,
-    signal_kind: CapabilitySignalKind,
-) -> CapabilityCard {
-    let bits = bits.max(0.0).min(f64::from(f32::MAX)) as f32;
-    CapabilityCard {
-        lens_id,
-        probe_count,
-        signal: Some(bits),
-        signal_source: MetricSource::AssayStore,
-        signal_kind,
-        signal_reliability: None,
-        proxy_signal: bits,
-        differentiation: Some(bits),
-        differentiation_source: MetricSource::AssayStore,
-        proxy_differentiation: bits,
-        spread: SpreadMetrics {
-            participation_ratio: 1.0,
-            normalized_participation_ratio: 1.0,
-            stable_rank: 1.0,
-            total_variance: 1.0,
-            mean_pairwise_distance: 1.0,
-        },
-        separation: SeparationMetrics {
-            score: bits,
-            silhouette: bits,
-            mean_pairwise_distance: 1.0,
-            labeled_groups: 2,
-            used_labels: true,
-        },
+) -> Result<CapabilityCard> {
+    let signal = if measured.bits.is_finite() {
+        measured.bits.clamp(0.0, f64::from(f32::MAX)) as f32
+    } else {
+        0.0
+    };
+    let health = match measured.signal_kind {
+        CapabilitySignalKind::Placeholder => LensHealth::Cold,
+        _ => LensHealth::Loaded,
+    };
+    profile_dense_vectors(
+        measured.lens_id,
+        corpus.len(),
+        &measured.ordered,
+        &profile_labels(corpus, anchor),
         cost,
-        coverage: CoverageMetrics {
-            requested: probe_count,
-            measured: probe_count,
-            failed: 0,
-            rate: 1.0,
-        },
-        health: LensHealth::Loaded,
-        low_spread: false,
-    }
+        Some(signal),
+        measured.signal_kind,
+        health,
+    )
 }
 
 pub(super) fn per_sensor_bits(panel: &calyx_core::Panel, measured: &BitsOut) -> Vec<(LensId, f64)> {
@@ -242,14 +224,30 @@ fn measure_commission_target(
     }
     Ok(ProfileMeasurement {
         lens_id,
-        bits: target
-            .expected_bits
-            .max(bits_for_dense(corpus, anchor, &ordered)),
+        bits: bits_for_dense(corpus, anchor, &ordered),
         ordered,
         vectors,
         cost: Some(target_cost(target.expected_cost, corpus.len())),
         signal_kind: CapabilitySignalKind::Placeholder,
     })
+}
+
+fn profile_labels(
+    corpus: &[Constellation],
+    anchor: &calyx_core::AnchorKind,
+) -> Vec<Option<String>> {
+    corpus
+        .iter()
+        .map(|cx| {
+            if has_anchor(cx, anchor) {
+                Some("anchor:true".to_string())
+            } else if has_anchor_kind(cx, anchor) {
+                Some("anchor:false".to_string())
+            } else {
+                None
+            }
+        })
+        .collect()
 }
 
 fn bits_for_vectors(

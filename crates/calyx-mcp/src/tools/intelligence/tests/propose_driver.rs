@@ -106,6 +106,63 @@ fn mcp_propose_lens_rejects_algorithmic_signal_before_hot_add() {
     );
 }
 
+#[test]
+fn commissioned_placeholder_card_uses_measured_profile_metrics() {
+    let corpus = vec![
+        commissioned_doc(70, true, "identical profile input"),
+        commissioned_doc(71, false, "identical profile input"),
+    ];
+    let candidate = calyx_anneal::CandidateLens::Commission {
+        spec: calyx_anneal::CommissionSpec {
+            target_modality: calyx_core::Modality::Text,
+            endpoint: None,
+            model_id: Some("fixture/model".to_string()),
+            axis: "unit".to_string(),
+            suggested_targets: vec![calyx_anneal::ConversionTarget {
+                hf_id: "fixture/model".to_string(),
+                modality: calyx_core::Modality::Text,
+                axis: "unit".to_string(),
+                formats: vec!["adapter".to_string()],
+                expected_bits: 0.99,
+                expected_cost: calyx_anneal::ExpectedTargetCost {
+                    placement: calyx_core::Placement::Cpu,
+                    vram_mb: 0.0,
+                    ram_mb: 1.0,
+                    ms_per_input: 1.0,
+                },
+                expected_bits_per_vram_mb: None,
+                expected_bits_per_ms: 0.99,
+            }],
+            description: "fixture commission".to_string(),
+        },
+    };
+    let measured = super::super::propose_profile::measure_candidate(
+        Path::new("."),
+        &AnchorKind::TestPass,
+        &candidate,
+        &corpus,
+    )
+    .unwrap();
+    let card = super::super::propose_profile::capability_card(
+        &measured,
+        &corpus,
+        &AnchorKind::TestPass,
+        measured.cost.unwrap(),
+    )
+    .unwrap();
+
+    assert_eq!(
+        card.signal_kind,
+        calyx_registry::CapabilitySignalKind::Placeholder
+    );
+    assert_eq!(card.health, calyx_registry::LensHealth::Cold);
+    assert_eq!(card.coverage.requested, corpus.len());
+    assert_eq!(card.coverage.measured, corpus.len());
+    assert!(card.signal.unwrap() <= f32::EPSILON);
+    assert!(card.low_spread);
+    assert!(card.separation.used_labels);
+}
+
 fn ingest_frequency_corpus(server: &McpServer) -> Vec<String> {
     (0..60)
         .map(|idx| {
@@ -126,6 +183,18 @@ fn ingest_frequency_corpus(server: &McpServer) -> Vec<String> {
                 .to_string()
         })
         .collect()
+}
+
+fn commissioned_doc(seed: u8, positive: bool, input: &str) -> calyx_core::Constellation {
+    let mut cx = constellation(
+        seed,
+        Some(AnchorValue::Bool(positive)),
+        vec![1.0, 0.0],
+        vec![1.0, 0.0],
+    );
+    cx.metadata
+        .insert("raw_input".to_string(), input.to_string());
+    cx
 }
 
 fn anchor_frequency_outcomes(server: &McpServer, cx_ids: &[String]) {
