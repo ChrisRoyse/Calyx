@@ -116,11 +116,29 @@ pub(crate) fn build_grouped_gemm_plan_with_metadata(
 }
 
 pub fn execute_grouped_gemm(ctx: &CudaContext, plan: &mut GroupedGemmPlan) -> Result<()> {
-    execute_grouped_gemm_with_policy(ctx, plan, FallbackPolicy::AllowSequential)
+    plan.execution_mode = GroupedGemmExecutionMode::NotRun;
+    if plan.active.is_empty() {
+        plan.execution_mode = GroupedGemmExecutionMode::NoActiveProblems;
+        return check_device_output(ctx, plan);
+    }
+    let blas = new_grouped_blas(ctx)?;
+    execute_grouped_gemm_with_blas(ctx, plan, &blas, FallbackPolicy::AllowSequential, true)
 }
 
 pub fn execute_grouped_gemm_strict(ctx: &CudaContext, plan: &mut GroupedGemmPlan) -> Result<()> {
-    execute_grouped_gemm_with_policy(ctx, plan, FallbackPolicy::FailIfGroupedUnsupported)
+    plan.execution_mode = GroupedGemmExecutionMode::NotRun;
+    if plan.active.is_empty() {
+        plan.execution_mode = GroupedGemmExecutionMode::NoActiveProblems;
+        return check_device_output(ctx, plan);
+    }
+    let blas = new_grouped_blas(ctx)?;
+    execute_grouped_gemm_with_blas(
+        ctx,
+        plan,
+        &blas,
+        FallbackPolicy::FailIfGroupedUnsupported,
+        true,
+    )
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -129,20 +147,41 @@ enum FallbackPolicy {
     FailIfGroupedUnsupported,
 }
 
-fn execute_grouped_gemm_with_policy(
+pub(crate) fn new_grouped_blas(ctx: &CudaContext) -> Result<CudaBlas> {
+    CudaBlas::new(ctx.inner().default_stream().clone())
+        .map_err(|err| device_unavailable(ctx, format!("cuBLAS grouped handle failed: {err}")))
+}
+
+pub(crate) fn execute_grouped_gemm_bench(
     ctx: &CudaContext,
     plan: &mut GroupedGemmPlan,
+    blas: &CudaBlas,
+) -> Result<()> {
+    execute_grouped_gemm_with_blas(ctx, plan, blas, FallbackPolicy::AllowSequential, false)
+}
+
+pub(crate) fn validate_output(ctx: &CudaContext, plan: &GroupedGemmPlan) -> Result<()> {
+    check_device_output(ctx, plan)
+}
+
+fn execute_grouped_gemm_with_blas(
+    ctx: &CudaContext,
+    plan: &mut GroupedGemmPlan,
+    blas: &CudaBlas,
     policy: FallbackPolicy,
+    validate_output: bool,
 ) -> Result<()> {
     plan.execution_mode = GroupedGemmExecutionMode::NotRun;
     if plan.active.is_empty() {
         plan.execution_mode = GroupedGemmExecutionMode::NoActiveProblems;
-        return check_device_output(ctx, plan);
+        return if validate_output {
+            check_device_output(ctx, plan)
+        } else {
+            Ok(())
+        };
     }
     validate_active_again(plan)?;
     let stream = ctx.inner().default_stream();
-    let blas = CudaBlas::new(stream.clone())
-        .map_err(|err| device_unavailable(ctx, format!("cuBLAS grouped handle failed: {err}")))?;
     {
         let (a_base, _a_guard) = plan.a_slab.device_ptr(&stream);
         let (b_base, _b_guard) = plan.b_slab.device_ptr(&stream);
@@ -168,7 +207,11 @@ fn execute_grouped_gemm_with_policy(
             .synchronize()
             .map_err(|err| device_unavailable(ctx, format!("grouped GEMM sync failed: {err}")))?;
     }
-    check_device_output(ctx, plan)
+    if validate_output {
+        check_device_output(ctx, plan)
+    } else {
+        Ok(())
+    }
 }
 
 pub fn read_grouped_gemm_output(ctx: &CudaContext, plan: &GroupedGemmPlan) -> Result<Vec<f32>> {

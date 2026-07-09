@@ -31,6 +31,19 @@ pub fn gemm_cublas(
     gemm_checked_with_blas(ctx, &blas, a, b, GemmDims::new(m, k, n), out)
 }
 
+pub(crate) fn gemm_cublas_with_blas(
+    ctx: &CudaContext,
+    blas: &CudaBlas,
+    a: &CudaSlice<f32>,
+    b: &CudaSlice<f32>,
+    m: usize,
+    k: usize,
+    n: usize,
+    out: &mut CudaSlice<f32>,
+) -> Result<()> {
+    gemm_checked_with_blas(ctx, blas, a, b, GemmDims::new(m, k, n), out)
+}
+
 pub fn gemm_host(
     ctx: &CudaContext,
     a: &[f32],
@@ -283,7 +296,7 @@ fn deterministic_values(len: usize, period: usize, scale: f32) -> Vec<f32> {
         .collect()
 }
 
-fn new_blas(ctx: &CudaContext) -> Result<CudaBlas> {
+pub(crate) fn new_blas(ctx: &CudaContext) -> Result<CudaBlas> {
     CudaBlas::new(ctx.inner().default_stream())
         .map_err(|err| device_unavailable(ctx, format!("cuBLAS handle creation failed: {err}")))
 }

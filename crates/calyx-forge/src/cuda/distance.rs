@@ -35,6 +35,26 @@ pub fn cosine_batch_gpu(
     check_device_output(ctx, "cosine_batch_gpu", out, true)
 }
 
+pub(crate) fn launch_cosine_batch_gpu(
+    ctx: &CudaContext,
+    query: &CudaSlice<f32>,
+    candidates: &CudaSlice<f32>,
+    dim: usize,
+    n_cands: usize,
+    out: &mut CudaSlice<f32>,
+) -> Result<()> {
+    launch_distance(
+        ctx,
+        "cosine_batch_gpu",
+        "cosine_batch_f32",
+        query,
+        candidates,
+        dim,
+        n_cands,
+        out,
+    )
+}
+
 pub fn dot_batch_gpu(
     ctx: &CudaContext,
     query: &CudaSlice<f32>,
@@ -321,6 +341,15 @@ fn check_device_output(
     out: &CudaSlice<f32>,
     sentinel: bool,
 ) -> Result<()> {
+    read_checked_device_output(ctx, op, out, sentinel).map(|_| ())
+}
+
+pub(crate) fn read_checked_device_output(
+    ctx: &CudaContext,
+    op: &'static str,
+    out: &CudaSlice<f32>,
+    sentinel: bool,
+) -> Result<Vec<f32>> {
     let values = ctx
         .inner()
         .default_stream()
@@ -340,7 +369,7 @@ fn check_device_output(
             ));
         }
     }
-    Ok(())
+    Ok(values)
 }
 
 fn validate_host_inputs(

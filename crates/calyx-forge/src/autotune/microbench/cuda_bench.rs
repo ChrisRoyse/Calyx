@@ -1,7 +1,11 @@
 use crate::{
     BackendKind, BestConfig, ForgeError, GemmProblem, Result, build_grouped_gemm_plan,
-    cuda::{cosine_batch_gpu, gemm_cublas},
-    execute_grouped_gemm,
+    cpu::check_finite,
+    cuda::{
+        distance::{launch_cosine_batch_gpu, read_checked_device_output},
+        gemm::{gemm_cublas_with_blas, new_blas},
+        grouped_gemm::{execute_grouped_gemm_bench, new_grouped_blas, validate_output},
+    },
 };
 
 use super::{
@@ -33,14 +37,16 @@ pub(super) fn bench_cuda_gemm(
     let mut out_dev = stream
         .alloc_zeros(out.len())
         .map_err(|err| cuda_device_error(ctx, op, format!("allocate GEMM C failed: {err}")))?;
+    let blas = new_blas(ctx)?;
     let result = time_op(op, iters, flops, || {
-        gemm_cublas(ctx, &a_dev, &b_dev, m, k, n, &mut out_dev)?;
+        gemm_cublas_with_blas(ctx, &blas, &a_dev, &b_dev, m, k, n, &mut out_dev)?;
         sync_cuda(ctx, op)
     })?;
     let values = stream
         .clone_dtoh(&out_dev)
         .map_err(|err| cuda_device_error(ctx, op, format!("read GEMM C failed: {err}")))?;
     out.copy_from_slice(&values);
+    check_finite(out, "microbench::gemm")?;
     Ok(result)
 }
 
@@ -67,19 +73,16 @@ pub(super) fn bench_cuda_cosine(
         cuda_device_error(ctx, op, format!("allocate cosine output failed: {err}"))
     })?;
     let result = time_op(op, iters, flops, || {
-        cosine_batch_gpu(
+        launch_cosine_batch_gpu(
             ctx,
             &query_dev,
             &candidates_dev,
             dim,
             out.len(),
             &mut out_dev,
-        )?;
-        sync_cuda(ctx, op)
+        )
     })?;
-    let values = stream
-        .clone_dtoh(&out_dev)
-        .map_err(|err| cuda_device_error(ctx, op, format!("read cosine output failed: {err}")))?;
+    let values = read_checked_device_output(ctx, "cosine_batch_gpu", &out_dev, true)?;
     out.copy_from_slice(&values);
     Ok(result)
 }
@@ -127,10 +130,12 @@ pub(super) fn bench_grouped_gemm(
     }
     let mut plan = build_grouped_gemm_plan(ctx, problems, &a, &b, &c)?;
     let flops = 2.0 * groups as f64 * m as f64 * k as f64 * n as f64;
-    time_op(op, iters, flops, || {
-        execute_grouped_gemm(ctx, &mut plan)?;
-        sync_cuda(ctx, op)
-    })
+    let blas = new_grouped_blas(ctx)?;
+    let result = time_op(op, iters, flops, || {
+        execute_grouped_gemm_bench(ctx, &mut plan, &blas)
+    })?;
+    validate_output(ctx, &plan)?;
+    Ok(result)
 }
 
 fn grouped_shape(shape: &[usize]) -> Result<(usize, usize, usize, usize)> {

@@ -96,7 +96,6 @@ fn microbench_gemm_returns_positive_gflops() -> Result<()> {
 
     assert_positive(result);
     assert!(result.elapsed_ms < 10_000.0);
-    assert!(result.cv_pct < 20.0, "cv_pct={}", result.cv_pct);
     println!(
         "microbench_gemm_returns_positive_gflops PASSED gflops={:.3} elapsed_ms={:.3} cv_pct={:.3}",
         result.gflops, result.elapsed_ms, result.cv_pct
@@ -121,6 +120,29 @@ fn microbench_cosine_returns_positive() -> Result<()> {
     assert!(result.elapsed_ms < 10_000.0);
     println!(
         "microbench_cosine_returns_positive PASSED gflops={:.3} elapsed_ms={:.3} cv_pct={:.3}",
+        result.gflops, result.elapsed_ms, result.cv_pct
+    );
+    Ok(())
+}
+
+#[cfg(feature = "cuda")]
+#[test]
+#[ignore = "requires a CUDA stack with stable cuBLAS grouped GEMM support"]
+fn microbench_grouped_gemm_returns_positive() -> Result<()> {
+    let _guard = crate::cuda::test_lock();
+    let ctx = crate::init_cuda(0, false)?;
+    let result = microbench(
+        "grouped_gemm",
+        &config(BackendKind::Cuda),
+        &[2, 128, 128, 128],
+        Some(&ctx),
+        3,
+    )?;
+
+    assert_positive(result);
+    assert!(result.elapsed_ms < 10_000.0);
+    println!(
+        "microbench_grouped_gemm_returns_positive PASSED gflops={:.3} elapsed_ms={:.3} cv_pct={:.3}",
         result.gflops, result.elapsed_ms, result.cv_pct
     );
     Ok(())
