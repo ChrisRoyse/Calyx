@@ -307,11 +307,9 @@ fn oracle_observation_context(
                     .domain
                     .as_deref()
                     .unwrap_or(default_domain.as_str()),
-                "outcome": {"value": consequence.outcome}
+                "outcome": {"value": consequence.outcome},
+                "grounded": consequence.grounded
             });
-            if !consequence.grounded {
-                edge["grounded"] = json!(false);
-            }
             if consequence.provisional {
                 edge["provisional"] = json!(true);
             }

@@ -41,7 +41,8 @@ fn grounded_recurrence_recovers_planted_cause_with_ledger() {
     assert_eq!(causes.len(), 1);
     assert_eq!(causes[0].action_or_event, "cause_A");
     assert!(!causes[0].provisional);
-    assert_close(causes[0].confidence, 15.0 / 16.0);
+    assert_eq!(causes[0].support, 15);
+    assert_close(causes[0].confidence, 16.0 / 17.0);
     assert!(ledger_row(&vault, &causes[0].provenance).is_some());
 }
 
@@ -66,7 +67,24 @@ fn structural_association_without_recurrence_is_provisional() {
     assert_eq!(causes.len(), 1);
     assert_eq!(causes[0].action_or_event, "cause_A");
     assert!(causes[0].provisional);
+    assert_eq!(causes[0].support, 0);
     assert_close(causes[0].confidence, 0.42);
+}
+
+#[test]
+fn recurrence_context_missing_grounded_defaults_to_provisional() {
+    let parsed: reverse_query_context::ReverseContext = serde_json::from_value(json!({
+        "action": "cause_A",
+        "consequence": {
+            "domain": DOMAIN,
+            "outcome": { "value": { "text": "effect_B" } }
+        }
+    }))
+    .expect("parse context");
+
+    let edge = parsed.edges().next().expect("edge");
+    assert!(!edge.is_grounded());
+    println!("REVERSE_DEFAULT_GROUNDED grounded=false");
 }
 
 #[test]
@@ -108,10 +126,11 @@ fn grounded_causes_sort_before_provisional_with_stable_tiebreak() {
             .collect::<Vec<_>>(),
         vec![("cause_a", false), ("cause_b", false), ("cause_z", true)]
     );
+    assert_close(causes[2].confidence, 0.5);
 }
 
 #[test]
-fn answer_not_found_fails_closed_as_domain_not_found() {
+fn answer_not_found_in_registered_domain_has_distinct_no_causes_error() {
     let vault = vault();
     write_recurrence_edge(
         &vault,
@@ -129,7 +148,7 @@ fn answer_not_found_fails_closed_as_domain_not_found() {
     )
     .unwrap_err();
 
-    assert_eq!(error.code(), crate::CALYX_ORACLE_DOMAIN_NOT_FOUND);
+    assert_eq!(error.code(), crate::CALYX_ORACLE_NO_CAUSES_FOUND);
 }
 
 #[test]
@@ -222,7 +241,7 @@ fn repeated_occurrences_count_without_multiplying_recursive_walks() {
             .iter()
             .map(|cause| (cause.action_or_event.as_str(), cause.confidence))
             .collect::<Vec<_>>(),
-        vec![("cause_A", 5.0 / 6.0), ("root_C", 0.5)]
+        vec![("cause_A", 6.0 / 7.0), ("root_C", 2.0 / 3.0)]
     );
     let payload = ledger_payload(&vault, &causes[0].provenance);
     assert_eq!(payload["stats"]["base_scans"], 1);

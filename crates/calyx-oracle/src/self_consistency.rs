@@ -2,7 +2,7 @@
 
 use std::collections::BTreeMap;
 
-use calyx_assay::{MIN_ASSAY_SAMPLES, entropy_bits, ksg_mi_continuous_discrete};
+use calyx_assay::{MIN_ASSAY_SAMPLES, entropy_bits};
 use calyx_aster::vault::AsterVault;
 use calyx_core::{Clock, LedgerRef, content_address};
 use calyx_ledger::{ActorId, EntryKind, SubjectId};
@@ -16,7 +16,6 @@ pub const ORACLE_FALLBACK_DOMAIN_METADATA_KEY: &str = "domain";
 pub const MIN_FLAKINESS_PAIRS: u64 = 10;
 pub const MIN_VALIDITY_SAMPLES: usize = MIN_ASSAY_SAMPLES;
 
-const KSG_K: usize = 3;
 const LEDGER_ACTOR: &str = "calyx-oracle";
 const LEDGER_TAG: &str = "oracle_self_consistency_v1";
 
@@ -132,14 +131,9 @@ fn validity(_domain: &DomainId, samples: &[ValiditySample]) -> Result<(f32, bool
         return Ok((matches as f32 / samples.len() as f32, false));
     }
 
-    let verdict_index = label_index(samples.iter().map(|sample| &sample.verdict));
-    let x = samples
-        .iter()
-        .map(|sample| one_hot(verdict_index[&sample.verdict], verdict_index.len()))
-        .collect::<Vec<_>>();
-    let estimate =
-        ksg_mi_continuous_discrete(&x, &truth_codes, KSG_K).map_err(OracleError::from)?;
-    Ok(((estimate.bits / entropy).clamp(0.0, 1.0), false))
+    let verdict_codes = label_codes(samples.iter().map(|sample| &sample.verdict));
+    let estimate = discrete_mutual_information_bits(&verdict_codes, &truth_codes);
+    Ok(((estimate / entropy).clamp(0.0, 1.0), false))
 }
 
 fn write_ledger<C>(
@@ -221,15 +215,6 @@ fn pair_count(n: u64) -> u64 {
     n.saturating_mul(n.saturating_sub(1)) / 2
 }
 
-fn label_index<'a>(labels: impl Iterator<Item = &'a String>) -> BTreeMap<String, usize> {
-    let mut index = BTreeMap::new();
-    for label in labels {
-        let next = index.len();
-        index.entry(label.clone()).or_insert(next);
-    }
-    index
-}
-
 fn label_codes<'a>(labels: impl Iterator<Item = &'a String>) -> Vec<usize> {
     let mut index = BTreeMap::new();
     let mut out = Vec::new();
@@ -240,10 +225,29 @@ fn label_codes<'a>(labels: impl Iterator<Item = &'a String>) -> Vec<usize> {
     out
 }
 
-fn one_hot(index: usize, len: usize) -> Vec<f32> {
-    let mut out = vec![0.0; len];
-    out[index] = 1.0;
-    out
+fn discrete_mutual_information_bits(left: &[usize], right: &[usize]) -> f32 {
+    debug_assert_eq!(left.len(), right.len());
+    if left.len() != right.len() || left.is_empty() {
+        return 0.0;
+    }
+    let mut left_counts = BTreeMap::<usize, u64>::new();
+    let mut right_counts = BTreeMap::<usize, u64>::new();
+    let mut joint_counts = BTreeMap::<(usize, usize), u64>::new();
+    for (&left_code, &right_code) in left.iter().zip(right) {
+        *left_counts.entry(left_code).or_default() += 1;
+        *right_counts.entry(right_code).or_default() += 1;
+        *joint_counts.entry((left_code, right_code)).or_default() += 1;
+    }
+    let total = left.len() as f64;
+    joint_counts
+        .into_iter()
+        .map(|((left_code, right_code), joint_count)| {
+            let p_xy = joint_count as f64 / total;
+            let p_x = left_counts[&left_code] as f64 / total;
+            let p_y = right_counts[&right_code] as f64 / total;
+            p_xy * (p_xy / (p_x * p_y)).log2()
+        })
+        .sum::<f64>() as f32
 }
 
 fn domain_digest(domain: &DomainId) -> [u8; 16] {

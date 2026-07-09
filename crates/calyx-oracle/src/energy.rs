@@ -27,12 +27,8 @@ pub trait AnnealConfig {
 
 pub fn energy(x: &[f32], region_members: &[&[f32]], beta: f32) -> Result<f32, OracleError> {
     validate_beta(beta)?;
-    validate_region_shape(x, region_members)?;
-    if beta == 0.0 {
-        return Ok(-(region_members.len() as f32).ln());
-    }
-    let scaled = scaled_similarities(x, region_members, beta)?;
-    Ok(-log_sum_exp(&scaled))
+    let region = FlatRegion::new(x, region_members)?;
+    energy_prepared(x, &region, beta)
 }
 
 pub fn energy_softmax_weights(
@@ -41,14 +37,9 @@ pub fn energy_softmax_weights(
     beta: f32,
 ) -> Result<Vec<f32>, OracleError> {
     validate_beta(beta)?;
-    validate_region_shape(x, region_members)?;
-    if beta == 0.0 {
-        return Ok(vec![
-            1.0 / region_members.len() as f32;
-            region_members.len()
-        ]);
-    }
-    stable_softmax(&scaled_similarities(x, region_members, beta)?)
+    let region = FlatRegion::new(x, region_members)?;
+    let similarities = scaled_similarities_prepared(x, &region, beta)?;
+    weights_from_scaled(&similarities, &region, beta)
 }
 
 pub fn descent_step(
@@ -56,17 +47,10 @@ pub fn descent_step(
     region_members: &[&[f32]],
     beta: f32,
 ) -> Result<(), OracleError> {
-    let dim = validate_region_shape(free_slot, region_members)?;
-    let weights = energy_softmax_weights(free_slot, region_members, beta)?;
-    let mut next = vec![0.0; dim];
-    for (weight, member) in weights.iter().zip(region_members.iter()) {
-        for (dst, src) in next.iter_mut().zip(member.iter()) {
-            *dst += weight * src;
-        }
-    }
-    normalize_f32(&mut next, dim).map_err(forge_error)?;
-    free_slot.copy_from_slice(&next);
-    Ok(())
+    validate_beta(beta)?;
+    let region = FlatRegion::new(free_slot, region_members)?;
+    let similarities = scaled_similarities_prepared(free_slot, &region, beta)?;
+    descent_step_prepared(free_slot, &region, &similarities, beta)
 }
 
 pub fn descend(
@@ -77,7 +61,10 @@ pub fn descend(
     eps: f32,
 ) -> Result<DescentResult, OracleError> {
     validate_eps(eps)?;
-    let mut previous = energy(free_slot, region_members, beta)?;
+    validate_beta(beta)?;
+    let region = FlatRegion::new(free_slot, region_members)?;
+    let mut similarities = scaled_similarities_prepared(free_slot, &region, beta)?;
+    let mut previous = energy_from_scaled(&similarities, &region, beta);
     if max_steps == 0 {
         return Ok(DescentResult {
             steps_taken: 0,
@@ -86,9 +73,10 @@ pub fn descend(
         });
     }
     for step in 1..=max_steps {
-        descent_step(free_slot, region_members, beta)?;
-        let next = energy(free_slot, region_members, beta)?;
-        if region_members.len() == 1 || (next - previous).abs() < eps {
+        descent_step_prepared(free_slot, &region, &similarities, beta)?;
+        similarities = scaled_similarities_prepared(free_slot, &region, beta)?;
+        let next = energy_from_scaled(&similarities, &region, beta);
+        if region.member_count == 1 || (next - previous).abs() < eps {
             return Ok(DescentResult {
                 steps_taken: step,
                 converged: true,
@@ -111,19 +99,91 @@ pub fn get_beta(domain: DomainId, anneal: &dyn AnnealConfig) -> f32 {
         .unwrap_or(DEFAULT_BETA)
 }
 
-fn scaled_similarities(
+#[derive(Clone, Debug)]
+struct FlatRegion {
+    dim: usize,
+    member_count: usize,
+    members: Vec<f32>,
+}
+
+impl FlatRegion {
+    fn new(x: &[f32], region_members: &[&[f32]]) -> Result<Self, OracleError> {
+        let dim = validate_region_shape(x, region_members)?;
+        Ok(Self {
+            dim,
+            member_count: region_members.len(),
+            members: flatten_region(region_members, dim),
+        })
+    }
+}
+
+fn energy_prepared(x: &[f32], region: &FlatRegion, beta: f32) -> Result<f32, OracleError> {
+    let scaled = scaled_similarities_prepared(x, region, beta)?;
+    Ok(energy_from_scaled(&scaled, region, beta))
+}
+
+fn energy_from_scaled(scaled: &[f32], region: &FlatRegion, beta: f32) -> f32 {
+    if beta == 0.0 {
+        -(region.member_count as f32).ln()
+    } else {
+        -log_sum_exp(scaled)
+    }
+}
+
+fn scaled_similarities_prepared(
     x: &[f32],
-    region_members: &[&[f32]],
+    region: &FlatRegion,
     beta: f32,
 ) -> Result<Vec<f32>, OracleError> {
-    let dim = validate_region_shape(x, region_members)?;
-    let candidates = flatten_region(region_members, dim);
-    let mut similarities = vec![0.0; region_members.len()];
-    cosine_batch(x, &candidates, dim, &mut similarities).map_err(forge_error)?;
+    if x.len() != region.dim {
+        return Err(energy_error(
+            CALYX_ORACLE_ENERGY_INVALID_INPUT,
+            format!(
+                "free slot vector dim {} does not match prepared region dim {}",
+                x.len(),
+                region.dim
+            ),
+        ));
+    }
+    check_finite_slice("free_slot", x)?;
+    if beta == 0.0 {
+        return Ok(vec![0.0; region.member_count]);
+    }
+    let mut similarities = vec![0.0; region.member_count];
+    cosine_batch(x, &region.members, region.dim, &mut similarities).map_err(forge_error)?;
     Ok(similarities
         .into_iter()
         .map(|similarity| beta * similarity)
         .collect())
+}
+
+fn weights_from_scaled(
+    scaled: &[f32],
+    region: &FlatRegion,
+    beta: f32,
+) -> Result<Vec<f32>, OracleError> {
+    if beta == 0.0 {
+        return Ok(vec![1.0 / region.member_count as f32; region.member_count]);
+    }
+    stable_softmax(scaled)
+}
+
+fn descent_step_prepared(
+    free_slot: &mut [f32],
+    region: &FlatRegion,
+    similarities: &[f32],
+    beta: f32,
+) -> Result<(), OracleError> {
+    let weights = weights_from_scaled(similarities, region, beta)?;
+    let mut next = vec![0.0; region.dim];
+    for (weight, member) in weights.iter().zip(region.members.chunks_exact(region.dim)) {
+        for (dst, src) in next.iter_mut().zip(member.iter()) {
+            *dst += weight * src;
+        }
+    }
+    normalize_f32(&mut next, region.dim).map_err(forge_error)?;
+    free_slot.copy_from_slice(&next);
+    Ok(())
 }
 
 fn validate_region_shape(x: &[f32], region_members: &[&[f32]]) -> Result<usize, OracleError> {

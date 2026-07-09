@@ -76,6 +76,42 @@ fn cycle_a_b_a_terminates_without_revisiting_root() {
 }
 
 #[test]
+fn sibling_confidence_is_weighted_by_evidence_frequency() {
+    let vault = vault();
+    write_edge(&vault, "A", "B", AnchorValue::Text("b".to_string()), true);
+    write_edge(&vault, "A", "C", AnchorValue::Text("c".to_string()), true);
+
+    let tree = build_tree(&vault, root("A", 1.0, 0), &FixedClock::new(11)).unwrap();
+
+    assert_eq!(tree.children.len(), 2);
+    for child in &tree.children {
+        assert_close(child.root.confidence, HOP_ATTENUATION * 0.5);
+    }
+    println!(
+        "BUTTERFLY_CHILD_RATIO confidence={:.3}",
+        tree.children[0].root.confidence
+    );
+}
+
+#[test]
+fn expansion_context_missing_grounded_defaults_to_provisional() {
+    let parsed: context::ExpansionContext = serde_json::from_value(json!({
+        "action": "A",
+        "consequence": {
+            "action_or_event": "B",
+            "domain": DOMAIN,
+            "outcome": { "value": { "text": "b" } }
+        }
+    }))
+    .expect("parse context");
+    let consequences = parsed.consequences();
+
+    assert_eq!(consequences.len(), 1);
+    assert!(!consequences[0].grounded);
+    println!("BUTTERFLY_DEFAULT_GROUNDED grounded=false");
+}
+
+#[test]
 fn edge_pruning_returns_empty_for_no_outgoing_max_hop_and_low_confidence() {
     let vault = vault();
 

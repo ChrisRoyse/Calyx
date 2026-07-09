@@ -162,25 +162,13 @@ fn sparse_ground_truth_samples_are_provisional_zero_validity() {
 }
 
 #[test]
-fn ksg_validity_failure_remains_assay_failure() {
-    let mut samples = Vec::new();
-    for _ in 0..47 {
-        samples.push(ValiditySample {
-            verdict: "pass".to_string(),
-            ground_truth: "pass".to_string(),
-        });
-    }
-    for _ in 0..3 {
-        samples.push(ValiditySample {
-            verdict: "pass".to_string(),
-            ground_truth: "fail".to_string(),
-        });
-    }
+fn discrete_plugin_mi_matches_known_two_by_two_table() {
+    let verdict = vec![0, 0, 0, 0, 1, 1, 1, 1];
+    let truth = vec![0, 0, 0, 1, 0, 1, 1, 1];
+    let mi = discrete_mutual_information_bits(&verdict, &truth);
 
-    let error = validity(&DomainId::from(DOMAIN), &samples).expect_err("KSG should fail");
-
-    assert_eq!(error.code(), "CALYX_ASSAY_INSUFFICIENT_SAMPLES");
-    assert!(matches!(error, OracleError::AssayFailure { .. }));
+    println!("ORACLE_DISCRETE_MI_2X2 bits={mi:.6}");
+    assert_close(mi, 0.188_721_9, 1.0e-6);
 }
 
 #[test]

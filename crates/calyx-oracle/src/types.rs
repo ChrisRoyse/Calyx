@@ -192,7 +192,8 @@ pub struct TaggedSlot {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct CompletionResult {
     pub filled_cx: Vec<TaggedSlot>,
-    pub confidence: f32,
+    #[serde(alias = "confidence")]
+    pub energy_score: f32,
     pub converged: bool,
     pub energy: f32,
     pub provenance: LedgerRef,
@@ -201,7 +202,7 @@ pub struct CompletionResult {
 impl CompletionResult {
     pub fn new(
         filled_cx: Vec<TaggedSlot>,
-        confidence: f32,
+        energy_score: f32,
         converged: bool,
         energy: f32,
         provenance: LedgerRef,
@@ -210,7 +211,7 @@ impl CompletionResult {
         validate_completion_slots(&filled_cx, partition)?;
         Ok(Self {
             filled_cx,
-            confidence,
+            energy_score,
             converged,
             energy,
             provenance,

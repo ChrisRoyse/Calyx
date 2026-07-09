@@ -193,10 +193,10 @@ impl SuperIntelFixture {
     fn validate(&self) -> Result<(), String> {
         self.sufficiency.validate()?;
         self.kernel.validate()?;
-        if !self.calibration.calibration_error.is_finite()
-            || self.calibration.calibration_error < 0.0
+        if !self.calibration.stored_profile_far_readback.is_finite()
+            || self.calibration.stored_profile_far_readback < 0.0
         {
-            return Err("calibration_error must be finite and non-negative".to_string());
+            return Err("stored_profile_far_readback must be finite and non-negative".to_string());
         }
         validate_fraction(self.goodhart.pass_rate, "goodhart.pass_rate")?;
         Ok(())

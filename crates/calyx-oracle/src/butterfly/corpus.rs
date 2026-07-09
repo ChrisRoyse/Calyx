@@ -64,7 +64,7 @@ impl DomainCorpus {
             Self {
                 children_by_action: grouped
                     .into_iter()
-                    .map(|(action, by_key)| (action, by_key.into_values().collect()))
+                    .map(|(action, by_key)| (action, finalize_children(by_key)))
                     .collect(),
             },
             stats,
@@ -133,10 +133,26 @@ where
                 .entry(action.clone())
                 .or_default()
                 .entry(key)
+                .and_modify(|stored| stored.add_evidence(candidate.grounded))
                 .or_insert(candidate);
         }
     }
     Ok(())
+}
+
+fn finalize_children(by_key: BTreeMap<ChildKey, ChildCandidate>) -> Vec<ChildCandidate> {
+    let total = by_key
+        .values()
+        .map(|candidate| candidate.evidence_count)
+        .sum::<u64>()
+        .max(1);
+    by_key
+        .into_values()
+        .map(|mut candidate| {
+            candidate.predicted_count = total;
+            candidate
+        })
+        .collect()
 }
 
 fn matches_domain(cx: &Constellation, domain: &DomainId) -> bool {

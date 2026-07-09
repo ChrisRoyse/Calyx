@@ -149,7 +149,7 @@ fn rolled_frequency_lifts_confidence_after_active_cadence_exists() {
         Some(WEEK_SECS as f64)
     );
     assert_eq!(prediction.cadence_secs, WEEK_SECS as f64);
-    assert_eq!(prediction.confidence, 1.0);
+    assert!((prediction.confidence - 0.96).abs() <= f32::EPSILON);
 }
 
 #[test]

@@ -71,12 +71,10 @@ impl CalibrationSource for CalibrationSourceFixture {
     fn calibration_measurement(
         &self,
         _domain: &DomainId,
-        held_out: &HeldOutSplit,
+        _held_out: &HeldOutSplit,
         _clock: &dyn Clock,
     ) -> Result<CalibrationMeasurement, OracleError> {
-        let mut measurement = self.0.clone();
-        measurement.held_out_count = held_out.held_out_count();
-        Ok(measurement)
+        Ok(self.0.clone())
     }
 }
 

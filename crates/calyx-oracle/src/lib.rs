@@ -32,8 +32,9 @@ pub use energy::{
 };
 pub use error::{
     CALYX_ORACLE_DOMAIN_NOT_FOUND, CALYX_ORACLE_EVIDENCE_CORRUPT, CALYX_ORACLE_FLAKY_ANCHOR,
-    CALYX_ORACLE_INSUFFICIENT, CALYX_ORACLE_LEDGER_WRITE_FAILURE, CALYX_ORACLE_NO_RECURRENCE,
-    CALYX_ORACLE_SLOT_CONFLICT, CALYX_ORACLE_STORAGE_READ_FAILURE, OracleError,
+    CALYX_ORACLE_INSUFFICIENT, CALYX_ORACLE_LEDGER_WRITE_FAILURE, CALYX_ORACLE_NO_CAUSES_FOUND,
+    CALYX_ORACLE_NO_RECURRENCE, CALYX_ORACLE_SLOT_CONFLICT, CALYX_ORACLE_STORAGE_READ_FAILURE,
+    OracleError,
 };
 
 pub use honesty_gate::{
@@ -62,7 +63,7 @@ pub use super_intel::{
     measure_tier_panel_sufficient_with_assay, measure_tiers_1_to_3,
 };
 pub use super_intel_full::{
-    CALIBRATION_CEILING_DELTA, CalibrationMeasurement, CalibrationSource, GOODHART_THRESHOLD,
+    CALIBRATION_BUDGET, CalibrationMeasurement, CalibrationSource, GOODHART_THRESHOLD,
     GoodhartDefenseMeasurement, GoodhartDefenseSource, MistakeClosureMeasurement,
     MistakeClosureSource, SuperIntelligenceRequest, measure_super_intelligence_tiers,
     measure_tier_calibrated, measure_tier_goodhart_defended, measure_tier_mistake_closed,

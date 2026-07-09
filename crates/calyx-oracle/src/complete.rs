@@ -8,7 +8,7 @@ use calyx_core::{
 };
 use calyx_ledger::{ActorId, EntryKind, SubjectId};
 use calyx_ward::TrustedRegion;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::{
     AnnealConfig, CompletionResult, CompletionSlotPartition, DomainId, MAX_STEPS, OracleError,
@@ -36,14 +36,15 @@ pub trait CompletionLedger {
     -> Result<LedgerRef, OracleError>;
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct CompletionLedgerPayload {
     pub tag: &'static str,
     pub domain_id: String,
     pub cx_id: String,
     pub clamp: Vec<String>,
     pub free: Vec<String>,
-    pub confidence: f32,
+    #[serde(alias = "confidence")]
+    pub energy_score: f32,
     pub energy: f32,
     pub converged: bool,
     pub ceiling: f32,
@@ -66,7 +67,7 @@ impl CompletionLedgerPayload {
             cx_id: cx.cx_id.to_string(),
             clamp: sorted_lens_strings(clamp),
             free: sorted_lens_strings(free),
-            confidence: result.confidence,
+            energy_score: result.energy_score,
             energy: result.energy,
             converged: result.converged,
             ceiling,
@@ -209,7 +210,7 @@ where
     let provenance = ledger.append_completion(payload)?;
     CompletionResult::new(
         sort_tagged_slots(filled),
-        draft.confidence,
+        draft.energy_score,
         draft.converged,
         draft.energy,
         provenance,
@@ -254,7 +255,7 @@ struct SlotDescent {
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 struct CompletionDraft {
-    confidence: f32,
+    energy_score: f32,
     converged: bool,
     energy: f32,
 }
@@ -263,7 +264,7 @@ impl CompletionDraft {
     fn from_descents(descents: &[SlotDescent], ceiling: f32) -> Self {
         if descents.is_empty() {
             return Self {
-                confidence: 1.0_f32.min(valid_ceiling(ceiling)),
+                energy_score: 1.0_f32.min(valid_ceiling(ceiling)),
                 converged: true,
                 energy: 0.0,
             };
@@ -275,13 +276,13 @@ impl CompletionDraft {
             .map(|item| (item.member_count as f32).ln())
             .sum::<f32>()
             / descents.len() as f32;
-        let raw_confidence = if mean_log_members <= f32::EPSILON {
+        let raw_energy_score = if mean_log_members <= f32::EPSILON {
             1.0
         } else {
             1.0 - mean_energy / mean_log_members
         };
         Self {
-            confidence: raw_confidence.clamp(0.0, 1.0).min(valid_ceiling(ceiling)),
+            energy_score: raw_energy_score.clamp(0.0, 1.0).min(valid_ceiling(ceiling)),
             converged: descents.iter().all(|item| item.converged),
             energy: mean_energy,
         }

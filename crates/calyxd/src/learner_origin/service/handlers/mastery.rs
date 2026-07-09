@@ -153,8 +153,8 @@ impl LearnerOriginService {
         );
         let scalars = BTreeMap::from([
             (
-                "mastery.confidence".to_string(),
-                completion.confidence as f64,
+                "mastery.energy_score".to_string(),
+                completion.energy_score as f64,
             ),
             (
                 "mastery.trust_overall".to_string(),
@@ -178,7 +178,7 @@ impl LearnerOriginService {
             scalars,
             slot_values: [
                 4.0,
-                completion.confidence,
+                completion.energy_score,
                 if trust_report.overall { 1.0 } else { 0.0 },
                 if certification_eligible { 1.0 } else { 0.0 },
             ],
@@ -202,7 +202,7 @@ impl LearnerOriginService {
                     "measurementProvenance": MASTERY_MEASUREMENT_PROVENANCE
                 },
                 "completion": {
-                    "confidence": completion.confidence,
+                    "energyScore": completion.energy_score,
                     "converged": completion.converged,
                     "energy": completion.energy,
                     "ledgerSeq": completion.provenance.seq,

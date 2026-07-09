@@ -4,9 +4,12 @@ use calyx_aster::vault::AsterVault;
 use calyx_core::{CalyxError, Clock, CxId, Result};
 use serde::{Deserialize, Serialize};
 
+use crate::self_consistency::MIN_VALIDITY_SAMPLES;
+
 pub const MIN_TIME_PREDICTION_OCCURRENCES: usize = 3;
 
-const FULL_CONFIDENCE_SUPPORT: f32 = 12.0;
+/// Full temporal support starts at one quarter of the validity sample quorum.
+const FULL_CONFIDENCE_SUPPORT: f32 = MIN_VALIDITY_SAMPLES as f32 / 4.0;
 const SECS_PER_HOUR: i64 = 3_600;
 const SECS_PER_DAY: i64 = 86_400;
 const UNIX_EPOCH_DAY_OF_WEEK_MONDAY_ZERO: i64 = 3;

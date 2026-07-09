@@ -62,5 +62,5 @@ fn default_edge_domain() -> String {
 }
 
 fn default_grounded() -> bool {
-    true
+    false
 }

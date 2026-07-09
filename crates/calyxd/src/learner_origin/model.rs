@@ -413,7 +413,7 @@ pub struct TrackSpineParamsRequest {
 }
 
 fn default_grounded() -> bool {
-    true
+    false
 }
 
 fn default_reactive_drift_threshold() -> f32 {

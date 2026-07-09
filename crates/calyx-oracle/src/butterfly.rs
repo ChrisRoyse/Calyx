@@ -103,8 +103,8 @@ fn expand_node(
         stats.depth_prunes += 1;
         return Ok(());
     }
-    let child_confidence = attenuate(node.root.confidence);
-    if child_confidence < MIN_CONFIDENCE_THRESHOLD {
+    let parent_confidence = attenuate(node.root.confidence);
+    if parent_confidence < MIN_CONFIDENCE_THRESHOLD {
         stats.threshold_prunes += 1;
         return Ok(());
     }
@@ -115,6 +115,11 @@ fn expand_node(
         let key = NodeKey::new(&candidate.domain, &candidate.action_or_event);
         if visited.contains(&key) {
             stats.cycle_skips += 1;
+            continue;
+        }
+        let child_confidence = weighted_child_confidence(parent_confidence, &candidate);
+        if child_confidence < MIN_CONFIDENCE_THRESHOLD {
+            stats.threshold_prunes += 1;
             continue;
         }
         let mut child = ConsequenceTree {
@@ -353,6 +358,23 @@ struct ChildCandidate {
     domain: DomainId,
     outcome: AnchorValue,
     grounded: bool,
+    evidence_count: u64,
+    predicted_count: u64,
+}
+
+impl ChildCandidate {
+    fn add_evidence(&mut self, grounded: bool) {
+        self.evidence_count = self.evidence_count.saturating_add(1);
+        self.grounded |= grounded;
+    }
+}
+
+fn weighted_child_confidence(parent_confidence: f32, candidate: &ChildCandidate) -> f32 {
+    if candidate.predicted_count == 0 {
+        return 0.0;
+    }
+    let ratio = candidate.evidence_count as f32 / candidate.predicted_count as f32;
+    (parent_confidence * ratio).clamp(0.0, parent_confidence)
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize)]

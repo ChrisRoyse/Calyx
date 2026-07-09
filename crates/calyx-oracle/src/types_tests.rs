@@ -213,7 +213,7 @@ proptest! {
             .collect();
         let result = CompletionResult {
             filled_cx,
-            confidence: 0.5,
+            energy_score: 0.5,
             converged: true,
             energy: -1.0,
             provenance: ledger(57),

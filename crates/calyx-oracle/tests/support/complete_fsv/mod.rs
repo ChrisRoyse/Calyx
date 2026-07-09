@@ -43,7 +43,7 @@ pub fn run_ph51_complete_fsv() {
         0.37,
         &clock,
     );
-    assert!(prediction.confidence <= 0.37);
+    assert!(prediction.energy_score <= 0.37);
     assert_tags(&prediction, &[1, 2, 3], &[4]);
     outputs.push(case(
         "prediction",

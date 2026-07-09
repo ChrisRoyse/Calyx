@@ -21,13 +21,13 @@ fn complete_tags_three_clamped_and_four_free_slots() {
     assert_eq!(result.measured_slots().len(), 3);
     assert_eq!(result.inferred_slots().len(), 4);
     assert_eq!(result.provisional_slots().len(), 0);
-    assert!(result.confidence <= 0.67);
+    assert!(result.energy_score <= 0.67);
     assert!(result.converged);
     println!(
-        "happy_counts measured={} inferred={} confidence={:.3} ledger_seq={}",
+        "happy_counts measured={} inferred={} energy_score={:.3} ledger_seq={}",
         result.measured_slots().len(),
         result.inferred_slots().len(),
-        result.confidence,
+        result.energy_score,
         result.provenance.seq
     );
 }
@@ -61,7 +61,7 @@ fn imputation_mode_converges_to_known_free_slots() {
         let expected = expected_vector(slot.lens_id);
         assert!(cosine(&slot.vector, &expected) >= 0.99);
     }
-    assert!(result.confidence <= 1.0);
+    assert!(result.energy_score <= 1.0);
     println!(
         "imputation inferred={} energy={:.6}",
         result.inferred_slots().len(),
@@ -76,14 +76,14 @@ fn all_slots_clamped_returns_measured_copy() {
 
     assert_eq!(result.measured_slots().len(), 3);
     assert_eq!(result.inferred_slots().len(), 0);
-    assert_eq!(result.confidence, 1.0);
+    assert_eq!(result.energy_score, 1.0);
     for slot in result.measured_slots() {
         assert_eq!(slot.vector, expected_vector(slot.lens_id));
     }
     println!(
-        "edge_all_clamped measured={} confidence={}",
+        "edge_all_clamped measured={} energy_score={}",
         result.measured_slots().len(),
-        result.confidence
+        result.energy_score
     );
 }
 
@@ -94,11 +94,11 @@ fn all_slots_free_is_valid_and_capped() {
 
     assert_eq!(result.measured_slots().len(), 0);
     assert_eq!(result.inferred_slots().len(), 3);
-    assert!(result.confidence <= 0.42);
+    assert!(result.energy_score <= 0.42);
     println!(
-        "edge_all_free inferred={} confidence={:.3}",
+        "edge_all_free inferred={} energy_score={:.3}",
         result.inferred_slots().len(),
-        result.confidence
+        result.energy_score
     );
 }
 
@@ -217,8 +217,8 @@ fn aster_ledger_row_contains_completion_payload_bytes() {
     assert_eq!(payload["tag"], COMPLETION_LEDGER_TAG);
     assert_eq!(payload["cx_id"], fixture.cx.cx_id.to_string());
     assert_eq!(
-        payload["confidence"].as_f64().unwrap() as f32,
-        result.confidence
+        payload["energy_score"].as_f64().unwrap() as f32,
+        result.energy_score
     );
     println!(
         "ledger_readback seq={} kind={} payload_tag={} payload_bytes={}",
@@ -351,21 +351,21 @@ fn issue442_complete_fsv_writes_readbacks() {
     .expect("write insufficient error");
 
     let summary = format!(
-        "happy measured={} inferred={} confidence={:.3} ledger_seq={}\n\
-         edge_all_clamped measured={} inferred={} confidence={:.3}\n\
-         edge_all_free measured={} inferred={} confidence={:.3}\n\
+        "happy measured={} inferred={} energy_score={:.3} ledger_seq={}\n\
+         edge_all_clamped measured={} inferred={} energy_score={:.3}\n\
+         edge_all_free measured={} inferred={} energy_score={:.3}\n\
          edge_zero_region code={}\n\
          edge_insufficient code={}\n",
         happy.measured_slots().len(),
         happy.inferred_slots().len(),
-        happy.confidence,
+        happy.energy_score,
         happy.provenance.seq,
         all_clamped.measured_slots().len(),
         all_clamped.inferred_slots().len(),
-        all_clamped.confidence,
+        all_clamped.energy_score,
         all_free.measured_slots().len(),
         all_free.inferred_slots().len(),
-        all_free.confidence,
+        all_free.energy_score,
         empty_region.code(),
         insufficient.code()
     );

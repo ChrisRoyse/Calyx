@@ -97,6 +97,24 @@ impl ReverseCorpus {
             .unwrap_or_default()
     }
 
+    pub(super) fn action_counts(&self, action_id: &str) -> ActionCounts {
+        let mut counts = ActionCounts::default();
+        for edge in self.by_action.get(action_id).into_iter().flatten() {
+            counts.add(edge.grounded);
+        }
+        counts
+    }
+
+    pub(super) fn action_answer_counts(&self, action_id: &str, answer_label: &str) -> ActionCounts {
+        let mut counts = ActionCounts::default();
+        for edge in self.recurrence_edges(answer_label) {
+            if edge.action_id == action_id {
+                counts.add(edge.grounded);
+            }
+        }
+        counts
+    }
+
     #[cfg(test)]
     pub(super) fn action_edges(&self, action_id: &str) -> &[OccurrenceEdge] {
         self.by_action
@@ -263,5 +281,25 @@ impl ActionGroup {
 
     pub(super) fn domain(&self, fallback: &DomainId) -> DomainId {
         self.domain.clone().unwrap_or_else(|| fallback.clone())
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+pub(super) struct ActionCounts {
+    pub(super) grounded: u64,
+    pub(super) provisional: u64,
+}
+
+impl ActionCounts {
+    fn add(&mut self, grounded: bool) {
+        if grounded {
+            self.grounded += 1;
+        } else {
+            self.provisional += 1;
+        }
+    }
+
+    pub(super) fn total(self) -> u64 {
+        self.grounded.saturating_add(self.provisional)
     }
 }

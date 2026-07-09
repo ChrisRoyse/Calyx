@@ -17,7 +17,8 @@ pub struct OracleCeiling {
 pub struct OraclePrediction {
     pub panel_bits: f32,
     pub anchor_entropy_bits: f32,
-    pub confidence: f32,
+    #[serde(rename = "requested_confidence", alias = "confidence")]
+    pub requested_confidence: f32,
     pub deficit_bits: f32,
 }
 
@@ -75,7 +76,7 @@ pub fn oracle_predict(
     Ok(OraclePrediction {
         panel_bits,
         anchor_entropy_bits,
-        confidence: requested_confidence,
+        requested_confidence,
         deficit_bits,
     })
 }
@@ -190,7 +191,7 @@ mod tests {
         assert_eq!(ceiling.capped_tau, 0.6);
 
         let prediction = oracle_predict(1.0, 0.75, 0.8).unwrap();
-        assert_eq!(prediction.confidence, 0.8);
+        assert_eq!(prediction.requested_confidence, 0.8);
         assert_eq!(
             oracle_predict(0.25, 0.75, 0.8).unwrap_err().code,
             "CALYX_ORACLE_INSUFFICIENT"

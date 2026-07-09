@@ -17,7 +17,7 @@ use crate::super_intel::{
 use crate::{DomainId, OracleError, SuperIntelReport, Tier, TierResult};
 
 pub const GOODHART_THRESHOLD: f32 = 0.9;
-pub const CALIBRATION_CEILING_DELTA: f32 = 0.0;
+pub const CALIBRATION_BUDGET: f32 = 0.05;
 
 const LEDGER_ACTOR: &str = "calyx-oracle";
 const LEDGER_TAG: &str = "super_intelligence_v1";
@@ -29,9 +29,8 @@ const KERNEL_PHASE_FIX: &str = "repair kernel recall source before super-intelli
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct CalibrationMeasurement {
-    pub calibration_error: f32,
-    pub held_out_count: usize,
-    pub calibrated_slots: usize,
+    #[serde(alias = "calibration_error")]
+    pub stored_profile_far_readback: f32,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -78,7 +77,7 @@ impl CalibrationSource for GuardProfile {
     fn calibration_measurement(
         &self,
         domain: &DomainId,
-        held_out: &HeldOutSplit,
+        _held_out: &HeldOutSplit,
         _clock: &dyn Clock,
     ) -> Result<CalibrationMeasurement, OracleError> {
         if self.domain != domain.as_str() {
@@ -102,13 +101,9 @@ impl CalibrationSource for GuardProfile {
             .map(|slot| slot.far)
             .max_by(f32::total_cmp);
         Ok(CalibrationMeasurement {
-            calibration_error: per_slot_far.unwrap_or(calibration.far).max(calibration.far),
-            held_out_count: held_out.held_out_count(),
-            calibrated_slots: calibration
-                .per_slot
-                .len()
-                .max(self.required_slots.len())
-                .max(1),
+            stored_profile_far_readback: per_slot_far
+                .unwrap_or(calibration.far)
+                .max(calibration.far),
         })
     }
 }
@@ -168,7 +163,7 @@ pub struct SuperIntelligenceRequest<'a, O, A, K, C, G, M> {
 
 pub fn measure_tier_calibrated<S>(
     source: &S,
-    oracle_self_consistency_ceiling: f32,
+    _oracle_self_consistency_ceiling: f32,
     domain: &DomainId,
     held_out: &HeldOutSplit,
     clock: &dyn Clock,
@@ -176,22 +171,21 @@ pub fn measure_tier_calibrated<S>(
 where
     S: CalibrationSource,
 {
-    let threshold = oracle_self_consistency_ceiling + CALIBRATION_CEILING_DELTA;
     if held_out.held_out_ids.is_empty() {
         return Ok(failed_tier(
             Tier::Calibrated,
-            sanitized(threshold),
+            CALIBRATION_BUDGET,
             LABEL_HELD_OUT_ORACLE_FIX.to_string(),
         ));
     }
     let measurement = source.calibration_measurement(domain, held_out, clock)?;
-    let passed = valid_measurement(measurement.calibration_error, threshold)
-        && measurement.calibration_error <= threshold;
+    let observed = measurement.stored_profile_far_readback;
+    let passed = valid_measurement(observed, CALIBRATION_BUDGET) && observed <= CALIBRATION_BUDGET;
     Ok(TierResult::new(
         Tier::Calibrated,
         passed,
-        sanitized(measurement.calibration_error),
-        sanitized(threshold),
+        sanitized(observed),
+        CALIBRATION_BUDGET,
         (!passed).then(|| CALIBRATION_FIX.to_string()),
     ))
 }

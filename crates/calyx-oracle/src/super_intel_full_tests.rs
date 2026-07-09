@@ -9,9 +9,9 @@ use crate::super_intel::{KernelRecallSource, OracleConsistencySource};
 use crate::{OracleSelfConsistency, ShortCircuit};
 
 #[test]
-fn tier4_calibrated_passes_when_error_is_below_oracle_ceiling() {
+fn tier4_calibrated_passes_when_far_is_within_fixed_budget() {
     let tier = measure_tier_calibrated(
-        &CalFixture::ok(0.15),
+        &CalFixture::ok(0.03),
         0.73,
         &domain(),
         &held_out(),
@@ -21,15 +21,20 @@ fn tier4_calibrated_passes_when_error_is_below_oracle_ceiling() {
 
     assert!(tier.passed);
     assert_eq!(tier.tier, Tier::Calibrated);
-    assert_close(tier.measured_value, 0.15);
-    assert_close(tier.threshold, 0.73);
+    assert_close(tier.measured_value, 0.03);
+    assert_close(tier.threshold, CALIBRATION_BUDGET);
 }
 
 #[test]
-fn tier4_calibrated_fails_when_error_exceeds_oracle_ceiling() {
-    let tier =
-        measure_tier_calibrated(&CalFixture::ok(0.8), 0.73, &domain(), &held_out(), &clock())
-            .expect("tier 4");
+fn tier4_calibrated_fails_when_far_exceeds_fixed_budget() {
+    let tier = measure_tier_calibrated(
+        &CalFixture::ok(0.08),
+        0.73,
+        &domain(),
+        &held_out(),
+        &clock(),
+    )
+    .expect("tier 4");
 
     assert!(!tier.passed);
     assert_eq!(tier.cheapest_fix.as_deref(), Some(CALIBRATION_FIX));
@@ -236,7 +241,7 @@ impl FixtureSet {
             ))),
             assay: AssayFixture(Ok(panel_sufficiency(1.0, 1.0))),
             kernel: KernelFixture::ok(1.0, held_out.held_out_count().max(1)),
-            calibration: CalFixture::ok(0.15),
+            calibration: CalFixture::ok(0.03),
             goodhart: GoodFixture::ok(0.95, true, 0),
             mistakes: MistakeFixture::ok(0, 2),
             held_out,
@@ -301,11 +306,9 @@ impl KernelRecallSource for KernelFixture {
 struct CalFixture(Result<CalibrationMeasurement, OracleError>);
 
 impl CalFixture {
-    fn ok(calibration_error: f32) -> Self {
+    fn ok(stored_profile_far_readback: f32) -> Self {
         Self(Ok(CalibrationMeasurement {
-            calibration_error,
-            held_out_count: 2,
-            calibrated_slots: 1,
+            stored_profile_far_readback,
         }))
     }
 }

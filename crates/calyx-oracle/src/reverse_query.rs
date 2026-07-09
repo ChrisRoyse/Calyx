@@ -38,7 +38,14 @@ where
     let candidates = walk_answer(&corpus, answer, &domain, 0, &mut state)?;
 
     if !state.found {
-        return Err(OracleError::DomainNotFound);
+        let label = answer_label(answer, &domain)?;
+        if state.stats.domain_rows_scanned == 0 {
+            return Err(OracleError::DomainNotFound);
+        }
+        return Err(OracleError::NoCausesFound {
+            domain,
+            answer_label: label,
+        });
     }
 
     for candidate in candidates {
@@ -116,8 +123,13 @@ fn walk_answer(
             action_or_event: action.clone(),
             domain: group.domain(domain),
             grounded_count: group.grounded_count,
+            grounded_support: corpus.action_counts(&action).grounded,
             provisional_count: group.provisional_count,
-            provisional_confidence: grounded_confidence(1),
+            provisional_support: corpus.action_counts(&action).provisional,
+            provisional_confidence: posterior_confidence(
+                group.provisional_count,
+                corpus.action_counts(&action).provisional,
+            ),
         };
         let has_grounded = candidate.grounded_count > 0;
         candidates.push(candidate);
@@ -138,12 +150,19 @@ fn collect_structural_causes(
     for edge in corpus.structural_edges(answer_label) {
         state.found = true;
         state.stats.structural_matches += 1;
+        let action_counts = corpus.action_counts(&edge.action_or_event);
+        let co_counts = corpus.action_answer_counts(&edge.action_or_event, answer_label);
+        let support = action_counts.total();
+        let co_occurrences = co_counts.total().min(support);
+        let measured_bound = posterior_confidence(co_occurrences, support);
         candidates.push(CauseCandidate {
             action_or_event: edge.action_or_event.clone(),
             domain: domain.clone(),
             grounded_count: 0,
-            provisional_count: 1,
-            provisional_confidence: edge.confidence,
+            grounded_support: 0,
+            provisional_count: co_occurrences,
+            provisional_support: support,
+            provisional_confidence: unit(edge.confidence).min(measured_bound),
         });
     }
     candidates
@@ -202,11 +221,18 @@ fn upsert_cause(
         .or_insert_with(|| CauseAccumulator::new(candidate.action_or_event, candidate.domain));
     if candidate.grounded_count > 0 {
         stats.grounded_causes_observed += candidate.grounded_count;
-        accumulator.add_grounded(candidate.grounded_count);
+        accumulator.add_grounded(candidate.grounded_count, candidate.grounded_support);
     }
-    if candidate.provisional_count > 0 {
+    if candidate.provisional_count > 0
+        || candidate.provisional_support > 0
+        || candidate.provisional_confidence > 0.0
+    {
         stats.provisional_causes_observed += candidate.provisional_count;
-        accumulator.add_provisional(candidate.provisional_confidence);
+        accumulator.add_provisional(
+            candidate.provisional_count,
+            candidate.provisional_support,
+            candidate.provisional_confidence,
+        );
     }
     candidate.grounded_count > 0
 }
@@ -280,8 +306,9 @@ fn structural_confidence(cx: &Constellation) -> f32 {
         .unwrap_or(STRUCTURAL_CONFIDENCE)
 }
 
-fn grounded_confidence(count: u64) -> f32 {
-    count as f32 / (count.saturating_add(1) as f32)
+fn posterior_confidence(co_occurrences: u64, action_occurrences: u64) -> f32 {
+    let support = action_occurrences.max(co_occurrences);
+    (co_occurrences.saturating_add(1) as f32 / support.saturating_add(2) as f32).clamp(0.0, 1.0)
 }
 
 fn answer_label(answer: &AnchorValue, domain: &DomainId) -> Result<String, OracleError> {
@@ -327,7 +354,9 @@ struct CauseCandidate {
     action_or_event: String,
     domain: DomainId,
     grounded_count: u64,
+    grounded_support: u64,
     provisional_count: u64,
+    provisional_support: u64,
     provisional_confidence: f32,
 }
 
@@ -336,6 +365,9 @@ struct CauseAccumulator {
     action_or_event: String,
     domain: DomainId,
     grounded_count: u64,
+    grounded_support: u64,
+    provisional_count: u64,
+    provisional_support: u64,
     provisional_confidence: f32,
 }
 
@@ -345,15 +377,24 @@ impl CauseAccumulator {
             action_or_event,
             domain,
             grounded_count: 0,
+            grounded_support: 0,
+            provisional_count: 0,
+            provisional_support: 0,
             provisional_confidence: 0.0,
         }
     }
 
-    fn add_grounded(&mut self, count: u64) {
+    fn add_grounded(&mut self, count: u64, support: u64) {
         self.grounded_count = self.grounded_count.saturating_add(count);
+        self.grounded_support = self.grounded_support.max(support).max(self.grounded_count);
     }
 
-    fn add_provisional(&mut self, confidence: f32) {
+    fn add_provisional(&mut self, count: u64, support: u64, confidence: f32) {
+        self.provisional_count = self.provisional_count.saturating_add(count);
+        self.provisional_support = self
+            .provisional_support
+            .max(support)
+            .max(self.provisional_count);
         self.provisional_confidence = self.provisional_confidence.max(unit(confidence));
     }
 
@@ -363,9 +404,14 @@ impl CauseAccumulator {
             action_or_event: self.action_or_event,
             domain: self.domain,
             confidence: if grounded {
-                grounded_confidence(self.grounded_count)
+                posterior_confidence(self.grounded_count, self.grounded_support)
             } else {
                 self.provisional_confidence
+            },
+            support: if grounded {
+                self.grounded_support
+            } else {
+                self.provisional_support
             },
             provisional: !grounded,
             provenance: LedgerRef {

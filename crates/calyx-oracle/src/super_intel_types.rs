@@ -143,6 +143,8 @@ pub struct Cause {
     pub action_or_event: String,
     pub domain: DomainId,
     pub confidence: f32,
+    #[serde(default)]
+    pub support: u64,
     pub provisional: bool,
     pub provenance: LedgerRef,
 }
@@ -292,6 +294,7 @@ mod tests {
             action_or_event: "label outcome-execution anchor".to_string(),
             domain: DomainId::from("ph50-cause-fixture"),
             confidence: 0.75,
+            support: 9,
             provisional: true,
             provenance: ledger(42),
         };
@@ -334,6 +337,7 @@ mod tests {
             action_or_event: "outcome execution lens missing".to_string(),
             domain: DomainId::from("ph50-fsv-cause"),
             confidence: 0.75,
+            support: 9,
             provisional: true,
             provenance: ledger(435),
         };

@@ -13,6 +13,7 @@ pub const CALYX_ORACLE_NO_RECURRENCE: &str = "CALYX_ORACLE_NO_RECURRENCE";
 pub const CALYX_ORACLE_STORAGE_READ_FAILURE: &str = "CALYX_ORACLE_STORAGE_READ_FAILURE";
 pub const CALYX_ORACLE_EVIDENCE_CORRUPT: &str = "CALYX_ORACLE_EVIDENCE_CORRUPT";
 pub const CALYX_ORACLE_DOMAIN_NOT_FOUND: &str = "CALYX_ORACLE_DOMAIN_NOT_FOUND";
+pub const CALYX_ORACLE_NO_CAUSES_FOUND: &str = "CALYX_ORACLE_NO_CAUSES_FOUND";
 pub const CALYX_ORACLE_LEDGER_WRITE_FAILURE: &str = "CALYX_ORACLE_LEDGER_WRITE_FAILURE";
 pub const CALYX_ORACLE_SLOT_CONFLICT: &str = "CALYX_ORACLE_SLOT_CONFLICT";
 
@@ -36,6 +37,10 @@ pub enum OracleError {
         evidence: &'static str,
     },
     DomainNotFound,
+    NoCausesFound {
+        domain: DomainId,
+        answer_label: String,
+    },
     LedgerWriteFailure,
     SlotConflict {
         overlap: Vec<LensId>,
@@ -57,6 +62,7 @@ impl OracleError {
             Self::StorageReadFailure { .. } => CALYX_ORACLE_STORAGE_READ_FAILURE,
             Self::EvidenceCorrupt { .. } => CALYX_ORACLE_EVIDENCE_CORRUPT,
             Self::DomainNotFound => CALYX_ORACLE_DOMAIN_NOT_FOUND,
+            Self::NoCausesFound { .. } => CALYX_ORACLE_NO_CAUSES_FOUND,
             Self::LedgerWriteFailure => CALYX_ORACLE_LEDGER_WRITE_FAILURE,
             Self::SlotConflict { .. } => CALYX_ORACLE_SLOT_CONFLICT,
             Self::AssayFailure { source } => source.code,
@@ -77,6 +83,9 @@ impl OracleError {
                 "repair or quarantine corrupt oracle evidence rows before prediction"
             }
             Self::DomainNotFound => "register the oracle domain before prediction",
+            Self::NoCausesFound { .. } => {
+                "collect recurrence or structural cause evidence for this answer"
+            }
             Self::LedgerWriteFailure => "retry after repairing the ledger write path",
             Self::SlotConflict { .. } => {
                 "make clamp/free disjoint and exhaustive; tag clamped slots measured and free slots inferred or provisional"
@@ -104,6 +113,12 @@ impl OracleError {
                 format!("oracle evidence is corrupt for domain {domain}: {evidence}")
             }
             Self::DomainNotFound => "oracle domain was not found".to_string(),
+            Self::NoCausesFound {
+                domain,
+                answer_label,
+            } => {
+                format!("domain {domain} has no cause evidence for answer {answer_label}")
+            }
             Self::LedgerWriteFailure => "oracle provenance ledger write failed".to_string(),
             Self::SlotConflict {
                 overlap,

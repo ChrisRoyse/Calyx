@@ -31,6 +31,8 @@ impl ExpansionContext {
                 domain: DomainId::from(edge.domain.clone()),
                 outcome: edge.outcome.value.clone(),
                 grounded: edge.grounded && !edge.provisional,
+                evidence_count: 1,
+                predicted_count: 1,
             })
             .collect()
     }
@@ -58,5 +60,5 @@ fn default_consequence_domain() -> String {
 }
 
 fn default_grounded() -> bool {
-    true
+    false
 }

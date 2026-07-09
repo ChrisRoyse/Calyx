@@ -181,9 +181,7 @@ impl MasteryPlan {
                 ratio: self.trust_gate.kernel_recall_ratio,
             },
             calibration: MasteryCalibrationSource(CalibrationMeasurement {
-                calibration_error: self.trust_gate.calibration_error,
-                held_out_count: self.held_out.held_out_count(),
-                calibrated_slots: self.concepts.len().max(1),
+                stored_profile_far_readback: self.trust_gate.calibration_error,
             }),
             goodhart: MasteryGoodhartSource(GoodhartDefenseMeasurement {
                 pass_rate: self.trust_gate.goodhart_pass_rate,

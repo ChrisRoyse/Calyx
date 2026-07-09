@@ -43,9 +43,7 @@ impl SuperFixtures {
             assay: AssaySource(panel_sufficiency(1.05, 1.0)),
             kernel: KernelSource(Ok(recall_report(1.0, 2))),
             calibration: CalSource(Ok(CalibrationMeasurement {
-                calibration_error: 0.20,
-                held_out_count: 2,
-                calibrated_slots: 1,
+                stored_profile_far_readback: 0.03,
             })),
             goodhart: GoodSource(Ok(GoodhartDefenseMeasurement {
                 pass_rate: 0.95,
@@ -152,12 +150,10 @@ impl CalibrationSource for CalSource {
     fn calibration_measurement(
         &self,
         _domain: &DomainId,
-        held_out: &HeldOutSplit,
+        _held_out: &HeldOutSplit,
         _clock: &dyn Clock,
     ) -> Result<CalibrationMeasurement, OracleError> {
-        let mut measurement = self.0.clone()?;
-        measurement.held_out_count = held_out.held_out_count();
-        Ok(measurement)
+        self.0.clone()
     }
 }
 
