@@ -20,6 +20,7 @@ calyx-buildinfo = { path = "../calyx-buildinfo" }
 calyx-core = { path = "../calyx-core" }
 calyx-ledger = { path = "../calyx-ledger" }
 calyx-mcp = { path = "../calyx-mcp" }
+rand = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 ulid = { workspace = true }

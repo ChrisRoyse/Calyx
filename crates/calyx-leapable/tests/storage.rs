@@ -101,7 +101,7 @@ fn storage_layers_round_trip_and_txn_rolls_back_staged_writes() {
         request(
             9,
             "kv.get",
-            json!({"vault_ref": vault_ref, "ts": 1_785_600_007_500_u64, "collection_name": "locks", "ns": 7, "key": {"text": "doc-1"}}),
+            json!({"vault_ref": vault_ref, "ts": 1_785_600_007_500_u64, "collection_name": "locks", "ns": 7, "key": {"text": "doc-1"}, "include_text": true}),
         ),
         request(
             10,
@@ -123,7 +123,7 @@ fn storage_layers_round_trip_and_txn_rolls_back_staged_writes() {
         request(
             12,
             "kv.get",
-            json!({"vault_ref": vault_ref, "ts": 1_785_600_011_000_u64, "collection_name": "locks", "ns": 7, "key": {"text": "durable"}}),
+            json!({"vault_ref": vault_ref, "ts": 1_785_600_011_000_u64, "collection_name": "locks", "ns": 7, "key": {"text": "durable"}, "include_text": true}),
         ),
         request(
             13,
@@ -158,7 +158,7 @@ fn storage_layers_round_trip_and_txn_rolls_back_staged_writes() {
         request(
             19,
             "blob.get",
-            json!({"vault_ref": vault_ref, "ts": 1_785_600_018_000_u64, "collection_name": "payloads", "blob_id": blob_id}),
+            json!({"vault_ref": vault_ref, "ts": 1_785_600_018_000_u64, "collection_name": "payloads", "blob_id": blob_id, "include_data": true}),
         ),
         request(
             20,
@@ -182,7 +182,7 @@ fn storage_layers_round_trip_and_txn_rolls_back_staged_writes() {
         request(
             22,
             "kv.get",
-            json!({"vault_ref": vault_ref, "ts": 1_785_600_021_000_u64, "collection_name": "locks", "ns": 7, "key": {"text": "txn-ok"}}),
+            json!({"vault_ref": vault_ref, "ts": 1_785_600_021_000_u64, "collection_name": "locks", "ns": 7, "key": {"text": "txn-ok"}, "include_text": true}),
         ),
         request(
             23,
@@ -255,6 +255,8 @@ fn storage_layers_round_trip_and_txn_rolls_back_staged_writes() {
     assert_eq!(responses[5]["result"]["items"][0]["row"]["qty"]["i64"], 5);
     assert_eq!(responses[5]["result"]["items"][1]["row"]["qty"]["i64"], 9);
     assert_eq!(responses[6]["result"]["items"].as_array().unwrap().len(), 2);
+    assert!(responses[7]["result"].get("value_hex").is_none());
+    assert_eq!(responses[7]["result"]["value_len"], 4);
     assert_eq!(responses[8]["result"]["status"], "found");
     assert_eq!(responses[8]["result"]["value"]["text"], "held");
     assert_eq!(responses[9]["result"]["status"], "absent");

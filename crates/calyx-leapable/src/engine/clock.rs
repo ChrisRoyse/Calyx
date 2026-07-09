@@ -15,8 +15,9 @@ impl EngineClock {
         }
     }
 
-    pub(super) fn set(&self, ts: Ts) {
-        self.ts.store(ts, Ordering::Release);
+    pub(super) fn advance_to(&self, ts: Ts) -> Ts {
+        let previous = self.ts.fetch_max(ts, Ordering::AcqRel);
+        previous.max(ts)
     }
 }
 

@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 
-use calyx_aster::cf::{ColumnFamily, base_key, full_content_hash, prefix_range};
+use calyx_aster::cf::{ColumnFamily, base_key, full_content_hash};
 use calyx_aster::dedup::EpochSecs;
 use calyx_aster::recurrence::{OccurrenceContext, RetentionPolicy, append_occurrence};
 use calyx_aster::vault::encode::decode_constellation_base;
@@ -8,8 +8,9 @@ use calyx_core::{
     CalyxError, Constellation, CxFlags, CxId, InputRef, LedgerRef, SlotId, SlotVector, Ts,
     VaultStore,
 };
-use calyx_ledger::{ErasureTombstone, decode as decode_ledger, tombstone_from_entry};
 use serde_json::{Value, json};
+
+use crate::engine::hex::encode_hex;
 
 use super::super::{EngineResult, VaultHandle};
 use super::params::{CxInput, CxPutItem, CxSlotParam};
@@ -17,27 +18,30 @@ use super::params::{CxInput, CxPutItem, CxSlotParam};
 const CALYX_LEAPABLE_CX_INPUT_INVALID: &str = "CALYX_LEAPABLE_CX_INPUT_INVALID";
 const CALYX_LEAPABLE_CX_ID_INVALID: &str = "CALYX_LEAPABLE_CX_ID_INVALID";
 const CALYX_LEAPABLE_CX_SCAN_LIMIT_INVALID: &str = "CALYX_LEAPABLE_CX_SCAN_LIMIT_INVALID";
+const CALYX_LEAPABLE_CX_BATCH_TOO_LARGE: &str = "CALYX_LEAPABLE_CX_BATCH_TOO_LARGE";
 
 const INPUT_HEX_METADATA: &str = "leapable.input_hex";
+const INPUT_REF_METADATA: &str = "leapable.input_ref";
 const INPUT_ENCODING_METADATA: &str = "leapable.input_encoding";
 const INPUT_TEXT_ENCODING: &str = "utf8";
 const INPUT_BYTES_ENCODING: &str = "bytes";
+const INPUT_BYTES_PREFIX: &[u8] = b"cx_input_v1/";
+const MAX_BATCH_ITEMS: usize = 1024;
+const MAX_BATCH_BYTES: usize = 64 * 1024 * 1024;
 const DEFAULT_SCAN_LIMIT: usize = 100;
 const MAX_SCAN_LIMIT: usize = 1000;
-const TOMBSTONE_INDEX_MARKER: &[u8] = b"cx_tombstone_index_built_v1";
-const TOMBSTONE_INDEX_PREFIX: &[u8] = b"cx_tombstone_v1/";
-const LEDGER_SCAN_PAGE_ROWS: usize = 1024;
-const TOMBSTONE_SCAN_LIMIT: usize = MAX_SCAN_LIMIT;
-
 pub(super) struct PreparedPut {
     pub(super) constellation: Constellation,
+    pub(super) input_bytes: Vec<u8>,
+    pub(super) input_hash: [u8; 32],
+    pub(super) input_len: usize,
     pub(super) deduped: bool,
-    recurrence_context: OccurrenceContext,
+    pub(super) recurrence_context: OccurrenceContext,
 }
 
-pub(super) struct TombstonePage {
-    pub(super) items: Vec<Value>,
-    pub(super) truncated: bool,
+pub(super) struct DecodedInput {
+    pub(super) bytes: Vec<u8>,
+    encoding: &'static str,
 }
 
 pub(super) fn prepare_put(
@@ -46,15 +50,30 @@ pub(super) fn prepare_put(
     batch_ts: Ts,
     within_batch_duplicate: bool,
 ) -> EngineResult<PreparedPut> {
-    let (input_bytes, encoding) = decode_input(&item.input)?;
-    reject_reserved_metadata(&item.metadata)?;
+    let decoded = decode_input(&item.input)?;
     let id = handle
         .vault
-        .cx_id_for_input(&input_bytes, item.panel_version);
-    let input_hash = full_content_hash([input_bytes.as_slice()]);
+        .cx_id_for_input(&decoded.bytes, item.panel_version);
+    prepare_put_decoded(handle, item, batch_ts, within_batch_duplicate, decoded, id)
+}
+
+pub(super) fn prepare_put_decoded(
+    handle: &VaultHandle,
+    item: CxPutItem,
+    batch_ts: Ts,
+    within_batch_duplicate: bool,
+    decoded: DecodedInput,
+    id: CxId,
+) -> EngineResult<PreparedPut> {
+    reject_reserved_metadata(&item.metadata)?;
+    let input_len = decoded.bytes.len();
+    let input_hash = full_content_hash([decoded.bytes.as_slice()]);
     let mut metadata = item.metadata;
-    metadata.insert(INPUT_HEX_METADATA.to_string(), hex(&input_bytes));
-    metadata.insert(INPUT_ENCODING_METADATA.to_string(), encoding.to_string());
+    metadata.insert(INPUT_REF_METADATA.to_string(), input_ref_value(id));
+    metadata.insert(
+        INPUT_ENCODING_METADATA.to_string(),
+        decoded.encoding.to_string(),
+    );
     let slots = slots_from_params(item.slots)?;
     let created_at = item.ts.unwrap_or(batch_ts);
     let recurrence_context = recurrence_context(item.panel_version, &input_hash, &metadata)?;
@@ -89,23 +108,47 @@ pub(super) fn prepare_put(
     constellation.flags.ungrounded = constellation.anchors.is_empty();
     Ok(PreparedPut {
         constellation,
+        input_bytes: decoded.bytes,
+        input_hash,
+        input_len,
         deduped,
         recurrence_context,
     })
 }
 
-pub(super) fn predicted_id(handle: &VaultHandle, item: &CxPutItem) -> EngineResult<CxId> {
-    let (input_bytes, _) = decode_input(&item.input)?;
-    Ok(handle
-        .vault
-        .cx_id_for_input(&input_bytes, item.panel_version))
+pub(super) fn decode_put_input(item: &CxPutItem) -> EngineResult<DecodedInput> {
+    decode_input(&item.input)
+}
+
+pub(super) fn validate_batch_items(count: usize) -> EngineResult<()> {
+    if count <= MAX_BATCH_ITEMS {
+        return Ok(());
+    }
+    Err(cx_error(
+        CALYX_LEAPABLE_CX_BATCH_TOO_LARGE,
+        format!("cx.put_batch item count {count} exceeds {MAX_BATCH_ITEMS}"),
+        "split the batch into bounded chunks",
+    )
+    .into())
+}
+
+pub(super) fn validate_batch_bytes(total: usize) -> EngineResult<()> {
+    if total <= MAX_BATCH_BYTES {
+        return Ok(());
+    }
+    Err(cx_error(
+        CALYX_LEAPABLE_CX_BATCH_TOO_LARGE,
+        format!("cx.put_batch decoded input bytes {total} exceeds {MAX_BATCH_BYTES}"),
+        "split the batch or store large payloads through blob.put and send pointers",
+    )
+    .into())
 }
 
 pub(super) fn append_recurrence_if_needed(
     handle: &VaultHandle,
     id: CxId,
     ts: Ts,
-    prepared: PreparedPut,
+    recurrence_context: OccurrenceContext,
     deduped: bool,
 ) -> EngineResult<Option<u64>> {
     if !deduped {
@@ -115,7 +158,7 @@ pub(super) fn append_recurrence_if_needed(
         &handle.vault,
         id,
         epoch_secs(ts)?,
-        prepared.recurrence_context,
+        recurrence_context,
         epoch_secs(ts)?,
         RetentionPolicy::default(),
     )?;
@@ -167,27 +210,81 @@ pub(super) fn cx_id_from_key(key: &[u8]) -> EngineResult<CxId> {
     Ok(CxId::from_bytes(bytes))
 }
 
-pub(super) fn constellation_value(cx: &Constellation) -> Value {
-    let input_hex = cx.metadata.get(INPUT_HEX_METADATA).cloned();
-    let input_text = if cx.metadata.get(INPUT_ENCODING_METADATA).map(String::as_str)
-        == Some(INPUT_TEXT_ENCODING)
-    {
-        input_hex
-            .as_deref()
-            .and_then(|value| decode_hex(value).ok())
-            .and_then(|bytes| String::from_utf8(bytes).ok())
-    } else {
-        None
-    };
+pub(super) fn input_row(id: CxId, bytes: Vec<u8>) -> (ColumnFamily, Vec<u8>, Vec<u8>) {
+    (ColumnFamily::Leapable, input_key(id), bytes)
+}
+
+pub(super) fn delete_input_row(handle: &VaultHandle, id: CxId) -> EngineResult<()> {
+    handle.vault.write_cf(
+        ColumnFamily::Leapable,
+        input_key(id),
+        calyx_aster::mvcc::tombstone_value(),
+    )?;
+    Ok(())
+}
+
+pub(super) fn put_ack_value(
+    id: CxId,
+    deduped: bool,
+    recurrence: Option<u64>,
+    input_len: usize,
+    input_hash: &[u8; 32],
+) -> Value {
     json!({
-        "cx_id": cx.cx_id.to_string(),
-        "input_hex": input_hex,
-        "input_text": input_text,
-        "constellation": cx,
+        "cx_id": id.to_string(),
+        "deduped": deduped,
+        "recurrence_occurrence": recurrence,
+        "input": {
+            "len": input_len,
+            "blake3": hex(input_hash),
+        }
     })
 }
 
-pub(super) fn constellation_value_from_base(expected: CxId, bytes: &[u8]) -> EngineResult<Value> {
+pub(super) fn constellation_value(
+    handle: &VaultHandle,
+    snapshot: u64,
+    cx: &Constellation,
+    include_input: bool,
+) -> EngineResult<Value> {
+    let input_bytes = if include_input {
+        input_bytes_for_value(handle, snapshot, cx)?
+    } else {
+        None
+    };
+    let input_hex = input_bytes.as_deref().map(hex);
+    let input_text = if cx.metadata.get(INPUT_ENCODING_METADATA).map(String::as_str)
+        == Some(INPUT_TEXT_ENCODING)
+    {
+        input_bytes
+            .as_deref()
+            .and_then(|bytes| std::str::from_utf8(bytes).ok())
+            .map(str::to_string)
+    } else {
+        None
+    };
+    let mut constellation = cx.clone();
+    if !include_input {
+        constellation.metadata.remove(INPUT_HEX_METADATA);
+    }
+    let mut value = json!({
+        "cx_id": cx.cx_id.to_string(),
+        "constellation": constellation,
+    });
+    if include_input && let Some(object) = value.as_object_mut() {
+        object.insert("input_hex".to_string(), input_hex.into());
+        object.insert("input_text".to_string(), input_text.into());
+    }
+    Ok(value)
+}
+
+pub(super) fn constellation_value_from_base(
+    handle: &VaultHandle,
+    snapshot: u64,
+    expected: CxId,
+    bytes: &[u8],
+    include_input: bool,
+) -> EngineResult<Value> {
     let cx = decode_constellation_base(bytes)?;
     if cx.cx_id != expected {
         return Err(CalyxError::aster_corrupt_shard(format!(
@@ -196,99 +293,40 @@ pub(super) fn constellation_value_from_base(expected: CxId, bytes: &[u8]) -> Eng
         ))
         .into());
     }
-    Ok(constellation_value(&cx))
+    constellation_value(handle, snapshot, &cx, include_input)
 }
 
-pub(super) fn ensure_tombstone_index(handle: &VaultHandle) -> EngineResult<()> {
-    let snapshot = handle.vault.snapshot();
-    if handle
-        .vault
-        .read_cf_at(snapshot, ColumnFamily::Leapable, TOMBSTONE_INDEX_MARKER)?
-        .is_some()
-    {
-        return Ok(());
-    }
-    let mut rows = Vec::new();
-    handle.vault.scan_cf_pages_at(
-        snapshot,
-        ColumnFamily::Ledger,
-        LEDGER_SCAN_PAGE_ROWS,
-        |page| -> EngineResult<()> {
-            for (_, bytes) in page {
-                let entry = decode_ledger(&bytes)?;
-                if let Some(tombstone) = tombstone_from_entry(&entry)? {
-                    rows.push(tombstone_index_row(&tombstone));
-                }
-            }
-            Ok(())
-        },
-    )?;
-    rows.push((
-        ColumnFamily::Leapable,
-        TOMBSTONE_INDEX_MARKER.to_vec(),
-        snapshot.to_be_bytes().to_vec(),
-    ));
-    handle.vault.write_cf_batch(rows)?;
-    Ok(())
-}
-
-pub(super) fn index_erase_tombstone(
+fn input_bytes_for_value(
     handle: &VaultHandle,
-    tombstone: Option<&ErasureTombstone>,
-) -> EngineResult<()> {
-    if let Some(tombstone) = tombstone {
-        handle
-            .vault
-            .write_cf_batch([tombstone_index_row(tombstone)])?;
+    snapshot: u64,
+    cx: &Constellation,
+) -> EngineResult<Option<Vec<u8>>> {
+    if cx.metadata.contains_key(INPUT_REF_METADATA)
+        && let Some(bytes) =
+            handle
+                .vault
+                .read_cf_at(snapshot, ColumnFamily::Leapable, &input_key(cx.cx_id))?
+    {
+        return Ok(Some(bytes));
     }
-    Ok(())
+    cx.metadata
+        .get(INPUT_HEX_METADATA)
+        .map(|value| decode_hex(value))
+        .transpose()
 }
 
-pub(super) fn scan_tombstones(handle: &VaultHandle, snapshot: u64) -> EngineResult<TombstonePage> {
-    let mut rows = handle.vault.scan_cf_range_page_at(
-        snapshot,
-        ColumnFamily::Leapable,
-        &prefix_range(TOMBSTONE_INDEX_PREFIX),
-        None,
-        TOMBSTONE_SCAN_LIMIT + 1,
-    )?;
-    let truncated = rows.len() > TOMBSTONE_SCAN_LIMIT;
-    rows.truncate(TOMBSTONE_SCAN_LIMIT);
-    let mut items = Vec::with_capacity(rows.len());
-    for (_, bytes) in rows {
-        let tombstone = ErasureTombstone::from_ledger_payload(&bytes)?;
-        items.push(tombstone_value(&tombstone));
-    }
-    Ok(TombstonePage { items, truncated })
-}
-
-fn tombstone_index_row(tombstone: &ErasureTombstone) -> (ColumnFamily, Vec<u8>, Vec<u8>) {
-    (
-        ColumnFamily::Leapable,
-        tombstone_index_key(tombstone.seq),
-        tombstone.as_ledger_payload(),
-    )
-}
-
-fn tombstone_index_key(seq: u64) -> Vec<u8> {
-    let mut key = Vec::with_capacity(TOMBSTONE_INDEX_PREFIX.len() + 8);
-    key.extend_from_slice(TOMBSTONE_INDEX_PREFIX);
-    key.extend_from_slice(&seq.to_be_bytes());
+fn input_key(id: CxId) -> Vec<u8> {
+    let mut key = Vec::with_capacity(INPUT_BYTES_PREFIX.len() + id.as_bytes().len());
+    key.extend_from_slice(INPUT_BYTES_PREFIX);
+    key.extend_from_slice(id.as_bytes());
     key
 }
 
-fn tombstone_value(tombstone: &ErasureTombstone) -> Value {
-    json!({
-        "seq": tombstone.seq,
-        "scope": &tombstone.scope,
-        "actor": &tombstone.actor,
-        "erased_at": tombstone.erased_at,
-        "records_deleted": tombstone.records_deleted,
-        "compact": tombstone.as_json_value(),
-    })
+fn input_ref_value(id: CxId) -> String {
+    format!("leapable-input-v1:{id}")
 }
 
-fn decode_input(input: &CxInput) -> EngineResult<(Vec<u8>, &'static str)> {
+fn decode_input(input: &CxInput) -> EngineResult<DecodedInput> {
     let present = usize::from(input.text.is_some())
         + usize::from(input.bytes.is_some())
         + usize::from(input.hex.is_some());
@@ -301,24 +339,35 @@ fn decode_input(input: &CxInput) -> EngineResult<(Vec<u8>, &'static str)> {
         .into());
     }
     if let Some(text) = &input.text {
-        return Ok((text.as_bytes().to_vec(), INPUT_TEXT_ENCODING));
+        return Ok(DecodedInput {
+            bytes: text.as_bytes().to_vec(),
+            encoding: INPUT_TEXT_ENCODING,
+        });
     }
     if let Some(bytes) = &input.bytes {
-        return Ok((bytes.clone(), INPUT_BYTES_ENCODING));
+        return Ok(DecodedInput {
+            bytes: bytes.clone(),
+            encoding: INPUT_BYTES_ENCODING,
+        });
     }
     let hex = input.hex.as_deref().expect("present checked");
-    decode_hex(hex).map(|bytes| (bytes, INPUT_BYTES_ENCODING))
+    decode_hex(hex).map(|bytes| DecodedInput {
+        bytes,
+        encoding: INPUT_BYTES_ENCODING,
+    })
 }
 
 fn reject_reserved_metadata(metadata: &BTreeMap<String, String>) -> EngineResult<()> {
-    if let Some(key) = metadata
-        .keys()
-        .find(|key| key.as_str() == INPUT_HEX_METADATA || key.as_str() == INPUT_ENCODING_METADATA)
-    {
+    if let Some(key) = metadata.keys().find(|key| {
+        matches!(
+            key.as_str(),
+            INPUT_HEX_METADATA | INPUT_REF_METADATA | INPUT_ENCODING_METADATA
+        )
+    }) {
         return Err(cx_error(
             CALYX_LEAPABLE_CX_INPUT_INVALID,
             format!("metadata key {key:?} is reserved for input readback"),
-            "remove leapable.input_* metadata and let the engine stamp byte readback fields",
+            "remove leapable.input_* metadata and let the engine stamp input reference fields",
         )
         .into());
     }
@@ -406,7 +455,7 @@ fn hex_value(byte: u8) -> EngineResult<u8> {
 }
 
 fn hex(bytes: &[u8]) -> String {
-    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
+    encode_hex(bytes)
 }
 
 fn cx_error(

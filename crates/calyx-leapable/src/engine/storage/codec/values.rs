@@ -11,6 +11,8 @@ use calyx_core::CalyxError;
 use calyx_ledger::{PayloadBuilder, RedactionPolicy, SubjectId};
 use serde_json::{Value, json};
 
+use crate::engine::hex::encode_hex;
+
 use super::super::super::{EngineResult, VaultHandle};
 use super::super::params::{BytesParam, IsolationParam, KeyParam, RecordValueParam, RowParam};
 use super::super::{CALYX_LEAPABLE_REL_NOT_FOUND, CALYX_LEAPABLE_STORAGE_INPUT_INVALID};
@@ -294,12 +296,17 @@ pub(in crate::engine::storage) fn blob_manifest_value(
     })
 }
 
-pub(in crate::engine::storage) fn bytes_value(bytes: &[u8]) -> Value {
-    json!({
+pub(in crate::engine::storage) fn bytes_value(bytes: &[u8], include_text: bool) -> Value {
+    let mut value = json!({
         "hex": hex(bytes),
-        "text": String::from_utf8(bytes.to_vec()).ok(),
         "len": bytes.len()
-    })
+    });
+    if include_text
+        && let (Some(text), Some(object)) = (std::str::from_utf8(bytes).ok(), value.as_object_mut())
+    {
+        object.insert("text".to_string(), Value::from(text));
+    }
+    value
 }
 
 pub(in crate::engine::storage) fn decode_hex(value: &str) -> EngineResult<Vec<u8>> {
@@ -333,5 +340,5 @@ fn hex_value(byte: u8) -> EngineResult<u8> {
 }
 
 pub(in crate::engine::storage) fn hex(bytes: &[u8]) -> String {
-    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
+    encode_hex(bytes)
 }

@@ -62,6 +62,8 @@ pub(super) struct CxGetParams {
     pub(super) cx_id: String,
     #[serde(default)]
     pub(super) snapshot: Option<u64>,
+    #[serde(default)]
+    pub(super) include_input: bool,
 }
 
 #[derive(Deserialize)]
@@ -74,6 +76,8 @@ pub(super) struct CxScanParams {
     pub(super) cursor: Option<String>,
     #[serde(default)]
     pub(super) limit: Option<usize>,
+    #[serde(default)]
+    pub(super) include_input: bool,
 }
 
 #[derive(Deserialize)]

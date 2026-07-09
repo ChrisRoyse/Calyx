@@ -24,6 +24,7 @@ fn config(root: PathBuf) -> EngineConfig {
     EngineConfig {
         data_dir: root,
         master_key: vec![0xA5; 32],
+        flush_policy: crate::config::FlushPolicy::Always,
     }
 }
 
@@ -86,11 +87,30 @@ fn two_vaults_are_multiplexed_by_vault_ref() {
     assert_eq!(stat_a.result.unwrap()["vault_ref"], "alpha");
     assert_eq!(stat_b.result.unwrap()["vault_ref"], "beta");
     assert_ne!(vault_id_for("alpha"), vault_id_for("beta"));
+    assert_eq!(
+        fs::read(root.join("alpha.calyx").join(identity::SALT_FILE_NAME))
+            .unwrap()
+            .len(),
+        32
+    );
     assert!(root.join("alpha.calyx").join("cf").join("base").exists());
     assert!(root.join("alpha.calyx").join("wal").exists());
     assert!(root.join("beta.calyx").join("cf").join("base").exists());
     assert!(root.join("beta.calyx").join("wal").exists());
     fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn vault_clock_is_monotonic_across_requests() {
+    let mut engine = Engine::new(config(temp_root("monotonic")));
+    let create = engine.dispatch(req(
+        r#"{"jsonrpc":"2.0","id":1,"method":"vault.create","params":{"vault_ref":"alpha","ts":200}}"#,
+    ));
+    assert!(create.error.is_none(), "{create:?}");
+    let stat = engine.dispatch(req(
+        r#"{"jsonrpc":"2.0","id":2,"method":"vault.stat","params":{"vault_ref":"alpha","ts":100}}"#,
+    ));
+    assert_eq!(stat.result.unwrap()["last_ts"], 200);
 }
 
 #[test]
@@ -209,6 +229,28 @@ fn lifecycle_snapshot_restore_clone_verify_and_delete_use_real_bytes() {
 }
 
 #[test]
+fn snapshot_verify_none_skips_restore_verification() {
+    let root = temp_root("verify-none");
+    let mut engine = Engine::new(config(root.clone()));
+    let create = engine.dispatch(req(
+        r#"{"jsonrpc":"2.0","id":1,"method":"vault.create","params":{"vault_ref":"alpha","ts":1785500000}}"#,
+    ));
+    assert!(create.error.is_none(), "{create:?}");
+    let snapshot = engine.dispatch(req(
+        r#"{"jsonrpc":"2.0","id":2,"method":"vault.snapshot","params":{"vault_ref":"alpha","snapshot_ref":"snap_none","ts":1785500010,"verify":"none"}}"#,
+    ));
+    let result = snapshot.result.unwrap();
+    assert_eq!(result["verify"], "none");
+    assert!(result["verify_restore"].is_null());
+    assert!(result["source_verify_restore"].is_null());
+    assert!(
+        root.join("_snapshots/alpha.calyx/snap_none/cf/base")
+            .exists()
+    );
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn vault_open_backfills_legacy_cx_tombstone_index() {
     let root = temp_root("legacy-tombstone-index");
     let cfg = config(root.clone());
@@ -218,7 +260,7 @@ fn vault_open_backfills_legacy_cx_tombstone_index() {
     let vault = AsterVault::new_durable(
         &dir,
         vault_id,
-        salt_for(vault_ref.as_str()),
+        identity::salt_for(vault_ref.as_str()),
         VaultOptions::default(),
     )
     .unwrap();

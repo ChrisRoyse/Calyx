@@ -7,7 +7,7 @@
 use std::io::{self, BufRead, Write};
 use std::process::ExitCode;
 
-use calyx_leapable::{Engine, EngineConfig, LEAPABLE_CAPABILITIES};
+use calyx_leapable::{Engine, EngineConfig, LEAPABLE_CAPABILITIES, mutating_method_requires_id};
 use calyx_mcp::{JsonRpcId, decode_jsonrpc_request};
 
 fn main() -> ExitCode {
@@ -50,6 +50,13 @@ fn main() -> ExitCode {
             }
         };
         let is_notification = request.id.is_none() || matches!(request.id, Some(JsonRpcId::Null));
+        if is_notification && mutating_method_requires_id(&request.method) {
+            eprintln!(
+                "calyx-leapable: CALYX_LEAPABLE_MUTATION_NOTIFICATION: mutating method {} requires a JSON-RPC id",
+                request.method
+            );
+            continue;
+        }
         let response = engine.dispatch(request);
         if is_notification {
             continue;

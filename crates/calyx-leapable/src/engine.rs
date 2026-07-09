@@ -1,9 +1,12 @@
 //! Direct JSON-RPC method dispatch for the Leapable engine sidecar.
 
-use std::collections::BTreeMap;
+use std::cell::RefCell;
+use std::collections::{BTreeMap, HashMap};
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::path::PathBuf;
+use std::sync::Arc;
 
+use calyx_aster::collection::Collection;
 use calyx_aster::txn::TxnHandle;
 use calyx_aster::vault::{AsterVault, QuotaConfig, VaultContext, VaultOptions};
 use calyx_core::{CalyxError, Ts, VaultId};
@@ -13,16 +16,13 @@ use serde_json::{Value, json};
 
 use self::clock::EngineClock;
 use self::error::{EngineError, EngineResult, parse_params, vault_not_open, vault_open_error};
-use self::identity::{salt_for, vault_id_for};
-use crate::config::EngineConfig;
+use self::identity::{salt_for_dir, vault_id_for};
+use crate::config::{EngineConfig, FlushPolicy};
 use crate::lifecycle::{
-    CALYX_LEAPABLE_VAULT_ALREADY_EXISTS, CALYX_LEAPABLE_VAULT_OPEN, copy_dir_new, lifecycle_error,
-    remove_dir, verify_restore_value,
+    CALYX_LEAPABLE_VAULT_ALREADY_EXISTS, CALYX_LEAPABLE_VAULT_OPEN, lifecycle_error, remove_dir,
+    verify_restore_value,
 };
-use crate::paths::{
-    VaultRef, list_vault_refs, resolve_existing_snapshot_dir, resolve_existing_vault_dir,
-    resolve_new_vault_dir, resolve_snapshot_dir, resolve_vault_target_dir,
-};
+use crate::paths::{VaultRef, list_vault_refs, resolve_existing_vault_dir, resolve_new_vault_dir};
 
 /// Compile-time capability map: end-user binary is CPU-only.
 pub const LEAPABLE_CAPABILITIES: &[(&str, bool)] = &[
@@ -32,6 +32,30 @@ pub const LEAPABLE_CAPABILITIES: &[(&str, bool)] = &[
     ("diskann", false),
     ("spann", false),
 ];
+
+pub fn mutating_method_requires_id(method: &str) -> bool {
+    matches!(
+        method,
+        "vault.create"
+            | "vault.close"
+            | "vault.delete"
+            | "vault.snapshot"
+            | "vault.restore"
+            | "vault.clone"
+            | "cx.put"
+            | "cx.put_batch"
+            | "cx.anchor"
+            | "cx.delete"
+            | "rel.insert"
+            | "rel.update_row"
+            | "rel.delete"
+            | "kv.set"
+            | "kv.delete"
+            | "ts.write"
+            | "blob.put"
+            | "txn.commit"
+    )
+}
 
 const PANIC_PROBE_ENV: &str = "CALYX_LEAPABLE_ENABLE_PANIC_PROBE";
 const ZFS_DATASET_UNAVAILABLE: &str = "leapable/local";
@@ -53,47 +77,55 @@ struct VaultHandle {
     dir: PathBuf,
     opened_at: Ts,
     last_ts: Ts,
+    last_flush_ts: Ts,
     requests: u64,
     clock: EngineClock,
     txn: TxnHandle,
     context: VaultContext,
     vault: AsterVault<EngineClock>,
+    collections: RefCell<HashMap<String, Arc<Collection>>>,
 }
 
 impl VaultHandle {
     fn touch(&mut self, ts: Ts) {
         self.requests += 1;
-        self.last_ts = ts;
-        self.clock.set(ts);
+        self.last_ts = self.clock.advance_to(ts);
+    }
+
+    fn flush_now(&mut self) -> EngineResult<()> {
+        self.vault.flush()?;
+        self.last_flush_ts = self.last_ts;
+        Ok(())
+    }
+
+    fn flush_after_write(&mut self, policy: &FlushPolicy) -> EngineResult<()> {
+        match policy {
+            FlushPolicy::Always => self.flush_now(),
+            FlushPolicy::Batch { max_delay_ms } => {
+                if self.last_ts.saturating_sub(self.last_flush_ts) >= *max_delay_ms {
+                    self.flush_now()?;
+                }
+                Ok(())
+            }
+        }
+    }
+
+    fn cached_collection(&self, name: &str) -> Option<Arc<Collection>> {
+        self.collections.borrow().get(name).cloned()
+    }
+
+    fn cache_collection(&self, collection: Collection) -> Arc<Collection> {
+        let collection = Arc::new(collection);
+        self.collections
+            .borrow_mut()
+            .insert(collection.name.clone(), Arc::clone(&collection));
+        collection
     }
 }
 
 #[derive(Deserialize)]
 struct VaultParams {
     vault_ref: String,
-    ts: Ts,
-}
-
-#[derive(Deserialize)]
-struct SnapshotParams {
-    vault_ref: String,
-    snapshot_ref: String,
-    ts: Ts,
-}
-
-#[derive(Deserialize)]
-struct RestoreParams {
-    vault_ref: String,
-    snapshot_ref: String,
-    ts: Ts,
-    #[serde(default)]
-    overwrite: bool,
-}
-
-#[derive(Deserialize)]
-struct CloneParams {
-    vault_ref: String,
-    target_vault_ref: String,
     ts: Ts,
 }
 
@@ -183,9 +215,9 @@ impl Engine {
             .into());
         }
         let dir = resolve_new_vault_dir(&self.config.data_dir, &vault_ref)?;
-        let handle = self.open_handle(vault_ref.clone(), dir, params.ts)?;
+        let mut handle = self.open_handle(vault_ref.clone(), dir, params.ts)?;
         cx::ensure_cx_tombstone_index(&handle)?;
-        handle.vault.flush()?;
+        handle.flush_now()?;
         let value = vault_handle_value("created", &handle);
         self.vaults.insert(vault_ref.as_str().to_string(), handle);
         Ok(value)
@@ -214,7 +246,7 @@ impl Engine {
             return Err(vault_not_open(vault_ref.as_str()).into());
         };
         handle.touch(params.ts);
-        handle.vault.flush()?;
+        handle.flush_now()?;
         Ok(json!({
             "status": "closed",
             "vault_ref": handle.vault_ref.as_str(),
@@ -259,112 +291,13 @@ impl Engine {
         }))
     }
 
-    fn vault_snapshot(&mut self, params: Option<Value>) -> EngineResult<Value> {
-        let params = parse_params::<SnapshotParams>(params, "vault.snapshot")?;
-        let vault_ref = VaultRef::parse(&params.vault_ref)?;
-        let snapshot_ref = VaultRef::parse(&params.snapshot_ref)?;
-        let (source_dir, latest_seq) = match self.vaults.get_mut(vault_ref.as_str()) {
-            Some(handle) => {
-                handle.touch(params.ts);
-                handle.vault.flush()?;
-                (handle.dir.clone(), Some(handle.vault.latest_seq()))
-            }
-            None => (
-                resolve_existing_vault_dir(&self.config.data_dir, &vault_ref)?,
-                None,
-            ),
-        };
-        let snapshot_dir = resolve_snapshot_dir(&self.config.data_dir, &vault_ref, &snapshot_ref)?;
-        let copy = copy_dir_new(&source_dir, &snapshot_dir)?;
-        let verify = verify_restore_value(&snapshot_dir)?;
-        Ok(json!({
-            "status": "snapshotted",
-            "vault_ref": vault_ref.as_str(),
-            "snapshot_ref": snapshot_ref.as_str(),
-            "source_dir": source_dir,
-            "snapshot_dir": snapshot_dir,
-            "latest_seq": latest_seq,
-            "copy": copy.to_value(),
-            "verify_restore": verify
-        }))
-    }
-
-    fn vault_restore(&mut self, params: Option<Value>) -> EngineResult<Value> {
-        let params = parse_params::<RestoreParams>(params, "vault.restore")?;
-        let vault_ref = VaultRef::parse(&params.vault_ref)?;
-        let snapshot_ref = VaultRef::parse(&params.snapshot_ref)?;
-        if self.vaults.contains_key(vault_ref.as_str()) {
-            return Err(vault_open_error(vault_ref.as_str()).into());
-        }
-        let snapshot_dir =
-            resolve_existing_snapshot_dir(&self.config.data_dir, &vault_ref, &snapshot_ref)?;
-        let target_dir = if params.overwrite {
-            if self
-                .config
-                .data_dir
-                .join(vault_ref.storage_dir_name())
-                .exists()
-            {
-                let existing = resolve_existing_vault_dir(&self.config.data_dir, &vault_ref)?;
-                remove_dir(&existing)?;
-            }
-            resolve_vault_target_dir(&self.config.data_dir, &vault_ref)?
-        } else {
-            resolve_vault_target_dir(&self.config.data_dir, &vault_ref)?
-        };
-        let source_verify = verify_restore_value(&snapshot_dir)?;
-        let copy = copy_dir_new(&snapshot_dir, &target_dir)?;
-        let restored_verify = verify_restore_value(&target_dir)?;
-        Ok(json!({
-            "status": "restored",
-            "vault_ref": vault_ref.as_str(),
-            "snapshot_ref": snapshot_ref.as_str(),
-            "snapshot_dir": snapshot_dir,
-            "vault_dir": target_dir,
-            "restored_at": params.ts,
-            "overwrite": params.overwrite,
-            "copy": copy.to_value(),
-            "source_verify_restore": source_verify,
-            "verify_restore": restored_verify
-        }))
-    }
-
-    fn vault_clone(&mut self, params: Option<Value>) -> EngineResult<Value> {
-        let params = parse_params::<CloneParams>(params, "vault.clone")?;
-        let vault_ref = VaultRef::parse(&params.vault_ref)?;
-        let target_vault_ref = VaultRef::parse(&params.target_vault_ref)?;
-        if self.vaults.contains_key(target_vault_ref.as_str()) {
-            return Err(vault_open_error(target_vault_ref.as_str()).into());
-        }
-        if let Some(handle) = self.vaults.get_mut(vault_ref.as_str()) {
-            handle.touch(params.ts);
-            handle.vault.flush()?;
-        }
-        let source_dir = resolve_existing_vault_dir(&self.config.data_dir, &vault_ref)?;
-        let target_dir = resolve_vault_target_dir(&self.config.data_dir, &target_vault_ref)?;
-        let source_verify = verify_restore_value(&source_dir)?;
-        let copy = copy_dir_new(&source_dir, &target_dir)?;
-        let clone_verify = verify_restore_value(&target_dir)?;
-        Ok(json!({
-            "status": "cloned",
-            "vault_ref": vault_ref.as_str(),
-            "target_vault_ref": target_vault_ref.as_str(),
-            "source_dir": source_dir,
-            "target_dir": target_dir,
-            "cloned_at": params.ts,
-            "copy": copy.to_value(),
-            "source_verify_restore": source_verify,
-            "verify_restore": clone_verify
-        }))
-    }
-
     fn vault_verify(&mut self, params: Option<Value>) -> EngineResult<Value> {
         let params = parse_params::<VaultParams>(params, "vault.verify")?;
         let vault_ref = VaultRef::parse(&params.vault_ref)?;
         let dir = match self.vaults.get_mut(vault_ref.as_str()) {
             Some(handle) => {
                 handle.touch(params.ts);
-                handle.vault.flush()?;
+                handle.flush_now()?;
                 handle.dir.clone()
             }
             None => resolve_existing_vault_dir(&self.config.data_dir, &vault_ref)?,
@@ -413,7 +346,7 @@ impl Engine {
 
     fn open_handle(&self, vault_ref: VaultRef, dir: PathBuf, ts: Ts) -> EngineResult<VaultHandle> {
         let vault_id = vault_id_for(vault_ref.as_str());
-        let salt = salt_for(vault_ref.as_str());
+        let salt = salt_for_dir(&dir, vault_ref.as_str())?;
         let clock = EngineClock::new(ts);
         let txn = TxnHandle::new(vault_id);
         let context = VaultContext::new(
@@ -435,11 +368,13 @@ impl Engine {
             dir,
             opened_at: ts,
             last_ts: ts,
+            last_flush_ts: ts,
             requests: 1,
             clock,
             txn,
             context,
             vault,
+            collections: RefCell::default(),
         })
     }
 }
@@ -462,8 +397,11 @@ fn vault_handle_value(status: &str, handle: &VaultHandle) -> Value {
 mod clock;
 mod cx;
 mod error;
+mod hex;
 mod identity;
+mod lifecycle_ops;
 mod storage;
+mod verify;
 
 #[cfg(test)]
 mod tests;

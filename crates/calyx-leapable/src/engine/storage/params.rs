@@ -191,6 +191,8 @@ pub(super) struct KvSetParams {
     pub(super) value: BytesParam,
     #[serde(default)]
     pub(super) ttl_ms: Option<u64>,
+    #[serde(default)]
+    pub(super) echo_value: bool,
 }
 
 #[derive(Deserialize)]
@@ -201,6 +203,8 @@ pub(super) struct KvGetParams {
     #[serde(default)]
     pub(super) ns: u64,
     pub(super) key: BytesParam,
+    #[serde(default)]
+    pub(super) include_text: bool,
 }
 
 #[derive(Deserialize)]
@@ -251,6 +255,10 @@ pub(super) struct BlobGetParams {
     pub(super) ts: Ts,
     pub(super) collection_name: String,
     pub(super) blob_id: String,
+    #[serde(default)]
+    pub(super) include_data: bool,
+    #[serde(default)]
+    pub(super) include_text: bool,
 }
 
 #[derive(Deserialize)]

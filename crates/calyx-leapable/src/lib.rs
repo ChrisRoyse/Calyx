@@ -10,4 +10,4 @@ pub mod lifecycle;
 pub mod paths;
 
 pub use config::EngineConfig;
-pub use engine::{Engine, LEAPABLE_CAPABILITIES};
+pub use engine::{Engine, LEAPABLE_CAPABILITIES, mutating_method_requires_id};

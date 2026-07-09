@@ -302,6 +302,28 @@ fn notification_gets_no_response_but_following_request_does() {
 }
 
 #[test]
+fn mutating_notification_is_rejected_without_side_effects() {
+    let root = TestRoot::new("mutating-notification");
+    let input = [
+        line(json!({
+            "jsonrpc": "2.0",
+            "method": "vault.create",
+            "params": {"vault_ref": "ghost", "ts": 1785500000_u64}
+        })),
+        request(1, "engine.info", json!({})),
+    ]
+    .concat();
+    let (stdout, stderr, ok) = run_engine(&input, root.path(), false);
+    let responses = json_lines(&stdout);
+    assert_eq!(responses.len(), 1);
+    assert_eq!(responses[0]["id"], 1);
+    assert!(stderr.contains("CALYX_LEAPABLE_MUTATION_NOTIFICATION"));
+    assert_no_json_on_stderr(&stderr);
+    assert!(!storage_dir(root.path(), "ghost").exists());
+    assert!(ok);
+}
+
+#[test]
 fn lifecycle_snapshot_restore_clone_verify_and_delete_round_trip() {
     let root = TestRoot::new("lifecycle");
     seed_vault(root.path(), "life", &[1, 2, 3]);

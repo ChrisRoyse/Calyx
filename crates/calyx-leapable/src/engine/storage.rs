@@ -72,6 +72,7 @@ impl Engine {
 
     fn rel_insert(&mut self, params: Option<Value>) -> EngineResult<Value> {
         let params = parse_params::<RelInsertParams>(params, "rel.insert")?;
+        let flush_policy = self.config.flush_policy.clone();
         let handle = self.open_vault_for_storage(&params.vault_ref, params.ts)?;
         let pk = record_key_from_param(params.pk)?;
         let row = row_from_param(params.row)?;
@@ -91,7 +92,7 @@ impl Engine {
             .into());
         }
         let seq = layer.put_record(&col, &pk, &row)?;
-        handle.vault.flush()?;
+        handle.flush_after_write(&flush_policy)?;
         Ok(json!({
             "status": "inserted",
             "vault_ref": handle.vault_ref.as_str(),
@@ -122,6 +123,7 @@ impl Engine {
 
     fn rel_update_row(&mut self, params: Option<Value>) -> EngineResult<Value> {
         let params = parse_params::<RelUpdateParams>(params, "rel.update_row")?;
+        let flush_policy = self.config.flush_policy.clone();
         let handle = self.open_vault_for_storage(&params.vault_ref, params.ts)?;
         let col = require_collection(handle, &params.collection_name, CollectionMode::Records)?;
         let pk = record_key_from_param(params.pk)?;
@@ -136,7 +138,7 @@ impl Engine {
             row.fields.insert(name, record_value_from_param(value)?);
         }
         let seq = layer.put_record(&col, &pk, &row)?;
-        handle.vault.flush()?;
+        handle.flush_after_write(&flush_policy)?;
         Ok(json!({
             "status": "updated",
             "vault_ref": handle.vault_ref.as_str(),
@@ -150,6 +152,7 @@ impl Engine {
 
     fn rel_delete(&mut self, params: Option<Value>) -> EngineResult<Value> {
         let params = parse_params::<RelDeleteParams>(params, "rel.delete")?;
+        let flush_policy = self.config.flush_policy.clone();
         let handle = self.open_vault_for_storage(&params.vault_ref, params.ts)?;
         let col = require_collection(handle, &params.collection_name, CollectionMode::Records)?;
         let pk = record_key_from_param(params.pk)?;
@@ -157,7 +160,7 @@ impl Engine {
             return Err(rel_not_found(&col.name, &pk).into());
         };
         let seq = write_rel_delete(handle, &col, &pk, &old_row)?;
-        handle.vault.flush()?;
+        handle.flush_after_write(&flush_policy)?;
         Ok(json!({
             "status": "deleted",
             "vault_ref": handle.vault_ref.as_str(),
@@ -249,9 +252,15 @@ impl Engine {
 
     fn kv_set(&mut self, params: Option<Value>) -> EngineResult<Value> {
         let params = parse_params::<KvSetParams>(params, "kv.set")?;
+        let flush_policy = self.config.flush_policy.clone();
         let handle = self.open_vault_for_storage(&params.vault_ref, params.ts)?;
         let key = bytes_from_param(params.key)?;
         let value = bytes_from_param(params.value)?;
+        let value_len = value.len();
+        let value_hash = blake3::hash(&value);
+        let value_echo = params
+            .echo_value
+            .then(|| bytes_value(value.as_slice(), true));
         let ttl = params.ttl_ms.map(Duration::from_millis);
         let col = ensure_collection(
             handle,
@@ -260,14 +269,16 @@ impl Engine {
             params.collection,
         )?;
         let seq = KvLayer::new(&handle.vault).kv_set(&col, params.ns, &key, &value, ttl)?;
-        handle.vault.flush()?;
+        handle.flush_after_write(&flush_policy)?;
         Ok(json!({
             "status": "set",
             "vault_ref": handle.vault_ref.as_str(),
             "collection_name": col.name,
             "ns": params.ns,
             "key_hex": hex(&key),
-            "value_hex": hex(&value),
+            "value_len": value_len,
+            "value_blake3": hex(value_hash.as_bytes()),
+            "value": value_echo,
             "ttl_ms": params.ttl_ms,
             "seq": seq,
             "latest_seq": handle.vault.latest_seq()
@@ -286,17 +297,20 @@ impl Engine {
             "collection_name": col.name,
             "ns": params.ns,
             "key_hex": hex(&key),
-            "value": value.as_ref().map(|bytes| bytes_value(bytes.as_slice()))
+            "value": value
+                .as_ref()
+                .map(|bytes| bytes_value(bytes.as_slice(), params.include_text))
         }))
     }
 
     fn kv_delete(&mut self, params: Option<Value>) -> EngineResult<Value> {
         let params = parse_params::<KvDeleteParams>(params, "kv.delete")?;
+        let flush_policy = self.config.flush_policy.clone();
         let handle = self.open_vault_for_storage(&params.vault_ref, params.ts)?;
         let col = require_collection(handle, &params.collection_name, CollectionMode::KV)?;
         let key = bytes_from_param(params.key)?;
         let seq = KvLayer::new(&handle.vault).kv_delete(&col, params.ns, &key)?;
-        handle.vault.flush()?;
+        handle.flush_after_write(&flush_policy)?;
         Ok(json!({
             "status": "deleted",
             "vault_ref": handle.vault_ref.as_str(),
@@ -310,6 +324,7 @@ impl Engine {
 
     fn ts_write(&mut self, params: Option<Value>) -> EngineResult<Value> {
         let params = parse_params::<TsWriteParams>(params, "ts.write")?;
+        let flush_policy = self.config.flush_policy.clone();
         let handle = self.open_vault_for_storage(&params.vault_ref, params.ts)?;
         validate_ts_value(params.value)?;
         let col = ensure_collection(
@@ -324,7 +339,7 @@ impl Engine {
             params.point_ts,
             params.value,
         )?;
-        handle.vault.flush()?;
+        handle.flush_after_write(&flush_policy)?;
         Ok(json!({
             "status": "written",
             "vault_ref": handle.vault_ref.as_str(),
@@ -358,6 +373,7 @@ impl Engine {
 
     fn blob_put(&mut self, params: Option<Value>) -> EngineResult<Value> {
         let params = parse_params::<BlobPutParams>(params, "blob.put")?;
+        let flush_policy = self.config.flush_policy.clone();
         let handle = self.open_vault_for_storage(&params.vault_ref, params.ts)?;
         let data = bytes_from_param(params.input)?;
         let col = ensure_collection(
@@ -375,7 +391,7 @@ impl Engine {
         let manifest = layer
             .blob_manifest(&col, blob_id)?
             .expect("manifest just written");
-        handle.vault.flush()?;
+        handle.flush_after_write(&flush_policy)?;
         Ok(json!({
             "status": "put",
             "vault_ref": handle.vault_ref.as_str(),
@@ -396,20 +412,27 @@ impl Engine {
         let col = require_collection(handle, &params.collection_name, CollectionMode::Blob)?;
         let blob_id = blob_id_from_hex(&params.blob_id)?;
         let layer = BlobLayer::new(&handle.vault);
-        let data = layer.blob_get(&col, blob_id)?;
         let manifest = layer.blob_manifest(&col, blob_id)?;
+        let data = if params.include_data && manifest.is_some() {
+            layer.blob_get(&col, blob_id)?
+        } else {
+            None
+        };
         Ok(json!({
-            "status": if data.is_some() { "found" } else { "absent" },
+            "status": if manifest.is_some() { "found" } else { "absent" },
             "vault_ref": handle.vault_ref.as_str(),
             "collection_name": col.name,
             "blob_id": params.blob_id,
             "manifest": manifest.map(blob_manifest_value),
-            "data": data.as_ref().map(|bytes| bytes_value(bytes.as_slice()))
+            "data": data
+                .as_ref()
+                .map(|bytes| bytes_value(bytes.as_slice(), params.include_text))
         }))
     }
 
     fn txn_commit(&mut self, params: Option<Value>) -> EngineResult<Value> {
         let params = parse_params::<TxnCommitParams>(params, "txn.commit")?;
+        let flush_policy = self.config.flush_policy.clone();
         let handle = self.open_vault_for_storage(&params.vault_ref, params.ts)?;
         let txn_handle = handle.txn.clone();
         let mut txn = txn_handle.begin_on(
@@ -433,7 +456,7 @@ impl Engine {
             .into());
         }
         let seq = txn.commit(&handle.vault)?;
-        handle.vault.flush()?;
+        handle.flush_after_write(&flush_policy)?;
         Ok(json!({
             "status": "committed",
             "vault_ref": handle.vault_ref.as_str(),

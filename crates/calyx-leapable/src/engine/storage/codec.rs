@@ -91,18 +91,25 @@ pub(super) fn ensure_collection(
     mode: CollectionMode,
     spec: Option<CollectionSpecParam>,
 ) -> EngineResult<Collection> {
+    if let Some(existing) = handle.cached_collection(name) {
+        require_mode(&existing, mode)?;
+        if let Some(spec) = spec {
+            assert_collection_matches(&existing, &build_collection(name, mode, spec)?)?;
+        }
+        return Ok((*existing).clone());
+    }
     match get_collection(&handle.vault, name) {
         Ok(existing) => {
             require_mode(&existing, mode)?;
             if let Some(spec) = spec {
                 assert_collection_matches(&existing, &build_collection(name, mode, spec)?)?;
             }
-            Ok(existing)
+            Ok((*handle.cache_collection(existing)).clone())
         }
         Err(error) if error.code == CALYX_COLLECTION_NOT_FOUND && spec.is_some() => {
             let collection = build_collection(name, mode, spec.expect("checked"))?;
             create_collection(&handle.vault, collection.clone())?;
-            Ok(collection)
+            Ok((*handle.cache_collection(collection)).clone())
         }
         Err(error) => Err(error.into()),
     }
@@ -114,6 +121,17 @@ pub(super) fn ensure_record_collection_for_row(
     spec: Option<CollectionSpecParam>,
     row: &Row,
 ) -> EngineResult<Collection> {
+    if let Some(existing) = handle.cached_collection(name) {
+        require_mode(&existing, CollectionMode::Records)?;
+        if let Some(spec) = spec {
+            assert_collection_matches(
+                &existing,
+                &build_collection(name, CollectionMode::Records, spec)?,
+            )?;
+        }
+        validate_row_shape(&existing, row)?;
+        return Ok((*existing).clone());
+    }
     match get_collection(&handle.vault, name) {
         Ok(existing) => {
             require_mode(&existing, CollectionMode::Records)?;
@@ -124,14 +142,14 @@ pub(super) fn ensure_record_collection_for_row(
                 )?;
             }
             validate_row_shape(&existing, row)?;
-            Ok(existing)
+            Ok((*handle.cache_collection(existing)).clone())
         }
         Err(error) if error.code == CALYX_COLLECTION_NOT_FOUND && spec.is_some() => {
             let collection =
                 build_collection(name, CollectionMode::Records, spec.expect("checked"))?;
             validate_row_shape(&collection, row)?;
             create_collection(&handle.vault, collection.clone())?;
-            Ok(collection)
+            Ok((*handle.cache_collection(collection)).clone())
         }
         Err(error) => Err(error.into()),
     }
@@ -142,9 +160,13 @@ pub(super) fn require_collection(
     name: &str,
     mode: CollectionMode,
 ) -> EngineResult<Collection> {
+    if let Some(collection) = handle.cached_collection(name) {
+        require_mode(&collection, mode)?;
+        return Ok((*collection).clone());
+    }
     let collection = get_collection(&handle.vault, name)?;
     require_mode(&collection, mode)?;
-    Ok(collection)
+    Ok((*handle.cache_collection(collection)).clone())
 }
 
 pub(super) fn validate_ts_value(value: f64) -> EngineResult<()> {

@@ -5,7 +5,6 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
-use calyx_core::CxId;
 use serde_json::{Value, json};
 
 const TEST_MASTER_KEY_HEX: &str =
@@ -88,14 +87,12 @@ fn cx_put_batch_get_anchor_delete_and_scan_round_trip() {
     let root = TestRoot::new("round-trip");
     let first_text = "alpha known chunk";
     let second_text = "beta known chunk";
-    let first_id = expected_cx_id("cxlife", first_text.as_bytes(), 7);
-    let second_id = expected_cx_id("cxlife", second_text.as_bytes(), 7);
     assert!(
         !storage_dir(root.path(), "cxlife").exists(),
         "before absent"
     );
 
-    let input = [
+    let setup = [
         request(
             1,
             "vault.create",
@@ -110,13 +107,55 @@ fn cx_put_batch_get_anchor_delete_and_scan_round_trip() {
                 "items": [put_item(first_text, "chunk-alpha"), put_item(second_text, "chunk-beta")]
             }),
         ),
+    ]
+    .concat();
+
+    let (stdout, stderr, ok) = run_engine(&setup, root.path());
+    let responses = json_lines(&stdout);
+    assert_eq!(responses.len(), 2);
+    for response in &responses {
+        assert!(response.get("error").is_none(), "{response}");
+    }
+    let first_id = responses[1]["result"]["items"][0]["cx_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let second_id = responses[1]["result"]["items"][1]["cx_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    assert_eq!(
+        responses[1]["result"]["items"][0]["input"]["len"],
+        first_text.len()
+    );
+    assert_eq!(
+        responses[1]["result"]["items"][1]["input"]["len"],
+        second_text.len()
+    );
+    assert!(
+        !stderr.contains('{'),
+        "stderr must not contain protocol JSON"
+    );
+    assert!(ok);
+
+    let input = [
         request(
             3,
-            "cx.get",
-            json!({"vault_ref": "cxlife", "ts": 1_785_500_002_000_u64, "cx_id": first_id.to_string()}),
+            "vault.open",
+            json!({"vault_ref": "cxlife", "ts": 1_785_500_002_000_u64}),
         ),
         request(
             4,
+            "cx.get",
+            json!({
+                "vault_ref": "cxlife",
+                "ts": 1_785_500_002_500_u64,
+                "cx_id": first_id.clone(),
+                "include_input": true
+            }),
+        ),
+        request(
+            5,
             "cx.put",
             json!({
                 "vault_ref": "cxlife",
@@ -130,12 +169,12 @@ fn cx_put_batch_get_anchor_delete_and_scan_round_trip() {
             }),
         ),
         request(
-            5,
+            6,
             "cx.anchor",
             json!({
                 "vault_ref": "cxlife",
                 "ts": 1_785_500_004_000_u64,
-                "cx_id": second_id.to_string(),
+                "cx_id": second_id.clone(),
                 "anchor": {
                     "kind": "test_pass",
                     "value": {"bool": true},
@@ -146,12 +185,12 @@ fn cx_put_batch_get_anchor_delete_and_scan_round_trip() {
             }),
         ),
         request(
-            6,
+            7,
             "cx.delete",
-            json!({"vault_ref": "cxlife", "ts": 1_785_500_005_000_u64, "cx_id": first_id.to_string()}),
+            json!({"vault_ref": "cxlife", "ts": 1_785_500_005_000_u64, "cx_id": first_id.clone()}),
         ),
         request(
-            7,
+            8,
             "cx.scan",
             json!({"vault_ref": "cxlife", "ts": 1_785_500_006_000_u64, "limit": 10}),
         ),
@@ -160,39 +199,32 @@ fn cx_put_batch_get_anchor_delete_and_scan_round_trip() {
 
     let (stdout, stderr, ok) = run_engine(&input, root.path());
     let responses = json_lines(&stdout);
-    assert_eq!(responses.len(), 7);
+    assert_eq!(responses.len(), 6);
     for response in &responses {
         assert!(response.get("error").is_none(), "{response}");
     }
     assert_eq!(
-        responses[1]["result"]["items"][0]["cx_id"],
-        first_id.to_string()
-    );
-    assert_eq!(
-        responses[1]["result"]["items"][1]["cx_id"],
-        second_id.to_string()
-    );
-    assert_eq!(
-        responses[2]["result"]["item"]["input_hex"],
+        responses[1]["result"]["item"]["input_hex"],
         hex(first_text.as_bytes())
     );
-    assert_eq!(responses[2]["result"]["item"]["input_text"], first_text);
-    assert_eq!(responses[3]["result"]["cx_id"], first_id.to_string());
-    assert_eq!(responses[3]["result"]["deduped"], true);
-    assert_eq!(responses[3]["result"]["recurrence_occurrence"], 0);
-    assert_eq!(responses[4]["result"]["anchor_count"], 1);
-    assert_eq!(responses[5]["result"]["erase"]["records_deleted"], 1);
-    assert_eq!(responses[5]["result"]["tombstones_truncated"], false);
+    assert_eq!(responses[1]["result"]["item"]["input_text"], first_text);
+    assert_eq!(responses[2]["result"]["cx_id"], first_id);
+    assert_eq!(responses[2]["result"]["deduped"], true);
+    assert_eq!(responses[2]["result"]["recurrence_occurrence"], 0);
+    assert_eq!(responses[3]["result"]["anchor_count"], 1);
+    assert_eq!(responses[4]["result"]["erase"]["records_deleted"], 1);
+    assert_eq!(responses[4]["result"]["tombstones_truncated"], false);
     assert_eq!(
-        responses[5]["result"]["erase"]["tombstone"]["records_deleted"],
+        responses[4]["result"]["erase"]["tombstone"]["records_deleted"],
         1
     );
-    assert_tombstone_for(&responses[5]["result"]["tombstones"], &first_id.to_string());
-    let scan = &responses[6]["result"];
+    assert_tombstone_for(&responses[4]["result"]["tombstones"], &first_id);
+    let scan = &responses[5]["result"];
     assert_eq!(scan["items"].as_array().unwrap().len(), 1);
-    assert_eq!(scan["items"][0]["cx_id"], second_id.to_string());
+    assert_eq!(scan["items"][0]["cx_id"], second_id);
+    assert!(scan["items"][0].get("input_hex").is_none());
     assert_eq!(scan["tombstones_truncated"], false);
-    assert_tombstone_for(&scan["tombstones"], &first_id.to_string());
+    assert_tombstone_for(&scan["tombstones"], &first_id);
     assert!(
         !stderr.contains('{'),
         "stderr must not contain protocol JSON"
@@ -200,6 +232,7 @@ fn cx_put_batch_get_anchor_delete_and_scan_round_trip() {
     assert!(ok);
 
     let vault = storage_dir(root.path(), "cxlife");
+    assert_eq!(fs::read(vault.join("salt")).expect("salt file").len(), 32);
     assert!(vault.join("cf/base").exists());
     assert!(vault.join("cf/slot_00").exists());
     assert!(vault.join("cf/slot_01").exists());
@@ -293,18 +326,6 @@ fn put_item(text: &str, chunk_id: &str) -> Value {
         "scalars": {"tokens": 3.0},
         "metadata": {"chunk_id": chunk_id, "document_id": "doc-1"}
     })
-}
-
-fn expected_cx_id(vault_ref: &str, input: &[u8], panel_version: u32) -> CxId {
-    CxId::from_input(input, panel_version, &salt_for(vault_ref))
-}
-
-fn salt_for(vault_ref: &str) -> Vec<u8> {
-    calyx_core::content_address([
-        b"calyx-leapable-vault-salt".as_slice(),
-        vault_ref.as_bytes(),
-    ])
-    .to_vec()
 }
 
 fn storage_dir(root: &Path, vault_ref: &str) -> PathBuf {
