@@ -58,6 +58,10 @@ impl QuantConfig {
         }
     }
 
+    pub const fn turboquant_default() -> Self {
+        Self::turboquant(QuantLevel::Bits3p5)
+    }
+
     pub fn lock_after_first_insert(&mut self) {
         self.locked = true;
     }

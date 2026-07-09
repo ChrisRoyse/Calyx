@@ -389,3 +389,8 @@ pub(super) fn reset_index_cache_for_tests() {
 pub(super) fn index_cache_stats_for_tests() -> (usize, usize) {
     index_cache::stats_for_tests()
 }
+
+#[cfg(test)]
+pub(super) fn index_cache_prepared_counts_for_tests() -> Vec<(u16, usize)> {
+    index_cache::prepared_counts_for_tests()
+}

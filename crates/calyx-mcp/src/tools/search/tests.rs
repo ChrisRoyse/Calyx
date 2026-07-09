@@ -62,6 +62,14 @@ fn repeated_search_reuses_snapshot_index_cache() {
     let (builds, hits) = super::engine::index_cache_stats_for_tests();
     assert_eq!(builds, 1);
     assert!(hits >= 1, "cache hits={hits}");
+    let prepared = super::engine::index_cache_prepared_counts_for_tests();
+    assert!(
+        prepared.iter().any(|(_, count)| *count > 0),
+        "prepared counts={prepared:?}"
+    );
+    println!(
+        "mcp_search_index_cache_turboquant PASSED builds={builds} hits={hits} prepared={prepared:?}"
+    );
 }
 
 #[test]

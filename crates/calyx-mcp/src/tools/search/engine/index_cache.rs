@@ -4,7 +4,9 @@ use std::sync::{Mutex, OnceLock};
 
 use calyx_aster::vault::AsterVault;
 use calyx_core::{Constellation, CxId, SlotId, SlotVector, VaultStore};
-use calyx_sextant::{HnswIndex, IndexSearchHit, InvertedIndex, MaxSimIndex, SlotIndexMap};
+use calyx_sextant::{
+    HnswIndex, IndexSearchHit, InvertedIndex, MaxSimIndex, QuantConfig, SlotIndexMap,
+};
 
 use crate::server::ToolResult;
 
@@ -131,9 +133,7 @@ fn index_loaded_docs(loaded: LoadedDocs) -> ToolResult<IndexedDocs> {
     let samples = first_vectors(&loaded.docs);
     for (slot, vector) in &samples {
         match vector {
-            SlotVector::Dense { dim, .. } => {
-                indexes.register(HnswIndex::new(*slot, *dim, HNSW_SEED))?
-            }
+            SlotVector::Dense { dim, .. } => indexes.register(new_dense_index(*slot, *dim))?,
             SlotVector::Sparse { .. } => indexes.register(InvertedIndex::new(*slot))?,
             SlotVector::Multi { token_dim, .. } => {
                 indexes.register(MaxSimIndex::new(*slot, *token_dim))?
@@ -186,13 +186,17 @@ fn search_one_slot(
 
 fn new_index(slot: SlotId, query: &SlotVector) -> ToolResult<Box<dyn calyx_sextant::SextantIndex>> {
     match query {
-        SlotVector::Dense { dim, .. } => Ok(Box::new(HnswIndex::new(slot, *dim, HNSW_SEED))),
+        SlotVector::Dense { dim, .. } => Ok(Box::new(new_dense_index(slot, *dim))),
         SlotVector::Sparse { .. } => Ok(Box::new(InvertedIndex::new(slot))),
         SlotVector::Multi { token_dim, .. } => Ok(Box::new(MaxSimIndex::new(slot, *token_dim))),
         SlotVector::Absent { .. } => Err(crate::server::ToolError::invalid_params(
             "query slot vector must be concrete",
         )),
     }
+}
+
+fn new_dense_index(slot: SlotId, dim: u32) -> HnswIndex {
+    HnswIndex::new(slot, dim, HNSW_SEED).with_quant(QuantConfig::turboquant_default())
 }
 
 fn first_vectors(docs: &BTreeMap<CxId, Constellation>) -> BTreeMap<SlotId, SlotVector> {
@@ -224,4 +228,95 @@ pub(super) fn reset_for_tests() {
 pub(super) fn stats_for_tests() -> (usize, usize) {
     let cache = cache().lock().expect("search index cache poisoned");
     (cache.builds, cache.hits)
+}
+
+#[cfg(test)]
+pub(super) fn prepared_counts_for_tests() -> Vec<(u16, usize)> {
+    let cache = cache().lock().expect("search index cache poisoned");
+    cache
+        .entry
+        .as_ref()
+        .map(|entry| {
+            entry
+                .indexed
+                .indexes
+                .registered_slots()
+                .into_iter()
+                .map(|slot| {
+                    let count = entry
+                        .indexed
+                        .indexes
+                        .turboquant_prepared_count(slot)
+                        .expect("registered slot");
+                    (slot.get(), count)
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use calyx_core::{CxFlags, InputRef, LedgerRef, Modality, VaultId};
+    use std::collections::BTreeMap;
+    use ulid::Ulid;
+
+    #[test]
+    fn cached_dense_indexes_prepare_turboquant_candidates() {
+        let slot = SlotId::new(7);
+        let loaded = LoadedDocs {
+            docs: BTreeMap::from([
+                doc([0xA1; 16], slot, vec![1.0, 0.0, 0.0, 0.0]),
+                doc([0xB2; 16], slot, vec![0.0, 1.0, 0.0, 0.0]),
+            ]),
+            snapshot_seq: 42,
+        };
+
+        let indexed = index_loaded_docs(loaded).expect("index loaded docs");
+        let prepared = indexed
+            .indexes
+            .turboquant_prepared_count(slot)
+            .expect("dense slot registered");
+        assert_eq!(prepared, 2);
+
+        let query = SlotVector::Dense {
+            dim: 4,
+            data: vec![1.0, 0.0, 0.0, 0.0],
+        };
+        let hits = search_indexed_slot(&indexed, slot, &query).expect("search prepared index");
+        assert_eq!(hits[0].cx_id, CxId::from_bytes([0xA1; 16]));
+        println!(
+            "mcp_index_cache_turboquant_prepared PASSED prepared={prepared} top={}",
+            hits[0].cx_id
+        );
+    }
+
+    fn doc(bytes: [u8; 16], slot: SlotId, data: Vec<f32>) -> (CxId, Constellation) {
+        let cx_id = CxId::from_bytes(bytes);
+        (
+            cx_id,
+            Constellation {
+                cx_id,
+                vault_id: VaultId::from_ulid(Ulid::from_bytes([0x11; 16])),
+                panel_version: 1,
+                created_at: 1,
+                input_ref: InputRef {
+                    hash: [0; 32],
+                    pointer: None,
+                    redacted: false,
+                },
+                modality: Modality::Text,
+                slots: BTreeMap::from([(slot, SlotVector::Dense { dim: 4, data })]),
+                scalars: BTreeMap::new(),
+                metadata: BTreeMap::new(),
+                anchors: Vec::new(),
+                provenance: LedgerRef {
+                    seq: 1,
+                    hash: [0; 32],
+                },
+                flags: CxFlags::default(),
+            },
+        )
+    }
 }

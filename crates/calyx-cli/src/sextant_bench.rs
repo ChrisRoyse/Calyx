@@ -194,7 +194,7 @@ fn open_kernel_first(
         manifest.n_cx as u64,
         Some(KernelRegionAnn::new(kernel_rows)?),
         region_ann,
-        FinalCxSearch::DiskAnn(cx_search),
+        FinalCxSearch::DiskAnn(Box::new(cx_search)),
         partitions,
     )
     .with_min_vault_size(1))

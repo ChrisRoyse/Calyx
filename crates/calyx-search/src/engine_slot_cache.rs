@@ -18,7 +18,6 @@ const CACHE_KEY_SCHEMA: &str = "calyx-search-slot-cache-key-v1";
 const CACHE_KEY_ERROR: &str = "CALYX_SEARCH_SLOT_CACHE_KEY_INCOMPLETE";
 const CACHE_KEY_REMEDIATION: &str = "include vault path, manifest fingerprint, freshness policy, guard, candidate universe, selected slots, search_k, and measured query vector hashes before reusing slot search results";
 const DEFAULT_MAX_ENTRIES: usize = 128;
-
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SearchSlotCacheDiagnostic {
     pub entry_count: usize,
@@ -44,7 +43,6 @@ pub struct SearchSlotCache {
     eviction_count: usize,
     last_key_sha256: Option<String>,
 }
-
 impl SearchSlotCache {
     pub fn new() -> Self {
         Self::with_capacity(DEFAULT_MAX_ENTRIES)
@@ -112,6 +110,11 @@ impl SearchSlotCache {
     }
 }
 
+impl Default for SearchSlotCache {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 #[derive(Clone, Debug)]
 struct CachedSearchSlots {
     key: SearchSlotCacheKey,

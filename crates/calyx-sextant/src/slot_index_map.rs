@@ -90,6 +90,14 @@ impl SlotIndexMap {
             .collect()
     }
 
+    pub fn turboquant_prepared_count(&self, slot: SlotId) -> Result<usize> {
+        let index = self.get(slot)?;
+        Ok(index
+            .read()
+            .expect("index poisoned")
+            .turboquant_prepared_count())
+    }
+
     pub fn insert(&self, slot: SlotId, cx_id: CxId, vector: SlotVector, seq: u64) -> Result<()> {
         self.ensure_active(slot)?;
         let index = self.get(slot)?;

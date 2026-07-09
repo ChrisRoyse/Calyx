@@ -95,6 +95,10 @@ pub trait SextantIndex: Send + Sync {
     fn vector(&self, cx_id: CxId) -> Option<SlotVector>;
     fn set_base_seq(&mut self, seq: u64);
     fn stats(&self) -> IndexStats;
+    fn turboquant_prepared_count(&self) -> usize {
+        0
+    }
+
     fn insert_text(&mut self, _cx_id: CxId, _text: &str, _seq: u64) -> Result<()> {
         Err(crate::error::sextant_error(
             crate::error::CALYX_SEXTANT_VECTOR_SHAPE,

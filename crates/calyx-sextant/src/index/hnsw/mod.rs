@@ -381,6 +381,10 @@ impl SextantIndex for HnswIndex {
             kind: "hnsw",
         }
     }
+
+    fn turboquant_prepared_count(&self) -> usize {
+        HnswIndex::turboquant_prepared_count(self)
+    }
 }
 
 impl AnnIndexGraph for HnswIndex {
