@@ -85,6 +85,23 @@ fn invalid_input_fails_closed() {
 }
 
 #[test]
+fn calibration_alpha_is_open_interval() {
+    let observations = calibrated_observations(Vec::new());
+    for alpha in [0.0, 1.0] {
+        let err = sweep_blind_spots(
+            &observations,
+            &BlindSpotSweepParams {
+                calibration_alpha: alpha,
+                ..BlindSpotSweepParams::default()
+            },
+        )
+        .unwrap_err();
+
+        assert_eq!(err.code(), "CALYX_KERNEL_INVALID_PARAMS");
+    }
+}
+
+#[test]
 fn uncalibrated_pair_skips_without_legacy_threshold() {
     let observations = vec![observation(
         "would-pass-old-threshold",

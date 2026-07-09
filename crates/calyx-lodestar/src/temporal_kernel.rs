@@ -4,7 +4,7 @@ use calyx_aster::cf::ColumnFamily;
 use calyx_aster::dedup::EpochSecs;
 use calyx_aster::recurrence::{FREQUENCY_SCALAR, StoredRecurrenceRow, decode_recurrence_row};
 use calyx_aster::vault::AsterVault;
-use calyx_core::{Clock, CxId, VaultStore};
+use calyx_core::{CalyxError, CalyxErrorCode, Clock, CxId, VaultStore};
 use calyx_mincut::{betweenness, tarjan_scc};
 use calyx_paths::AssocGraph;
 use serde::{Deserialize, Serialize};
@@ -231,7 +231,7 @@ where
 {
     let cx = match vault.get(cx_id, vault.snapshot()) {
         Ok(cx) => cx,
-        Err(_) => {
+        Err(error) if is_missing_base_row(&error) => {
             warnings.push(missing_frequency_warning(cx_id, "base row missing"));
             return Ok(FrequencyRead {
                 cx_id,
@@ -239,6 +239,7 @@ where
                 missing: true,
             });
         }
+        Err(error) => return Err(error.into()),
     };
     let Some(value) = cx.scalars.get(FREQUENCY_SCALAR) else {
         warnings.push(missing_frequency_warning(cx_id, "scalar missing"));
@@ -259,6 +260,11 @@ where
         frequency: *value as u64,
         missing: false,
     })
+}
+
+fn is_missing_base_row(error: &CalyxError) -> bool {
+    error.code == CalyxErrorCode::StaleDerived.code()
+        && error.message == "constellation missing at snapshot"
 }
 
 fn weight_row(rank: usize, score: &NodeScore, frequencies: &BTreeMap<CxId, u64>) -> KernelWeight {

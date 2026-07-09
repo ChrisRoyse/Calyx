@@ -263,7 +263,7 @@ fn render_query(frontier: &str, phrasing: ProbePhrasing, length: ProbeLength) ->
         ProbePhrasing::Contrast => format!("contradictions or contrasts for {frontier}"),
     };
     match length {
-        ProbeLength::Entity => frontier.to_string(),
+        ProbeLength::Entity => base,
         ProbeLength::Phrase => base,
         ProbeLength::Paragraph => format!(
             "{base}. Return grounded biomedical associations with provenance and refusal evidence."

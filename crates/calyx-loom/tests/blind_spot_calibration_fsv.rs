@@ -97,6 +97,22 @@ fn calibrated_blind_spots_are_rank_based_across_lens_scales() {
     }));
 }
 
+#[test]
+fn calibration_alpha_rejects_zero_and_one() {
+    for alpha in [0.0, 1.0] {
+        let err = BlindSpotCalibration::from_deltas(
+            scaled_deltas(0.02, 0.18),
+            BlindSpotCalibrationParams {
+                min_samples: 50,
+                alpha,
+            },
+        )
+        .unwrap_err();
+
+        assert_eq!(err.code, CALYX_LOOM_UNCALIBRATED_BLINDSPOT);
+    }
+}
+
 fn scaled_deltas(start: f32, end: f32) -> Vec<f32> {
     let n = 60;
     (0..n)

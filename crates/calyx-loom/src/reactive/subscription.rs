@@ -176,7 +176,10 @@ impl SubscriptionStore {
             .get_mut(&id)
             .ok_or_else(|| subscription_not_found(id))?;
         if handle.overflowed {
-            return Err(drain_overflow(id, handle.pending_len()));
+            let retained = handle.pending_len();
+            handle.overflowed = false;
+            handle.drain();
+            return Err(drain_overflow(id, retained));
         }
         Ok(handle.drain())
     }
@@ -334,6 +337,8 @@ fn subscription_not_found(id: SubscriptionId) -> calyx_core::CalyxError {
 fn drain_overflow(id: SubscriptionId, retained: usize) -> calyx_core::CalyxError {
     loom_error(
         CALYX_REACTIVE_DRAIN_OVERFLOW,
-        format!("reactive subscription {id} overflowed; {retained} events retained"),
+        format!(
+            "reactive subscription {id} overflowed; {retained} retained events were drained; use observe_delta_report to receive retained lossy batches"
+        ),
     )
 }

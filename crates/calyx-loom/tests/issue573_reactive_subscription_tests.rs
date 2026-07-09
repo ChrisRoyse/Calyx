@@ -150,6 +150,25 @@ fn subscription_drain_overflow_is_reported_on_observe() {
 
     let err = engine.observe_delta(sub).unwrap_err();
     assert_eq!(err.code, CALYX_REACTIVE_DRAIN_OVERFLOW);
+    assert!(err.message.contains("observe_delta_report"));
+    assert!(engine.observe_delta(sub).unwrap().is_empty());
+    assert!(!engine.subscriptions().get(sub).unwrap().overflowed());
+}
+
+#[test]
+fn subscription_overflow_report_returns_retained_lossy_batch() {
+    let mut engine =
+        ReactiveEngine::with_subscription_caps(Arc::new(FixedClock::new(1)), 8, 16, 16, 8, 2);
+    let sub = engine
+        .subscribe(TriggerCondition::NewRegion { tau_override: None }, None)
+        .unwrap();
+    let signals = novel_signals();
+    for seq in 1..=3 {
+        engine
+            .evaluate_post_ingest(cx(1), lref(seq), &signals)
+            .unwrap();
+    }
+
     let report = engine.observe_delta_report(sub).unwrap();
     let seqs = report
         .events
@@ -158,6 +177,7 @@ fn subscription_drain_overflow_is_reported_on_observe() {
         .collect::<Vec<_>>();
     assert!(report.overflowed);
     assert_eq!(seqs, vec![2, 3]);
+    assert!(engine.observe_delta(sub).unwrap().is_empty());
 }
 
 #[test]

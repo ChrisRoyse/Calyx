@@ -194,7 +194,7 @@ fn validate_calibration_params(params: BlindSpotCalibrationParams) -> Result<()>
             "blind-spot calibration min_samples must be greater than zero",
         ));
     }
-    if !params.alpha.is_finite() || !(0.0..1.0).contains(&params.alpha) {
+    if !params.alpha.is_finite() || params.alpha <= 0.0 || params.alpha >= 1.0 {
         return Err(loom_error(
             CALYX_LOOM_UNCALIBRATED_BLINDSPOT,
             "blind-spot calibration alpha must be finite and in (0,1)",

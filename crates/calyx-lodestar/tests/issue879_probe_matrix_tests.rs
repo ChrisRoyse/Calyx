@@ -1,4 +1,4 @@
-use std::fs;
+use std::{collections::BTreeSet, fs};
 
 use calyx_core::{CxId, SlotId};
 use calyx_lodestar::{
@@ -47,6 +47,44 @@ fn build_matrix_cross_product_uses_existing_probe_axes() {
         variants
             .iter()
             .any(|variant| variant.query_text.contains("provenance"))
+    );
+}
+
+#[test]
+fn entity_length_preserves_phrasing_axis_query_text() {
+    let spec = ProbeMatrixSpec {
+        frontier: "type 2 diabetes".to_string(),
+        active_slots: vec![SlotId::new(1)],
+        weighted_profiles: vec![RrfProfile::General],
+        phrasings: vec![
+            ProbePhrasing::Terse,
+            ProbePhrasing::Clinical,
+            ProbePhrasing::Mechanistic,
+            ProbePhrasing::Analogical,
+            ProbePhrasing::Contrast,
+        ],
+        lengths: vec![ProbeLength::Entity],
+        top_k: 5,
+    };
+
+    let variants = build_probe_matrix(&spec).unwrap();
+    let pipeline_entities = variants
+        .iter()
+        .filter(|variant| {
+            variant.fusion == ProbeFusionMode::Pipeline && variant.length == ProbeLength::Entity
+        })
+        .collect::<Vec<_>>();
+    let query_texts = pipeline_entities
+        .iter()
+        .map(|variant| variant.query_text.as_str())
+        .collect::<BTreeSet<_>>();
+
+    assert_eq!(pipeline_entities.len(), spec.phrasings.len());
+    assert_eq!(query_texts.len(), spec.phrasings.len());
+    assert!(
+        pipeline_entities
+            .iter()
+            .any(|variant| variant.query_text.contains("mechanisms"))
     );
 }
 

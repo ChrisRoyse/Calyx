@@ -4,7 +4,7 @@ use calyx_core::{CxId, SlotId};
 use calyx_lodestar::{
     ProbeFusionMode, ProbeHit, ProbeLength, ProbeMatrixLog, ProbeMatrixSpec, ProbePhrasing,
     ProbeRefusal, ProbeResponse, RefusalExpansionActionKind, RefusalExpansionParams,
-    plan_refusal_expansion, run_probe_matrix, verify_refusal_expansion,
+    RefusalExpansionPlan, plan_refusal_expansion, run_probe_matrix, verify_refusal_expansion,
 };
 use calyx_sextant::RrfProfile;
 use serde_json::json;
@@ -40,6 +40,58 @@ fn plans_ranked_expansion_actions_from_refusals() {
     assert_eq!(plan.actions[0].code, "CALYX_REFUSAL_LENS_DEFICIT");
     assert_eq!(plan.actions[0].kind, RefusalExpansionActionKind::AddLens);
     assert!(plan.actions[0].priority_score > plan.actions[0].deficit_bits);
+}
+
+#[test]
+fn unknown_deficit_refusals_remain_actionable_above_min_threshold() {
+    let mut before = before_log();
+    before.records[0].refusals.push(ProbeRefusal {
+        code: "CALYX_REFUSAL_UNKNOWN_DEFICIT".to_string(),
+        reason: "grounding deficit was not quantified".to_string(),
+        deficit_bits: None,
+    });
+
+    let plan = plan_refusal_expansion(
+        &before,
+        &RefusalExpansionParams {
+            min_deficit_bits: 1.0,
+            max_actions: 8,
+        },
+    )
+    .unwrap();
+
+    assert_eq!(plan.total_deficit_bits, 0.50);
+    assert_eq!(plan.unknown_deficit_count, 1);
+    assert_eq!(plan.actions.len(), 1);
+    assert_eq!(plan.actions[0].code, "CALYX_REFUSAL_UNKNOWN_DEFICIT");
+    assert!(!plan.actions[0].deficit_bits_known);
+    assert_eq!(plan.actions[0].deficit_bits, 0.0);
+}
+
+#[test]
+fn legacy_plan_json_defaults_unknown_deficit_fields() {
+    let value = json!({
+        "schema_version": 1,
+        "frontier": "legacy frontier",
+        "total_deficit_bits": 0.25,
+        "actions": [{
+            "id": 0,
+            "variant_id": 2,
+            "frontier": "legacy frontier",
+            "code": "CALYX_REFUSAL_EVIDENCE_GAP",
+            "reason": "legacy fixture",
+            "deficit_bits": 0.25,
+            "kind": "add_evidence",
+            "evidence_query": "legacy query",
+            "lens_hint": "Balanced",
+            "priority_score": 0.35
+        }]
+    });
+
+    let plan: RefusalExpansionPlan = serde_json::from_value(value).unwrap();
+
+    assert_eq!(plan.unknown_deficit_count, 0);
+    assert!(plan.actions[0].deficit_bits_known);
 }
 
 #[test]

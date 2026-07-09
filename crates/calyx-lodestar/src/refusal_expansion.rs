@@ -38,6 +38,8 @@ pub struct RefusalExpansionAction {
     pub code: String,
     pub reason: String,
     pub deficit_bits: f32,
+    #[serde(default = "default_deficit_bits_known")]
+    pub deficit_bits_known: bool,
     pub kind: RefusalExpansionActionKind,
     pub evidence_query: String,
     pub lens_hint: String,
@@ -49,6 +51,8 @@ pub struct RefusalExpansionPlan {
     pub schema_version: u32,
     pub frontier: String,
     pub total_deficit_bits: f32,
+    #[serde(default)]
+    pub unknown_deficit_count: usize,
     pub actions: Vec<RefusalExpansionAction>,
 }
 
@@ -72,9 +76,22 @@ pub fn plan_refusal_expansion(
     validate_params(params)?;
     let mut actions = Vec::new();
     let mut total_deficit_bits = 0.0_f32;
+    let mut unknown_deficit_count = 0_usize;
     for record in &log.records {
         for refusal in &record.refusals {
-            let deficit_bits = refusal.deficit_bits.unwrap_or(0.0);
+            let Some(deficit_bits) = refusal.deficit_bits else {
+                unknown_deficit_count += 1;
+                actions.push(action_from_refusal(
+                    actions.len(),
+                    &log.spec.frontier,
+                    record,
+                    &refusal.code,
+                    &refusal.reason,
+                    0.0,
+                    false,
+                ));
+                continue;
+            };
             total_deficit_bits += deficit_bits;
             if deficit_bits < params.min_deficit_bits {
                 continue;
@@ -86,6 +103,7 @@ pub fn plan_refusal_expansion(
                 &refusal.code,
                 &refusal.reason,
                 deficit_bits,
+                true,
             ));
         }
     }
@@ -104,6 +122,7 @@ pub fn plan_refusal_expansion(
         schema_version: REFUSAL_EXPANSION_SCHEMA_VERSION,
         frontier: log.spec.frontier.clone(),
         total_deficit_bits,
+        unknown_deficit_count,
         actions,
     })
 }
@@ -144,6 +163,7 @@ fn action_from_refusal(
     code: &str,
     reason: &str,
     deficit_bits: f32,
+    deficit_bits_known: bool,
 ) -> RefusalExpansionAction {
     let kind = classify_action(code, reason);
     RefusalExpansionAction {
@@ -153,6 +173,7 @@ fn action_from_refusal(
         code: code.to_string(),
         reason: reason.to_string(),
         deficit_bits,
+        deficit_bits_known,
         evidence_query: evidence_query(frontier, &kind, code),
         lens_hint: format!("{:?}", record.variant.lens_emphasis),
         priority_score: priority_score(deficit_bits, &kind),
@@ -192,6 +213,10 @@ fn priority_score(deficit_bits: f32, kind: &RefusalExpansionActionKind) -> f32 {
         RefusalExpansionActionKind::Reground => 0.15,
     };
     deficit_bits + kind_bonus
+}
+
+fn default_deficit_bits_known() -> bool {
+    true
 }
 
 fn refusal_count(log: &ProbeMatrixLog) -> usize {

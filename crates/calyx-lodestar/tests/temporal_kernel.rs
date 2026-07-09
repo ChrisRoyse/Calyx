@@ -1,5 +1,6 @@
 use std::collections::BTreeMap;
 
+use calyx_aster::cf::{ColumnFamily, base_key};
 use calyx_aster::dedup::EpochSecs;
 use calyx_aster::recurrence::{
     FREQUENCY_SCALAR, OccurrenceContext, RetentionPolicy, append_occurrence,
@@ -173,6 +174,22 @@ fn invalid_frequency_fails_closed_with_catalog_code() {
     let error = apply_frequency_bonuses(&mut kernel_graph, &vault).unwrap_err();
 
     assert_eq!(error.code(), CALYX_LODESTAR_INVALID_FREQUENCY);
+}
+
+#[test]
+fn corrupt_base_row_propagates_instead_of_missing_frequency_warning() {
+    let vault = AsterVault::new(vault_id(), b"lodestar-corrupt-frequency-base");
+    let id = cx(10);
+    vault
+        .write_cf(ColumnFamily::Base, base_key(id), b"not-a-base-row".to_vec())
+        .unwrap();
+    let graph = graph_with_nodes(&[id]).build();
+    let mut kernel_graph = scored_graph(&graph, &[(id, 0.5)]);
+
+    let error = apply_frequency_bonuses(&mut kernel_graph, &vault).unwrap_err();
+
+    assert_ne!(error.code(), CALYX_LODESTAR_MISSING_FREQUENCY);
+    assert!(kernel_graph.warnings.is_empty());
 }
 
 proptest! {

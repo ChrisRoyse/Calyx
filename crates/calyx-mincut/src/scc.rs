@@ -27,8 +27,9 @@ pub struct CondensedGraph {
 
 impl CondensedGraph {
     pub fn is_dag(&self) -> bool {
+        let adjacency = condensed_adjacency(self);
         let mut color = vec![0_u8; self.component_nodes.len()];
-        (0..self.component_nodes.len()).all(|node| !has_cycle(node, self, &mut color))
+        (0..self.component_nodes.len()).all(|node| !has_cycle(node, &adjacency, &mut color))
     }
 }
 
@@ -155,23 +156,29 @@ fn pop_component(graph: &AssocGraph, root: usize, state: &mut TarjanState) {
     state.components.push(component);
 }
 
+fn condensed_adjacency(graph: &CondensedGraph) -> Vec<Vec<usize>> {
+    let mut adjacency = vec![Vec::new(); graph.component_nodes.len()];
+    for edge in &graph.edges {
+        if edge.src_component < adjacency.len() && edge.dst_component < adjacency.len() {
+            adjacency[edge.src_component].push(edge.dst_component);
+        }
+    }
+    adjacency
+}
+
 /// Iterative DFS cycle check (explicit stack of `(node, next-edge index)`). The
 /// condensed graph can have O(V) vertices when the base graph is largely acyclic
 /// (every node its own SCC), so the recursive form overflowed the stack at corpus
 /// scale. `color`: 0 = unseen, 1 = on the current DFS path (grey), 2 = done (black).
-fn has_cycle(node: usize, graph: &CondensedGraph, color: &mut [u8]) -> bool {
+fn has_cycle(node: usize, adjacency: &[Vec<usize>], color: &mut [u8]) -> bool {
     if color[node] != 0 {
         return color[node] == 1;
     }
     let mut work: Vec<(usize, usize)> = vec![(node, 0)];
     color[node] = 1;
     while let Some(&(current, edge_idx)) = work.last() {
-        let mut out = graph
-            .edges
-            .iter()
-            .filter(|edge| edge.src_component == current);
-        match out.nth(edge_idx).map(|edge| edge.dst_component) {
-            Some(dst) => {
+        match adjacency[current].get(edge_idx).copied() {
+            Some(dst) if dst < color.len() => {
                 work.last_mut().expect("cycle work frame").1 += 1;
                 match color[dst] {
                     1 => return true,
@@ -181,6 +188,9 @@ fn has_cycle(node: usize, graph: &CondensedGraph, color: &mut [u8]) -> bool {
                     }
                     _ => {}
                 }
+            }
+            Some(_) => {
+                work.last_mut().expect("cycle work frame").1 += 1;
             }
             None => {
                 color[current] = 2;
@@ -281,5 +291,48 @@ mod tests {
         assert_eq!(scc.component_of[&cx_n(0)], scc.component_of[&cx_n(1)]);
         assert_eq!(scc.component_of[&cx_n(2)], scc.component_of[&cx_n(3)]);
         assert_ne!(scc.component_of[&cx_n(0)], scc.component_of[&cx_n(2)]);
+    }
+
+    #[test]
+    fn condensed_dag_check_handles_long_chain() {
+        const N: usize = 20_000;
+        let graph = CondensedGraph {
+            component_nodes: (0..N).map(|index| vec![cx_n(index)]).collect(),
+            edges: (0..N - 1)
+                .map(|index| CondensedEdge {
+                    src_component: index,
+                    dst_component: index + 1,
+                    weight: 1.0,
+                })
+                .collect(),
+        };
+
+        assert!(graph.is_dag());
+    }
+
+    #[test]
+    fn condensed_dag_check_detects_component_cycle() {
+        let graph = CondensedGraph {
+            component_nodes: (0..3).map(|index| vec![cx_n(index)]).collect(),
+            edges: vec![
+                CondensedEdge {
+                    src_component: 0,
+                    dst_component: 1,
+                    weight: 1.0,
+                },
+                CondensedEdge {
+                    src_component: 1,
+                    dst_component: 2,
+                    weight: 1.0,
+                },
+                CondensedEdge {
+                    src_component: 2,
+                    dst_component: 0,
+                    weight: 1.0,
+                },
+            ],
+        };
+
+        assert!(!graph.is_dag());
     }
 }

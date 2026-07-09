@@ -189,7 +189,10 @@ fn validate_params(params: &BlindSpotSweepParams) -> Result<()> {
     if params.calibration_min_samples == 0 {
         return invalid_params("calibration_min_samples must be greater than zero");
     }
-    if !params.calibration_alpha.is_finite() || !(0.0..1.0).contains(&params.calibration_alpha) {
+    if !params.calibration_alpha.is_finite()
+        || params.calibration_alpha <= 0.0
+        || params.calibration_alpha >= 1.0
+    {
         return invalid_params("calibration_alpha must be finite and in (0,1)");
     }
     Ok(())
