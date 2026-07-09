@@ -3,28 +3,23 @@
 mod context;
 mod corpus;
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 
-use calyx_aster::recurrence::read_series;
 use calyx_aster::vault::AsterVault;
-use calyx_core::{AnchorValue, Clock, Constellation, LedgerRef, content_address};
+use calyx_core::{AnchorValue, Clock, LedgerRef, content_address};
 use calyx_ledger::{ActorId, EntryKind, SubjectId};
 use serde::Serialize;
 
-use context::ExpansionContext;
 use corpus::DomainCorpus;
 
-use crate::evidence_error;
 use crate::{
-    Consequence, ConsequenceTree, DEFAULT_CONSEQUENCE_TREE_MAX_DEPTH, DomainId,
-    ORACLE_ACTION_METADATA_KEY, OracleError,
+    Consequence, ConsequenceTree, DEFAULT_CONSEQUENCE_TREE_MAX_DEPTH, DomainId, OracleError,
 };
 
 pub const MAX_DEPTH: u8 = DEFAULT_CONSEQUENCE_TREE_MAX_DEPTH;
 pub const HOP_ATTENUATION: f32 = 0.7;
 pub const MIN_CONFIDENCE_THRESHOLD: f32 = 0.05;
 
-const ORACLE_FALLBACK_ACTION_METADATA_KEY: &str = "action";
 const LEDGER_ACTOR: &str = "calyx-oracle";
 const LEDGER_TAG: &str = "oracle_expand_v1";
 const PROVISIONAL_SEQ: u64 = u64::MAX;
@@ -88,24 +83,21 @@ where
     let mut visited = BTreeSet::new();
     visited.insert(NodeKey::from_consequence(&tree.root));
     let mut stats = ExpansionStats::default();
-    let (corpus, scanned) = DomainCorpus::load(vault, &tree.root.domain)?;
-    stats.base_rows_scanned += scanned;
-    expand_node(vault, &corpus, &mut tree, &mut visited, &mut stats)?;
+    let (corpus, corpus_stats) = DomainCorpus::load(vault, &tree.root.domain)?;
+    stats.base_rows_scanned += corpus_stats.base_rows_scanned;
+    stats.recurrence_rows_scanned += corpus_stats.recurrence_rows_scanned;
+    expand_node(&corpus, &mut tree, &mut visited, &mut stats)?;
     let ledger_ref = write_expansion_ledger(vault, &tree.root, &stats, clock)?;
     apply_grounded_provenance(&mut tree, &ledger_ref);
     Ok(tree)
 }
 
-fn expand_node<C>(
-    vault: &AsterVault<C>,
+fn expand_node(
     corpus: &DomainCorpus,
     node: &mut ConsequenceTree,
     visited: &mut BTreeSet<NodeKey>,
     stats: &mut ExpansionStats,
-) -> Result<(), OracleError>
-where
-    C: Clock,
-{
+) -> Result<(), OracleError> {
     stats.nodes_visited += 1;
     if node.root.hop >= MAX_DEPTH {
         stats.depth_prunes += 1;
@@ -118,7 +110,7 @@ where
     }
 
     stats.expand_calls += 1;
-    let candidates = outgoing_candidates(vault, corpus, &node.root, stats)?;
+    let candidates = outgoing_candidates(corpus, &node.root);
     for candidate in candidates {
         let key = NodeKey::new(&candidate.domain, &candidate.action_or_event);
         if visited.contains(&key) {
@@ -144,7 +136,7 @@ where
         stats.children_emitted += 1;
         if candidate.grounded {
             visited.insert(key.clone());
-            expand_node(vault, corpus, &mut child, visited, stats)?;
+            expand_node(corpus, &mut child, visited, stats)?;
             visited.remove(&key);
         } else {
             stats.provisional_edges += 1;
@@ -154,57 +146,8 @@ where
     Ok(())
 }
 
-fn outgoing_candidates<C>(
-    vault: &AsterVault<C>,
-    corpus: &DomainCorpus,
-    parent: &Consequence,
-    stats: &mut ExpansionStats,
-) -> Result<Vec<ChildCandidate>, OracleError>
-where
-    C: Clock,
-{
-    let mut out = BTreeMap::<ChildKey, ChildCandidate>::new();
-    for cx in corpus.rows() {
-        collect_candidates(vault, &cx, parent, stats, &mut out)?;
-    }
-    Ok(out.into_values().collect())
-}
-
-fn collect_candidates<C>(
-    vault: &AsterVault<C>,
-    cx: &Constellation,
-    parent: &Consequence,
-    stats: &mut ExpansionStats,
-    out: &mut BTreeMap<ChildKey, ChildCandidate>,
-) -> Result<(), OracleError>
-where
-    C: Clock,
-{
-    let base_action_match = matches_action(cx, &parent.action_or_event);
-    let series = read_series(vault, cx.cx_id)
-        .map_err(|error| evidence_error::recurrence_read(error, &parent.domain))?;
-    stats.recurrence_rows_scanned += series.occurrences.len() as u64;
-    for occurrence in &series.occurrences {
-        if occurrence.context.bytes.is_empty() {
-            continue;
-        }
-        let parsed: ExpansionContext = serde_json::from_slice(&occurrence.context.bytes)
-            .map_err(|_| evidence_error::corrupt(&parent.domain, "recurrence context"))?;
-        if !parsed.matches_action(&parent.action_or_event, base_action_match) {
-            continue;
-        }
-        for seed in parsed.consequences() {
-            let outcome_label = outcome_label(&seed.outcome)
-                .map_err(|_| evidence_error::corrupt(&parent.domain, "consequence outcome"))?;
-            let key = ChildKey {
-                domain: seed.domain.as_str().to_string(),
-                action_or_event: seed.action_or_event.clone(),
-                outcome_label,
-            };
-            out.entry(key).or_insert(seed);
-        }
-    }
-    Ok(())
+fn outgoing_candidates(corpus: &DomainCorpus, parent: &Consequence) -> Vec<ChildCandidate> {
+    corpus.children_for(&parent.action_or_event).to_vec()
 }
 
 fn write_expansion_ledger<C>(
@@ -358,11 +301,6 @@ fn unit(value: f32) -> f32 {
     }
 }
 
-fn matches_action(cx: &Constellation, action_id: &str) -> bool {
-    cx.metadata_value(ORACLE_ACTION_METADATA_KEY) == Some(action_id)
-        || cx.metadata_value(ORACLE_FALLBACK_ACTION_METADATA_KEY) == Some(action_id)
-}
-
 fn outcome_label(value: &AnchorValue) -> Result<String, serde_json::Error> {
     serde_json::to_string(value)
 }
@@ -427,6 +365,7 @@ struct ExpansionStats {
     depth_prunes: u64,
     threshold_prunes: u64,
     base_rows_scanned: u64,
+    // Since #1346 this is the one-time corpus load row count, not per-node work.
     recurrence_rows_scanned: u64,
 }
 

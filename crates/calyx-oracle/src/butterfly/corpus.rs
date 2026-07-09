@@ -1,45 +1,138 @@
-use calyx_aster::cf::ColumnFamily;
+use std::collections::BTreeMap;
+
+use calyx_aster::cf::{ColumnFamily, recurrence_prefix_range};
+use calyx_aster::recurrence::{StoredRecurrenceRow, decode_recurrence_row};
 use calyx_aster::vault::{AsterVault, encode};
 use calyx_core::{Clock, Constellation, VaultStore};
 
+use super::{ChildCandidate, ChildKey, context::ExpansionContext, outcome_label};
 use crate::evidence_error;
 use crate::{
-    DomainId, ORACLE_DOMAIN_METADATA_KEY, ORACLE_FALLBACK_DOMAIN_METADATA_KEY, OracleError,
+    DomainId, ORACLE_ACTION_METADATA_KEY, ORACLE_DOMAIN_METADATA_KEY,
+    ORACLE_FALLBACK_DOMAIN_METADATA_KEY, OracleError,
 };
 
 pub(super) struct DomainCorpus {
-    rows: Vec<Constellation>,
+    children_by_action: BTreeMap<String, Vec<ChildCandidate>>,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(super) struct DomainCorpusStats {
+    pub(super) base_rows_scanned: u64,
+    pub(super) recurrence_rows_scanned: u64,
 }
 
 impl DomainCorpus {
     pub(super) fn load<C>(
         vault: &AsterVault<C>,
         domain: &DomainId,
-    ) -> Result<(Self, u64), OracleError>
+    ) -> Result<(Self, DomainCorpusStats), OracleError>
     where
         C: Clock,
     {
+        let snapshot = vault.snapshot();
         let rows = vault
-            .scan_cf_at(vault.snapshot(), ColumnFamily::Base)
+            .scan_cf_at(snapshot, ColumnFamily::Base)
             .map_err(|_| evidence_error::storage_read(domain, "scan base corpus"))?;
-        let scanned = rows.len() as u64;
-        let mut domain_rows = Vec::new();
+        let mut stats = DomainCorpusStats {
+            base_rows_scanned: rows.len() as u64,
+            ..DomainCorpusStats::default()
+        };
+        let mut grouped = BTreeMap::<String, BTreeMap<ChildKey, ChildCandidate>>::new();
         for (_, bytes) in rows {
             let cx = encode::decode_constellation_base(&bytes)
                 .map_err(|_| evidence_error::corrupt(domain, "base constellation"))?;
             if matches_domain(&cx, domain) {
-                domain_rows.push(cx);
+                collect_children(vault, snapshot, &cx, domain, &mut stats, &mut grouped)?;
             }
         }
-        Ok((Self { rows: domain_rows }, scanned))
+        Ok((
+            Self {
+                children_by_action: grouped
+                    .into_iter()
+                    .map(|(action, by_key)| (action, by_key.into_values().collect()))
+                    .collect(),
+            },
+            stats,
+        ))
     }
 
-    pub(super) fn rows(&self) -> &[Constellation] {
-        &self.rows
+    pub(super) fn children_for(&self, action: &str) -> &[ChildCandidate] {
+        self.children_by_action
+            .get(action)
+            .map(Vec::as_slice)
+            .unwrap_or(&[])
     }
+}
+
+fn collect_children<C>(
+    vault: &AsterVault<C>,
+    snapshot: u64,
+    cx: &Constellation,
+    domain: &DomainId,
+    stats: &mut DomainCorpusStats,
+    grouped: &mut BTreeMap<String, BTreeMap<ChildKey, ChildCandidate>>,
+) -> Result<(), OracleError>
+where
+    C: Clock,
+{
+    let rows = vault
+        .scan_cf_range_at(
+            snapshot,
+            ColumnFamily::Recurrence,
+            &recurrence_prefix_range(cx.cx_id),
+        )
+        .map_err(|error| evidence_error::recurrence_read(error, domain))?;
+    let mut occurrences = Vec::new();
+    for (_, value) in rows {
+        if let StoredRecurrenceRow::Occurrence(occurrence) = decode_recurrence_row(&value)
+            .map_err(|error| evidence_error::recurrence_read(error, domain))?
+        {
+            stats.recurrence_rows_scanned += 1;
+            occurrences.push(occurrence);
+        }
+    }
+    occurrences.sort_by_key(|occurrence| (occurrence.t_k, occurrence.id));
+    let base_action = action_from_constellation(cx);
+    for occurrence in occurrences {
+        if occurrence.context.bytes.is_empty() {
+            continue;
+        }
+        let parsed: ExpansionContext = serde_json::from_slice(&occurrence.context.bytes)
+            .map_err(|_| evidence_error::corrupt(domain, "recurrence context"))?;
+        let Some(action) = parsed
+            .action()
+            .map(ToOwned::to_owned)
+            .or_else(|| base_action.clone())
+        else {
+            continue;
+        };
+        for candidate in parsed.consequences() {
+            let label = outcome_label(&candidate.outcome)
+                .map_err(|_| evidence_error::corrupt(domain, "consequence outcome"))?;
+            let key = ChildKey {
+                domain: candidate.domain.as_str().to_string(),
+                action_or_event: candidate.action_or_event.clone(),
+                outcome_label: label,
+            };
+            grouped
+                .entry(action.clone())
+                .or_default()
+                .entry(key)
+                .or_insert(candidate);
+        }
+    }
+    Ok(())
 }
 
 fn matches_domain(cx: &Constellation, domain: &DomainId) -> bool {
     cx.metadata_value(ORACLE_DOMAIN_METADATA_KEY) == Some(domain.as_str())
         || cx.metadata_value(ORACLE_FALLBACK_DOMAIN_METADATA_KEY) == Some(domain.as_str())
+}
+
+fn action_from_constellation(cx: &Constellation) -> Option<String> {
+    const ORACLE_FALLBACK_ACTION_METADATA_KEY: &str = "action";
+    cx.metadata_value(ORACLE_ACTION_METADATA_KEY)
+        .or_else(|| cx.metadata_value(ORACLE_FALLBACK_ACTION_METADATA_KEY))
+        .map(ToOwned::to_owned)
 }

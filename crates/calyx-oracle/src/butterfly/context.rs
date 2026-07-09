@@ -17,11 +17,8 @@ pub(super) struct ExpansionContext {
 }
 
 impl ExpansionContext {
-    pub(super) fn matches_action(&self, expected: &str, base_action_match: bool) -> bool {
-        self.action_id
-            .as_deref()
-            .or(self.action.as_deref())
-            .map_or(base_action_match, |actual| actual == expected)
+    pub(super) fn action(&self) -> Option<&str> {
+        self.action_id.as_deref().or(self.action.as_deref())
     }
 
     pub(super) fn consequences(&self) -> Vec<ChildCandidate> {

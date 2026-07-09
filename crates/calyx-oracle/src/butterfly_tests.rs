@@ -14,7 +14,7 @@ use proptest::prelude::*;
 use serde_json::json;
 
 use super::*;
-use crate::ORACLE_DOMAIN_METADATA_KEY;
+use crate::{ORACLE_ACTION_METADATA_KEY, ORACLE_DOMAIN_METADATA_KEY};
 
 const DOMAIN: &str = "butterfly-fixture";
 
@@ -145,6 +145,17 @@ fn expansion_scans_base_corpus_once_per_tree() {
 
     assert_eq!(payload["expand_calls"], 4);
     assert_eq!(payload["base_rows_scanned"], 3);
+    assert_eq!(payload["recurrence_rows_scanned"], 3);
+}
+
+#[test]
+fn indexed_action_miss_returns_no_children() {
+    let vault = vault();
+    write_edge(&vault, "A", "B", AnchorValue::Text("b".to_string()), true);
+
+    let tree = build_tree(&vault, root("missing", 1.0, 0), &FixedClock::new(17)).unwrap();
+
+    assert!(tree.children.is_empty());
 }
 
 proptest! {
