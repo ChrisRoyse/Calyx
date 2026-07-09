@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 use crate::evidence::{ConsequenceSeed, OracleEvidence, OracleEvidenceStats};
 use crate::honesty_gate::check_sufficiency_with_store;
 use crate::self_consistency::oracle_self_consistency_from_evidence;
-use crate::{Consequence, DomainId, OracleError, Prediction, SufficiencyBound};
+use crate::{Consequence, DomainId, OracleError, Prediction, SufficiencyBound, UnitInterval};
 
 pub const ORACLE_ACTION_METADATA_KEY: &str = "oracle.action";
 const LEDGER_ACTOR: &str = "calyx-oracle";
@@ -48,10 +48,11 @@ where
     let posterior = posterior(&prediction_evidence.observations, &domain)?;
     let consistency = oracle_self_consistency_from_evidence(vault, &domain, &evidence, clock)?;
     let confidence = apply_confidence_ceiling(
-        posterior.raw_confidence,
-        consistency.ceiling,
-        bound.dpi_ceiling,
-    );
+        UnitInterval::new(posterior.raw_confidence).unwrap_or(UnitInterval::ZERO),
+        UnitInterval::new(consistency.ceiling).unwrap_or(UnitInterval::ZERO),
+        bound.dpi_ceiling_unit,
+    )
+    .get();
     let guard = action.guard.clone();
     let ledger_ref = write_prediction_ledger(
         vault,
@@ -170,16 +171,12 @@ fn raw_confidence(top_count: u64, second_count: u64, total: u64) -> f32 {
     (support * separation * sample_support).clamp(0.0, 1.0)
 }
 
-fn apply_confidence_ceiling(raw: f32, self_consistency: f32, dpi_ceiling: f32) -> f32 {
-    unit(raw).min(unit(self_consistency)).min(unit(dpi_ceiling))
-}
-
-fn unit(value: f32) -> f32 {
-    if value.is_finite() {
-        value.clamp(0.0, 1.0)
-    } else {
-        0.0
-    }
+fn apply_confidence_ceiling(
+    raw: UnitInterval,
+    self_consistency: UnitInterval,
+    dpi_ceiling: UnitInterval,
+) -> UnitInterval {
+    raw.min(self_consistency).min(dpi_ceiling)
 }
 
 fn first_order_consequences(
@@ -260,7 +257,11 @@ where
         distinct_outcomes: input.posterior.distinct_outcomes,
         raw_confidence: input.posterior.raw_confidence,
         self_consistency_ceiling: input.self_consistency_ceiling,
+        sufficiency_basis_bits: input.bound.i_panel_oracle,
+        anchor_entropy_bits: input.bound.anchor_entropy_bits,
         dpi_ceiling: input.bound.dpi_ceiling,
+        dpi_ceiling_deprecated: true,
+        dpi_ceiling_unit: input.bound.dpi_ceiling_unit,
         confidence: input.confidence,
         ts: input.clock.now(),
     };
@@ -358,7 +359,11 @@ struct PredictionLedgerPayload {
     distinct_outcomes: u64,
     raw_confidence: f32,
     self_consistency_ceiling: f32,
-    dpi_ceiling: f32,
+    sufficiency_basis_bits: crate::Bits,
+    anchor_entropy_bits: crate::Bits,
+    dpi_ceiling: crate::Bits,
+    dpi_ceiling_deprecated: bool,
+    dpi_ceiling_unit: UnitInterval,
     confidence: f32,
     ts: u64,
 }

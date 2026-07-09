@@ -47,12 +47,7 @@ proptest! {
 
 #[test]
 fn empty_per_sensor_deficit_still_serializes() {
-    let bound = SufficiencyBound {
-        i_panel_oracle: 0.0,
-        dpi_ceiling: 0.0,
-        sufficient: false,
-        per_sensor_deficit: Vec::new(),
-    };
+    let bound = sufficiency_bound(0.0, 1.0, false, Vec::new());
 
     let json = serde_json::to_string(&bound).expect("serialize bound");
     let decoded: SufficiencyBound = serde_json::from_str(&json).expect("deserialize bound");
@@ -255,12 +250,7 @@ fn max_depth_zero_allows_empty_tree() {
 #[test]
 fn oracle_error_display_contains_codes_and_remediation() {
     let insufficient = OracleError::Insufficient {
-        bound: SufficiencyBound {
-            i_panel_oracle: 0.46,
-            dpi_ceiling: 0.46,
-            sufficient: false,
-            per_sensor_deficit: Vec::new(),
-        },
+        bound: sufficiency_bound(0.46, 1.0, false, Vec::new()),
     };
     let flaky = OracleError::FlakyAnchor {
         self_consistency: 0.25,
@@ -301,12 +291,7 @@ fn issue429_oracle_types_fsv_writes_readbacks() {
 
     write_json(
         &root.join("edge-empty-deficit.json"),
-        &SufficiencyBound {
-            i_panel_oracle: 0.0,
-            dpi_ceiling: 0.0,
-            sufficient: false,
-            per_sensor_deficit: Vec::new(),
-        },
+        &sufficiency_bound(0.0, 1.0, false, Vec::new()),
     );
     write_json(
         &root.join("edge-hop-zero.json"),
@@ -346,12 +331,7 @@ fn prediction_fixture() -> Prediction {
         outcome: AnchorValue::Bool(true),
         confidence: 0.72,
         consequences: vec![consequence(1, "compile-pass", 1, 0.5)],
-        bound: SufficiencyBound {
-            i_panel_oracle: 1.05,
-            dpi_ceiling: 1.05,
-            sufficient: true,
-            per_sensor_deficit: vec![(LensId::from_bytes([7; 16]), 0.0)],
-        },
+        bound: sufficiency_bound(1.05, 1.0, true, vec![(LensId::from_bytes([7; 16]), 0.0)]),
         provenance: ledger(9),
         guard: Some(guard(true)),
     }
@@ -421,4 +401,22 @@ fn ledger(seed: u64) -> LedgerRef {
 
 fn assert_close(actual: f32, expected: f32) {
     assert!((actual - expected).abs() < 1.0e-6);
+}
+
+fn sufficiency_bound(
+    panel_bits: f32,
+    entropy_bits: f32,
+    sufficient: bool,
+    per_sensor_deficit: Vec<(LensId, f32)>,
+) -> SufficiencyBound {
+    let panel = Bits::nonnegative(panel_bits).expect("panel bits");
+    let entropy = Bits::nonnegative(entropy_bits).expect("entropy bits");
+    SufficiencyBound {
+        i_panel_oracle: panel,
+        anchor_entropy_bits: entropy,
+        dpi_ceiling: panel,
+        dpi_ceiling_unit: UnitInterval::from_bits_ratio(panel, entropy).expect("unit ceiling"),
+        sufficient,
+        per_sensor_deficit,
+    }
 }

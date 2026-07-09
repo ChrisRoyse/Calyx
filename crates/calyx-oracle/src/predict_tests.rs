@@ -29,6 +29,8 @@ const ACTION: &str = "action_A";
 
 #[path = "predict_tests/issue1345.rs"]
 mod issue1345;
+#[path = "predict_tests/issue1347.rs"]
+mod issue1347;
 
 #[test]
 fn action_a_twenty_pass_observations_predict_pass_under_ceiling() {
@@ -57,7 +59,7 @@ fn action_a_twenty_pass_observations_predict_pass_under_ceiling() {
     assert_eq!(prediction.outcome, AnchorValue::Text("Pass".to_string()));
     assert!(prediction.confidence > 0.5);
     assert!(prediction.confidence <= 0.95 + f32::EPSILON);
-    assert!(prediction.confidence <= prediction.bound.dpi_ceiling);
+    assert!(prediction.confidence <= prediction.bound.dpi_ceiling_unit.get());
     assert!(!prediction.consequences.is_empty());
     assert_eq!(prediction.guard, None);
     assert!(serde_json::to_value(&prediction).unwrap()["guard"].is_null());
@@ -72,7 +74,10 @@ fn action_a_twenty_pass_observations_predict_pass_under_ceiling() {
 
 #[test]
 fn raw_confidence_is_capped_by_self_consistency_exactly() {
-    assert_close(apply_confidence_ceiling(0.9, 0.7, 1.0), 0.7);
+    assert_close(
+        apply_confidence_ceiling(unit(0.9), unit(0.7), unit(1.0)).get(),
+        0.7,
+    );
 }
 
 #[test]
@@ -236,7 +241,14 @@ fn ledger_write_failure_fails_closed_without_prediction() {
 proptest! {
     #[test]
     fn confidence_cap_never_exceeds_dpi(raw in -1.0f32..2.0, ceiling in -1.0f32..2.0, dpi in 0.0f32..2.0) {
-        prop_assert!(apply_confidence_ceiling(raw, ceiling, dpi) <= dpi.clamp(0.0, 1.0) + f32::EPSILON);
+        let dpi = unit(dpi);
+        prop_assert!(
+            apply_confidence_ceiling(
+                UnitInterval::new(raw).unwrap_or(UnitInterval::ZERO),
+                UnitInterval::new(ceiling).unwrap_or(UnitInterval::ZERO),
+                dpi,
+            ).get() <= dpi.get() + f32::EPSILON
+        );
     }
 }
 
@@ -477,4 +489,8 @@ fn vault_id() -> VaultId {
 
 fn assert_close(actual: f32, expected: f32) {
     assert!((actual - expected).abs() < 1.0e-6);
+}
+
+fn unit(value: f32) -> UnitInterval {
+    UnitInterval::new(value).expect("unit interval")
 }

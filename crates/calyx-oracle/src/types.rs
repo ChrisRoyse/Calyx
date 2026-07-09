@@ -40,6 +40,64 @@ impl From<String> for DomainId {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, PartialOrd, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct Bits(f32);
+
+impl Bits {
+    pub fn nonnegative(value: f32) -> Option<Self> {
+        (value.is_finite() && value >= 0.0).then_some(Self(value))
+    }
+
+    pub fn positive(value: f32) -> Option<Self> {
+        (value.is_finite() && value > 0.0).then_some(Self(value))
+    }
+
+    pub fn get(self) -> f32 {
+        self.0
+    }
+}
+
+impl fmt::Display for Bits {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.0.fmt(formatter)
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, PartialOrd, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct UnitInterval(f32);
+
+impl UnitInterval {
+    pub const ZERO: Self = Self(0.0);
+
+    pub fn new(value: f32) -> Option<Self> {
+        value.is_finite().then_some(Self(value.clamp(0.0, 1.0)))
+    }
+
+    pub fn from_bits_ratio(numerator: Bits, denominator: Bits) -> Option<Self> {
+        if denominator.0 <= 0.0 {
+            return None;
+        }
+        let entropy_fraction = numerator.0 / denominator.0;
+        Self::new(1.0 - 2.0_f32.powf(-2.0 * entropy_fraction))
+    }
+
+    pub fn get(self) -> f32 {
+        self.0
+    }
+
+    pub fn min(self, other: Self) -> Self {
+        Self(self.0.min(other.0))
+    }
+}
+
+impl fmt::Display for UnitInterval {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.0.fmt(formatter)
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Prediction {
     pub outcome: AnchorValue,
@@ -53,8 +111,10 @@ pub struct Prediction {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct SufficiencyBound {
     #[serde(rename = "I_panel_oracle")]
-    pub i_panel_oracle: f32,
-    pub dpi_ceiling: f32,
+    pub i_panel_oracle: Bits,
+    pub anchor_entropy_bits: Bits,
+    pub dpi_ceiling: Bits,
+    pub dpi_ceiling_unit: UnitInterval,
     pub sufficient: bool,
     pub per_sensor_deficit: Vec<(LensId, f32)>,
 }

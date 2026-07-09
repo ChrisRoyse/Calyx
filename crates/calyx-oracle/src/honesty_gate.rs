@@ -9,7 +9,7 @@ use calyx_assay::{
 use calyx_aster::vault::AsterVault;
 use calyx_core::{AnchorKind, CalyxError, Clock, LensId, Panel, SlotId, VaultId};
 
-use crate::{DomainId, OracleError, SufficiencyBound};
+use crate::{Bits, DomainId, OracleError, SufficiencyBound, UnitInterval};
 
 const SOLE_CARRIER_BITS: f32 = 0.10;
 
@@ -45,16 +45,22 @@ where
     A: SufficiencyAssay,
 {
     let report = assay.panel_sufficiency(panel, &domain, clock)?;
-    validate_report(&report)?;
-    let sufficient = report.sufficiency_basis_bits >= report.anchor_entropy_bits;
+    let report_bits = validate_report(&report)?;
+    let sufficient = report_bits.sufficiency_basis >= report_bits.anchor_entropy;
     let per_sensor_deficit = if sufficient {
         Vec::new()
     } else {
         lens_deficits(panel, &report)?
     };
     let bound = SufficiencyBound {
-        i_panel_oracle: report.sufficiency_basis_bits,
-        dpi_ceiling: report.sufficiency_basis_bits,
+        i_panel_oracle: report_bits.sufficiency_basis,
+        anchor_entropy_bits: report_bits.anchor_entropy,
+        dpi_ceiling: report_bits.sufficiency_basis,
+        dpi_ceiling_unit: UnitInterval::from_bits_ratio(
+            report_bits.sufficiency_basis,
+            report_bits.anchor_entropy,
+        )
+        .ok_or_else(invalid_report_error)?,
         sufficient,
         per_sensor_deficit,
     };
@@ -194,21 +200,29 @@ fn trust(store: &AssayStore, key: &AssayCacheKey) -> TrustTag {
         .unwrap_or(TrustTag::Provisional)
 }
 
-fn validate_report(report: &PanelSufficiency) -> Result<(), OracleError> {
-    if report.panel_bits.is_finite()
-        && report.panel_bits >= 0.0
-        && report.sufficiency_basis_bits.is_finite()
-        && report.sufficiency_basis_bits >= 0.0
-        && report.anchor_entropy_bits.is_finite()
-        && report.anchor_entropy_bits >= 0.0
-    {
-        Ok(())
-    } else {
-        Err(
-            CalyxError::assay_insufficient_samples("oracle sufficiency report has invalid bits")
-                .into(),
-        )
-    }
+fn validate_report(report: &PanelSufficiency) -> Result<ReportBits, OracleError> {
+    let _panel_bits = Bits::nonnegative(report.panel_bits).ok_or_else(invalid_report_error)?;
+    let sufficiency_basis =
+        Bits::nonnegative(report.sufficiency_basis_bits).ok_or_else(invalid_report_error)?;
+    let anchor_entropy =
+        Bits::positive(report.anchor_entropy_bits).ok_or_else(invalid_report_error)?;
+    Ok(ReportBits {
+        sufficiency_basis,
+        anchor_entropy,
+    })
+}
+
+fn invalid_report_error() -> OracleError {
+    CalyxError::assay_insufficient_samples(
+        "oracle sufficiency report requires finite non-negative panel bits and positive anchor entropy bits",
+    )
+    .into()
+}
+
+#[derive(Clone, Copy, Debug)]
+struct ReportBits {
+    sufficiency_basis: Bits,
+    anchor_entropy: Bits,
 }
 
 fn lens_deficits(

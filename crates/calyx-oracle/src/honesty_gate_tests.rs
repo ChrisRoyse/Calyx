@@ -39,8 +39,9 @@ fn insufficient_panel_returns_oracle_error_with_sensor_deficit() {
 
     assert_eq!(error.code(), CALYX_ORACLE_INSUFFICIENT);
     let bound = insufficient_bound(error);
-    assert_close(bound.i_panel_oracle, 0.46);
+    assert_close(bound.i_panel_oracle.get(), 0.46);
     assert_eq!(bound.dpi_ceiling, bound.i_panel_oracle);
+    assert_close(bound.dpi_ceiling_unit.get(), dpi_unit(0.46, 1.0));
     assert!(!bound.sufficient);
     assert!(!bound.per_sensor_deficit.is_empty());
 }
@@ -66,8 +67,10 @@ fn sufficient_panel_returns_ok_bound() {
     .expect("sufficient panel should pass");
 
     assert!(bound.sufficient);
-    assert_eq!(bound.i_panel_oracle, 1.05);
-    assert_eq!(bound.dpi_ceiling, 1.05);
+    assert_eq!(bound.i_panel_oracle.get(), 1.05);
+    assert_eq!(bound.anchor_entropy_bits.get(), 1.0);
+    assert_eq!(bound.dpi_ceiling.get(), 1.05);
+    assert_close(bound.dpi_ceiling_unit.get(), dpi_unit(1.05, 1.0));
     assert!(bound.per_sensor_deficit.is_empty());
 }
 
@@ -92,22 +95,21 @@ fn zero_lens_panel_is_insufficient_when_outcome_has_entropy() {
 }
 
 #[test]
-fn deterministic_zero_entropy_outcome_is_sufficient() {
+fn deterministic_zero_entropy_outcome_fails_closed_before_ceiling() {
     let vault = vault();
     let panel = panel(&[]);
     put_evidence(&vault, &panel, 0.0, 0.0, &[]);
 
-    let bound = check_sufficiency(
+    let error = check_sufficiency(
         &vault,
         &panel,
         DomainId::from(DOMAIN),
         &FixedClock::new(103),
     )
-    .expect("zero entropy outcome needs no panel bits");
+    .expect_err("zero entropy cannot produce a finite DPI ratio");
 
-    assert!(bound.sufficient);
-    assert_eq!(bound.i_panel_oracle, 0.0);
-    assert_eq!(bound.dpi_ceiling, 0.0);
+    assert_eq!(error.code(), "CALYX_ASSAY_INSUFFICIENT_SAMPLES");
+    assert!(!matches!(error, OracleError::Insufficient { .. }));
 }
 
 #[test]
@@ -126,6 +128,7 @@ fn exact_equality_is_sufficient_boundary() {
 
     assert!(bound.sufficient);
     assert_eq!(bound.dpi_ceiling, bound.i_panel_oracle);
+    assert_close(bound.dpi_ceiling_unit.get(), dpi_unit(1.0, 1.0));
 }
 
 #[test]
@@ -152,10 +155,45 @@ fn point_estimate_above_entropy_but_ci_low_below_refuses() {
 
     assert_eq!(error.code(), CALYX_ORACLE_INSUFFICIENT);
     let bound = insufficient_bound(error);
-    assert_close(bound.i_panel_oracle, 0.82);
-    assert_close(bound.dpi_ceiling, 0.82);
+    assert_close(bound.i_panel_oracle.get(), 0.82);
+    assert_close(bound.dpi_ceiling.get(), 0.82);
+    assert_close(bound.dpi_ceiling_unit.get(), dpi_unit(0.82, 1.0));
     assert!(!bound.sufficient);
     assert!(!bound.per_sensor_deficit.is_empty());
+}
+
+#[test]
+fn dpi_ceiling_unit_uses_bits_over_anchor_entropy() {
+    let panel = panel(&[1]);
+    let weak = check_sufficiency_with_assay(
+        &StaticAssay(report(0.8, 1.6, &[(SlotId::new(1), 0.8)])),
+        &panel,
+        DomainId::from("ratio"),
+        &FixedClock::new(109),
+    )
+    .expect_err("weak panel is insufficient");
+    let weak = insufficient_bound(weak);
+    assert_close(weak.dpi_ceiling.get(), 0.8);
+    assert_close(weak.anchor_entropy_bits.get(), 1.6);
+    assert_close(weak.dpi_ceiling_unit.get(), 0.5);
+
+    let strong = check_sufficiency_with_assay(
+        &StaticAssay(report(20.0, 1.0, &[(SlotId::new(1), 20.0)])),
+        &panel,
+        DomainId::from("ratio"),
+        &FixedClock::new(110),
+    )
+    .expect("strong panel is sufficient");
+    assert_eq!(strong.dpi_ceiling.get(), 20.0);
+    let barely = check_sufficiency_with_assay(
+        &StaticAssay(report(1.05, 1.0, &[(SlotId::new(1), 1.05)])),
+        &panel,
+        DomainId::from("ratio"),
+        &FixedClock::new(111),
+    )
+    .expect("barely sufficient panel is sufficient");
+    assert!(strong.dpi_ceiling_unit.get() > barely.dpi_ceiling_unit.get());
+    assert!(strong.dpi_ceiling_unit.get() > weak.dpi_ceiling_unit.get());
 }
 
 #[test]
@@ -202,7 +240,7 @@ fn assay_failure_propagates_without_sufficient_bound() {
 
 proptest! {
     #[test]
-    fn boundary_logic_is_strict(panel_raw in 0_u16..=200, entropy_raw in 0_u16..=200) {
+    fn boundary_logic_is_strict(panel_raw in 0_u16..=200, entropy_raw in 1_u16..=200) {
         let panel_bits = panel_raw as f32 / 100.0;
         let entropy_bits = entropy_raw as f32 / 100.0;
         let panel = panel(&[1]);
@@ -397,4 +435,8 @@ fn vault_id() -> VaultId {
 
 fn assert_close(actual: f32, expected: f32) {
     assert!((actual - expected).abs() < 1.0e-6);
+}
+
+fn dpi_unit(bits: f32, entropy: f32) -> f32 {
+    1.0 - 2.0_f32.powf(-2.0 * bits / entropy)
 }

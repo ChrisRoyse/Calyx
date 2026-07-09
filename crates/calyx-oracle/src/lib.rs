@@ -76,9 +76,9 @@ pub use time_prediction::{
     time_bucket,
 };
 pub use types::{
-    CompletionResult, CompletionSlotPartition, Consequence, ConsequenceTree,
+    Bits, CompletionResult, CompletionSlotPartition, Consequence, ConsequenceTree,
     DEFAULT_CONSEQUENCE_TREE_MAX_DEPTH, DomainId, OracleSelfConsistency, Prediction, SlotSet,
-    SlotTag, SufficiencyBound, TaggedSlot,
+    SlotTag, SufficiencyBound, TaggedSlot, UnitInterval,
 };
 
 #[cfg(test)]
