@@ -1,3 +1,4 @@
+use std::hint::black_box;
 use std::time::Instant;
 
 use rand::{Rng, SeedableRng};
@@ -46,6 +47,7 @@ pub fn microbench(
         "cosine" => bench_cosine(op, config, shape, ctx, iters),
         "grouped_gemm" => bench_grouped_gemm(op, config, shape, ctx, iters),
         "turboquant_encode" => bench_turboquant_encode(op, config, shape, iters),
+        "quant_dot" => bench_quant_dot(op, config, shape, iters),
         _ => Err(unimplemented_op(op)),
     }
 }
@@ -108,7 +110,7 @@ fn bench_turboquant_encode(
     shape: &[usize],
     iters: u32,
 ) -> Result<BenchResult> {
-    let (_rows, dim) = turboquant_shape(shape)?;
+    let (_rows, dim) = turboquant_shape(op, shape)?;
     let seed = new_seed(dim, b"calyx-autotune-microbench");
     let codec = TurboQuantCodec::new(seed, quant_level(config))?;
     let vector = random_values(dim, 0x7A_B0);
@@ -120,6 +122,43 @@ fn bench_turboquant_encode(
             return Err(numerical_error(
                 op,
                 "turboquant encode produced empty bytes",
+            ));
+        }
+        Ok(())
+    })
+}
+
+fn bench_quant_dot(
+    op: &str,
+    config: &BestConfig,
+    shape: &[usize],
+    iters: u32,
+) -> Result<BenchResult> {
+    let (rows, dim) = turboquant_shape(op, shape)?;
+    let seed = new_seed(dim, b"calyx-autotune-quant-dot");
+    let codec = TurboQuantCodec::new(seed, quant_level(config))?;
+    let query_values = random_values(dim, 0xD07);
+    let candidate_values = random_values(matrix_len(rows, dim, "quant_dot candidates")?, 0x51A7E);
+    let query_encoded = codec.encode(&query_values)?;
+    let query = codec.prepare(&query_encoded)?;
+    let candidates = candidate_values
+        .chunks_exact(dim)
+        .map(|candidate| {
+            let encoded = codec.encode(candidate)?;
+            codec.prepare(&encoded)
+        })
+        .collect::<Result<Vec<_>>>()?;
+    let flops = 4.0 * rows as f64 * dim.next_power_of_two() as f64;
+
+    time_op(op, iters, flops, || {
+        let mut sum = 0.0_f32;
+        for candidate in &candidates {
+            sum += codec.dot_prepared(&query, candidate);
+        }
+        if !black_box(sum).is_finite() {
+            return Err(numerical_error(
+                op,
+                "quant_dot produced a non-finite accumulator",
             ));
         }
         Ok(())
@@ -267,17 +306,17 @@ fn cosine_shape(shape: &[usize]) -> Result<(usize, usize)> {
     Ok((shape[0], shape[1]))
 }
 
-fn turboquant_shape(shape: &[usize]) -> Result<(usize, usize)> {
+fn turboquant_shape(op: &str, shape: &[usize]) -> Result<(usize, usize)> {
     match shape {
         [dim] => {
-            ensure_nonzero("turboquant_encode", shape)?;
+            ensure_nonzero(op, shape)?;
             Ok((1, *dim))
         }
         [rows, dim] => {
-            ensure_nonzero("turboquant_encode", shape)?;
+            ensure_nonzero(op, shape)?;
             Ok((*rows, *dim))
         }
-        _ => Err(shape_error("turboquant_encode", 1, shape)),
+        _ => Err(shape_error(op, 1, shape)),
     }
 }
 

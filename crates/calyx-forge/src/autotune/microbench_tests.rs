@@ -60,6 +60,30 @@ fn microbench_turboquant_encode_returns_positive() -> Result<()> {
     Ok(())
 }
 
+#[test]
+fn microbench_quant_dot_returns_positive() -> Result<()> {
+    let mut cfg = config(BackendKind::Cpu);
+    cfg.extra.insert("level".to_string(), "bits3p5".to_string());
+    let result = microbench("quant_dot", &cfg, &[8, 64], None, 2)?;
+
+    assert_positive(result);
+    println!(
+        "microbench_quant_dot PASSED gflops={:.6} elapsed_ms={:.6} cv_pct={:.3}",
+        result.gflops, result.elapsed_ms, result.cv_pct
+    );
+    Ok(())
+}
+
+#[test]
+fn microbench_quant_dot_zero_rows_fails_closed() {
+    let err = microbench("quant_dot", &config(BackendKind::Cpu), &[0, 64], None, 1)
+        .expect_err("zero-row quant_dot must fail closed");
+
+    assert!(matches!(err, ForgeError::NumericalInvariant { .. }));
+    assert!(err.to_string().contains("microbench::quant_dot"));
+    println!("microbench_quant_dot_zero_rows PASSED {err}");
+}
+
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(4))]
 
