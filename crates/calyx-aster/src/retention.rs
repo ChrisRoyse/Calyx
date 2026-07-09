@@ -14,6 +14,7 @@ pub const METADATA_COLLECTION: &str = "collection";
 pub const METADATA_INGESTED_AT: &str = "ingested_at";
 
 const MILLIS_PER_SEC: u64 = 1_000;
+pub const CALYX_RETENTION_ROLLUP_UNSUPPORTED: &str = "CALYX_RETENTION_ROLLUP_UNSUPPORTED";
 
 /// Per-collection data minimization policy.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -21,7 +22,7 @@ pub struct RetentionPolicy {
     pub collection: String,
     /// Zero means retain indefinitely.
     pub ttl_secs: u64,
-    /// Future cold-tier aggregation hook. PH61 logs when it becomes due.
+    /// Future cold-tier aggregation hook. Fails closed when it becomes due.
     pub rollup_after_secs: Option<u64>,
 }
 
@@ -104,10 +105,11 @@ where
             continue;
         };
         let ingested_at = parse_ingested_at(cx.cx_id, cx.metadata_value(METADATA_INGESTED_AT))?;
+        if is_rollup_due(ingested_at, policy, now) {
+            return Err(retention_rollup_unsupported(collection));
+        }
         if is_expired(ingested_at, policy, now) {
             expired.push((cx.cx_id, collection.to_string()));
-        } else if is_rollup_due(ingested_at, policy, now) {
-            eprintln!("calyx retention rollup not yet implemented for collection {collection}");
         }
     }
     expired.sort_by(|left, right| {
@@ -174,6 +176,16 @@ fn retention_metadata_error(cx_id: CxId, detail: impl Into<String>) -> CalyxErro
         "retention metadata for cx {cx_id} is invalid: {}",
         detail.into()
     ))
+}
+
+fn retention_rollup_unsupported(collection: &str) -> CalyxError {
+    CalyxError {
+        code: CALYX_RETENTION_ROLLUP_UNSUPPORTED,
+        message: format!(
+            "retention rollup is due for collection {collection}, but rollup enforcement is unsupported"
+        ),
+        remediation: "remove rollup_after_secs from the retention policy or implement retention rollups",
+    }
 }
 
 #[cfg(test)]
