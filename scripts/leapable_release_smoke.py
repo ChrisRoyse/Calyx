@@ -268,7 +268,7 @@ def write_provenance(
     target: str,
     asset_name: str,
     asset_sha: str,
-    workflow_ref: str,
+    build_type: str,
 ) -> None:
     now = datetime.now(timezone.utc).isoformat()
     statement = {
@@ -277,7 +277,7 @@ def write_provenance(
         "predicateType": "https://slsa.dev/provenance/v1",
         "predicate": {
             "buildDefinition": {
-                "buildType": workflow_ref,
+                "buildType": build_type,
                 "externalParameters": {
                     "platform": platform,
                     "target": target,
@@ -292,7 +292,7 @@ def write_provenance(
                 ],
             },
             "runDetails": {
-                "builder": {"id": f"https://github.com/{repo}/actions/runs/{run_id}"},
+                "builder": {"id": f"manual://{repo}/{run_id}"},
                 "metadata": {
                     "invocationId": run_id,
                     "runAttempt": run_attempt,
@@ -302,15 +302,6 @@ def write_provenance(
         },
     }
     path.write_text(json.dumps(statement, sort_keys=True) + "\n", encoding="utf-8")
-
-
-def write_github_output(values: dict[str, Any]) -> None:
-    output = os.environ.get("GITHUB_OUTPUT")
-    if not output:
-        return
-    with Path(output).open("a", encoding="utf-8") as handle:
-        for key, value in values.items():
-            handle.write(f"{key}={value}\n")
 
 
 def output_value(value: Any) -> str:
@@ -326,11 +317,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--target", required=True)
     parser.add_argument("--dist-dir", default=Path("dist"), type=Path)
     parser.add_argument("--asset-prefix", default="calyx-leapable")
-    parser.add_argument("--repo", default=os.environ.get("GITHUB_REPOSITORY", "ChrisRoyse/Calyx-Dev"))
-    parser.add_argument("--commit", default=os.environ.get("GITHUB_SHA"))
-    parser.add_argument("--ref-name", default=os.environ.get("GITHUB_REF_NAME", "local"))
-    parser.add_argument("--run-id", default=os.environ.get("GITHUB_RUN_ID", "local"))
-    parser.add_argument("--run-attempt", default=os.environ.get("GITHUB_RUN_ATTEMPT", "0"))
+    parser.add_argument("--repo", default="ChrisRoyse/Calyx-Dev")
+    parser.add_argument("--commit")
+    parser.add_argument("--ref-name", default="manual")
+    parser.add_argument("--run-id", default="manual")
+    parser.add_argument("--run-attempt", default="0")
     return parser.parse_args()
 
 
@@ -369,7 +360,7 @@ def main() -> int:
         "platform": args.platform,
         "target": args.target,
         "version": version,
-        "workflow": ".github/workflows/calyx-leapable-release.yml",
+        "manual_build_policy": "No GitHub Actions or hosted CI/CD. Operator-run native build plus manual FSV.",
         "source_repo": args.repo,
         "build_info": build_info,
         "smoke_summary": {
@@ -399,7 +390,7 @@ def main() -> int:
         target=args.target,
         asset_name=asset.name,
         asset_sha=asset_sha,
-        workflow_ref=f"https://github.com/{args.repo}/.github/workflows/calyx-leapable-release.yml",
+        build_type="manual-native-calyx-leapable-release",
     )
 
     outputs = {
@@ -412,7 +403,6 @@ def main() -> int:
         "cold_start_ms": smoke["cold_start_ms"],
     }
     output_strings = {key: output_value(value) for key, value in outputs.items()}
-    write_github_output(output_strings)
     print(json.dumps(output_strings, indent=2))
     return 0
 
