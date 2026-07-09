@@ -10,8 +10,7 @@ use calyx_registry::{VaultPanelState, load_vault_panel_state};
 use calyx_sextant::fusion;
 use calyx_sextant::{
     AnchorPredicate, DroppedGuardHit, FreshnessRequirement, FusionContext, FusionStrategy, Hit,
-    HnswIndex, IndexSearchHit, InvertedIndex, MaxSimIndex, MetadataPredicate, ProvenanceSource,
-    QueryFilters, RrfProfile, ScalarOp, ScalarPredicate, SextantIndex,
+    MetadataPredicate, ProvenanceSource, QueryFilters, RrfProfile, ScalarOp, ScalarPredicate,
     apply_in_region_guard_to_hits,
 };
 use calyx_ward::GuardProfile;
@@ -26,6 +25,8 @@ use crate::tools::search::ledger_provenance::VerifiedSearchLedger;
 use crate::tools::vault::store::{ResolvedVault, home_dir, resolve_vault_info, vault_salt};
 
 pub(super) const HNSW_SEED: u64 = 0x0050_4836_3354_3034;
+
+mod index_cache;
 
 pub(super) struct SearchOutcome {
     pub(super) hits: Vec<Hit>,
@@ -45,9 +46,10 @@ pub(super) fn search(request: &SearchRequest) -> ToolResult<SearchOutcome> {
     let ledger = VerifiedSearchLedger::open(&resolved.path)?;
     let vault = open_vault(&resolved)?;
     let state = load_vault_panel_state(&resolved.path)?;
-    let loaded = load_docs(&vault)?;
-    let snapshot_seq = loaded.snapshot_seq;
-    let docs = filtered_docs(loaded.docs, request.filter.clone())?;
+    let indexed = index_cache::load_indexed_docs(&resolved.path, &vault)?;
+    let snapshot_seq = indexed.snapshot_seq;
+    let filtered = request.filter.is_some();
+    let docs = filtered_docs(indexed.docs.clone(), request.filter.clone())?;
     if docs.is_empty() {
         return Ok(SearchOutcome {
             hits: Vec::new(),
@@ -59,7 +61,11 @@ pub(super) fn search(request: &SearchRequest) -> ToolResult<SearchOutcome> {
     if query_vectors.is_empty() {
         return Err(no_indexable_query_vectors().into());
     }
-    let per_slot = search_slots(&docs, &query_vectors, snapshot_seq)?;
+    let per_slot = if filtered {
+        index_cache::search_slots(&docs, &query_vectors, snapshot_seq)?
+    } else {
+        index_cache::search_indexed_slots(&indexed, &query_vectors)?
+    };
     let slots = per_slot.keys().copied().collect::<Vec<_>>();
     if slots.is_empty() {
         return Err(no_indexable_stored_vectors().into());
@@ -132,8 +138,8 @@ fn default_guard_key() -> &'static [u8] {
 pub(super) fn neighbors(request: &NeighborsRequest) -> ToolResult<Vec<NeighborOut>> {
     let resolved = resolve_requested_vault(&request.vault)?;
     let vault = open_vault(&resolved)?;
-    let loaded = load_docs(&vault)?;
-    let docs = loaded.docs;
+    let indexed = index_cache::load_indexed_docs(&resolved.path, &vault)?;
+    let docs = indexed.docs.clone();
     let seed = docs.get(&request.cx_id).ok_or_else(|| {
         CalyxError::vault_access_denied(format!("cx_id {} does not exist in vault", request.cx_id))
     })?;
@@ -141,7 +147,7 @@ pub(super) fn neighbors(request: &NeighborsRequest) -> ToolResult<Vec<NeighborOu
     for (slot, vector) in seed.slots.iter().filter(|(slot, vector)| {
         request.slot.is_none_or(|wanted| wanted == **slot) && indexable(vector)
     }) {
-        for hit in search_one_slot(&docs, *slot, vector, loaded.snapshot_seq)?
+        for hit in index_cache::search_indexed_slot(&indexed, *slot, vector)?
             .into_iter()
             .take(request.k)
         {
@@ -224,54 +230,6 @@ pub(super) fn measure_query_vectors(
         }
     }
     Ok(out)
-}
-
-fn search_slots(
-    docs: &BTreeMap<CxId, Constellation>,
-    query_vectors: &[(SlotId, SlotVector)],
-    snapshot_seq: u64,
-) -> ToolResult<BTreeMap<SlotId, Vec<IndexSearchHit>>> {
-    let mut out = BTreeMap::new();
-    for (slot, query) in query_vectors {
-        let hits = search_one_slot(docs, *slot, query, snapshot_seq)?;
-        if !hits.is_empty() {
-            out.insert(*slot, hits);
-        }
-    }
-    Ok(out)
-}
-
-fn search_one_slot(
-    docs: &BTreeMap<CxId, Constellation>,
-    slot: SlotId,
-    query: &SlotVector,
-    snapshot_seq: u64,
-) -> ToolResult<Vec<IndexSearchHit>> {
-    let mut index = new_index(slot, query)?;
-    let mut inserted = 0usize;
-    for cx in docs.values() {
-        if let Some(vector) = cx.slots.get(&slot)
-            && same_index_shape(query, vector)
-        {
-            index.insert(cx.cx_id, vector.clone(), snapshot_seq)?;
-            inserted += 1;
-        }
-    }
-    if inserted == 0 {
-        return Ok(Vec::new());
-    }
-    Ok(index.search(query, inserted, Some(inserted.max(64)))?)
-}
-
-fn new_index(slot: SlotId, query: &SlotVector) -> ToolResult<Box<dyn SextantIndex>> {
-    match query {
-        SlotVector::Dense { dim, .. } => Ok(Box::new(HnswIndex::new(slot, *dim, HNSW_SEED))),
-        SlotVector::Sparse { .. } => Ok(Box::new(InvertedIndex::new(slot))),
-        SlotVector::Multi { token_dim, .. } => Ok(Box::new(MaxSimIndex::new(slot, *token_dim))),
-        SlotVector::Absent { .. } => Err(ToolError::invalid_params(
-            "query slot vector must be concrete",
-        )),
-    }
 }
 
 fn attach_stored_provenance(
@@ -420,4 +378,14 @@ fn no_indexable_stored_vectors() -> CalyxError {
     CalyxError::stale_derived(
         "search has no indexable stored slot vectors matching active query lenses; reingest or backfill stale slot rows",
     )
+}
+
+#[cfg(test)]
+pub(super) fn reset_index_cache_for_tests() {
+    index_cache::reset_for_tests();
+}
+
+#[cfg(test)]
+pub(super) fn index_cache_stats_for_tests() -> (usize, usize) {
+    index_cache::stats_for_tests()
 }

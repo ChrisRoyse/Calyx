@@ -43,6 +43,28 @@ fn minimal_search_returns_provenanced_hits() {
 }
 
 #[test]
+fn repeated_search_reuses_snapshot_index_cache() {
+    let _env = TestEnv::new("cache-reuse");
+    super::engine::reset_index_cache_for_tests();
+    let server = server();
+    vault_with_algorithmic_data(&server, "v");
+
+    for id in 20..=21 {
+        let result = call_ok(
+            &server,
+            id,
+            "calyx.search",
+            json!({"vault": "v", "query": "alpha"}),
+        );
+        assert!(!result["hits"].as_array().unwrap().is_empty());
+    }
+
+    let (builds, hits) = super::engine::index_cache_stats_for_tests();
+    assert_eq!(builds, 1);
+    assert!(hits >= 1, "cache hits={hits}");
+}
+
+#[test]
 fn search_fails_closed_when_ledger_chain_is_tampered() {
     let env = TestEnv::new("ledger-tamper");
     let server = server();
