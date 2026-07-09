@@ -148,24 +148,30 @@ impl<'b, P: VramProbe, D: BlockDeallocator> AdmissionController<'b, P, D> {
         deadline: Instant,
     ) -> AdmitDecision {
         if requested_bytes == 0 {
-            return self.split(batch_size);
+            return AdmitDecision::Split {
+                sub_batch_size: batch_size,
+            };
         }
         if batch_size == 0 {
-            return self.fail();
+            return AdmitDecision::Fail;
         }
         if deadline <= Instant::now() {
-            return self.fail();
+            return AdmitDecision::Fail;
         }
         if self.budgeter.can_allocate(requested_bytes).is_ok() {
-            return self.split(batch_size);
+            return AdmitDecision::Split {
+                sub_batch_size: batch_size,
+            };
         }
         if self.evict_then_can_allocate(requested_bytes) {
-            return self.split(batch_size);
+            return AdmitDecision::Split {
+                sub_batch_size: batch_size,
+            };
         }
         if let Some(sub_batch_size) = self.next_split(batch_size) {
-            return self.split(sub_batch_size);
+            return AdmitDecision::Split { sub_batch_size };
         }
-        self.fail()
+        AdmitDecision::Fail
     }
 
     pub fn run_with_admission<F, R>(
@@ -204,10 +210,12 @@ impl<'b, P: VramProbe, D: BlockDeallocator> AdmissionController<'b, P, D> {
     {
         match self.decide(bytes, batch, deadline) {
             AdmitDecision::Split { sub_batch_size } if sub_batch_size >= batch => {
+                self.budgeter.record_admission_split();
                 let _guard = self.budgeter.reserve(bytes)?;
                 f(offset, batch)
             }
             AdmitDecision::Split { sub_batch_size } => {
+                self.budgeter.record_admission_split();
                 let left_batch = sub_batch_size;
                 let right_batch = batch - left_batch;
                 let left_bytes = proportional_bytes(bytes, batch, left_batch);
@@ -220,16 +228,24 @@ impl<'b, P: VramProbe, D: BlockDeallocator> AdmissionController<'b, P, D> {
             AdmitDecision::Queue { .. } => {
                 Err(self.budget_error(bytes, batch, "admission queue is disabled"))
             }
-            AdmitDecision::Fail => Err(self.budget_error(bytes, batch, "admission failed closed")),
+            AdmitDecision::Fail => {
+                self.budgeter.record_admission_failed();
+                Err(self.budget_error(bytes, batch, "admission failed closed"))
+            }
         }
     }
 
     fn evict_then_can_allocate(&self, requested_bytes: usize) -> bool {
-        let Ok(mut registry) = self.registry.lock() else {
-            return false;
+        let (result, deferred) = {
+            let Ok(mut registry) = self.registry.lock() else {
+                return false;
+            };
+            registry.evict_until_deferred(requested_bytes)
         };
-        registry.evict_until(requested_bytes).is_ok()
-            && self.budgeter.can_allocate(requested_bytes).is_ok()
+        for free in deferred {
+            free.free();
+        }
+        result.is_ok() && self.budgeter.can_allocate(requested_bytes).is_ok()
     }
 
     fn next_split(&self, batch_size: usize) -> Option<usize> {
@@ -238,16 +254,6 @@ impl<'b, P: VramProbe, D: BlockDeallocator> AdmissionController<'b, P, D> {
         }
         let sub_batch_size = (batch_size / 2).max(self.split_min_batch);
         (sub_batch_size < batch_size).then_some(sub_batch_size)
-    }
-
-    fn split(&self, sub_batch_size: usize) -> AdmitDecision {
-        self.budgeter.record_admission_split();
-        AdmitDecision::Split { sub_batch_size }
-    }
-
-    fn fail(&self) -> AdmitDecision {
-        self.budgeter.record_admission_failed();
-        AdmitDecision::Fail
     }
 
     fn budget_error(&self, requested_bytes: usize, batch_size: usize, reason: &str) -> ForgeError {

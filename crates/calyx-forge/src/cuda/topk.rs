@@ -1,3 +1,5 @@
+use std::cmp::Ordering;
+use std::collections::BinaryHeap;
 use std::str;
 use std::sync::Arc;
 
@@ -130,44 +132,112 @@ fn merge_chunks(
     k_eff: usize,
     chunk_k: usize,
 ) -> Result<Vec<(usize, f32)>> {
-    let mut pairs = Vec::with_capacity(indices.len().min(k_eff.saturating_mul(2)));
-    for chunk in 0..n.div_ceil(TOPK_BLOCK) {
-        let chunk_len = (n - chunk * TOPK_BLOCK).min(TOPK_BLOCK);
-        let valid = chunk_len.min(chunk_k);
-        for offset in 0..valid {
-            let pos = chunk * chunk_k + offset;
-            let index = indices[pos];
-            let score = scores[pos];
-            if index < 0 {
-                return Err(numerical(
-                    "topk_gpu",
-                    "NaN score sentinel returned by kernel".to_string(),
-                ));
-            }
-            if !score.is_finite() {
-                return Err(numerical(
-                    "topk_gpu",
-                    format!("non-finite score at output {pos}: {score}"),
-                ));
-            }
-            let index = index as usize;
-            if index >= n {
-                return Err(device_unavailable(
-                    ctx,
-                    format!("topk kernel returned out-of-range index {index}"),
-                ));
-            }
-            pairs.push((index, score));
-        }
+    let chunks = n.div_ceil(TOPK_BLOCK);
+    let inputs = ChunkMergeInputs {
+        ctx,
+        indices,
+        scores,
+        n,
+        chunk_k,
+    };
+    let mut heap = BinaryHeap::with_capacity(chunks.min(k_eff));
+    for chunk in 0..chunks {
+        push_chunk_entry(&inputs, &mut heap, chunk, 0)?;
     }
-    pairs.sort_by(|left, right| {
-        right
-            .1
-            .total_cmp(&left.1)
-            .then_with(|| left.0.cmp(&right.0))
-    });
-    pairs.truncate(k_eff);
+
+    let mut pairs = Vec::with_capacity(k_eff);
+    while pairs.len() < k_eff {
+        let Some(entry) = heap.pop() else {
+            break;
+        };
+        pairs.push((entry.index, entry.score));
+        push_chunk_entry(&inputs, &mut heap, entry.chunk, entry.offset + 1)?;
+    }
     Ok(pairs)
+}
+
+struct ChunkMergeInputs<'a> {
+    ctx: &'a CudaContext,
+    indices: &'a [i32],
+    scores: &'a [f32],
+    n: usize,
+    chunk_k: usize,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct HeapEntry {
+    score: f32,
+    index: usize,
+    chunk: usize,
+    offset: usize,
+}
+
+impl PartialEq for HeapEntry {
+    fn eq(&self, other: &Self) -> bool {
+        self.score.to_bits() == other.score.to_bits()
+            && self.index == other.index
+            && self.chunk == other.chunk
+            && self.offset == other.offset
+    }
+}
+
+impl Eq for HeapEntry {}
+
+impl PartialOrd for HeapEntry {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for HeapEntry {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.score
+            .total_cmp(&other.score)
+            .then_with(|| other.index.cmp(&self.index))
+            .then_with(|| other.chunk.cmp(&self.chunk))
+            .then_with(|| other.offset.cmp(&self.offset))
+    }
+}
+
+fn push_chunk_entry(
+    inputs: &ChunkMergeInputs<'_>,
+    heap: &mut BinaryHeap<HeapEntry>,
+    chunk: usize,
+    offset: usize,
+) -> Result<()> {
+    let chunk_len = (inputs.n - chunk * TOPK_BLOCK).min(TOPK_BLOCK);
+    if offset >= chunk_len.min(inputs.chunk_k) {
+        return Ok(());
+    }
+    let pos = chunk * inputs.chunk_k + offset;
+    let index = inputs.indices[pos];
+    let score = inputs.scores[pos];
+    if index < 0 {
+        return Err(numerical(
+            "topk_gpu",
+            "NaN score sentinel returned by kernel".to_string(),
+        ));
+    }
+    if !score.is_finite() {
+        return Err(numerical(
+            "topk_gpu",
+            format!("non-finite score at output {pos}: {score}"),
+        ));
+    }
+    let index = index as usize;
+    if index >= inputs.n {
+        return Err(device_unavailable(
+            inputs.ctx,
+            format!("topk kernel returned out-of-range index {index}"),
+        ));
+    }
+    heap.push(HeapEntry {
+        score,
+        index,
+        chunk,
+        offset,
+    });
+    Ok(())
 }
 
 fn topk_module(ctx: &CudaContext) -> Result<Arc<CudaModule>> {

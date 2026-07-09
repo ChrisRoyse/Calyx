@@ -60,7 +60,7 @@ fn fits_returns_full_batch_and_counts_split() {
 
     assert_eq!(decision, AdmitDecision::Split { sub_batch_size: 8 });
     let stats = budgeter.stats();
-    assert_eq!(stats.splits_total, 1);
+    assert_eq!(stats.splits_total, 0);
     assert_eq!(stats.queued_total, 0);
     assert_eq!(stats.failed_total, 0);
 }
@@ -144,7 +144,7 @@ fn min_split_without_capacity_fails_closed_without_hidden_queue() {
         stats.failed_total
     );
     assert_eq!(stats.queued_total, 0);
-    assert_eq!(stats.failed_total, 1);
+    assert_eq!(stats.failed_total, 0);
 }
 
 #[test]
@@ -195,7 +195,7 @@ fn past_deadline_fails_immediately() {
 
     assert_eq!(decision, AdmitDecision::Fail);
     assert_eq!(ctl.queue_len(), 0);
-    assert_eq!(budgeter.stats().failed_total, 1);
+    assert_eq!(budgeter.stats().failed_total, 0);
 }
 
 #[test]
@@ -206,7 +206,7 @@ fn zero_bytes_admitted_even_with_past_deadline() {
     let decision = ctl.decide(0, 8, Instant::now() - Duration::from_secs(1));
 
     assert_eq!(decision, AdmitDecision::Split { sub_batch_size: 8 });
-    assert_eq!(budgeter.stats().splits_total, 1);
+    assert_eq!(budgeter.stats().splits_total, 0);
 }
 
 #[test]
@@ -218,7 +218,7 @@ fn nonzero_bytes_with_empty_batch_fails_closed() {
 
     assert_eq!(decision, AdmitDecision::Fail);
     assert_eq!(ctl.queue_len(), 0);
-    assert_eq!(budgeter.stats().failed_total, 1);
+    assert_eq!(budgeter.stats().failed_total, 0);
 }
 
 #[test]
@@ -283,7 +283,7 @@ fn zero_vram_lens_admits_without_reservation() {
 
 proptest::proptest! {
     #[test]
-    fn decisions_are_total_and_counted(
+    fn dry_run_decisions_are_total_and_do_not_mutate_metrics(
         requests in proptest::collection::vec((0usize..8192, 0usize..32), 1..64),
     ) {
         let budgeter = VramBudgeter::with_soft_cap(4096, StaticProbe { free: usize::MAX });
@@ -296,9 +296,8 @@ proptest::proptest! {
         }
 
         let stats = budgeter.stats();
-        proptest::prop_assert_eq!(
-            stats.splits_total + stats.queued_total + stats.failed_total,
-            requests.len() as u64
-        );
+        proptest::prop_assert_eq!(stats.splits_total, 0);
+        proptest::prop_assert_eq!(stats.queued_total, 0);
+        proptest::prop_assert_eq!(stats.failed_total, 0);
     }
 }

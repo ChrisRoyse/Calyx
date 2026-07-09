@@ -122,6 +122,25 @@ fn topk_seed42_matches_cpu() -> Result<()> {
 }
 
 #[test]
+fn topk_multi_chunk_merge_matches_cpu() -> Result<()> {
+    let _guard = test_lock();
+    let mut scores = seeded_scores(2500, 1343);
+    scores[7] = 10.0;
+    scores[1030] = 12.0;
+    scores[2049] = 11.0;
+    scores[2499] = 9.5;
+
+    let gpu = CudaBackend::new()?.topk(&scores, 6)?;
+    let cpu = CpuBackend::new().topk(&scores, 6)?;
+    println!("CUDA_TOPK_MULTI_CHUNK {:?}", gpu);
+    assert_eq!(gpu, cpu);
+    assert_sorted(&gpu);
+    assert!(gpu.iter().any(|(idx, _)| *idx == 1030));
+    assert!(gpu.iter().any(|(idx, _)| *idx == 2049));
+    Ok(())
+}
+
+#[test]
 fn topk_large_k_fails_loud_when_exactness_not_guaranteed() -> Result<()> {
     let _guard = test_lock();
     let mut scores = vec![0.0; 2048];

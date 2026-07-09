@@ -23,7 +23,8 @@
 //! Eviction is synchronous and deterministic: no background thread. Admission
 //! control (T03) calls [`GpuBlockRegistry::evict_until`] before reserving.
 
-use std::collections::{HashMap, VecDeque};
+use std::collections::HashMap;
+use std::sync::Arc;
 
 use crate::Result;
 use crate::vram::{VramBudgeter, VramGuard, VramProbe};
@@ -63,12 +64,45 @@ pub trait BlockDeallocator: Send + Sync {
     fn free(&self, ptr: DevicePtr, size_bytes: usize) -> Result<()>;
 }
 
+/// A physical device free detached from registry bookkeeping.
+///
+/// Admission/OOM paths remove blocks and release their budget reservations
+/// while holding the registry mutex, then run this hardware boundary after the
+/// mutex guard is dropped. This avoids serializing concurrent admissions behind
+/// a `cudaFree` device sync.
+pub(crate) struct DeferredFree<D: BlockDeallocator> {
+    dealloc: Arc<D>,
+    id: BlockId,
+    ptr: DevicePtr,
+    size_bytes: usize,
+}
+
+impl<D: BlockDeallocator> DeferredFree<D> {
+    pub(crate) fn free(self) {
+        if let Err(err) = self.dealloc.free(self.ptr, self.size_bytes) {
+            tracing::error!(
+                target: "calyx_forge::vram",
+                code = err.code(),
+                error = %err,
+                block_id = self.id.0,
+                device_ptr = self.ptr.0,
+                size_bytes = self.size_bytes,
+                "cudaFree failed during eviction; budget reservation reclaimed regardless (mapping gone from registry)"
+            );
+        }
+    }
+}
+
 /// A GPU-resident block tracked by the registry. Owns its [`VramGuard`], so
 /// dropping the block releases the budget reservation.
 struct GpuBlock<'b, P: VramProbe> {
     ptr: DevicePtr,
     size_bytes: usize,
     kind: BlockKind,
+    prev: Option<BlockId>,
+    next: Option<BlockId>,
+    frontier_prev: Option<BlockId>,
+    frontier_next: Option<BlockId>,
     // Held solely for its RAII `Drop`: dropping the block releases this
     // budget reservation (decrementing the budgeter). Never read directly —
     // the dead-code lint does not model drop-for-effect. Its effect is proven
@@ -97,11 +131,16 @@ pub struct GpuBlockStats {
 /// is the `lru` deque: front is least-recently-used, back is most-recent.
 pub struct GpuBlockRegistry<'b, P: VramProbe, D: BlockDeallocator> {
     blocks: HashMap<BlockId, GpuBlock<'b, P>>,
-    /// LRU order: front = LRU (next to evict), back = MRU.
-    lru: VecDeque<BlockId>,
+    /// LRU order: head = LRU (next to evict), tail = MRU.
+    lru_head: Option<BlockId>,
+    lru_tail: Option<BlockId>,
+    frontier_head: Option<BlockId>,
+    frontier_tail: Option<BlockId>,
     budgeter: &'b VramBudgeter<P>,
-    dealloc: D,
+    dealloc: Arc<D>,
     max_frontier_blocks: usize,
+    resident_bytes: usize,
+    frontier_count: usize,
     evictions_total: u64,
 }
 
@@ -111,10 +150,15 @@ impl<'b, P: VramProbe, D: BlockDeallocator> GpuBlockRegistry<'b, P, D> {
     pub fn new(budgeter: &'b VramBudgeter<P>, dealloc: D, max_frontier_blocks: usize) -> Self {
         Self {
             blocks: HashMap::new(),
-            lru: VecDeque::new(),
+            lru_head: None,
+            lru_tail: None,
+            frontier_head: None,
+            frontier_tail: None,
             budgeter,
-            dealloc,
+            dealloc: Arc::new(dealloc),
             max_frontier_blocks,
+            resident_bytes: 0,
+            frontier_count: 0,
             evictions_total: 0,
         }
     }
@@ -148,10 +192,19 @@ impl<'b, P: VramProbe, D: BlockDeallocator> GpuBlockRegistry<'b, P, D> {
                 ptr,
                 size_bytes: size,
                 kind,
+                prev: None,
+                next: None,
+                frontier_prev: None,
+                frontier_next: None,
                 guard,
             },
         );
-        self.lru.push_back(id);
+        self.resident_bytes = self.resident_bytes.saturating_add(size);
+        if kind == BlockKind::Frontier {
+            self.frontier_count = self.frontier_count.saturating_add(1);
+            self.link_frontier_mru(id);
+        }
+        self.link_mru(id);
     }
 
     /// Promote `id` to most-recently-used. No-op if absent.
@@ -177,7 +230,7 @@ impl<'b, P: VramProbe, D: BlockDeallocator> GpuBlockRegistry<'b, P, D> {
     /// `CALYX_*` code but does NOT abort the eviction — the budget reservation
     /// is reclaimed regardless, since the block is gone from Forge's registry.
     pub fn evict_lru(&mut self) -> Option<usize> {
-        let id = self.lru.front().copied()?;
+        let id = self.lru_head?;
         Some(self.remove_block(&id))
     }
 
@@ -188,22 +241,39 @@ impl<'b, P: VramProbe, D: BlockDeallocator> GpuBlockRegistry<'b, P, D> {
     ///
     /// [`crate::ForgeError::VramBudget`]: crate::ForgeError::VramBudget
     pub fn evict_until(&mut self, needed_bytes: usize) -> Result<()> {
+        let (result, deferred) = self.evict_until_deferred(needed_bytes);
+        for free in deferred {
+            free.free();
+        }
+        result
+    }
+
+    pub(crate) fn evict_until_deferred(
+        &mut self,
+        needed_bytes: usize,
+    ) -> (Result<()>, Vec<DeferredFree<D>>) {
         let soft_cap = self.budgeter.soft_cap_bytes();
+        let mut deferred = Vec::new();
         while self.budgeter.allocated_bytes().saturating_add(needed_bytes) > soft_cap {
-            if self.evict_lru().is_none() {
+            if let Some(free) = self.evict_lru_deferred() {
+                deferred.push(free);
+            } else {
                 // Registry empty but still over budget: fail closed, do not
                 // pretend space exists.
-                return Err(crate::ForgeError::VramBudget {
-                    detail: format!(
-                        "eviction exhausted the GPU block registry but {needed} bytes still do not fit: allocated={alloc}, soft_cap={soft_cap}",
-                        needed = needed_bytes,
-                        alloc = self.budgeter.allocated_bytes(),
-                    ),
-                    remediation: crate::vram::VRAM_BUDGET_REMEDIATION.to_string(),
-                });
+                return (
+                    Err(crate::ForgeError::VramBudget {
+                        detail: format!(
+                            "eviction exhausted the GPU block registry but {needed} bytes still do not fit: allocated={alloc}, soft_cap={soft_cap}",
+                            needed = needed_bytes,
+                            alloc = self.budgeter.allocated_bytes(),
+                        ),
+                        remediation: crate::vram::VRAM_BUDGET_REMEDIATION.to_string(),
+                    }),
+                    deferred,
+                );
             }
         }
-        Ok(())
+        (Ok(()), deferred)
     }
 
     /// Snapshot the registry accounting (the FSV Source of Truth).
@@ -217,32 +287,32 @@ impl<'b, P: VramProbe, D: BlockDeallocator> GpuBlockRegistry<'b, P, D> {
 
     /// Sum of resident block sizes.
     pub fn resident_bytes(&self) -> usize {
-        self.blocks.values().map(|block| block.size_bytes).sum()
+        self.resident_bytes
     }
 
     /// Number of resident frontier blocks.
     pub fn frontier_count(&self) -> usize {
-        self.blocks
-            .values()
-            .filter(|block| block.kind == BlockKind::Frontier)
-            .count()
+        self.frontier_count
     }
 
     /// Move `id` to the MRU end of the LRU deque. Caller guarantees presence.
     fn move_to_mru(&mut self, id: &BlockId) {
-        if let Some(pos) = self.lru.iter().position(|entry| entry == id) {
-            self.lru.remove(pos);
+        let kind = self
+            .blocks
+            .get(id)
+            .expect("move_to_mru called for a tracked id")
+            .kind;
+        self.unlink_lru(*id);
+        self.link_mru(*id);
+        if kind == BlockKind::Frontier {
+            self.unlink_frontier(*id);
+            self.link_frontier_mru(*id);
         }
-        self.lru.push_back(*id);
     }
 
     /// Evict the oldest (closest-to-LRU) frontier block. `None` if none exist.
     fn evict_oldest_frontier(&mut self) -> Option<usize> {
-        let id = self.lru.iter().copied().find(|id| {
-            self.blocks
-                .get(id)
-                .is_some_and(|block| block.kind == BlockKind::Frontier)
-        })?;
+        let id = self.frontier_head?;
         Some(self.remove_block(&id))
     }
 
@@ -255,32 +325,138 @@ impl<'b, P: VramProbe, D: BlockDeallocator> GpuBlockRegistry<'b, P, D> {
 
     /// Remove `id`: free GPU memory, drop the guard, drop LRU bookkeeping,
     /// bump the eviction counter. Returns freed bytes. Caller guarantees `id`
-    /// is present in `lru`/`blocks` consistently.
+    /// is present in the linked-list/books consistently.
     fn remove_block(&mut self, id: &BlockId) -> usize {
-        if let Some(pos) = self.lru.iter().position(|entry| entry == id) {
-            self.lru.remove(pos);
+        let (size, deferred) = self.detach_block(id);
+        deferred.free();
+        size
+    }
+
+    pub(crate) fn evict_lru_deferred(&mut self) -> Option<DeferredFree<D>> {
+        let id = self.lru_head?;
+        Some(self.detach_block(&id).1)
+    }
+
+    /// Remove `id` from registry state and return the physical free to run
+    /// after any caller-held lock is dropped.
+    fn detach_block(&mut self, id: &BlockId) -> (usize, DeferredFree<D>) {
+        let kind = self
+            .blocks
+            .get(id)
+            .expect("remove_block called for a tracked id")
+            .kind;
+        self.unlink_lru(*id);
+        if kind == BlockKind::Frontier {
+            self.unlink_frontier(*id);
         }
         let block = self
             .blocks
             .remove(id)
             .expect("remove_block called for a tracked id");
         let size = block.size_bytes;
-        if let Err(err) = self.dealloc.free(block.ptr, size) {
-            tracing::error!(
-                target: "calyx_forge::vram",
-                code = err.code(),
-                error = %err,
-                block_id = id.0,
-                device_ptr = block.ptr.0,
-                size_bytes = size,
-                "cudaFree failed during eviction; budget reservation reclaimed regardless (mapping gone from registry)"
-            );
+        self.resident_bytes = self.resident_bytes.saturating_sub(size);
+        if kind == BlockKind::Frontier {
+            self.frontier_count = self.frontier_count.saturating_sub(1);
         }
+        let deferred = DeferredFree {
+            dealloc: Arc::clone(&self.dealloc),
+            id: *id,
+            ptr: block.ptr,
+            size_bytes: size,
+        };
         // Dropping `block` here releases its VramGuard, decrementing the
         // budgeter's allocated_bytes by `size`.
         drop(block);
         self.evictions_total += 1;
-        size
+        (size, deferred)
+    }
+
+    fn link_mru(&mut self, id: BlockId) {
+        let prev = self.lru_tail;
+        if let Some(block) = self.blocks.get_mut(&id) {
+            block.prev = prev;
+            block.next = None;
+        }
+        if let Some(prev_id) = prev {
+            self.blocks
+                .get_mut(&prev_id)
+                .expect("LRU tail must be tracked")
+                .next = Some(id);
+        } else {
+            self.lru_head = Some(id);
+        }
+        self.lru_tail = Some(id);
+    }
+
+    fn unlink_lru(&mut self, id: BlockId) {
+        let (prev, next) = {
+            let block = self.blocks.get(&id).expect("LRU id must be tracked");
+            (block.prev, block.next)
+        };
+        if let Some(prev_id) = prev {
+            self.blocks
+                .get_mut(&prev_id)
+                .expect("LRU prev must be tracked")
+                .next = next;
+        } else {
+            self.lru_head = next;
+        }
+        if let Some(next_id) = next {
+            self.blocks
+                .get_mut(&next_id)
+                .expect("LRU next must be tracked")
+                .prev = prev;
+        } else {
+            self.lru_tail = prev;
+        }
+        if let Some(block) = self.blocks.get_mut(&id) {
+            block.prev = None;
+            block.next = None;
+        }
+    }
+
+    fn link_frontier_mru(&mut self, id: BlockId) {
+        let prev = self.frontier_tail;
+        if let Some(block) = self.blocks.get_mut(&id) {
+            block.frontier_prev = prev;
+            block.frontier_next = None;
+        }
+        if let Some(prev_id) = prev {
+            self.blocks
+                .get_mut(&prev_id)
+                .expect("frontier tail must be tracked")
+                .frontier_next = Some(id);
+        } else {
+            self.frontier_head = Some(id);
+        }
+        self.frontier_tail = Some(id);
+    }
+
+    fn unlink_frontier(&mut self, id: BlockId) {
+        let (prev, next) = {
+            let block = self.blocks.get(&id).expect("frontier id must be tracked");
+            (block.frontier_prev, block.frontier_next)
+        };
+        if let Some(prev_id) = prev {
+            self.blocks
+                .get_mut(&prev_id)
+                .expect("frontier prev must be tracked")
+                .frontier_next = next;
+        } else {
+            self.frontier_head = next;
+        }
+        if let Some(next_id) = next {
+            self.blocks
+                .get_mut(&next_id)
+                .expect("frontier next must be tracked")
+                .frontier_prev = prev;
+        } else {
+            self.frontier_tail = prev;
+        }
+        if let Some(block) = self.blocks.get_mut(&id) {
+            block.frontier_prev = None;
+            block.frontier_next = None;
+        }
     }
 }
 

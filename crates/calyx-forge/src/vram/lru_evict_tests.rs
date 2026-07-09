@@ -221,6 +221,25 @@ fn frontier_cap_evicts_oldest_frontier_before_general() {
 }
 
 #[test]
+fn touching_frontier_updates_frontier_lru_order() {
+    let budgeter = VramBudgeter::with_soft_cap(GIB, StaticProbe { free: 64 * GIB });
+    let dealloc = RecordingDealloc::new();
+    let mut reg = GpuBlockRegistry::new(&budgeter, dealloc.clone(), 2);
+
+    ins(&mut reg, &budgeter, 1, 10 * MIB, BlockKind::Frontier);
+    ins(&mut reg, &budgeter, 2, 10 * MIB, BlockKind::Frontier);
+    reg.touch(&BlockId(1));
+    ins(&mut reg, &budgeter, 3, 10 * MIB, BlockKind::Frontier);
+
+    println!("FRONTIER_TOUCH freed={:?}", dealloc.freed());
+    assert_eq!(dealloc.freed(), vec![(0x1002, 10 * MIB)]);
+    assert_eq!(reg.frontier_count(), 2);
+    assert_eq!(reg.get(&BlockId(1)), Some(DevicePtr(0x1001)));
+    assert!(reg.get(&BlockId(2)).is_none());
+    assert_eq!(reg.get(&BlockId(3)), Some(DevicePtr(0x1003)));
+}
+
+#[test]
 fn zero_size_block_does_not_count_against_budget() {
     let budgeter = VramBudgeter::with_soft_cap(GIB, StaticProbe { free: 64 * GIB });
     let dealloc = RecordingDealloc::new();

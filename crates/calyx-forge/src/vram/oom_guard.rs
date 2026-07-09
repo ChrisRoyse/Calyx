@@ -163,16 +163,20 @@ impl<'b, P: VramProbe, D: BlockDeallocator, A: CudaMalloc> OomGuard<'b, P, D, A>
     }
 
     fn evict_after_oom(&self, size: usize, attempt: u8) -> Result<()> {
-        let mut registry = self.registry.lock().map_err(|_| {
-            self.final_budget_failure(format!(
-                "OOM guard could not lock GPU block registry after cudaMalloc OOM: requested_bytes={size} attempt={attempt}"
-            ))
-        })?;
-        if registry.evict_lru().is_none() {
+        let deferred = {
+            let mut registry = self.registry.lock().map_err(|_| {
+                self.final_budget_failure(format!(
+                    "OOM guard could not lock GPU block registry after cudaMalloc OOM: requested_bytes={size} attempt={attempt}"
+                ))
+            })?;
+            registry.evict_lru_deferred()
+        };
+        let Some(free) = deferred else {
             return Err(self.final_budget_failure(format!(
                 "cudaMalloc OOM and no GPU blocks were evictable: requested_bytes={size} attempt={attempt}"
             )));
-        }
+        };
+        free.free();
         Ok(())
     }
 
