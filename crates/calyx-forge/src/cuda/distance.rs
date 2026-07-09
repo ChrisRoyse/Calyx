@@ -6,6 +6,7 @@ use cudarc::nvrtc::Ptx;
 
 use crate::cpu::{check_finite, check_shape_2d};
 use crate::cuda::kernels::{DISTANCE_CUBIN, DISTANCE_PTX};
+use crate::cuda::validate::{check_device_f32, read_checked_device_f32};
 use crate::{CudaContext, ForgeError, Result};
 
 const BLOCK_THREADS: u32 = 256;
@@ -266,9 +267,6 @@ fn launch_distance(
             .launch(cfg)
     }
     .map_err(|err| device_unavailable(ctx, format!("{op} kernel launch failed: {err}")))?;
-    stream
-        .synchronize()
-        .map_err(|err| device_unavailable(ctx, format!("{op} stream sync failed: {err}")))?;
     Ok(())
 }
 
@@ -299,13 +297,10 @@ fn launch_normalize(
     let mut launch = stream.launch_builder(&func);
     unsafe { launch.arg(vecs).arg(&dim_i32).arg(&rows_i32).launch(cfg) }
         .map_err(|err| device_unavailable(ctx, format!("normalize kernel launch failed: {err}")))?;
-    stream
-        .synchronize()
-        .map_err(|err| device_unavailable(ctx, format!("normalize stream sync failed: {err}")))?;
     Ok(())
 }
 
-fn distance_module(ctx: &CudaContext) -> Result<Arc<CudaModule>> {
+pub(crate) fn distance_module(ctx: &CudaContext) -> Result<Arc<CudaModule>> {
     if let Some(module) = ctx.distance_module_cache().get() {
         return Ok(module.clone());
     }
@@ -349,7 +344,7 @@ fn check_device_output(
     out: &CudaSlice<f32>,
     sentinel: bool,
 ) -> Result<()> {
-    read_checked_device_output(ctx, op, out, sentinel).map(|_| ())
+    check_device_f32(ctx, op, out, sentinel, DISTANCE_REMEDIATION)
 }
 
 pub(crate) fn read_checked_device_output(
@@ -358,26 +353,7 @@ pub(crate) fn read_checked_device_output(
     out: &CudaSlice<f32>,
     sentinel: bool,
 ) -> Result<Vec<f32>> {
-    let values = ctx
-        .inner()
-        .default_stream()
-        .clone_dtoh(out)
-        .map_err(|err| device_unavailable(ctx, format!("{op} output readback failed: {err}")))?;
-    for (idx, value) in values.iter().enumerate() {
-        if sentinel && *value <= -1.5 {
-            return Err(numerical(
-                op,
-                format!("zero-norm query or candidate at index {idx}"),
-            ));
-        }
-        if !value.is_finite() {
-            return Err(numerical(
-                op,
-                format!("non-finite output at index {idx}: {value}"),
-            ));
-        }
-    }
-    Ok(values)
+    read_checked_device_f32(ctx, op, out, sentinel, DISTANCE_REMEDIATION)
 }
 
 fn validate_host_inputs(
@@ -442,14 +418,6 @@ fn to_i32(value: usize, name: &str) -> Result<i32> {
         got: vec![value],
         remediation: format!("cuda distance {name} exceeds i32 kernel argument limit"),
     })
-}
-
-fn numerical(op: &'static str, detail: String) -> ForgeError {
-    ForgeError::NumericalInvariant {
-        op: op.to_string(),
-        detail,
-        remediation: DISTANCE_REMEDIATION.to_string(),
-    }
 }
 
 fn device_unavailable(ctx: &CudaContext, detail: String) -> ForgeError {

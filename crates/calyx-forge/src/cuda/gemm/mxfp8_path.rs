@@ -1,6 +1,7 @@
 use cudarc::driver::CudaSlice;
 
 use super::gemm_cublas;
+use crate::cuda::validate::check_device_f32;
 use crate::{CudaContext, ForgeError, MXFP8_BLOCK_SIZE, MxFp8Block, Result, decode_mxfp8};
 
 const MXFP8_DEVICE_REMEDIATION: &str =
@@ -40,9 +41,6 @@ pub fn gemm_mxfp8_fp32_accum(
         .clone_htod(&b)
         .map_err(|err| device_unavailable(ctx, format!("copy decoded MXFP8 B failed: {err}")))?;
     gemm_cublas(ctx, &a_dev, &b_dev, m, k, n, out)?;
-    stream
-        .synchronize()
-        .map_err(|err| device_unavailable(ctx, format!("sync MXFP8 GEMM failed: {err}")))?;
     check_output_finite(ctx, out)
 }
 
@@ -61,21 +59,13 @@ fn validate_shapes(
 }
 
 fn check_output_finite(ctx: &CudaContext, out: &CudaSlice<f32>) -> Result<()> {
-    let values = ctx
-        .inner()
-        .default_stream()
-        .clone_dtoh(out)
-        .map_err(|err| device_unavailable(ctx, format!("read MXFP8 output failed: {err}")))?;
-    for (idx, value) in values.iter().enumerate() {
-        if !value.is_finite() {
-            return Err(ForgeError::NumericalInvariant {
-                op: "gemm_mxfp8_fp32_accum".to_string(),
-                detail: format!("non-finite output at index {idx}: {value}"),
-                remediation: MXFP8_NUMERICAL_REMEDIATION.to_string(),
-            });
-        }
-    }
-    Ok(())
+    check_device_f32(
+        ctx,
+        "gemm_mxfp8_fp32_accum",
+        out,
+        false,
+        MXFP8_NUMERICAL_REMEDIATION,
+    )
 }
 
 fn block_count(rows: usize, cols: usize) -> Result<usize> {

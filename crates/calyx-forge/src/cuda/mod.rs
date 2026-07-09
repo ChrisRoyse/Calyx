@@ -15,6 +15,7 @@ mod resident_tests;
 pub mod topk;
 #[cfg(test)]
 mod topk_tests;
+mod validate;
 
 use crate::{Backend, DeviceInfo, Result};
 

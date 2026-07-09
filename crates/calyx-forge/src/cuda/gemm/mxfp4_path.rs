@@ -5,6 +5,7 @@ use cudarc::driver::{CudaModule, CudaSlice, LaunchConfig, PushKernelArg};
 use cudarc::nvrtc::Ptx;
 
 use crate::cuda::kernels::{MXFP4_GEMM_CUBIN, MXFP4_GEMM_PTX};
+use crate::cuda::validate::check_device_f32;
 use crate::{CudaContext, ForgeError, MXFP4_BLOCK_SIZE, MXFP4_PACKED_BYTES, MxFp4Block, Result};
 
 const MXFP4_THREADS: u32 = 128;
@@ -159,9 +160,6 @@ fn launch_mxfp4_kernel(
             .launch(cfg)
     }
     .map_err(|err| device_unavailable(ctx, format!("launch MXFP4 GEMM kernel failed: {err}")))?;
-    stream
-        .synchronize()
-        .map_err(|err| device_unavailable(ctx, format!("sync MXFP4 GEMM kernel failed: {err}")))?;
     Ok(())
 }
 
@@ -204,21 +202,13 @@ fn mxfp4_ptx_module(
 }
 
 fn check_output_finite(ctx: &CudaContext, out: &CudaSlice<f32>) -> Result<()> {
-    let values = ctx
-        .inner()
-        .default_stream()
-        .clone_dtoh(out)
-        .map_err(|err| device_unavailable(ctx, format!("read MXFP4 output failed: {err}")))?;
-    for (idx, value) in values.iter().enumerate() {
-        if !value.is_finite() {
-            return Err(ForgeError::NumericalInvariant {
-                op: "gemm_mxfp4_fp32_accum".to_string(),
-                detail: format!("non-finite output at index {idx}: {value}"),
-                remediation: MXFP4_NUMERICAL_REMEDIATION.to_string(),
-            });
-        }
-    }
-    Ok(())
+    check_device_f32(
+        ctx,
+        "gemm_mxfp4_fp32_accum",
+        out,
+        false,
+        MXFP4_NUMERICAL_REMEDIATION,
+    )
 }
 
 fn block_count(rows: usize, cols: usize) -> Result<usize> {

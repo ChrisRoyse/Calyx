@@ -6,6 +6,9 @@ use cudarc::cublas::{CudaBlas, result::CublasError, sys};
 use cudarc::driver::{CudaSlice, DevicePtr, DevicePtrMut};
 
 use crate::cpu::check_finite;
+use crate::cuda::validate::{
+    DeviceRange, audit_output_enabled, check_finite_ranges, check_sentinel_ranges,
+};
 use crate::{CudaContext, ForgeError, Result};
 use launch::{LaunchData, launch_grouped, launch_sequential};
 
@@ -301,7 +304,50 @@ fn validate_active_again(plan: &GroupedGemmPlan) -> Result<()> {
 }
 
 fn check_device_output(ctx: &CudaContext, plan: &GroupedGemmPlan) -> Result<()> {
-    let values = read_device(ctx, &plan.c_slab)?;
+    if audit_output_enabled() {
+        let values = read_device(ctx, &plan.c_slab)?;
+        check_active_outputs(&values, plan)?;
+        return check_absent_sentinels(&values, &plan.absent_sentinel_ranges);
+    }
+
+    let active_ranges = active_output_ranges(plan)?;
+    check_finite_ranges(
+        ctx,
+        "execute_grouped_gemm",
+        &plan.c_slab,
+        &active_ranges,
+        GROUPED_REMEDIATION,
+    )?;
+    let sentinel_ranges: Vec<DeviceRange> = plan
+        .absent_sentinel_ranges
+        .iter()
+        .map(|range| DeviceRange {
+            offset: range.c_offset,
+            len: range.len,
+        })
+        .collect();
+    check_sentinel_ranges(
+        ctx,
+        "execute_grouped_gemm",
+        &plan.c_slab,
+        &sentinel_ranges,
+        ABSENT_SENTINEL.to_bits(),
+        GROUPED_REMEDIATION,
+    )
+}
+
+fn active_output_ranges(plan: &GroupedGemmPlan) -> Result<Vec<DeviceRange>> {
+    let mut ranges = Vec::with_capacity(plan.active.len());
+    for item in &plan.active {
+        ranges.push(DeviceRange {
+            offset: item.problem.c_offset,
+            len: matrix_len(item.problem.m, item.problem.n, "grouped C")?,
+        });
+    }
+    Ok(ranges)
+}
+
+fn check_active_outputs(values: &[f32], plan: &GroupedGemmPlan) -> Result<()> {
     for item in &plan.active {
         let problem = item.problem;
         let start = problem.c_offset;
@@ -319,7 +365,7 @@ fn check_device_output(ctx: &CudaContext, plan: &GroupedGemmPlan) -> Result<()> 
             }
         }
     }
-    check_absent_sentinels(&values, &plan.absent_sentinel_ranges)
+    Ok(())
 }
 
 fn check_absent_sentinels(values: &[f32], sentinels: &[AbsentSlotSentinel]) -> Result<()> {

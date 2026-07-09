@@ -200,3 +200,51 @@ extern "C" __global__ __launch_bounds__(256) void normalize_rows_f32(
         vecs[base + i] = isfinite(scale_shared) ? vecs[base + i] * scale_shared : NAN;
     }
 }
+
+extern "C" __global__ __launch_bounds__(256) void validate_f32_flags(
+    const float *values,
+    int len,
+    int sentinel_mode,
+    unsigned int *flags) {
+    const int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx >= len) {
+        return;
+    }
+
+    const float value = values[idx];
+    if (!isfinite(value)) {
+        atomicOr(flags, 1u);
+    }
+    if (sentinel_mode && value <= -1.5f) {
+        atomicOr(flags, 2u);
+    }
+}
+
+extern "C" __global__ __launch_bounds__(256) void validate_f32_ranges_flags(
+    const float *values,
+    const int *ranges,
+    int range_count,
+    unsigned int expected_bits,
+    int expected_bits_mode,
+    unsigned int *flags) {
+    const int rel_idx = blockIdx.x * blockDim.x + threadIdx.x;
+    const int range_idx = blockIdx.y;
+    if (range_idx >= range_count) {
+        return;
+    }
+
+    const int offset = ranges[range_idx * 2];
+    const int len = ranges[range_idx * 2 + 1];
+    if (rel_idx >= len) {
+        return;
+    }
+
+    const float value = values[offset + rel_idx];
+    if (expected_bits_mode) {
+        if (__float_as_uint(value) != expected_bits) {
+            atomicOr(flags, 4u);
+        }
+    } else if (!isfinite(value)) {
+        atomicOr(flags, 1u);
+    }
+}
