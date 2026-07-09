@@ -15,6 +15,7 @@
 //! [`ZfsEncryptionStatus::ZfsNotAvailable`], not an error.
 
 use std::fmt;
+use std::path::Path;
 use std::process::Command;
 
 /// Result of probing a ZFS dataset's `encryption` property.
@@ -71,6 +72,56 @@ pub fn probe_zfs_encryption(dataset: &str) -> ZfsEncryptionStatus {
         ),
         // zfs binary missing / not executable / blocked — fine in dev.
         Err(_) => ZfsEncryptionStatus::ZfsNotAvailable,
+    }
+}
+
+/// Probes the ZFS dataset that owns `path` by resolving the longest matching
+/// mountpoint from `zfs list`. Hosts without ZFS return `ZfsNotAvailable`.
+pub fn probe_zfs_encryption_for_path(path: impl AsRef<Path>) -> ZfsEncryptionStatus {
+    #[cfg(not(target_family = "unix"))]
+    {
+        let _ = path;
+        ZfsEncryptionStatus::ZfsNotAvailable
+    }
+    #[cfg(target_family = "unix")]
+    {
+        let path = path
+            .as_ref()
+            .canonicalize()
+            .unwrap_or_else(|_| path.as_ref().to_path_buf());
+        let output = Command::new("zfs")
+            .args(["list", "-H", "-o", "name,mountpoint"])
+            .output();
+        let Ok(output) = output else {
+            return ZfsEncryptionStatus::ZfsNotAvailable;
+        };
+        if !output.status.success() {
+            return ZfsEncryptionStatus::ZfsNotAvailable;
+        }
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let mut best = None::<(&str, usize)>;
+        for line in stdout.lines() {
+            let mut parts = line.split('\t');
+            let Some(dataset) = parts.next() else {
+                continue;
+            };
+            let Some(mountpoint) = parts.next() else {
+                continue;
+            };
+            if mountpoint == "-" {
+                continue;
+            }
+            let mount = Path::new(mountpoint);
+            if path.starts_with(mount) {
+                let len = mount.as_os_str().len();
+                if best.is_none_or(|(_, best_len)| len > best_len) {
+                    best = Some((dataset, len));
+                }
+            }
+        }
+        best.map_or(ZfsEncryptionStatus::ZfsNotAvailable, |(dataset, _)| {
+            probe_zfs_encryption(dataset)
+        })
     }
 }
 
@@ -225,5 +276,18 @@ mod tests {
         // Advisory path: returns a status, never panics/fails.
         let status = assert_encrypted_or_warn("tank/calyx-nonexistent-probe-xyz");
         println!("assert_encrypted_or_warn(...) = {status:?}");
+    }
+
+    #[test]
+    fn path_probe_returns_status_without_fake_dataset() {
+        let status = probe_zfs_encryption_for_path(std::env::temp_dir());
+        println!("probe_zfs_encryption_for_path(temp_dir) = {status:?}");
+        assert!(matches!(
+            status,
+            ZfsEncryptionStatus::ZfsNotAvailable
+                | ZfsEncryptionStatus::DatasetNotFound { .. }
+                | ZfsEncryptionStatus::Disabled
+                | ZfsEncryptionStatus::Enabled { .. }
+        ));
     }
 }

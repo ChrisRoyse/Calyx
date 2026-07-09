@@ -128,7 +128,7 @@ where
     let provisional = prediction
         .guard
         .as_ref()
-        .map_or(true, |guard| guard.provisional);
+        .is_none_or(|guard| guard.provisional);
     let trust = if provisional {
         TrustTag::Provisional
     } else {

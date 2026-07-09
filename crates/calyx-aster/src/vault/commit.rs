@@ -47,13 +47,21 @@ where
         let current = self.latest_seq();
         let recovered = durable.recover_current_batches()?;
         if let Some(hook) = &self.ledger_hook {
-            ledger_hook::refresh_hook(
-                hook,
-                durable.root(),
-                &recovered,
-                durable.ledger_checkpoint(),
-                durable.tiering_policy(),
-            )?;
+            if durable.value_crypto_enabled() {
+                ledger_hook::refresh_hook_from_recovery(
+                    hook,
+                    &recovered,
+                    durable.ledger_checkpoint(),
+                )?;
+            } else {
+                ledger_hook::refresh_hook(
+                    hook,
+                    durable.root(),
+                    &recovered,
+                    durable.ledger_checkpoint(),
+                    durable.tiering_policy(),
+                )?;
+            }
         }
         self.replace_retention_horizon(recovered.retention_horizon.clone())?;
         self.rows

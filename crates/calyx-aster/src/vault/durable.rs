@@ -12,6 +12,7 @@ use crate::dedup::DedupPolicy;
 use crate::manifest::recover_vault;
 use crate::pressure::DiskPressureGuard;
 use crate::resource::ResourceCounters;
+use crate::security::value_crypto::{SharedVaultContext, open_rows, seal_rows};
 use crate::timetravel::RetentionHorizon;
 use crate::wal::{GroupCommitBatcher, WalOptions, replay_dir};
 use calyx_core::{CalyxError, Panel, Result, SystemClock, TemporalPolicy};
@@ -38,6 +39,8 @@ pub struct VaultOptions {
     /// location is pinned and off-dataset writes/copies fail closed.
     pub residency: Option<crate::residency::Residency>,
     pub disk_pressure_guard: Option<DiskPressureGuard>,
+    /// Optional authenticated value encryption context for durable bytes.
+    pub value_crypto: Option<SharedVaultContext>,
     /// Restores checkpointed durable-batch/compacted SST rows plus the WAL
     /// tail into the in-memory MVCC table on open. Router memtable-flush SSTs
     /// carry flush ordinals, not commit seqs, so they are never restored; the
@@ -71,6 +74,7 @@ impl Default for VaultOptions {
             panel: None,
             residency: None,
             disk_pressure_guard: None,
+            value_crypto: None,
             restore_mvcc_rows: true,
             restore_ledger_hook: true,
             read_only: false,
@@ -90,6 +94,7 @@ pub(super) struct DurableVault {
     retention_horizon: Mutex<RetentionHorizon>,
     panel: Option<Panel>,
     disk_pressure_guard: Option<DiskPressureGuard>,
+    value_crypto: Option<SharedVaultContext>,
     pending_checkpoint: Mutex<Vec<(u64, Vec<WriteRow>)>>,
     /// Max checkpointed seq whose batch wrote derived-search-content CF rows
     /// (issue #1100); persisted into every manifest write as
@@ -196,6 +201,7 @@ impl DurableVault {
             retention_horizon: Mutex::new(options.retention_horizon.clone()),
             panel: options.panel.clone(),
             disk_pressure_guard: options.disk_pressure_guard.clone(),
+            value_crypto: options.value_crypto.clone(),
             pending_checkpoint: Mutex::new(Vec::new()),
             checkpointed_derived_content_seq: AtomicU64::new(0),
             #[cfg(test)]
@@ -234,10 +240,19 @@ impl DurableVault {
             } else {
                 Vec::new()
             };
+            for batch in &mut batches {
+                batch.rows = open_rows(
+                    options.value_crypto.as_ref(),
+                    std::mem::take(&mut batch.rows),
+                )?;
+            }
             for record in recovery.wal_records {
                 batches.push(RecoveredBatch {
                     seq: record.seq,
-                    rows: decode_write_batch(&record.payload)?,
+                    rows: open_rows(
+                        options.value_crypto.as_ref(),
+                        decode_write_batch(&record.payload)?,
+                    )?,
                 });
             }
             return Ok(RecoveredBatches {
@@ -261,7 +276,10 @@ impl DurableVault {
             .map(|record| {
                 Ok(RecoveredBatch {
                     seq: record.seq,
-                    rows: decode_write_batch(&record.payload)?,
+                    rows: open_rows(
+                        options.value_crypto.as_ref(),
+                        decode_write_batch(&record.payload)?,
+                    )?,
                 })
             })
             .collect::<Result<_>>()?;
@@ -283,7 +301,8 @@ impl DurableVault {
         if self.fail_next_wal_append.swap(false, Ordering::SeqCst) {
             return Err(CalyxError::disk_pressure("injected WAL append failure"));
         }
-        let payload = encode_write_batch(rows)?;
+        let sealed_rows = seal_rows(self.value_crypto.as_ref(), rows)?;
+        let payload = encode_write_batch(&sealed_rows)?;
         let ack = self.batcher.submit(payload)?;
         Ok(ack.seq)
     }
@@ -343,6 +362,10 @@ impl DurableVault {
         &self.root
     }
 
+    pub(super) fn value_crypto_enabled(&self) -> bool {
+        self.value_crypto.is_some()
+    }
+
     pub(super) fn recurrence_lock_path(&self) -> PathBuf {
         self.root.join("locks").join("recurrence.write.lock")
     }
@@ -360,6 +383,7 @@ impl DurableVault {
             retention_horizon: self.retention_horizon(),
             panel: self.panel.clone(),
             disk_pressure_guard: self.disk_pressure_guard.clone(),
+            value_crypto: self.value_crypto.clone(),
             restore_mvcc_rows: true,
             ..VaultOptions::default()
         };

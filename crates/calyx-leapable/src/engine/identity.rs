@@ -10,6 +10,7 @@ use super::EngineResult;
 
 pub(super) const SALT_FILE_NAME: &str = "salt";
 const SALT_LEN: usize = 32;
+const LEGACY_SALT_LEN: usize = 16;
 const CALYX_LEAPABLE_SALT_INVALID: &str = "CALYX_LEAPABLE_SALT_INVALID";
 const CALYX_LEAPABLE_SALT_IO: &str = "CALYX_LEAPABLE_SALT_IO";
 
@@ -79,10 +80,17 @@ fn validate_salt(bytes: Vec<u8>, path: &Path) -> EngineResult<Vec<u8>> {
     if bytes.len() == SALT_LEN {
         return Ok(bytes);
     }
+    if bytes.len() == LEGACY_SALT_LEN {
+        eprintln!(
+            "calyx-leapable: CALYX_LEAPABLE_LEGACY_SALT: legacy salt file {} has {LEGACY_SALT_LEN} bytes",
+            path.display()
+        );
+        return Ok(bytes);
+    }
     Err(salt_error(
         CALYX_LEAPABLE_SALT_INVALID,
         format!(
-            "salt file {} has {} bytes, expected {SALT_LEN}",
+            "salt file {} has {} bytes, expected {SALT_LEN} or legacy {LEGACY_SALT_LEN}",
             path.display(),
             bytes.len()
         ),

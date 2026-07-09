@@ -3,7 +3,8 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use calyx_aster::verify_restore::verify_restore;
+use calyx_aster::security::SharedVaultContext;
+use calyx_aster::verify_restore::{verify_restore, verify_restore_with_value_crypto};
 use calyx_core::{CalyxError, Result};
 use serde_json::{Value, json};
 
@@ -119,6 +120,19 @@ pub fn remove_dir(path: &Path) -> Result<()> {
 /// Runs Aster restore verification and appends pass/fail reasons to the JSON report.
 pub fn verify_restore_value(path: &Path) -> Result<Value> {
     let report = verify_restore(path)?;
+    restore_report_value(report)
+}
+
+/// Runs encrypted Aster restore verification and appends pass/fail reasons.
+pub fn verify_restore_value_with_crypto(
+    path: &Path,
+    context: &SharedVaultContext,
+) -> Result<Value> {
+    let report = verify_restore_with_value_crypto(path, context)?;
+    restore_report_value(report)
+}
+
+fn restore_report_value(report: calyx_aster::verify_restore::VerifyRestoreReport) -> Result<Value> {
     let success = report.success();
     let failure_reasons = report.failure_reasons();
     let mut value = serde_json::to_value(&report).map_err(|error| {

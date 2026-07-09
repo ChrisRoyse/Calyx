@@ -30,7 +30,7 @@ impl CfRouter {
         end: Option<&[u8]>,
         limit: usize,
         overlay: Vec<SstEntry>,
-        on_page: F,
+        mut on_page: F,
     ) -> std::result::Result<(), E>
     where
         F: FnMut(Vec<SstEntry>) -> std::result::Result<(), E>,
@@ -40,6 +40,8 @@ impl CfRouter {
             return Ok(());
         }
         let (level, overlay) = self.range_page_sources(cf, start, end, overlay);
-        level.range_pages_with_overlay(start, end, None, limit, overlay, on_page)
+        level.range_pages_with_overlay(start, end, None, limit, overlay, |entries| {
+            on_page(self.open_entries(cf, entries).map_err(E::from)?)
+        })
     }
 }

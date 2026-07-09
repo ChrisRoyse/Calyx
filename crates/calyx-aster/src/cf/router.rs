@@ -2,6 +2,9 @@ use super::ColumnFamily;
 use crate::compaction::TieringPolicy;
 use crate::memtable::{Memtable, MemtableUsage};
 use crate::resource::ResourceCounters;
+use crate::security::value_crypto::{
+    SharedVaultContext, open_value as open_encrypted_value, seal_value,
+};
 use crate::sst::level::SstLevel;
 use crate::sst::{SstEntry, SstSummary};
 use crate::storage_names::flush_sst_file_name;
@@ -29,6 +32,7 @@ pub struct CfRouter {
     pub(super) next_file: HashMap<ColumnFamily, u64>,
     memtable_byte_cap: usize,
     resource_counters: Arc<ResourceCounters>,
+    value_crypto: Option<SharedVaultContext>,
 }
 
 impl CfRouter {
@@ -50,13 +54,30 @@ impl CfRouter {
         cfs: impl IntoIterator<Item = ColumnFamily>,
         tiering_policy: Option<TieringPolicy>,
     ) -> Result<Self> {
+        Self::open_selected_cfs_with_tiering_and_crypto(
+            vault_dir,
+            memtable_byte_cap,
+            cfs,
+            tiering_policy,
+            None,
+        )
+    }
+
+    pub(crate) fn open_selected_cfs_with_tiering_and_crypto(
+        vault_dir: impl AsRef<Path>,
+        memtable_byte_cap: usize,
+        cfs: impl IntoIterator<Item = ColumnFamily>,
+        tiering_policy: Option<TieringPolicy>,
+        value_crypto: Option<SharedVaultContext>,
+    ) -> Result<Self> {
         let selected = cfs.into_iter().collect::<BTreeSet<_>>();
         if selected.is_empty() {
             return Err(CalyxError::aster_corrupt_shard(
                 "selected CF router open requires at least one column family",
             ));
         }
-        let mut router = Self::new_empty(vault_dir, memtable_byte_cap, tiering_policy)?;
+        let mut router =
+            Self::new_empty(vault_dir, memtable_byte_cap, tiering_policy, value_crypto)?;
         for cf in &selected {
             router.ensure_cf(*cf)?;
         }
@@ -69,7 +90,17 @@ impl CfRouter {
         memtable_byte_cap: usize,
         tiering_policy: Option<TieringPolicy>,
     ) -> Result<Self> {
-        let mut router = Self::new_empty(vault_dir, memtable_byte_cap, tiering_policy)?;
+        Self::open_with_tiering_and_crypto(vault_dir, memtable_byte_cap, tiering_policy, None)
+    }
+
+    pub(crate) fn open_with_tiering_and_crypto(
+        vault_dir: impl AsRef<Path>,
+        memtable_byte_cap: usize,
+        tiering_policy: Option<TieringPolicy>,
+        value_crypto: Option<SharedVaultContext>,
+    ) -> Result<Self> {
+        let mut router =
+            Self::new_empty(vault_dir, memtable_byte_cap, tiering_policy, value_crypto)?;
         for cf in ColumnFamily::STATIC {
             router.ensure_cf(cf)?;
         }
@@ -81,6 +112,7 @@ impl CfRouter {
         vault_dir: impl AsRef<Path>,
         memtable_byte_cap: usize,
         tiering_policy: Option<TieringPolicy>,
+        value_crypto: Option<SharedVaultContext>,
     ) -> Result<Self> {
         let vault_dir = vault_dir.as_ref().to_path_buf();
         let memtable_byte_cap = if memtable_byte_cap == 0 {
@@ -105,6 +137,7 @@ impl CfRouter {
             next_file: HashMap::new(),
             memtable_byte_cap,
             resource_counters: Arc::new(ResourceCounters::default()),
+            value_crypto,
         })
     }
 
@@ -218,7 +251,21 @@ impl CfRouter {
         let path = self
             .cf_dir(cf)
             .join(flush_sst_file_name(commit_watermark, ordinal));
-        let summary = frozen.flush_to_sst(&path)?;
+        let summary = match &self.value_crypto {
+            Some(context) => {
+                let entries = frozen
+                    .iter()
+                    .map(|(key, value)| Ok((key.to_vec(), seal_value(context, cf, key, value)?)))
+                    .collect::<Result<Vec<_>>>()?;
+                crate::sst::write_sst(
+                    &path,
+                    entries
+                        .iter()
+                        .map(|(key, value)| (key.as_slice(), value.as_slice())),
+                )?
+            }
+            None => frozen.flush_to_sst(&path)?,
+        };
         self.levels
             .entry(cf)
             .or_default()
@@ -230,9 +277,12 @@ impl CfRouter {
         if let Some(value) = self.memtables.get(&cf).and_then(|table| table.get(key)) {
             return Ok(Some(value));
         }
-        self.levels
-            .get(&cf)
-            .map_or(Ok(None), |level| level.get(key))
+        self.levels.get(&cf).map_or(Ok(None), |level| {
+            level
+                .get(key)?
+                .map(|value| self.open_value(cf, key, value))
+                .transpose()
+        })
     }
 
     pub fn range(&self, cf: ColumnFamily, start: &[u8], end: &[u8]) -> Result<Vec<SstEntry>> {
@@ -249,10 +299,10 @@ impl CfRouter {
                 }
             }
         }
-        Ok(rows
-            .into_iter()
-            .map(|(key, value)| SstEntry { key, value })
-            .collect())
+        self.open_entries(
+            cf,
+            rows.into_iter().map(|(key, value)| SstEntry { key, value }),
+        )
     }
 
     pub fn range_page_until(
@@ -278,11 +328,13 @@ impl CfRouter {
                     .collect::<Vec<_>>()
             })
             .unwrap_or_default();
-        self.levels
+        let rows = self
+            .levels
             .get(&cf)
             .cloned()
             .unwrap_or_default()
-            .range_page_with_overlay(start, end, after_key, limit, overlay)
+            .range_page_with_overlay(start, end, after_key, limit, overlay)?;
+        self.open_entries(cf, rows)
     }
 
     pub fn range_keys(&self, cf: ColumnFamily, start: &[u8], end: &[u8]) -> Result<Vec<Vec<u8>>> {
@@ -326,10 +378,10 @@ impl CfRouter {
                 rows.insert(key, value);
             }
         }
-        Ok(rows
-            .into_iter()
-            .map(|(key, value)| SstEntry { key, value })
-            .collect())
+        self.open_entries(
+            cf,
+            rows.into_iter().map(|(key, value)| SstEntry { key, value }),
+        )
     }
 
     pub fn level_file_count(&self, cf: ColumnFamily) -> usize {
@@ -385,6 +437,28 @@ impl CfRouter {
             || self.vault_dir.join("cf").join(cf.name()),
             |policy| policy.place_current_cf(cf).absolute_dir(),
         )
+    }
+
+    fn open_value(&self, cf: ColumnFamily, key: &[u8], value: Vec<u8>) -> Result<Vec<u8>> {
+        match &self.value_crypto {
+            Some(context) => open_encrypted_value(context, cf, key, &value),
+            None => Ok(value),
+        }
+    }
+
+    pub(super) fn open_entries<I>(&self, cf: ColumnFamily, entries: I) -> Result<Vec<SstEntry>>
+    where
+        I: IntoIterator<Item = SstEntry>,
+    {
+        entries
+            .into_iter()
+            .map(|entry| {
+                Ok(SstEntry {
+                    value: self.open_value(cf, &entry.key, entry.value)?,
+                    key: entry.key,
+                })
+            })
+            .collect()
     }
 
     pub(super) fn cf_roots(&self) -> Vec<PathBuf> {

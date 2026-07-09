@@ -3,10 +3,11 @@
 use std::cell::RefCell;
 use std::collections::{BTreeMap, HashMap};
 use std::panic::{AssertUnwindSafe, catch_unwind};
-use std::path::PathBuf;
-use std::sync::Arc;
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, RwLock};
 
 use calyx_aster::collection::Collection;
+use calyx_aster::security::{SharedVaultContext, ZfsEncryptionStatus};
 use calyx_aster::txn::TxnHandle;
 use calyx_aster::vault::{AsterVault, QuotaConfig, VaultContext, VaultOptions};
 use calyx_core::{CalyxError, Ts, VaultId};
@@ -22,12 +23,12 @@ pub use self::methods::{LEAPABLE_CAPABILITIES, mutating_method_requires_id, serv
 use crate::config::{EngineConfig, FlushPolicy};
 use crate::lifecycle::{
     CALYX_LEAPABLE_VAULT_ALREADY_EXISTS, CALYX_LEAPABLE_VAULT_OPEN, lifecycle_error, remove_dir,
-    verify_restore_value,
+    verify_restore_value_with_crypto,
 };
 use crate::paths::{VaultRef, list_vault_refs, resolve_existing_vault_dir, resolve_new_vault_dir};
 
 const PANIC_PROBE_ENV: &str = "CALYX_LEAPABLE_ENABLE_PANIC_PROBE";
-const ZFS_DATASET_UNAVAILABLE: &str = "leapable/local";
+const NS_PER_MS: u64 = 1_000_000;
 
 /// Local code for requests that address a vault before `vault.open`.
 pub const CALYX_LEAPABLE_VAULT_NOT_OPEN: &str = "CALYX_LEAPABLE_VAULT_NOT_OPEN";
@@ -50,7 +51,7 @@ struct VaultHandle {
     requests: u64,
     clock: EngineClock,
     txn: TxnHandle,
-    context: VaultContext,
+    context: SharedVaultContext,
     vault: AsterVault<EngineClock>,
     collections: RefCell<HashMap<String, Arc<Collection>>>,
 }
@@ -89,6 +90,38 @@ impl VaultHandle {
             .borrow_mut()
             .insert(collection.name.clone(), Arc::clone(&collection));
         collection
+    }
+
+    fn context_vault_id(&self) -> VaultId {
+        self.context
+            .read()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .vault_id()
+    }
+
+    fn zfs_status(&self) -> ZfsEncryptionStatus {
+        self.context
+            .read()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .zfs_status()
+            .clone()
+    }
+
+    fn charge_query(&self, ts: Ts) -> EngineResult<()> {
+        self.context
+            .read()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .quota()
+            .charge_query(1, ts.saturating_mul(NS_PER_MS))?;
+        Ok(())
+    }
+
+    fn crypto_status_value(&self) -> Value {
+        json!({
+            "value_encryption": "aes-256-gcm",
+            "value_encryption_scope": "durable_wal_and_cf_values",
+            "zfs": zfs_status_value(&self.zfs_status()),
+        })
     }
 }
 
@@ -193,6 +226,13 @@ impl Engine {
             "open_vaults": self.vaults.keys().collect::<Vec<_>>(),
             "capabilities": capabilities,
             "served_methods": served_methods,
+            "security": {
+                "master_key_required": true,
+                "value_encryption": "aes-256-gcm",
+                "value_encryption_scope": "durable_wal_and_cf_values",
+                "zfs_probe": "actual_vault_path",
+                "cross_vault_grants": "not_applicable_no_cross_vault_methods"
+            },
             "cpu_profile": {
                 "cpu_only": true,
                 "hnsw": false,
@@ -300,15 +340,19 @@ impl Engine {
     fn vault_verify(&mut self, params: Option<Value>) -> EngineResult<Value> {
         let params = parse_params::<VaultParams>(params, "vault.verify")?;
         let vault_ref = VaultRef::parse(&params.vault_ref)?;
-        let dir = match self.vaults.get_mut(vault_ref.as_str()) {
+        let (dir, context) = match self.vaults.get_mut(vault_ref.as_str()) {
             Some(handle) => {
                 handle.touch(params.ts);
                 handle.flush_now()?;
-                handle.dir.clone()
+                (handle.dir.clone(), handle.context.clone())
             }
-            None => resolve_existing_vault_dir(&self.config.data_dir, &vault_ref)?,
+            None => {
+                let dir = resolve_existing_vault_dir(&self.config.data_dir, &vault_ref)?;
+                let context = self.context_for_path(&vault_ref, &dir)?;
+                (dir, context)
+            }
         };
-        let verify = verify_restore_value(&dir)?;
+        let verify = verify_restore_value_with_crypto(&dir, &context)?;
         Ok(json!({
             "status": "verified",
             "vault_ref": vault_ref.as_str(),
@@ -329,7 +373,8 @@ impl Engine {
             "vault_ref": handle.vault_ref.as_str(),
             "vault_id": handle.vault_id.to_string(),
             "vault_dir": handle.dir,
-            "context_vault_id": handle.context.vault_id().to_string(),
+            "context_vault_id": handle.context_vault_id().to_string(),
+            "at_rest": handle.crypto_status_value(),
             "opened_at": handle.opened_at,
             "last_ts": handle.last_ts,
             "requests": handle.requests,
@@ -355,19 +400,13 @@ impl Engine {
         let salt = salt_for_dir(&dir, vault_ref.as_str())?;
         let clock = EngineClock::new(ts);
         let txn = TxnHandle::new(vault_id);
-        let context = VaultContext::new(
-            vault_id,
-            &self.config.master_key,
-            QuotaConfig::default(),
-            ZFS_DATASET_UNAVAILABLE,
-        )?;
-        let vault = AsterVault::new_durable_with_clock(
-            &dir,
-            vault_id,
-            salt,
-            VaultOptions::default(),
-            clock.clone(),
-        )?;
+        let context = self.context_for_path(&vault_ref, &dir)?;
+        let options = VaultOptions {
+            value_crypto: Some(Arc::clone(&context)),
+            ..VaultOptions::default()
+        };
+        let vault =
+            AsterVault::new_durable_with_clock(&dir, vault_id, salt, options, clock.clone())?;
         Ok(VaultHandle {
             vault_ref,
             vault_id,
@@ -383,6 +422,19 @@ impl Engine {
             collections: RefCell::default(),
         })
     }
+
+    fn context_for_path(
+        &self,
+        vault_ref: &VaultRef,
+        dir: &Path,
+    ) -> EngineResult<SharedVaultContext> {
+        Ok(Arc::new(RwLock::new(VaultContext::new_for_path(
+            vault_id_for(vault_ref.as_str()),
+            &self.config.master_key,
+            QuotaConfig::default(),
+            dir,
+        )?)))
+    }
 }
 
 fn vault_handle_value(status: &str, handle: &VaultHandle) -> Value {
@@ -391,13 +443,27 @@ fn vault_handle_value(status: &str, handle: &VaultHandle) -> Value {
         "vault_ref": handle.vault_ref.as_str(),
         "vault_id": handle.vault_id.to_string(),
         "vault_dir": handle.dir,
-        "context_vault_id": handle.context.vault_id().to_string(),
+        "context_vault_id": handle.context_vault_id().to_string(),
+        "at_rest": handle.crypto_status_value(),
         "opened_at": handle.opened_at,
         "last_ts": handle.last_ts,
         "requests": handle.requests,
         "latest_seq": handle.vault.latest_seq(),
         "recovered_seq": handle.vault.recovery_report().last_recovered_seq
     })
+}
+
+fn zfs_status_value(status: &ZfsEncryptionStatus) -> Value {
+    match status {
+        ZfsEncryptionStatus::Enabled { algorithm } => {
+            json!({"status": "enabled", "algorithm": algorithm})
+        }
+        ZfsEncryptionStatus::Disabled => json!({"status": "disabled"}),
+        ZfsEncryptionStatus::ZfsNotAvailable => json!({"status": "not_available"}),
+        ZfsEncryptionStatus::DatasetNotFound { dataset } => {
+            json!({"status": "dataset_not_found", "dataset": dataset})
+        }
+    }
 }
 
 mod clock;

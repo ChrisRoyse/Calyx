@@ -191,6 +191,22 @@ impl ColumnFamily {
         }
     }
 
+    /// Parses a stable `vault/cf/<name>` directory name back to a column family.
+    pub fn from_name(name: &str) -> Option<Self> {
+        if let Some(cf) = Self::STATIC.iter().copied().find(|cf| cf.name() == name) {
+            return Some(cf);
+        }
+        let (slot_name, kind) = match name.strip_suffix(".raw") {
+            Some(slot_name) => (slot_name, SlotFamilyKind::Raw),
+            None => (name, SlotFamilyKind::Quantized),
+        };
+        let slot = slot_name.strip_prefix("slot_")?.parse::<u16>().ok()?;
+        Some(Self::Slot {
+            slot: SlotId::new(slot),
+            kind,
+        })
+    }
+
     /// Returns true when writes to this CF change inputs from which derived
     /// search content (persistent search indexes, in-memory search engines)
     /// is built, and must therefore advance the vault's derived-content

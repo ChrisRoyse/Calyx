@@ -12,6 +12,8 @@ use calyx_core::{
 use calyx_mcp::decode_jsonrpc_request;
 use std::collections::BTreeMap;
 use std::fs;
+use std::path::Path;
+use std::sync::{Arc, RwLock};
 
 fn temp_root(name: &str) -> PathBuf {
     let root = std::env::temp_dir().join(format!("calyx-leapable-{name}-{}", std::process::id()));
@@ -30,6 +32,21 @@ fn config(root: PathBuf) -> EngineConfig {
         master_key: vec![0xA5; 32],
         flush_policy: crate::config::FlushPolicy::Always,
     }
+}
+
+fn encrypted_options(
+    cfg: &EngineConfig,
+    vault_id: VaultId,
+    dir: &Path,
+) -> (VaultOptions, SharedVaultContext) {
+    let context = Arc::new(RwLock::new(
+        VaultContext::new_for_path(vault_id, &cfg.master_key, QuotaConfig::default(), dir).unwrap(),
+    ));
+    let options = VaultOptions {
+        value_crypto: Some(Arc::clone(&context)),
+        ..VaultOptions::default()
+    };
+    (options, context)
 }
 
 fn sample_constellation<C: Clock>(vault: &AsterVault<C>, seed: u8) -> Constellation {
@@ -123,6 +140,8 @@ fn engine_info_reports_registered_served_methods_without_vector_claims() {
     assert_eq!(result["cpu_profile"]["vector_query"], false);
     assert_eq!(result["capabilities"]["hnsw-ram"], false);
     assert_eq!(result["capabilities"]["vector-query"], false);
+    assert_eq!(result["security"]["value_encryption"], "aes-256-gcm");
+    assert_eq!(result["security"]["zfs_probe"], "actual_vault_path");
 }
 
 #[test]
@@ -282,11 +301,12 @@ fn legacy_stranded_inverted_collection_opens_and_skips_index_maintenance() {
     let vault_ref = VaultRef::parse("legacy_inv").unwrap();
     let vault_id = vault_id_for(vault_ref.as_str());
     let dir = root.join(vault_ref.storage_dir_name());
+    let (options, _) = encrypted_options(&cfg, vault_id, &dir);
     let vault = AsterVault::new_durable(
         &dir,
         vault_id,
         identity::salt_for(vault_ref.as_str()),
-        VaultOptions::default(),
+        options,
     )
     .unwrap();
     create_collection(&vault, legacy_inverted_collection()).unwrap();
@@ -334,11 +354,12 @@ fn vault_open_compacts_legacy_duplicate_anchor_bloat_once() {
     let vault_ref = VaultRef::parse("legacy_anchor_bloat").unwrap();
     let vault_id = vault_id_for(vault_ref.as_str());
     let dir = root.join(vault_ref.storage_dir_name());
+    let (options, _) = encrypted_options(&cfg, vault_id, &dir);
     let vault = AsterVault::new_durable(
         &dir,
         vault_id,
         identity::salt_for(vault_ref.as_str()),
-        VaultOptions::default(),
+        options,
     )
     .unwrap();
     let mut cx = sample_constellation(&vault, 77);
@@ -376,27 +397,29 @@ fn vault_open_backfills_legacy_cx_tombstone_index() {
     let vault_ref = VaultRef::parse("legacy").unwrap();
     let vault_id = vault_id_for(vault_ref.as_str());
     let dir = root.join(vault_ref.storage_dir_name());
+    let (options, context) = encrypted_options(&cfg, vault_id, &dir);
     let vault = AsterVault::new_durable(
         &dir,
         vault_id,
         identity::salt_for(vault_ref.as_str()),
-        VaultOptions::default(),
+        options,
     )
     .unwrap();
     let cx = sample_constellation(&vault, 42);
     let cx_id = cx.cx_id;
     vault.put(cx).unwrap();
-    let mut context = VaultContext::new(
-        vault_id,
-        &cfg.master_key,
-        QuotaConfig::default(),
-        ZFS_DATASET_UNAVAILABLE,
-    )
-    .unwrap();
+    let context_guard = context
+        .read()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
     vault
-        .erase(EraseScope::Cx(cx_id), &mut context, &EraseRegistry::new())
+        .erase_defer_key_shred(EraseScope::Cx(cx_id), &context_guard, &EraseRegistry::new())
         .unwrap();
+    drop(context_guard);
     vault.flush().unwrap();
+    context
+        .write()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .shred_key_for_erasure();
     drop(vault);
 
     let mut engine = Engine::new(cfg);

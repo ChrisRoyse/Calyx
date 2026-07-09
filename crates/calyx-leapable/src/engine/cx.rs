@@ -221,14 +221,24 @@ impl Engine {
         let vault_ref = VaultRef::parse(&params.vault_ref)?;
         let cx_id = parse_cx_id(&params.cx_id)?;
         let handle = self.open_vault_for_cx(&vault_ref, params.ts)?;
-        let erase = handle.vault.erase(
+        let context = handle
+            .context
+            .read()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let erase = handle.vault.erase_defer_key_shred(
             EraseScope::Cx(cx_id),
-            &mut handle.context,
+            &context,
             &EraseRegistry::new(),
         )?;
+        drop(context);
         delete_input_row(handle, cx_id)?;
         index_erase_tombstone(handle, erase.tombstone.as_ref())?;
         handle.flush_after_write(&flush_policy)?;
+        handle
+            .context
+            .write()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .shred_key_for_erasure();
         let tombstones = scan_tombstones(handle, handle.vault.snapshot())?;
         Ok(json!({
             "status": "deleted",
@@ -250,6 +260,7 @@ impl Engine {
             return Err(vault_not_open(vault_ref.as_str()).into());
         };
         handle.touch(ts);
+        handle.charge_query(ts)?;
         ensure_tombstone_index(handle)?;
         Ok(handle)
     }

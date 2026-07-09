@@ -8,14 +8,16 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
-use calyx_aster::vault::{AsterVault, VaultOptions};
-use calyx_aster::verify_restore::verify_restore;
+use calyx_aster::security::SharedVaultContext;
+use calyx_aster::vault::{AsterVault, QuotaConfig, VaultContext, VaultOptions};
+use calyx_aster::verify_restore::verify_restore_with_value_crypto;
 use calyx_core::{
     Anchor, AnchorKind, AnchorValue, Constellation, CxFlags, InputRef, LedgerRef, Modality, SlotId,
     SlotVector, VaultId, VaultStore, content_address,
 };
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
+use std::sync::{Arc, RwLock};
 use ulid::Ulid;
 
 const TEST_MASTER_KEY_HEX: &str =
@@ -88,19 +90,44 @@ fn salt_for(vault_ref: &str) -> Vec<u8> {
 
 fn seed_vault(root: &Path, vault_ref: &str, seeds: &[u8]) {
     let dir = storage_dir(root, vault_ref);
-    let vault = AsterVault::new_durable(
-        &dir,
-        vault_id_for(vault_ref),
-        salt_for(vault_ref),
-        VaultOptions::default(),
-    )
-    .expect("open seeded vault");
+    let context = encrypted_context(vault_ref, &dir);
+    let options = VaultOptions {
+        value_crypto: Some(Arc::clone(&context)),
+        ..VaultOptions::default()
+    };
+    let vault =
+        AsterVault::new_durable(&dir, vault_id_for(vault_ref), salt_for(vault_ref), options)
+            .expect("open seeded vault");
     for seed in seeds {
         vault
             .put(sample_constellation(&vault, *seed))
             .expect("put seeded constellation");
     }
     vault.flush().expect("flush seeded vault");
+}
+
+fn encrypted_context(vault_ref: &str, dir: &Path) -> SharedVaultContext {
+    Arc::new(RwLock::new(
+        VaultContext::new_for_path(
+            vault_id_for(vault_ref),
+            &test_master_key(),
+            QuotaConfig::default(),
+            dir,
+        )
+        .expect("encrypted test context"),
+    ))
+}
+
+fn test_master_key() -> Vec<u8> {
+    TEST_MASTER_KEY_HEX
+        .as_bytes()
+        .chunks_exact(2)
+        .map(|pair| {
+            let hi = (pair[0] as char).to_digit(16).unwrap();
+            let lo = (pair[1] as char).to_digit(16).unwrap();
+            ((hi << 4) | lo) as u8
+        })
+        .collect()
 }
 
 fn sample_constellation(vault: &AsterVault, seed: u8) -> Constellation {
@@ -422,7 +449,9 @@ fn fsv_seed_lifecycle_vault_for_manual_inspection() {
     );
 
     seed_vault(&root, "life", &[1, 2, 3]);
-    let report = verify_restore(&vault_dir).expect("verify seeded lifecycle vault");
+    let context = encrypted_context("life", &vault_dir);
+    let report = verify_restore_with_value_crypto(&vault_dir, &context)
+        .expect("verify seeded lifecycle vault");
     println!("issue-1973 fsv root: {}", root.display());
     println!("issue-1973 fsv seed report: {report:?}");
     assert!(report.success(), "seeded vault must verify");

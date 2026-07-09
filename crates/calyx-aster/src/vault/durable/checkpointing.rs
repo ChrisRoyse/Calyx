@@ -13,6 +13,7 @@
 use super::super::encode::WriteRow;
 use super::{DurableVault, storage_error};
 use crate::cf::ColumnFamily;
+use crate::security::value_crypto::seal_value;
 use crate::sst::write_sst;
 use calyx_core::{CalyxError, Result};
 use std::collections::BTreeMap;
@@ -77,10 +78,31 @@ impl DurableVault {
             let dir = self.cf_dir(cf);
             fs::create_dir_all(&dir).map_err(|error| storage_error("create CF dir", error))?;
             let path = dir.join(format!("{seq:020}-{first_index:04}.sst"));
-            let entries = rows
-                .iter()
-                .map(|(_, row)| (row.key.as_slice(), row.value.as_slice()));
-            write_sst(&path, entries)?;
+            match &self.value_crypto {
+                Some(context) => {
+                    let entries = rows
+                        .iter()
+                        .map(|(_, row)| {
+                            Ok((
+                                row.key.clone(),
+                                seal_value(context, row.cf, &row.key, &row.value)?,
+                            ))
+                        })
+                        .collect::<Result<Vec<_>>>()?;
+                    write_sst(
+                        &path,
+                        entries
+                            .iter()
+                            .map(|(key, value)| (key.as_slice(), value.as_slice())),
+                    )?;
+                }
+                None => {
+                    let entries = rows
+                        .iter()
+                        .map(|(_, row)| (row.key.as_slice(), row.value.as_slice()));
+                    write_sst(&path, entries)?;
+                }
+            }
         }
         Ok(())
     }

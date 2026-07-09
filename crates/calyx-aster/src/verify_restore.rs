@@ -11,6 +11,7 @@ use std::path::{Path, PathBuf};
 use crate::cf::{ColumnFamily, slot_key};
 use crate::ledger_head::read_head_anchor;
 use crate::ledger_view::parse_aster_ledger_seq;
+use crate::security::value_crypto::{SharedVaultContext, open_rows, open_value};
 use crate::sst::SstEntry;
 use crate::sst::level::SstLevel;
 use crate::vault::encode::{decode_constellation_base, decode_slot_vector, decode_write_batch};
@@ -94,6 +95,21 @@ impl VerifyRestoreReport {
 
 /// Verifies a restored vault with zero write side effects.
 pub fn verify_restore(vault_path: &Path) -> Result<VerifyRestoreReport> {
+    verify_restore_inner(vault_path, None)
+}
+
+/// Verifies an encrypted restored vault with zero write side effects.
+pub fn verify_restore_with_value_crypto(
+    vault_path: &Path,
+    context: &SharedVaultContext,
+) -> Result<VerifyRestoreReport> {
+    verify_restore_inner(vault_path, Some(context))
+}
+
+fn verify_restore_inner(
+    vault_path: &Path,
+    value_crypto: Option<&SharedVaultContext>,
+) -> Result<VerifyRestoreReport> {
     if !vault_path.is_dir() {
         return Err(restore_invalid(format!(
             "vault path {} does not exist or is not a directory",
@@ -124,7 +140,7 @@ pub fn verify_restore(vault_path: &Path) -> Result<VerifyRestoreReport> {
             return Ok(report);
         }
     };
-    let scan = match scan_vault(vault_path) {
+    let scan = match scan_vault(vault_path, value_crypto) {
         Ok(scan) => scan,
         Err(error) => {
             report.error = Some(error.to_string());
@@ -168,14 +184,20 @@ struct VaultScan {
     ledger_anchor: Option<LedgerHeadAnchor>,
 }
 
-fn scan_vault(vault: &Path) -> Result<VaultScan> {
-    let overlay = read_wal_overlay(vault)?;
-    let base = merged_cf(vault, ColumnFamily::Base, &overlay)?;
-    let anchors = merged_cf(vault, ColumnFamily::Anchors, &overlay)?;
-    let ledger_rows = merged_ledger_rows(vault, &overlay)?;
+fn scan_vault(vault: &Path, value_crypto: Option<&SharedVaultContext>) -> Result<VaultScan> {
+    let overlay = read_wal_overlay(vault, value_crypto)?;
+    let base = merged_cf(vault, ColumnFamily::Base, &overlay, value_crypto)?;
+    let anchors = merged_cf(vault, ColumnFamily::Anchors, &overlay, value_crypto)?;
+    let ledger_rows = merged_ledger_rows(vault, &overlay, value_crypto)?;
     let ledger_anchor = read_head_anchor(vault)?;
     let first_cx_id = match base.iter().next() {
-        Some((key, value)) => Some(read_back_first_constellation(vault, &overlay, key, value)?),
+        Some((key, value)) => Some(read_back_first_constellation(
+            vault,
+            &overlay,
+            value_crypto,
+            key,
+            value,
+        )?),
         None => None,
     };
     Ok(VaultScan {
@@ -187,7 +209,7 @@ fn scan_vault(vault: &Path) -> Result<VaultScan> {
     })
 }
 
-fn read_wal_overlay(vault: &Path) -> Result<WalOverlay> {
+fn read_wal_overlay(vault: &Path, value_crypto: Option<&SharedVaultContext>) -> Result<WalOverlay> {
     let wal_dir = vault.join("wal");
     let mut overlay = WalOverlay::new();
     if !wal_dir.is_dir() {
@@ -198,7 +220,8 @@ fn read_wal_overlay(vault: &Path) -> Result<WalOverlay> {
         return Err(torn.error());
     }
     for record in replay.records {
-        for row in decode_write_batch(&record.payload)? {
+        let rows = open_rows(value_crypto, decode_write_batch(&record.payload)?)?;
+        for row in rows {
             overlay
                 .entry(row.cf)
                 .or_default()
@@ -212,9 +235,10 @@ fn merged_cf(
     vault: &Path,
     cf: ColumnFamily,
     overlay: &WalOverlay,
+    value_crypto: Option<&SharedVaultContext>,
 ) -> Result<BTreeMap<Vec<u8>, Vec<u8>>> {
     let mut rows = BTreeMap::new();
-    for entry in read_cf_ssts(vault, cf)? {
+    for entry in read_cf_ssts(vault, cf, value_crypto)? {
         rows.insert(entry.key, entry.value);
     }
     if let Some(wal_rows) = overlay.get(&cf) {
@@ -225,7 +249,11 @@ fn merged_cf(
     Ok(rows)
 }
 
-fn read_cf_ssts(vault: &Path, cf: ColumnFamily) -> Result<Vec<SstEntry>> {
+fn read_cf_ssts(
+    vault: &Path,
+    cf: ColumnFamily,
+    value_crypto: Option<&SharedVaultContext>,
+) -> Result<Vec<SstEntry>> {
     let dir = vault.join("cf").join(cf.name());
     if !dir.is_dir() {
         return Ok(Vec::new());
@@ -242,12 +270,20 @@ fn read_cf_ssts(vault: &Path, cf: ColumnFamily) -> Result<Vec<SstEntry>> {
         }
     }
     files.sort();
-    SstLevel::from_oldest_first(files).iter()
+    let entries = SstLevel::from_oldest_first(files).iter()?;
+    entries
+        .into_iter()
+        .map(|entry| open_sst_entry(entry, cf, value_crypto))
+        .collect()
 }
 
-fn merged_ledger_rows(vault: &Path, overlay: &WalOverlay) -> Result<Vec<LedgerRow>> {
+fn merged_ledger_rows(
+    vault: &Path,
+    overlay: &WalOverlay,
+    value_crypto: Option<&SharedVaultContext>,
+) -> Result<Vec<LedgerRow>> {
     let mut rows: BTreeMap<u64, Vec<u8>> = BTreeMap::new();
-    for entry in read_cf_ssts(vault, ColumnFamily::Ledger)? {
+    for entry in read_cf_ssts(vault, ColumnFamily::Ledger, value_crypto)? {
         let seq = parse_aster_ledger_seq(&entry.key)?;
         insert_ledger_bytes(&mut rows, seq, entry.value)?;
     }
@@ -279,6 +315,7 @@ fn insert_ledger_bytes(rows: &mut BTreeMap<u64, Vec<u8>>, seq: u64, bytes: Vec<u
 fn read_back_first_constellation(
     vault: &Path,
     overlay: &WalOverlay,
+    value_crypto: Option<&SharedVaultContext>,
     key: &[u8],
     value: &[u8],
 ) -> Result<String> {
@@ -296,7 +333,7 @@ fn read_back_first_constellation(
         )));
     }
     for slot in constellation.slots.keys() {
-        let slot_rows = merged_cf(vault, ColumnFamily::slot(*slot), overlay)?;
+        let slot_rows = merged_cf(vault, ColumnFamily::slot(*slot), overlay, value_crypto)?;
         let bytes = slot_rows
             .get(&slot_key(constellation.cx_id))
             .ok_or_else(|| {
@@ -308,6 +345,20 @@ fn read_back_first_constellation(
         decode_slot_vector(bytes)?;
     }
     Ok(hex(key))
+}
+
+fn open_sst_entry(
+    entry: SstEntry,
+    cf: ColumnFamily,
+    value_crypto: Option<&SharedVaultContext>,
+) -> Result<SstEntry> {
+    let Some(context) = value_crypto else {
+        return Ok(entry);
+    };
+    Ok(SstEntry {
+        value: open_value(context, cf, &entry.key, &entry.value)?,
+        key: entry.key,
+    })
 }
 
 fn tip_hash(rows: &[LedgerRow]) -> Result<String> {

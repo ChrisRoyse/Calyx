@@ -15,7 +15,12 @@ where
         DurableVault::validate_options(&options)?;
         let vault_root = vault_dir.as_ref().to_path_buf();
         let recovery = DurableVault::recover_batches(vault_dir.as_ref(), &options)?;
-        let ledger_hook = if options.restore_ledger_hook {
+        let ledger_hook = if options.restore_ledger_hook && options.value_crypto.is_some() {
+            Some(ledger_hook::recover_hook(
+                &recovery,
+                options.ledger_checkpoint.clone(),
+            )?)
+        } else if options.restore_ledger_hook {
             Some(ledger_hook::recover_hook_from_vault_dir(
                 vault_dir.as_ref(),
                 &recovery,
@@ -30,16 +35,18 @@ where
             torn_tail: recovery.torn_tail.clone(),
         };
         let router = match &options.selected_cfs {
-            Some(cfs) => CfRouter::open_selected_cfs_with_tiering(
+            Some(cfs) => CfRouter::open_selected_cfs_with_tiering_and_crypto(
                 vault_dir.as_ref(),
                 options.memtable_byte_cap,
                 cfs.iter().copied(),
                 options.tiering_policy.clone(),
+                options.value_crypto.clone(),
             )?,
-            None => CfRouter::open_with_tiering(
+            None => CfRouter::open_with_tiering_and_crypto(
                 vault_dir.as_ref(),
                 options.memtable_byte_cap,
                 options.tiering_policy.clone(),
+                options.value_crypto.clone(),
             )?,
         };
         let rows = if recovery.router_latest_readback {

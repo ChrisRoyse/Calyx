@@ -40,26 +40,24 @@ impl VersionedCfStore {
             self.ensure_router_latest_snapshot(snapshot)
                 .map_err(E::from)?;
             let mut overlay = Some(self.visible_table_entries(snapshot, cf, Some(range)));
-            let sources = {
+            let streamed = {
                 let router = self.router.read().expect("mvcc router poisoned");
-                router.as_ref().map(|router| {
-                    router.range_page_sources(
+                if let Some(router) = router.as_ref() {
+                    router.range_pages_until(
                         cf,
                         &range.start,
                         range.end.as_deref(),
+                        limit,
                         overlay.take().expect("overlay not consumed"),
-                    )
-                })
+                        |entries| self.emit_entry_page(cf, entries, &mut on_page),
+                    )?;
+                    true
+                } else {
+                    false
+                }
             };
-            if let Some((level, overlay)) = sources {
-                return level.range_pages_with_overlay(
-                    &range.start,
-                    range.end.as_deref(),
-                    None,
-                    limit,
-                    overlay,
-                    |entries| self.emit_entry_page(cf, entries, &mut on_page),
-                );
+            if streamed {
+                return Ok(());
             }
             let overlay = overlay.expect("overlay retained when router is absent");
             return self.emit_entry_pages(cf, overlay, limit, &mut on_page);

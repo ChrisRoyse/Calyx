@@ -487,6 +487,7 @@ impl Engine {
             return Err(vault_not_open(vault_ref.as_str()).into());
         };
         handle.touch(ts);
+        handle.charge_query(ts)?;
         Ok(handle)
     }
 }
