@@ -9,6 +9,9 @@ pub mod grouped_gemm;
 mod grouped_gemm_tests;
 pub mod kernels;
 pub mod ragged_gemm;
+pub mod resident;
+#[cfg(test)]
+mod resident_tests;
 pub mod topk;
 #[cfg(test)]
 mod topk_tests;
@@ -32,6 +35,7 @@ pub use ragged_gemm::{
     RaggedBatch, build_ragged_batch, build_ragged_batch_from_slabs, extract_ragged_results,
     try_extract_ragged_results,
 };
+pub use resident::{DeviceCandidateBlock, cosine_resident_host, upload_candidate_block};
 pub use topk::topk_gpu;
 
 #[derive(Clone, Debug)]
