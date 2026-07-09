@@ -12,6 +12,7 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 
 use self::clock::EngineClock;
+use self::error::{EngineError, EngineResult, parse_params, vault_not_open, vault_open_error};
 use self::identity::{salt_for, vault_id_for};
 use crate::config::EngineConfig;
 use crate::lifecycle::{
@@ -440,45 +441,6 @@ impl Engine {
     }
 }
 
-type EngineResult<T> = std::result::Result<T, EngineError>;
-
-enum EngineError {
-    InvalidParams(String),
-    Calyx(CalyxError),
-}
-
-impl From<CalyxError> for EngineError {
-    fn from(error: CalyxError) -> Self {
-        Self::Calyx(error)
-    }
-}
-
-fn parse_params<T: for<'de> Deserialize<'de>>(
-    params: Option<Value>,
-    method: &str,
-) -> EngineResult<T> {
-    let params = params.unwrap_or(Value::Null);
-    serde_json::from_value(params).map_err(|error| {
-        EngineError::InvalidParams(format!("{method} params do not match schema: {error}"))
-    })
-}
-
-fn vault_not_open(vault_ref: &str) -> CalyxError {
-    CalyxError {
-        code: CALYX_LEAPABLE_VAULT_NOT_OPEN,
-        message: format!("vault_ref {vault_ref:?} is not open in this engine process"),
-        remediation: "call vault.open for this vault_ref before issuing vault-scoped requests",
-    }
-}
-
-fn vault_open_error(vault_ref: &str) -> CalyxError {
-    CalyxError {
-        code: CALYX_LEAPABLE_VAULT_OPEN,
-        message: format!("vault_ref {vault_ref:?} has an open handle in this engine process"),
-        remediation: "call vault.close before delete, restore, or overwriting lifecycle operations",
-    }
-}
-
 fn vault_handle_value(status: &str, handle: &VaultHandle) -> Value {
     json!({
         "status": status,
@@ -496,6 +458,7 @@ fn vault_handle_value(status: &str, handle: &VaultHandle) -> Value {
 
 mod clock;
 mod cx;
+mod error;
 mod identity;
 mod storage;
 
