@@ -1,5 +1,6 @@
 use super::cache::{cached_json_response, store_and_respond};
 use super::*;
+use crate::blocking::run_blocking;
 
 // ---------------------------------------------------------------------------
 // /v1/provenance/{id} — real Ledger answer-trace (#577)
@@ -121,26 +122,35 @@ pub(super) async fn provenance_wired(
         return cached_json_response(body, "HIT", age);
     }
 
+    let work_ctx = Arc::clone(&ctx);
+    let body = match run_blocking("provenance", move || provenance_body(&work_ctx, id)).await {
+        Ok(body) => body,
+        Err(error) => return error.into_response(),
+    };
+    store_and_respond(&ctx.cache, cache_key, &body)
+}
+
+fn provenance_body(ctx: &ProvenanceCtx, id: String) -> Result<Value, ApiError> {
     // Source-of-truth scan: every read is straight off the on-disk ledger.
     let row_count = match ctx.store.scan() {
         Ok(rows) => rows.len() as u64,
         Err(error) => {
             tracing::error!(error = ?error, "CALYX_WEB_API_PROVENANCE_SCAN_FAILED");
-            return ApiError::of(ErrorCode::Internal).into_response();
+            return Err(ApiError::of(ErrorCode::Internal));
         }
     };
     let chain = match verify_chain(&ctx.store, 0..row_count) {
         Ok(result) => result,
         Err(error) => {
             tracing::error!(error = ?error, "CALYX_WEB_API_PROVENANCE_VERIFY_FAILED");
-            return ApiError::of(ErrorCode::Internal).into_response();
+            return Err(ApiError::of(ErrorCode::Internal));
         }
     };
     let trace = match get_answer_trace(&ctx.store, &ctx.quarantine, id.as_bytes()) {
         Ok(trace) => trace,
         Err(error) => {
             tracing::error!(error = ?error, "CALYX_WEB_API_PROVENANCE_TRACE_FAILED");
-            return ApiError::of(ErrorCode::Internal).into_response();
+            return Err(ApiError::of(ErrorCode::Internal));
         }
     };
 
@@ -156,7 +166,7 @@ pub(super) async fn provenance_wired(
     entries.sort_by_key(|value| value["seq"].as_u64().unwrap_or(0));
 
     let chain_intact = matches!(chain, VerifyResult::Intact { .. });
-    let body = json!({
+    Ok(json!({
         "id": id,
         "found": trace.answer_entry.is_some(),
         "trusted": trace.is_trusted() && chain_intact,
@@ -164,6 +174,5 @@ pub(super) async fn provenance_wired(
         "warnings": trace.warnings.iter().map(|warning| format!("{warning:?}")).collect::<Vec<_>>(),
         "chain": chain_json(&chain),
         "entries": entries,
-    });
-    store_and_respond(&ctx.cache, cache_key, &body)
+    }))
 }

@@ -1,4 +1,5 @@
 use super::*;
+use crate::blocking::run_blocking;
 
 const KERNEL_RECALL_GATE: f32 = 0.95;
 
@@ -135,14 +136,20 @@ pub(crate) async fn kernel_handler(State(ctx): State<Arc<MeasureCtx>>) -> Respon
         return cached_json_response(body, "HIT", age);
     }
 
+    let work_ctx = Arc::clone(&ctx);
+    let body = match run_blocking("kernel", move || kernel_body(&work_ctx)).await {
+        Ok(body) => body,
+        Err(error) => return error.into_response(),
+    };
+    store_and_respond(&ctx.cache, cache_key, &body)
+}
+
+fn kernel_body(ctx: &MeasureCtx) -> Result<Value, ApiError> {
     // Pick the dense text slot with the best real vault coverage. Retired and
     // parked slots remain interpretable for historical rows, so they can be a
     // better origin-artifact substrate than a newly-active lens with sparse
     // backfill.
-    let content_slot = match select_kernel_content_slot(&ctx) {
-        Ok(slot) => slot,
-        Err(error) => return error.into_response(),
-    };
+    let content_slot = select_kernel_content_slot(ctx)?;
     let kernel_params = KernelParams {
         panel_version: u64::from(ctx.state.panel.version),
         anchor_kind: Some("origin".to_string()),
@@ -165,7 +172,7 @@ pub(crate) async fn kernel_handler(State(ctx): State<Arc<MeasureCtx>>) -> Respon
             Ok(result) => result,
             Err(error) => {
                 tracing::error!(error = ?error, "CALYX_WEB_API_KERNEL_FAILED");
-                return ApiError::of(ErrorCode::Internal).into_response();
+                return Err(ApiError::of(ErrorCode::Internal));
             }
         };
     let unanchored: std::collections::BTreeSet<_> = measured
@@ -214,7 +221,7 @@ pub(crate) async fn kernel_handler(State(ctx): State<Arc<MeasureCtx>>) -> Respon
     } else {
         content_slot.embedded as f64 / content_slot.vault_total as f64
     };
-    let body = json!({
+    Ok(json!({
         "available": true,
         "kernelId": measured.kernel.kernel_id.to_string(),
         "panelVersion": measured.kernel.panel_version,
@@ -247,6 +254,5 @@ pub(crate) async fn kernel_handler(State(ctx): State<Arc<MeasureCtx>>) -> Respon
             "approxFactor": recall.approx_factor,
             "warning": recall.warning,
         },
-    });
-    store_and_respond(&ctx.cache, cache_key, &body)
+    }))
 }

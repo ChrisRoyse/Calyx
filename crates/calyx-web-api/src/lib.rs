@@ -99,6 +99,8 @@ mod guardrails;
 use guardrails::routes_base;
 pub use guardrails::{Guardrails, app, build_app, guardrails};
 
+mod blocking;
+
 mod error;
 pub use error::{ApiError, ErrorCode};
 

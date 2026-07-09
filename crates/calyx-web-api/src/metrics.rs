@@ -1,5 +1,6 @@
 use super::health::probe_hhem_faithfulness;
 use super::*;
+use crate::blocking::run_blocking;
 
 // ---------------------------------------------------------------------------
 // Calyx-native Prometheus metrics surface (#1249 G11, #597)
@@ -259,43 +260,54 @@ pub(super) fn render_metrics(s: &MetricsSnapshot) -> String {
 pub(super) async fn metrics_handler(State(ctx): State<Arc<MetricsCtx>>) -> Response {
     let started = Instant::now();
 
-    let (gpu_ready, vault_ready) = match measure_query_vectors(&ctx.measure.state, "health") {
-        Ok(measured) => {
-            let dense = measured
-                .iter()
-                .any(|(_, vector)| vector.as_dense().is_some());
-            (i64::from(dense), 1)
+    let measure_ctx = Arc::clone(&ctx.measure);
+    let gpu_probe = run_blocking("metrics_embedder", move || {
+        match measure_query_vectors(&measure_ctx.state, "health") {
+            Ok(measured) => {
+                let dense = measured
+                    .iter()
+                    .any(|(_, vector)| vector.as_dense().is_some());
+                Ok((i64::from(dense), 1))
+            }
+            Err(error) => {
+                tracing::warn!(error = ?error, "CALYX_WEB_API_METRICS_EMBEDDER_PROBE_FAILED");
+                Ok((0, 0))
+            }
         }
-        Err(error) => {
-            tracing::warn!(error = ?error, "CALYX_WEB_API_METRICS_EMBEDDER_PROBE_FAILED");
-            (0, 0)
-        }
-    };
-    let faithfulness_ready = i64::from(probe_hhem_faithfulness().await == "ok");
+    });
     let panel_version = u64::from(ctx.measure.state.panel.version);
 
     // Source-of-truth: scan the on-disk ledger and verify the hash chain on
     // every scrape (the ledger is small; #1898 caches the per-answer path, but
     // the chain verdict must be live so a tamper is observable within one
     // scrape interval).
-    let (scan_ok, ledger_rows, chain_intact, chain_broken_seq) = match ctx.prov.store.scan() {
-        Ok(entries) => {
-            let rows = entries.len() as u64;
-            match verify_chain(&ctx.prov.store, 0..rows) {
-                Ok(VerifyResult::Intact { count }) => (1, count, 1, -1),
-                Ok(VerifyResult::Broken { at_seq, .. }) => (1, rows, 0, at_seq as i64),
-                Ok(VerifyResult::Corrupt { at_seq, .. }) => (1, rows, 0, at_seq as i64),
-                Err(error) => {
-                    tracing::error!(error = ?error, "CALYX_WEB_API_METRICS_VERIFY_FAILED");
-                    (1, rows, 0, -1)
+    let prov_ctx = Arc::clone(&ctx.prov);
+    let ledger_probe = run_blocking("metrics_ledger", move || {
+        Ok(match prov_ctx.store.scan() {
+            Ok(entries) => {
+                let rows = entries.len() as u64;
+                match verify_chain(&prov_ctx.store, 0..rows) {
+                    Ok(VerifyResult::Intact { count }) => (1, count, 1, -1),
+                    Ok(VerifyResult::Broken { at_seq, .. }) => (1, rows, 0, at_seq as i64),
+                    Ok(VerifyResult::Corrupt { at_seq, .. }) => (1, rows, 0, at_seq as i64),
+                    Err(error) => {
+                        tracing::error!(error = ?error, "CALYX_WEB_API_METRICS_VERIFY_FAILED");
+                        (1, rows, 0, -1)
+                    }
                 }
             }
-        }
-        Err(error) => {
-            tracing::error!(error = ?error, "CALYX_WEB_API_METRICS_SCAN_FAILED");
-            (0, 0, 0, -1)
-        }
-    };
+            Err(error) => {
+                tracing::error!(error = ?error, "CALYX_WEB_API_METRICS_SCAN_FAILED");
+                (0, 0, 0, -1)
+            }
+        })
+    });
+    let (gpu_result, ledger_result, faithfulness) =
+        tokio::join!(gpu_probe, ledger_probe, probe_hhem_faithfulness());
+    let (gpu_ready, vault_ready) = gpu_result.unwrap_or((0, 0));
+    let (scan_ok, ledger_rows, chain_intact, chain_broken_seq) =
+        ledger_result.unwrap_or((0, 0, 0, -1));
+    let faithfulness_ready = i64::from(faithfulness == "ok");
 
     let snapshot = MetricsSnapshot {
         vault_ready,

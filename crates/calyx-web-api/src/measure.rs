@@ -1,6 +1,7 @@
 use super::cache::{ResponseCache, cached_json_response, store_and_respond};
 use super::provenance::hex_hash;
 use super::*;
+use crate::blocking::run_blocking;
 
 /// Vault + panel loaded once at startup, shared read-only across requests, used
 /// by the wired `/v1/measure` endpoint.
@@ -74,12 +75,17 @@ pub(super) async fn measure(
     Json(req): Json<MeasureReq>,
 ) -> Response {
     let input = Input::new(Modality::Text, req.text.into_bytes());
-    match measure_constellation(&ctx.vault, &ctx.state, input, now_ms()) {
-        Ok(cx) => (StatusCode::OK, Json(cx)).into_response(),
-        Err(error) => {
+    let work_ctx = Arc::clone(&ctx);
+    match run_blocking("measure", move || {
+        measure_constellation(&work_ctx.vault, &work_ctx.state, input, now_ms()).map_err(|error| {
             tracing::error!(error = ?error, "CALYX_WEB_API_MEASURE_FAILED");
-            ApiError::of(ErrorCode::Internal).into_response()
-        }
+            ApiError::of(ErrorCode::Internal)
+        })
+    })
+    .await
+    {
+        Ok(cx) => (StatusCode::OK, Json(cx)).into_response(),
+        Err(error) => error.into_response(),
     }
 }
 
@@ -144,46 +150,52 @@ pub(super) async fn search(
         return cached_json_response(body, "HIT", age);
     }
 
-    match search_outcome(
-        &ctx.vault,
-        &ctx.state,
-        &ctx.vault_dir,
-        &req.query,
-        k,
-        fusion,
-        guard,
-        None,
-        false,
-    ) {
-        Ok(outcome) => {
-            let hits: Vec<Value> = outcome
-                .hits
-                .iter()
-                .map(|hit| {
-                    json!({
-                        "rank": hit.rank,
-                        "cxId": hit.cx_id.to_string(),
-                        "score": hit.score,
-                        "provenance": {
-                            "ledgerSeq": hit.provenance.seq,
-                            "chainHash": hex_hash(&hit.provenance.hash),
-                        },
-                    })
-                })
-                .collect();
-            let body = json!({
-                "query": req.query,
-                "k": k,
-                "guardTau": outcome.guard_tau,
-                "hits": hits,
-            });
-            store_and_respond(&ctx.cache, cache_key, &body)
-        }
-        Err(error) => {
+    let work_ctx = Arc::clone(&ctx);
+    let query = req.query;
+    let body = match run_blocking("search", move || {
+        let outcome = search_outcome(
+            &work_ctx.vault,
+            &work_ctx.state,
+            &work_ctx.vault_dir,
+            &query,
+            k,
+            fusion,
+            guard,
+            None,
+            false,
+        )
+        .map_err(|error| {
             tracing::error!(error = ?error, "CALYX_WEB_API_SEARCH_FAILED");
-            ApiError::of(ErrorCode::Internal).into_response()
-        }
-    }
+            ApiError::of(ErrorCode::Internal)
+        })?;
+        let hits: Vec<Value> = outcome
+            .hits
+            .iter()
+            .map(|hit| {
+                json!({
+                    "rank": hit.rank,
+                    "cxId": hit.cx_id.to_string(),
+                    "score": hit.score,
+                    "provenance": {
+                        "ledgerSeq": hit.provenance.seq,
+                        "chainHash": hex_hash(&hit.provenance.hash),
+                    },
+                })
+            })
+            .collect();
+        Ok(json!({
+            "query": query,
+            "k": k,
+            "guardTau": outcome.guard_tau,
+            "hits": hits,
+        }))
+    })
+    .await
+    {
+        Ok(body) => body,
+        Err(error) => return error.into_response(),
+    };
+    store_and_respond(&ctx.cache, cache_key, &body)
 }
 
 mod guard_support;
@@ -219,91 +231,83 @@ pub(super) async fn guard_handler(
         )
         .into_response();
     }
-    let profile = match read_guard_profile(&ctx.vault) {
-        Ok(Some(profile)) => profile,
-        Ok(None) => {
-            return ApiError::new(
-                ErrorCode::BadRequest,
-                "no calibrated guard profile in this vault; run `calyx guard calibrate` first",
-            )
-            .into_response();
-        }
-        Err(detail) => {
-            tracing::error!("CALYX_WEB_API_GUARD_PROFILE_FAILED: {detail}");
-            return ApiError::of(ErrorCode::Internal).into_response();
-        }
-    };
-    let produced = match required_dense(&ctx.state, &req.answer, &profile) {
-        Ok(slots) => slots,
-        Err(error) => return error.into_response(),
-    };
-    let matched = match required_dense(&ctx.state, &req.evidence, &profile) {
-        Ok(slots) => slots,
-        Err(error) => return error.into_response(),
-    };
     let high_stakes = req.high_stakes.unwrap_or(true);
-    let verdict = match ward_guard(&profile, &produced, &matched, high_stakes) {
-        Ok(verdict) => verdict,
-        Err(error) => {
+    let work_ctx = Arc::clone(&ctx);
+    let body = match run_blocking("guard", move || {
+        let profile = match read_guard_profile(&work_ctx.vault) {
+            Ok(Some(profile)) => profile,
+            Ok(None) => {
+                return Err(ApiError::new(
+                    ErrorCode::BadRequest,
+                    "no calibrated guard profile in this vault; run `calyx guard calibrate` first",
+                ));
+            }
+            Err(detail) => {
+                tracing::error!("CALYX_WEB_API_GUARD_PROFILE_FAILED: {detail}");
+                return Err(ApiError::of(ErrorCode::Internal));
+            }
+        };
+        let produced = required_dense(&work_ctx.state, &req.answer, &profile)?;
+        let matched = required_dense(&work_ctx.state, &req.evidence, &profile)?;
+        let verdict = ward_guard(&profile, &produced, &matched, high_stakes).map_err(|error| {
             tracing::error!(error = ?error, "CALYX_WEB_API_GUARD_FAILED");
-            return ApiError::of(ErrorCode::Internal).into_response();
-        }
-    };
-    let verdict_str = if verdict.overall_pass {
-        "accept"
-    } else {
-        match verdict.action {
-            Some(NoveltyAction::NewRegion) => "new-region",
-            Some(NoveltyAction::Quarantine) => "quarantine",
-            Some(NoveltyAction::RejectClosed) | None => "refuse",
-        }
-    };
-    // Per-slot aspect from the persisted calibration (#1899): each calibrated
-    // slot carries its SlotKind (Identity/Content/Stylistic) + conformal FAR.
-    // Aspect is null for a slot the profile did not calibrate, or one calibrated
-    // before slot_kind was persisted — surfaced honestly, never fabricated.
-    let calib_per_slot = profile.calibration.as_ref().map(|meta| &meta.per_slot);
-    let per_slot: Vec<Value> = verdict
-        .per_slot
-        .iter()
-        .map(|slot| {
-            let aspect = calib_per_slot
-                .and_then(|map| map.get(&slot.slot))
-                .and_then(|meta| meta.slot_kind)
-                .map(|kind| kind.label());
-            json!({
-                "slot": slot.slot.get(),
-                "cosine": slot.cos,
-                "tau": slot.tau,
-                "pass": slot.pass,
-                "aspect": aspect,
+            ApiError::of(ErrorCode::Internal)
+        })?;
+        let verdict_str = if verdict.overall_pass {
+            "accept"
+        } else {
+            match verdict.action {
+                Some(NoveltyAction::NewRegion) => "new-region",
+                Some(NoveltyAction::Quarantine) => "quarantine",
+                Some(NoveltyAction::RejectClosed) | None => "refuse",
+            }
+        };
+        let calib_per_slot = profile.calibration.as_ref().map(|meta| &meta.per_slot);
+        let per_slot: Vec<Value> = verdict
+            .per_slot
+            .iter()
+            .map(|slot| {
+                let aspect = calib_per_slot
+                    .and_then(|map| map.get(&slot.slot))
+                    .and_then(|meta| meta.slot_kind)
+                    .map(|kind| kind.label());
+                json!({
+                    "slot": slot.slot.get(),
+                    "cosine": slot.cos,
+                    "tau": slot.tau,
+                    "pass": slot.pass,
+                    "aspect": aspect,
+                })
             })
-        })
-        .collect();
-    // Conformal FAR per aspect class — the worst-case (max) calibrated FAR bound
-    // across the slots sharing an aspect.
-    let mut far_by_aspect: std::collections::BTreeMap<&'static str, f32> =
-        std::collections::BTreeMap::new();
-    if let Some(map) = calib_per_slot {
-        for meta in map.values() {
-            if let Some(kind) = meta.slot_kind {
-                far_by_aspect
-                    .entry(kind.label())
-                    .and_modify(|far| *far = far.max(meta.far))
-                    .or_insert(meta.far);
+            .collect();
+        let mut far_by_aspect: std::collections::BTreeMap<&'static str, f32> =
+            std::collections::BTreeMap::new();
+        if let Some(map) = calib_per_slot {
+            for meta in map.values() {
+                if let Some(kind) = meta.slot_kind {
+                    far_by_aspect
+                        .entry(kind.label())
+                        .and_modify(|far| *far = far.max(meta.far))
+                        .or_insert(meta.far);
+                }
             }
         }
-    }
-    let far = profile.calibration.as_ref().map(|meta| meta.far);
-    let body = json!({
-        "verdict": verdict_str,
-        "overallPass": verdict.overall_pass,
-        "provisional": verdict.provisional,
-        "highStakes": high_stakes,
-        "far": far,
-        "farByAspect": far_by_aspect,
-        "perSlot": per_slot,
-    });
+        let far = profile.calibration.as_ref().map(|meta| meta.far);
+        Ok(json!({
+            "verdict": verdict_str,
+            "overallPass": verdict.overall_pass,
+            "provisional": verdict.provisional,
+            "highStakes": high_stakes,
+            "far": far,
+            "farByAspect": far_by_aspect,
+            "perSlot": per_slot,
+        }))
+    })
+    .await
+    {
+        Ok(body) => body,
+        Err(error) => return error.into_response(),
+    };
     (StatusCode::OK, Json(body)).into_response()
 }
 
@@ -419,7 +423,8 @@ pub(super) async fn assay_bits_handler(State(ctx): State<Arc<MeasureCtx>>) -> Re
     if let Some((body, age)) = ctx.cache.get(&cache_key) {
         return cached_json_response(body, "HIT", age);
     }
-    let body = match assay_bits_body(&ctx) {
+    let work_ctx = Arc::clone(&ctx);
+    let body = match run_blocking("assay_bits", move || assay_bits_body(&work_ctx)).await {
         Ok(body) => body,
         Err(error) => return error.into_response(),
     };

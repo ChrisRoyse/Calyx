@@ -1,4 +1,5 @@
 use super::*;
+use crate::blocking::run_blocking;
 
 /// Stateless liveness of the web-API process itself (used by the scaffold
 /// builders, which have no loaded vault). The deployed origin serves
@@ -88,20 +89,22 @@ Connection: close
 }
 
 pub(super) async fn health_full(State(ctx): State<Arc<MeasureCtx>>) -> impl IntoResponse {
-    let gpu = match measure_query_vectors(&ctx.state, "health") {
-        Ok(measured)
-            if measured
-                .iter()
-                .any(|(_, vector)| vector.as_dense().is_some()) =>
-        {
-            "ok"
-        }
-        Ok(_) => "degraded",
-        Err(error) => {
-            tracing::warn!(error = ?error, "CALYX_WEB_API_HEALTH_EMBEDDER_PROBE_FAILED");
-            "degraded"
-        }
-    };
+    let work_ctx = Arc::clone(&ctx);
+    let gpu_ready = run_blocking("health_embedder", move || {
+        measure_query_vectors(&work_ctx.state, "health")
+            .map(|measured| {
+                measured
+                    .iter()
+                    .any(|(_, vector)| vector.as_dense().is_some())
+            })
+            .map_err(|error| {
+                tracing::warn!(error = ?error, "CALYX_WEB_API_HEALTH_EMBEDDER_PROBE_FAILED");
+                ApiError::of(ErrorCode::Internal)
+            })
+    })
+    .await
+    .unwrap_or(false);
+    let gpu = if gpu_ready { "ok" } else { "degraded" };
     let vault = "ready";
     let faithfulness = probe_hhem_faithfulness().await;
     let status = if gpu == "ok" && faithfulness == "ok" {
