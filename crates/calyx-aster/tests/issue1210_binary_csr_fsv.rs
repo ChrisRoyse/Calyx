@@ -68,7 +68,7 @@ fn binary_csr_physical_readback_is_smaller_than_json() {
         "edge_cases": edge_cases,
     }));
 
-    if std::env::var_os("CALYX_FSV_ROOT").is_none() {
+    if calyx_fsv::fsv_root("CALYX_FSV_ROOT").is_none() {
         let _ = fs::remove_dir_all(dir);
     }
 }

@@ -103,7 +103,7 @@ fn persisted_csr_carries_normalized_evidence_weights_into_graph_scores() {
         "edge_cases": edge_cases,
     }));
 
-    if std::env::var_os("CALYX_FSV_ROOT").is_none() {
+    if calyx_fsv::fsv_root("CALYX_FSV_ROOT").is_none() {
         let _ = fs::remove_dir_all(dir);
     }
 }

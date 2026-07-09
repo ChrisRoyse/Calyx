@@ -1,4 +1,4 @@
-use std::{fs, path::PathBuf};
+use std::fs;
 
 use rand::{Rng, SeedableRng};
 use rand_chacha::ChaCha8Rng;
@@ -208,7 +208,7 @@ fn gaussian_mi_bits(x: &[Vec<f32>], y: &[Vec<f32>]) -> f32 {
 }
 
 fn maybe_write_issue1208_fsv(readback: serde_json::Value) {
-    let Some(root) = std::env::var_os("CALYX_FSV_ROOT").map(PathBuf::from) else {
+    let Some(root) = calyx_fsv::fsv_root("CALYX_FSV_ROOT") else {
         return;
     };
     let dir = root.join("issue1208-ksg-subsample-ci");

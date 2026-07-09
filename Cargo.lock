@@ -918,6 +918,7 @@ version = "0.1.0"
 dependencies = [
  "blake3",
  "calyx-core",
+ "calyx-fsv",
  "proptest",
  "rand 0.8.6",
  "serde",

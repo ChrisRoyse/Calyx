@@ -18,13 +18,15 @@ pub mod fsv {
     use serde::Serialize;
 
     pub fn fsv_root(env_key: &str, fallback_prefix: &str) -> (PathBuf, bool) {
-        let keep = std::env::var_os(env_key).is_some();
-        let dir = std::env::var_os(env_key)
-            .map(PathBuf::from)
-            .unwrap_or_else(|| {
-                std::env::temp_dir().join(format!("{fallback_prefix}-{}", std::process::id()))
-            });
-        (dir, keep)
+        match calyx_fsv::env_fsv_root(env_key) {
+            Ok(Some(dir)) => (dir, true),
+            Ok(None) => (temp_fallback(fallback_prefix), false),
+            Err(error) => panic!("{env_key} invalid for FSV evidence: {error}"),
+        }
+    }
+
+    fn temp_fallback(fallback_prefix: &str) -> PathBuf {
+        std::env::temp_dir().join(format!("{fallback_prefix}-{}", std::process::id()))
     }
 
     pub fn write_json<T: Serialize + ?Sized>(path: &Path, value: &T) {
@@ -71,6 +73,64 @@ pub mod fsv {
     pub fn reset_dir(path: &Path) {
         let _ = fs::remove_dir_all(path);
         fs::create_dir_all(path).expect("create fsv root");
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        fn set_var(var: &str, value: &str) {
+            // SAFETY: each test uses a variable name unique to itself, so no
+            // other test reads or writes it concurrently.
+            unsafe { std::env::set_var(var, value) };
+        }
+
+        fn remove_var(var: &str) {
+            // SAFETY: each test uses a variable name unique to itself, so no
+            // other test reads or writes it concurrently.
+            unsafe { std::env::remove_var(var) };
+        }
+
+        #[test]
+        fn unset_uses_temp_fallback_without_keep() {
+            let var = "CALYX_TESTKIT_FSV_UNSET";
+            remove_var(var);
+            let (root, keep) = fsv_root(var, "calyx-testkit-fallback");
+            assert!(!keep);
+            assert!(root.is_absolute());
+            let expected = format!("calyx-testkit-fallback-{}", std::process::id());
+            assert_eq!(
+                root.file_name().and_then(|name| name.to_str()),
+                Some(expected.as_str())
+            );
+        }
+
+        #[test]
+        fn absolute_env_root_is_returned_with_keep() {
+            let var = "CALYX_TESTKIT_FSV_ABSOLUTE";
+            let root = std::env::temp_dir().join("calyx-testkit-fsv-absolute");
+            assert!(root.is_absolute());
+            set_var(var, root.to_str().unwrap());
+            let (resolved, keep) = fsv_root(var, "unused-fallback");
+            assert!(keep);
+            assert_eq!(resolved, root);
+        }
+
+        #[test]
+        #[should_panic(expected = "CALYX_FSV_ROOT_EMPTY")]
+        fn empty_env_root_panics() {
+            let var = "CALYX_TESTKIT_FSV_EMPTY";
+            set_var(var, "");
+            let _ = fsv_root(var, "unused-fallback");
+        }
+
+        #[test]
+        #[should_panic(expected = "CALYX_FSV_ROOT_NOT_ABSOLUTE")]
+        fn relative_env_root_panics() {
+            let var = "CALYX_TESTKIT_FSV_RELATIVE";
+            set_var(var, "target/fsv");
+            let _ = fsv_root(var, "unused-fallback");
+        }
     }
 }
 

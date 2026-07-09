@@ -245,7 +245,7 @@ fn uci_iris_species_anchor() -> Anchor {
 }
 
 fn maybe_write_fsv(readback: serde_json::Value) {
-    let Some(root) = std::env::var_os("CALYX_FSV_ROOT").map(PathBuf::from) else {
+    let Some(root) = calyx_fsv::fsv_root("CALYX_FSV_ROOT") else {
         return;
     };
     let dir = root.join("issue1207-ksg-mixed-discrete");

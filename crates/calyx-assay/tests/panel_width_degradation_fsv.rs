@@ -138,9 +138,9 @@ fn union_floor_neutralizes_concat_width_degradation() {
     });
 
     // Full-state verification: persist, then assert against the readback.
-    let root = std::env::var("CALYX_FSV_ROOT")
-        .map(std::path::PathBuf::from)
-        .unwrap_or_else(|_| std::env::temp_dir().join("calyx_panel_width_fsv"));
+    let root = calyx_fsv::fsv_root_or_else("CALYX_FSV_ROOT", || {
+        std::env::temp_dir().join("calyx_panel_width_fsv")
+    });
     fs::create_dir_all(&root).unwrap();
     let path = root.join("panel_width_degradation.json");
     fs::write(&path, serde_json::to_vec_pretty(&artifact).unwrap()).unwrap();
