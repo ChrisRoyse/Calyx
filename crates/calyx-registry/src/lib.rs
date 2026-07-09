@@ -89,9 +89,9 @@ pub use placement::{
 pub use profile::{
     CAPABILITY_MAX_PAIRWISE_CORR_ENV, CAPABILITY_MIN_SIGNAL_BITS_ENV, CapabilityCard,
     CapabilityGateDecision, CapabilityGateEvaluation, CapabilityGateThresholds,
-    CapabilitySignalKind, CapabilitySignalReliability, CostMetrics, CoverageMetrics, MetricSource,
-    ProfileOptions, ProfileProbe, Profiler, SeparationMetrics, SpreadMetrics,
-    append_capability_gate_ledger, apply_assay_metrics, capability_gate_json,
+    CapabilitySignalKind, CapabilitySignalReliability, CostMetrics, CoverageMetrics,
+    DenseProfileRequest, MetricSource, ProfileOptions, ProfileProbe, Profiler, SeparationMetrics,
+    SpreadMetrics, append_capability_gate_ledger, apply_assay_metrics, capability_gate_json,
     evaluate_capability_gate, max_panel_pairwise_correlation, profile_dense_vectors, profile_lens,
     profile_slot_with_assay, signal_kind_from_spec,
 };

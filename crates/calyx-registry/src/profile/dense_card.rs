@@ -15,25 +15,53 @@ pub(crate) struct Observation {
     pub(crate) label: Option<String>,
 }
 
-pub fn profile_dense_vectors(
-    lens_id: LensId,
-    probe_count: usize,
-    vectors: &[Vec<f32>],
-    labels: &[Option<String>],
-    cost: CostMetrics,
-    signal: Option<f32>,
-    signal_kind: CapabilitySignalKind,
-    health: LensHealth,
-) -> Result<CapabilityCard> {
-    let observations = vectors
+#[derive(Clone, Debug)]
+pub struct DenseProfileRequest<'a> {
+    pub lens_id: LensId,
+    pub probe_count: usize,
+    pub vectors: &'a [Vec<f32>],
+    pub labels: &'a [Option<String>],
+    pub cost: CostMetrics,
+    pub signal: Option<f32>,
+    pub signal_kind: CapabilitySignalKind,
+    pub health: LensHealth,
+}
+
+pub(super) struct DenseCapabilityRequest {
+    pub(super) lens_id: LensId,
+    pub(super) probe_count: usize,
+    pub(super) observations: Vec<Observation>,
+    pub(super) cost: CostMetrics,
+    pub(super) signal: Option<f32>,
+    pub(super) signal_kind: CapabilitySignalKind,
+    pub(super) health: LensHealth,
+    pub(super) options: ProfileOptions,
+}
+
+pub fn profile_dense_vectors(request: DenseProfileRequest<'_>) -> Result<CapabilityCard> {
+    let observations = request
+        .vectors
         .iter()
         .enumerate()
         .map(|(idx, data)| Observation {
             data: data.clone(),
-            label: labels.get(idx).cloned().unwrap_or(None),
+            label: request.labels.get(idx).cloned().unwrap_or(None),
         })
         .collect();
-    dense_capability_card(
+    dense_capability_card(DenseCapabilityRequest {
+        lens_id: request.lens_id,
+        probe_count: request.probe_count,
+        observations,
+        cost: request.cost,
+        signal: request.signal,
+        signal_kind: request.signal_kind,
+        health: request.health,
+        options: ProfileOptions::default(),
+    })
+}
+
+pub(super) fn dense_capability_card(request: DenseCapabilityRequest) -> Result<CapabilityCard> {
+    let DenseCapabilityRequest {
         lens_id,
         probe_count,
         observations,
@@ -41,20 +69,8 @@ pub fn profile_dense_vectors(
         signal,
         signal_kind,
         health,
-        ProfileOptions::default(),
-    )
-}
-
-pub(super) fn dense_capability_card(
-    lens_id: LensId,
-    probe_count: usize,
-    observations: Vec<Observation>,
-    cost: CostMetrics,
-    signal: Option<f32>,
-    signal_kind: CapabilitySignalKind,
-    health: LensHealth,
-    options: ProfileOptions,
-) -> Result<CapabilityCard> {
+        options,
+    } = request;
     if probe_count == 0 || observations.is_empty() {
         return Err(CalyxError::assay_insufficient_samples(
             "profile requires at least one measurable vector",

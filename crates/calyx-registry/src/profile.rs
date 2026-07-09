@@ -15,8 +15,8 @@ mod signal_kind;
 pub use assay::{apply_assay_metrics, profile_slot_with_assay};
 pub use cost::CostMetrics;
 pub(crate) use dense_card::Observation;
-use dense_card::dense_capability_card;
-pub use dense_card::profile_dense_vectors;
+use dense_card::{DenseCapabilityRequest, dense_capability_card};
+pub use dense_card::{DenseProfileRequest, profile_dense_vectors};
 pub use gating::{
     CAPABILITY_MAX_PAIRWISE_CORR_ENV, CAPABILITY_MIN_SIGNAL_BITS_ENV, CapabilityGateDecision,
     CapabilityGateEvaluation, CapabilityGateThresholds, append_capability_gate_ledger,
@@ -174,16 +174,16 @@ impl Profiler {
 
         let cost =
             CostMetrics::from_profile(total_ms, probes, &observations, vram_before, vram_after);
-        let mut card = dense_capability_card(
+        let mut card = dense_capability_card(DenseCapabilityRequest {
             lens_id,
-            probes.len(),
+            probe_count: probes.len(),
             observations,
             cost,
-            None,
-            registry_signal_kind(registry, lens_id),
-            registry.health(lens_id)?,
-            self.options,
-        )?;
+            signal: None,
+            signal_kind: registry_signal_kind(registry, lens_id),
+            health: registry.health(lens_id)?,
+            options: self.options,
+        })?;
         card.coverage.failed = failed;
         card.coverage.rate = card.coverage.measured as f32 / probes.len() as f32;
         Ok(card)

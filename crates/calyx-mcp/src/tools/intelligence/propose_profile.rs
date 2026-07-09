@@ -9,8 +9,8 @@ use calyx_core::{
     CalyxError, Constellation, CxId, Lens, LensId, Modality, Result, SlotId, SlotVector,
 };
 use calyx_registry::{
-    AlgorithmicLens, CapabilityCard, CapabilitySignalKind, CostMetrics, LensHealth, Registry,
-    profile_dense_vectors,
+    AlgorithmicLens, CapabilityCard, CapabilitySignalKind, CostMetrics, DenseProfileRequest,
+    LensHealth, Registry, profile_dense_vectors,
 };
 
 use super::core::{cosine, dense, has_anchor, has_anchor_kind};
@@ -115,16 +115,17 @@ pub(super) fn capability_card(
         CapabilitySignalKind::Placeholder => LensHealth::Cold,
         _ => LensHealth::Loaded,
     };
-    profile_dense_vectors(
-        measured.lens_id,
-        corpus.len(),
-        &measured.ordered,
-        &profile_labels(corpus, anchor),
+    let labels = profile_labels(corpus, anchor);
+    profile_dense_vectors(DenseProfileRequest {
+        lens_id: measured.lens_id,
+        probe_count: corpus.len(),
+        vectors: &measured.ordered,
+        labels: &labels,
         cost,
-        Some(signal),
-        measured.signal_kind,
+        signal: Some(signal),
+        signal_kind: measured.signal_kind,
         health,
-    )
+    })
 }
 
 pub(super) fn per_sensor_bits(panel: &calyx_core::Panel, measured: &BitsOut) -> Vec<(LensId, f64)> {

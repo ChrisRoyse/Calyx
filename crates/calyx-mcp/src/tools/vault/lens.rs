@@ -335,13 +335,13 @@ fn profile_probes(path: Option<&str>, modality: Modality) -> ToolResult<Vec<Prof
         for line in text.lines().map(str::trim).filter(|line| !line.is_empty()) {
             probes.push(profile_probe_from_line(line, modality)?);
         }
-        return if probes.is_empty() {
+        if probes.is_empty() {
             Err(ToolError::invalid_params(
                 "profile_lens probe set must not be empty",
             ))
         } else {
             Ok(probes)
-        };
+        }
     } else {
         Err(ToolError::invalid_params(
             "profile_lens requires an explicit probe set",
