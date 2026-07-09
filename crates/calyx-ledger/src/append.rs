@@ -386,7 +386,14 @@ pub fn reject_tombstone(seq: u64) -> Result<()> {
     )))
 }
 
-fn recover_tip(store: &impl LedgerCfStore) -> Result<(u64, [u8; HASH_BYTES], u64)> {
+/// Recovers the appender tip from a store, honoring its external head anchor.
+///
+/// This is the single tip-recovery routine for every ledger write path. When
+/// the store exposes a [`LedgerHeadAnchor`] it takes the anchored fast path and
+/// fails closed on an end-truncated ledger; otherwise it validates the full
+/// hash chain by scan. Any additional write path (e.g. reproduce appends) must
+/// use this rather than re-deriving the tip, so the anchor stays authoritative.
+pub(crate) fn recover_tip(store: &impl LedgerCfStore) -> Result<(u64, [u8; HASH_BYTES], u64)> {
     if let Some(anchor) = store.head_anchor()? {
         if anchor.height == 0 {
             return Ok((0, [0_u8; HASH_BYTES], 0));

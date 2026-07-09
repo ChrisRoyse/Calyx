@@ -10,9 +10,10 @@ use super::{
     ForgeBackend, QueryId, RemeasuredSlot, ReproduceInputResolver, ReproduceLensRegistry,
     build_reproduce_context, remeasure_slots, remeasure_slots_with_input_resolver,
 };
-use crate::append::{LedgerCfStore, LedgerRow};
-use crate::codec::{decode, encode};
-use crate::entry::{ActorId, HASH_BYTES, LedgerEntry, SubjectId};
+use crate::append::{LedgerCfStore, recover_tip};
+use crate::codec::encode;
+use crate::entry::{ActorId, LedgerEntry, SubjectId};
+use crate::head_anchor::LedgerHeadAnchor;
 use crate::kind::EntryKind;
 use crate::redaction::RedactionPolicy;
 
@@ -177,6 +178,12 @@ pub fn append_reproduce_entry(
         ts,
     );
     store.put_new(seq, &encode(&entry))?;
+    // Advance the external head witness exactly as `LedgerAppender::commit_prepared`
+    // does. Without this the anchor stays stale, a later `LedgerAppender::open`
+    // recovers `next_seq = anchor.height` and the next commit collides at this
+    // reproduce row, permanently wedging an anchor-backed ledger.
+    let anchor = LedgerHeadAnchor::new(seq.saturating_add(1), entry.entry_hash)?;
+    store.put_head_anchor(&anchor)?;
     Ok(entry)
 }
 
@@ -277,37 +284,6 @@ fn ranked_indices(scores: &[f32]) -> Vec<usize> {
             .then_with(|| left.cmp(right))
     });
     indices
-}
-
-fn recover_tip(store: &impl LedgerCfStore) -> Result<(u64, [u8; HASH_BYTES], u64)> {
-    let mut next_seq = 0_u64;
-    let mut prev_hash = [0_u8; HASH_BYTES];
-    let mut last_ts = 0_u64;
-    for LedgerRow { seq, bytes } in store.scan()? {
-        if seq != next_seq {
-            return Err(CalyxError::ledger_chain_broken(format!(
-                "ledger seq gap before reproduce append: expected {next_seq}, found {seq}"
-            )));
-        }
-        let entry = decode(&bytes)?;
-        if entry.seq != seq {
-            return Err(CalyxError::ledger_corrupt(format!(
-                "ledger key seq {seq} != encoded seq {} before reproduce append",
-                entry.seq
-            )));
-        }
-        if entry.prev_hash != prev_hash {
-            return Err(CalyxError::ledger_chain_broken(format!(
-                "ledger seq {seq} prev_hash mismatch before reproduce append"
-            )));
-        }
-        prev_hash = entry.entry_hash;
-        last_ts = entry.ts;
-        next_seq = next_seq
-            .checked_add(1)
-            .ok_or_else(|| CalyxError::ledger_chain_broken("ledger sequence exhausted"))?;
-    }
-    Ok((next_seq, prev_hash, last_ts))
 }
 
 fn reproduce_payload(answer_id: &QueryId, result: &ReproduceResult, ts: u64) -> Result<Vec<u8>> {
