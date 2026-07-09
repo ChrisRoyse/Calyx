@@ -105,11 +105,10 @@ pub(super) fn subcommand_tokens(command: &Subcommand) -> Vec<String> {
             args.cx_id.clone(),
         ],
         Subcommand::VerifyChain(args) => verify_chain_tokens(args),
-        Subcommand::Reproduce(args) => vec![
-            "reproduce".to_string(),
-            args.vault.clone(),
-            args.answer_id.clone(),
-        ],
+        Subcommand::Reproduce(args) => std::iter::once("reproduce".to_string())
+            .chain(args.record.then_some("--record".to_string()))
+            .chain([args.vault.clone(), args.answer_id.clone()])
+            .collect(),
         Subcommand::AnnealStatus(args) => vec!["anneal-status".to_string(), args.vault.clone()],
         Subcommand::RebuildSearchIndex(args) => {
             vec!["rebuild-search-index".to_string(), args.vault.clone()]

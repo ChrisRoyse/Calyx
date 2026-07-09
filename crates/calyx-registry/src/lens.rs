@@ -7,6 +7,7 @@ use calyx_core::{
 use serde::{Deserialize, Serialize};
 
 mod contract;
+mod reproduce;
 
 use crate::frozen::FrozenLensContract;
 use crate::ingest_microbatch::{IngestLensOutcome, IngestMicrobatchController, IngestPanelReadout};

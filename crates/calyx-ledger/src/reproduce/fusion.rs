@@ -140,9 +140,9 @@ pub fn reproduce(
     forge: &mut dyn ForgeBackend,
     answer_id: &QueryId,
 ) -> Result<ReproduceResult> {
-    let ctx = build_reproduce_context(store, answer_id)?;
-    let remeasured = remeasure_slots(&ctx, registry, forge)?;
-    reproduce_from_remeasured(store, answer_id, &ctx.ledger_entries, &remeasured)
+    let result = reproduce_verdict(store, registry, forge, answer_id)?;
+    append_reproduce_entry(store, answer_id, &result)?;
+    Ok(result)
 }
 
 pub fn reproduce_with_input_resolver(
@@ -152,9 +152,33 @@ pub fn reproduce_with_input_resolver(
     resolver: &dyn ReproduceInputResolver,
     answer_id: &QueryId,
 ) -> Result<ReproduceResult> {
+    let result =
+        reproduce_verdict_with_input_resolver(store, registry, forge, resolver, answer_id)?;
+    append_reproduce_entry(store, answer_id, &result)?;
+    Ok(result)
+}
+
+pub fn reproduce_verdict(
+    store: &impl LedgerCfStore,
+    registry: &dyn ReproduceLensRegistry,
+    forge: &mut dyn ForgeBackend,
+    answer_id: &QueryId,
+) -> Result<ReproduceResult> {
+    let ctx = build_reproduce_context(store, answer_id)?;
+    let remeasured = remeasure_slots(&ctx, registry, forge)?;
+    reproduce_result_from_remeasured(&ctx.ledger_entries, &remeasured)
+}
+
+pub fn reproduce_verdict_with_input_resolver(
+    store: &impl LedgerCfStore,
+    registry: &dyn ReproduceLensRegistry,
+    forge: &mut dyn ForgeBackend,
+    resolver: &dyn ReproduceInputResolver,
+    answer_id: &QueryId,
+) -> Result<ReproduceResult> {
     let ctx = build_reproduce_context(store, answer_id)?;
     let remeasured = remeasure_slots_with_input_resolver(&ctx, registry, forge, resolver)?;
-    reproduce_from_remeasured(store, answer_id, &ctx.ledger_entries, &remeasured)
+    reproduce_result_from_remeasured(&ctx.ledger_entries, &remeasured)
 }
 
 pub fn append_reproduce_entry(
@@ -166,7 +190,7 @@ pub fn append_reproduce_entry(
     let ts = last_ts
         .checked_add(1)
         .ok_or_else(|| CalyxError::ledger_chain_broken("ledger timestamp exhausted"))?;
-    let payload = reproduce_payload(answer_id, result, ts)?;
+    let payload = reproduce_payload_bytes(answer_id, result, ts)?;
     RedactionPolicy::check_payload(&payload)?;
     let entry = LedgerEntry::new(
         seq,
@@ -198,9 +222,7 @@ pub fn assert_reproduced(result: &ReproduceResult) -> Result<()> {
     }
 }
 
-fn reproduce_from_remeasured(
-    store: &mut impl LedgerCfStore,
-    answer_id: &QueryId,
+fn reproduce_result_from_remeasured(
     ledger_entries: &[LedgerEntry],
     remeasured: &[RemeasuredSlot],
 ) -> Result<ReproduceResult> {
@@ -210,14 +232,12 @@ fn reproduce_from_remeasured(
     let reproduced_hits = rerun_fusion(remeasured, &fusion_weights)?;
     let (reproduced, max_drift) =
         assert_within_tolerance(&original_hits, &reproduced_hits, REPRODUCE_TOLERANCE);
-    let result = ReproduceResult {
+    Ok(ReproduceResult {
         reproduced,
         max_drift,
         original_hits,
         reproduced_hits,
-    };
-    append_reproduce_entry(store, answer_id, &result)?;
-    Ok(result)
+    })
 }
 
 fn answer_payload(ledger_entries: &[LedgerEntry]) -> Result<Value> {
@@ -286,7 +306,11 @@ fn ranked_indices(scores: &[f32]) -> Vec<usize> {
     indices
 }
 
-fn reproduce_payload(answer_id: &QueryId, result: &ReproduceResult, ts: u64) -> Result<Vec<u8>> {
+pub fn reproduce_payload_bytes(
+    answer_id: &QueryId,
+    result: &ReproduceResult,
+    ts: u64,
+) -> Result<Vec<u8>> {
     serde_json::to_vec(&serde_json::json!({
         "type": REPRODUCE_PAYLOAD_TAG,
         "answer_id": hex(answer_id),

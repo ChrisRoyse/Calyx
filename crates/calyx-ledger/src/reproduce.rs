@@ -17,6 +17,7 @@ use crate::kind::EntryKind;
 pub use fusion::{
     FusionMode, FusionWeights, HitRef, REPRODUCE_PAYLOAD_TAG, REPRODUCE_TOLERANCE, ReproduceResult,
     SlotWeight, append_reproduce_entry, assert_reproduced, assert_within_tolerance, reproduce,
+    reproduce_payload_bytes, reproduce_verdict, reproduce_verdict_with_input_resolver,
     reproduce_with_input_resolver, rerun_fusion,
 };
 

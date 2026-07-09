@@ -47,7 +47,8 @@ pub use reproduce::{
     ReproduceInputResolver, ReproduceLensRegistry, ReproduceResult, SlotWeight,
     activate_forge_determinism, append_reproduce_entry, assert_reproduced, assert_within_tolerance,
     build_reproduce_context, lookup_frozen_lens, remeasure_slots,
-    remeasure_slots_with_input_resolver, reproduce, reproduce_with_input_resolver, rerun_fusion,
+    remeasure_slots_with_input_resolver, reproduce, reproduce_payload_bytes, reproduce_verdict,
+    reproduce_verdict_with_input_resolver, reproduce_with_input_resolver, rerun_fusion,
 };
 pub use stream_verify::{StreamingChainVerifier, StreamingStart};
 pub use tombstone::{

@@ -21,6 +21,8 @@ use crate::ledger_store::AsterLedgerCfStore;
 use crate::output::print_json;
 
 mod lineage_support;
+#[path = "provenance/reproduce_record.rs"]
+mod reproduce_record;
 mod status;
 #[path = "provenance/verify_chain_cmd.rs"]
 mod verify_chain_cmd;
@@ -39,6 +41,7 @@ pub(crate) struct ProvenanceArgs {
 pub(crate) struct ReproduceArgs {
     pub vault: String,
     pub answer_id: String,
+    pub record: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -100,12 +103,31 @@ pub(crate) fn parse_verify_chain(rest: &[String]) -> CliResult<Subcommand> {
 }
 
 pub(crate) fn parse_reproduce(rest: &[String]) -> CliResult<Subcommand> {
-    match rest {
+    let mut record = false;
+    let mut positional = Vec::new();
+    for arg in rest {
+        match arg.as_str() {
+            "--record" if record => {
+                return Err(CliError::usage(
+                    "reproduce received duplicate --record flag",
+                ));
+            }
+            "--record" => record = true,
+            flag if flag.starts_with("--") => {
+                return Err(CliError::usage(format!("unexpected reproduce flag {flag}")));
+            }
+            _ => positional.push(arg.clone()),
+        }
+    }
+    match positional.as_slice() {
         [vault, answer_id] => Ok(Subcommand::Reproduce(ReproduceArgs {
             vault: vault.clone(),
             answer_id: answer_id.clone(),
+            record,
         })),
-        _ => Err(CliError::usage("reproduce requires <vault> <answer_id>")),
+        _ => Err(CliError::usage(
+            "reproduce requires [--record] <vault> <answer_id>",
+        )),
     }
 }
 
@@ -127,9 +149,13 @@ fn run_provenance(args: ProvenanceArgs) -> CliResult {
 
 fn run_reproduce(args: ReproduceArgs) -> CliResult {
     let resolved = resolve_cli_vault(&args.vault)?;
-    let entries = ledger_entries(&resolved.path)?;
     let answer_id = parse_answer_id(&args.answer_id)?;
-    let report = reproduce_report(&entries, &answer_id)?;
+    let report = if args.record {
+        reproduce_record::record(&resolved, &answer_id)?
+    } else {
+        let entries = ledger_entries(&resolved.path)?;
+        reproduce_report(&entries, &answer_id)?
+    };
     print_json(&report)?;
     if report.bit_parity {
         Ok(())
@@ -394,5 +420,8 @@ impl QuarantineLookup for NoQuarantine {
     }
 }
 
+#[cfg(test)]
+#[path = "provenance/reproduce_record_tests.rs"]
+mod reproduce_record_tests;
 #[cfg(test)]
 mod tests;

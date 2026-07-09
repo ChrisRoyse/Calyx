@@ -72,7 +72,7 @@ pub(crate) fn usage() -> &'static str {
        calyx hypothesis-falsification-sweep --hypotheses-report <json> [--hypotheses-report <json> ...] --pubtator-root <dir> --clinicaltrials-root <dir> --dgidb-root <dir> --open-targets-root <dir> --out-dir <dir> [--max-hypotheses <n>] [--run-manifest <manifest.json> --run-stage-id <stage-id>]
        calyx graph-collection-generations <vault> [--collection <name>] [--home <dir>]
        calyx graph-collection-state <vault> --collection <name> --generation <id> --state <writing|accepted|failed|tombstoned> --command <name> [--reason <text>] [--detail <k=v>] [--home <dir>]
-       calyx reproduce <vault> <answer_id>
+       calyx reproduce [--record] <vault> <answer_id>
        calyx anneal-status <vault>
        calyx healthcheck [--vault <vault>] [--json|--no-json] [--tei <http://host:port[/path]>]
        calyx build-info

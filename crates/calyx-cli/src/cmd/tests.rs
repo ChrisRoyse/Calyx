@@ -120,6 +120,22 @@ fn parse_provenance_ops_commands() {
             batch_size: 8192,
         })
     );
+    assert_eq!(
+        parse(&tokens(["reproduce", "--record", "mydb", "answer-1"])).unwrap(),
+        Subcommand::Reproduce(provenance::ReproduceArgs {
+            vault: "mydb".to_string(),
+            answer_id: "answer-1".to_string(),
+            record: true,
+        })
+    );
+    assert_eq!(
+        parse(&tokens(["reproduce", "mydb", "answer-1"])).unwrap(),
+        Subcommand::Reproduce(provenance::ReproduceArgs {
+            vault: "mydb".to_string(),
+            answer_id: "answer-1".to_string(),
+            record: false,
+        })
+    );
 }
 
 #[test]
@@ -298,6 +314,7 @@ fn arb_subcommand() -> impl Strategy<Value = Subcommand> {
         safe_name().prop_map(|vault| Subcommand::Reproduce(provenance::ReproduceArgs {
             vault,
             answer_id: "answer-1".to_string(),
+            record: false,
         })),
         safe_name()
             .prop_map(|vault| Subcommand::AnnealStatus(provenance::AnnealStatusArgs { vault })),
