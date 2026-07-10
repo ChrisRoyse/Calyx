@@ -52,7 +52,7 @@ where
             self.source.scan_cf(snapshot, cf)?;
         }
         let rows = source_rows(
-            &[
+            vec![
                 ("base", self.source.scan_cf(snapshot, ColumnFamily::Base)?),
                 (
                     "slot",
@@ -99,7 +99,7 @@ where
             ));
         };
         let rows = source_rows(
-            &[("base", self.source.scan_cf(snapshot, ColumnFamily::Base)?)],
+            vec![("base", self.source.scan_cf(snapshot, ColumnFamily::Base)?)],
             budget,
         )?;
         Ok(ArtifactPtr::QuantLevelRecordHash(artifact_hash(
@@ -143,7 +143,7 @@ where
             ));
         };
         let rows = source_rows(
-            &[(
+            vec![(
                 "anchors",
                 self.source.scan_cf(snapshot, ColumnFamily::Anchors)?,
             )],

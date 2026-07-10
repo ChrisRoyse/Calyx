@@ -169,13 +169,13 @@ where
                 self.metrics.samples.push(sample);
                 if let Err(error) = self.storage.save_sample(run_id, &sample) {
                     let partial = self.report_for(query_count, promotions, false);
-                    let _ = self.storage.save_report(run_id, &partial);
+                    self.storage.save_report(run_id, &partial)?;
                     self.last_report = Some(partial);
                     return Err(error);
                 }
                 if self.runtime_exhausted(started_at) {
                     let partial = self.report_for(query_count, promotions, false);
-                    let _ = self.storage.save_report(run_id, &partial);
+                    self.storage.save_report(run_id, &partial)?;
                     self.last_report = Some(partial);
                     return Err(time_budget_exhausted(query_count));
                 }

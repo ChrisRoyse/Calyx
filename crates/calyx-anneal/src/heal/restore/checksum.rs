@@ -38,8 +38,15 @@ pub fn load_base_shards<C>(vault: &AsterVault<C>) -> Result<Vec<BaseShard>>
 where
     C: Clock,
 {
+    load_base_shards_at(vault, vault.latest_seq())
+}
+
+fn load_base_shards_at<C>(vault: &AsterVault<C>, snapshot: Seq) -> Result<Vec<BaseShard>>
+where
+    C: Clock,
+{
     let mut shards = vault
-        .scan_cf_at(vault.latest_seq(), ColumnFamily::AnnealChecksums)?
+        .scan_cf_at(snapshot, ColumnFamily::AnnealChecksums)?
         .into_iter()
         .map(|(_, value)| decode_row(&value).map(|stored| stored.shard))
         .collect::<Result<Vec<_>>>()?;
@@ -55,8 +62,10 @@ where
     C: Clock,
 {
     let mut events = Vec::new();
-    for shard in load_base_shards(vault)? {
-        let actual = base_shard_checksum(vault, &shard.cf_range)?;
+    let snapshot = vault.latest_seq();
+    let base_rows = sorted_base_rows_at(vault, snapshot)?;
+    for shard in load_base_shards_at(vault, snapshot)? {
+        let actual = hash_rows_in_range(&base_rows, &shard.cf_range);
         if actual != shard.checksum {
             events.push(BaseFaultEvent::corrupt(shard, actual, clock.now()));
         }
@@ -68,13 +77,25 @@ pub fn base_shard_checksum<C>(vault: &AsterVault<C>, range: &KeyRange) -> Result
 where
     C: Clock,
 {
-    let mut rows = vault
-        .scan_cf_at(vault.latest_seq(), ColumnFamily::Base)?
-        .into_iter()
-        .filter(|(key, _)| range.contains(key))
-        .collect::<Vec<_>>();
+    let rows = sorted_base_rows_at(vault, vault.latest_seq())?;
+    Ok(hash_rows_in_range(&rows, range))
+}
+
+fn sorted_base_rows_at<C>(vault: &AsterVault<C>, snapshot: Seq) -> Result<Vec<(Vec<u8>, Vec<u8>)>>
+where
+    C: Clock,
+{
+    let mut rows = vault.scan_cf_at(snapshot, ColumnFamily::Base)?;
     rows.sort_by(|left, right| left.0.cmp(&right.0));
-    Ok(hash_rows(rows))
+    Ok(rows)
+}
+
+fn hash_rows_in_range(rows: &[(Vec<u8>, Vec<u8>)], range: &KeyRange) -> [u8; 32] {
+    hash_rows(
+        rows.iter()
+            .filter(|(key, _)| range.contains(key))
+            .map(|(key, value)| (key.as_slice(), value.as_slice())),
+    )
 }
 
 pub(super) fn write_shard_status<C>(
@@ -155,13 +176,13 @@ fn checksum_key(shard_id: &ShardId) -> Vec<u8> {
     format!("base_shard/{}", shard_id.as_str()).into_bytes()
 }
 
-fn hash_rows(rows: Vec<(Vec<u8>, Vec<u8>)>) -> [u8; 32] {
+fn hash_rows<'a>(rows: impl IntoIterator<Item = (&'a [u8], &'a [u8])>) -> [u8; 32] {
     let mut hasher = Sha256::new();
     for (key, value) in rows {
         hasher.update((key.len() as u64).to_be_bytes());
-        hasher.update(&key);
+        hasher.update(key);
         hasher.update((value.len() as u64).to_be_bytes());
-        hasher.update(&value);
+        hasher.update(value);
     }
     hasher.finalize().into()
 }

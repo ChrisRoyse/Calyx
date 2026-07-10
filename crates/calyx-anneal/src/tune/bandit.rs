@@ -86,7 +86,13 @@ pub struct BanditReadback {
     pub bandit: ConfigBandit,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize)]
+struct BanditRowRef<'a> {
+    tag: String,
+    bandit: &'a ConfigBandit,
+}
+
+#[derive(Deserialize)]
 struct BanditRow {
     tag: String,
     bandit: ConfigBandit,
@@ -364,9 +370,9 @@ pub fn bandit_key(shape_key_hash: [u8; 32]) -> Vec<u8> {
 
 pub fn encode_config_bandit(bandit: &ConfigBandit) -> Result<Vec<u8>> {
     bandit.validate()?;
-    let row = BanditRow {
+    let row = BanditRowRef {
         tag: BANDIT_ROW_TAG.to_string(),
-        bandit: bandit.clone(),
+        bandit,
     };
     let mut bytes = Vec::new();
     ciborium::ser::into_writer(&row, &mut bytes).map_err(|error| invalid_row(error.to_string()))?;

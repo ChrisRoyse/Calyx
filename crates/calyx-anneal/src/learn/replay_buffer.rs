@@ -1,4 +1,4 @@
-use std::cmp::Ordering;
+use std::cmp::{Ordering, Reverse};
 use std::collections::BinaryHeap;
 use std::sync::Arc;
 
@@ -88,7 +88,7 @@ where
 }
 
 pub struct ReplayBuffer<S> {
-    heap: BinaryHeap<ReplayEntry>,
+    heap: BinaryHeap<Reverse<ReplayEntry>>,
     capacity: usize,
     clock: Arc<dyn Clock>,
     storage: S,
@@ -118,14 +118,17 @@ where
 
     pub fn push(&mut self, entry: ReplayEntry) -> Result<bool> {
         validate_entry(&entry)?;
-        let mut next_heap = self.heap.clone();
-        let accepted = push_into_heap(&mut next_heap, self.capacity, entry)?;
-        if accepted {
-            let value = encode_snapshot_heap(self.capacity, &next_heap)?;
-            self.storage.save_snapshot(&value)?;
-            self.heap = next_heap;
+        let admission = heap_admission(&self.heap, self.capacity, &entry)?;
+        if admission == ReplayAdmission::Reject {
+            return Ok(false);
         }
-        Ok(accepted)
+        let value = encode_snapshot_entries(
+            self.capacity,
+            entries_after_admission(&self.heap, admission, entry.clone()),
+        )?;
+        self.storage.save_snapshot(&value)?;
+        apply_admission(&mut self.heap, admission, entry);
+        Ok(true)
     }
 
     pub fn sample_batch(&self, n: usize, seed: u64) -> Vec<ReplayEntry> {
@@ -174,7 +177,11 @@ where
     }
 
     pub fn entries_by_priority(&self) -> Vec<ReplayEntry> {
-        let mut entries = self.heap.clone().into_vec();
+        let mut entries = self
+            .heap
+            .iter()
+            .map(|entry| entry.0.clone())
+            .collect::<Vec<_>>();
         entries.sort_by(|left, right| right.cmp(left));
         entries
     }
@@ -296,17 +303,14 @@ pub fn decode_replay_snapshot(bytes: &[u8]) -> Result<ReplaySnapshot> {
     Ok(row.snapshot)
 }
 
-fn encode_snapshot_heap(capacity: usize, heap: &BinaryHeap<ReplayEntry>) -> Result<Vec<u8>> {
-    encode_replay_snapshot(&ReplaySnapshot {
-        capacity,
-        entries: sorted_entries(heap),
-    })
+fn encode_snapshot_entries(capacity: usize, entries: Vec<ReplayEntry>) -> Result<Vec<u8>> {
+    encode_replay_snapshot(&ReplaySnapshot { capacity, entries })
 }
 
 fn heap_from_entries(
     entries: Vec<ReplayEntry>,
     capacity: usize,
-) -> Result<BinaryHeap<ReplayEntry>> {
+) -> Result<BinaryHeap<Reverse<ReplayEntry>>> {
     let mut heap = BinaryHeap::new();
     for entry in entries {
         validate_entry(&entry)?;
@@ -315,35 +319,75 @@ fn heap_from_entries(
     Ok(heap)
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ReplayAdmission {
+    Reject,
+    Add,
+    ReplaceMin,
+}
+
 fn push_into_heap(
-    heap: &mut BinaryHeap<ReplayEntry>,
+    heap: &mut BinaryHeap<Reverse<ReplayEntry>>,
     capacity: usize,
     entry: ReplayEntry,
 ) -> Result<bool> {
-    validate_capacity(capacity)?;
-    if heap.len() < capacity {
-        heap.push(entry);
-        return Ok(true);
-    }
-    let Some((min_index, min_entry)) = heap
-        .iter()
-        .enumerate()
-        .min_by(|(_, left), (_, right)| left.cmp(right))
-    else {
-        return Ok(false);
-    };
-    if entry.surprise.total_cmp(&min_entry.surprise) != Ordering::Greater {
+    let admission = heap_admission(heap, capacity, &entry)?;
+    if admission == ReplayAdmission::Reject {
         return Ok(false);
     }
-    let mut entries = heap.clone().into_vec();
-    entries.swap_remove(min_index);
-    entries.push(entry);
-    *heap = BinaryHeap::from(entries);
+    apply_admission(heap, admission, entry);
     Ok(true)
 }
 
-fn sorted_entries(heap: &BinaryHeap<ReplayEntry>) -> Vec<ReplayEntry> {
-    let mut entries = heap.clone().into_vec();
+fn heap_admission(
+    heap: &BinaryHeap<Reverse<ReplayEntry>>,
+    capacity: usize,
+    entry: &ReplayEntry,
+) -> Result<ReplayAdmission> {
+    validate_capacity(capacity)?;
+    if heap.len() < capacity {
+        return Ok(ReplayAdmission::Add);
+    }
+    let Some(min_entry) = heap.peek().map(|entry| &entry.0) else {
+        return Ok(ReplayAdmission::Reject);
+    };
+    Ok(if entry.cmp(min_entry) == Ordering::Greater {
+        ReplayAdmission::ReplaceMin
+    } else {
+        ReplayAdmission::Reject
+    })
+}
+
+fn apply_admission(
+    heap: &mut BinaryHeap<Reverse<ReplayEntry>>,
+    admission: ReplayAdmission,
+    entry: ReplayEntry,
+) {
+    match admission {
+        ReplayAdmission::Reject => {}
+        ReplayAdmission::Add => heap.push(Reverse(entry)),
+        ReplayAdmission::ReplaceMin => {
+            heap.pop();
+            heap.push(Reverse(entry));
+        }
+    }
+}
+
+fn entries_after_admission(
+    heap: &BinaryHeap<Reverse<ReplayEntry>>,
+    admission: ReplayAdmission,
+    entry: ReplayEntry,
+) -> Vec<ReplayEntry> {
+    let mut entries = heap.iter().map(|entry| entry.0.clone()).collect::<Vec<_>>();
+    if admission == ReplayAdmission::ReplaceMin
+        && let Some(min_entry) = heap.peek().map(|entry| &entry.0)
+        && let Some(index) = entries.iter().position(|entry| entry == min_entry)
+    {
+        entries.swap_remove(index);
+    }
+    if admission != ReplayAdmission::Reject {
+        entries.push(entry);
+    }
     entries.sort_by(|left, right| right.cmp(left));
     entries
 }

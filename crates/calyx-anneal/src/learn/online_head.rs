@@ -439,22 +439,28 @@ fn default_heads() -> Result<Vec<OnlineHead>> {
 
 fn constellation_features(cx: &Constellation, len: usize) -> Vec<f32> {
     let mut features = Vec::with_capacity(len);
-    for index in 0..len {
-        let value = if index == 0 {
-            1.0
-        } else if let Some(value) = cx.scalars.values().nth(index - 1) {
-            *value as f32
-        } else {
-            cx.slots
-                .values()
-                .filter_map(|slot| slot.as_dense())
-                .flatten()
-                .nth(index.saturating_sub(1 + cx.scalars.len()))
-                .copied()
-                .unwrap_or(0.0)
-        };
-        features.push(value);
+    if len == 0 {
+        return features;
     }
+    features.push(1.0);
+    features.extend(
+        cx.scalars
+            .values()
+            .take(len.saturating_sub(features.len()))
+            .map(|value| *value as f32),
+    );
+    for value in cx
+        .slots
+        .values()
+        .filter_map(|slot| slot.as_dense())
+        .flatten()
+    {
+        if features.len() == len {
+            break;
+        }
+        features.push(*value);
+    }
+    features.resize(len, 0.0);
     features
 }
 

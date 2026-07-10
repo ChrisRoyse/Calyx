@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 
-use calyx_aster::cf::{ColumnFamily, ledger_key};
+use calyx_aster::cf::{ColumnFamily, KeyRange, ledger_key};
 use calyx_aster::vault::AsterVault;
 use calyx_core::{CalyxError, Clock, LedgerRef, Result};
 use calyx_ledger::{
@@ -172,11 +172,29 @@ where
     }
 
     pub fn read_recent_with_refs(&self, n: usize) -> Result<Vec<AnnealLedgerReadback>> {
-        let mut entries = self.scan_anneal_entries()?;
-        if n < entries.len() {
-            entries.drain(0..entries.len() - n);
+        if n == usize::MAX {
+            return self.scan_anneal_entries();
         }
-        Ok(entries)
+        let mut limit = n.max(1);
+        loop {
+            let ledger_entries = self.appender.scan_recent_entries(limit)?;
+            let saw_all_rows = ledger_entries.len() < limit;
+            let mut anneal_entries = ledger_entries
+                .into_iter()
+                .filter(|entry| entry.kind == EntryKind::Anneal)
+                .map(decode_readback)
+                .collect::<Result<Vec<_>>>()?;
+            if anneal_entries.len() >= n || saw_all_rows {
+                if n < anneal_entries.len() {
+                    anneal_entries.drain(0..anneal_entries.len() - n);
+                }
+                return Ok(anneal_entries);
+            }
+            limit = limit.saturating_mul(2);
+            if limit == usize::MAX {
+                return self.scan_anneal_entries();
+            }
+        }
     }
 
     pub fn find_by_change_id(&self, id: ChangeId) -> Result<Option<AnnealLedgerEntry>> {
@@ -249,6 +267,45 @@ where
             .into_iter()
             .map(|(seq, bytes)| LedgerRow { seq, bytes })
             .collect())
+    }
+
+    fn scan_recent(&self, n: usize) -> Result<Vec<LedgerRow>> {
+        if n == usize::MAX {
+            return self.scan();
+        }
+        let snapshot = self.vault.latest_seq();
+        let keys =
+            self.vault
+                .scan_cf_range_keys_at(snapshot, ColumnFamily::Ledger, &KeyRange::all())?;
+        let Some(max_seq) = keys
+            .iter()
+            .map(|key| parse_aster_ledger_seq(key))
+            .collect::<Result<Vec<_>>>()?
+            .into_iter()
+            .max()
+        else {
+            return Ok(Vec::new());
+        };
+        let mut rows = Vec::with_capacity(n.min(max_seq as usize + 1));
+        let mut seq = max_seq;
+        loop {
+            let key = ledger_key(seq);
+            if let Some(bytes) = self
+                .vault
+                .read_cf_at(snapshot, ColumnFamily::Ledger, &key)?
+            {
+                rows.push(LedgerRow { seq, bytes });
+                if rows.len() == n {
+                    break;
+                }
+            }
+            if seq == 0 {
+                break;
+            }
+            seq -= 1;
+        }
+        rows.reverse();
+        Ok(rows)
     }
 
     fn put_new(&mut self, seq: u64, bytes: &[u8]) -> Result<()> {

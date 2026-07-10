@@ -148,6 +148,17 @@ fn storage_failure_returns_cf_unavailable_and_keeps_partial_report() {
     assert_eq!(harness.storage.reports.len(), 1);
 }
 
+#[test]
+fn partial_report_save_failure_leaves_no_claimed_last_report() {
+    let vault = vault();
+    let mut harness = harness(config(200, 50), ReportFailingStorage);
+
+    let error = harness.run(&vault).unwrap_err();
+
+    assert_eq!(error.code, "CALYX_TEST_REPORT_SAVE_FAILED");
+    assert!(harness.last_report().is_none());
+}
+
 proptest! {
     #![proptest_config(calyx_testkit::integration_proptest_config(16))]
 
@@ -204,6 +215,30 @@ impl SoakStorage for FailingStorage {
     fn save_report(&mut self, _run_id: [u8; 32], report: &SoakReport) -> Result<()> {
         self.reports.push(report.clone());
         Ok(())
+    }
+
+    fn scan_rows(&self) -> Result<Vec<(Vec<u8>, Vec<u8>)>> {
+        Ok(Vec::new())
+    }
+}
+
+struct ReportFailingStorage;
+
+impl SoakStorage for ReportFailingStorage {
+    fn save_sample(&mut self, _run_id: [u8; 32], _sample: &MetricSample) -> Result<()> {
+        Err(CalyxError {
+            code: CALYX_ASTER_CF_UNAVAILABLE,
+            message: "scripted anneal_soak sample failure".to_string(),
+            remediation: "restore scripted storage",
+        })
+    }
+
+    fn save_report(&mut self, _run_id: [u8; 32], _report: &SoakReport) -> Result<()> {
+        Err(CalyxError {
+            code: "CALYX_TEST_REPORT_SAVE_FAILED",
+            message: "scripted partial report write failure".to_string(),
+            remediation: "fix the test report sink",
+        })
     }
 
     fn scan_rows(&self) -> Result<Vec<(Vec<u8>, Vec<u8>)>> {

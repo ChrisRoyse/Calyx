@@ -26,12 +26,11 @@ struct ArtifactRow {
 }
 
 pub(super) fn source_rows(
-    sets: &[SourceRowSetInput],
+    sets: Vec<SourceRowSetInput>,
     budget: &mut BudgetHandle,
 ) -> Result<Vec<ArtifactRowSet<'static>>> {
     let mut out = Vec::with_capacity(sets.len());
-    for (cf, rows) in sets {
-        let mut rows = rows.clone();
+    for (cf, mut rows) in sets {
         rows.sort_by(|left, right| left.0.cmp(&right.0));
         let mut encoded = Vec::with_capacity(rows.len());
         for (key, value) in rows {
@@ -103,7 +102,22 @@ pub(super) fn write_artifact(
 }
 
 pub(super) fn target_hash(target: &RebuildTarget) -> [u8; 32] {
-    full_content_hash([serde_json::to_vec(target).unwrap_or_default()])
+    let mut bytes = Vec::new();
+    match target {
+        RebuildTarget::AnnIndex { slot_id } => {
+            bytes.extend_from_slice(b"ann_index\0");
+            bytes.extend_from_slice(&slot_id.0.to_be_bytes());
+        }
+        RebuildTarget::KernelIndex { scope } => {
+            bytes.extend_from_slice(b"kernel_index\0");
+            bytes.extend_from_slice(scope.to_string().as_bytes());
+        }
+        RebuildTarget::GuardProfile { slot_id } => {
+            bytes.extend_from_slice(b"guard_profile\0");
+            bytes.extend_from_slice(&slot_id.0.to_be_bytes());
+        }
+    }
+    full_content_hash([bytes.as_slice()])
 }
 
 pub(super) fn ptr_hash(ptr: &ArtifactPtr) -> [u8; 32] {

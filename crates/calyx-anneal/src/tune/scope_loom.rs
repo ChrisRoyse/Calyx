@@ -205,7 +205,13 @@ where
             .then(|| self.config_for_arm(shadow_arm))
             .transpose()?;
         let incumbent = self.config_for_arm(self.bandit.incumbent_idx)?;
-        let score = evaluate_plan(&incumbent, query_log, self.assay.as_ref());
+        let score = if self.bandit.incumbent_idx == prior_idx {
+            incumbent_score
+        } else if self.bandit.incumbent_idx == arm_idx {
+            candidate_score
+        } else {
+            evaluate_plan(&incumbent, query_log, self.assay.as_ref())
+        };
 
         Ok(LoomTuneDecision {
             evaluated_arm: arm_idx,
