@@ -32,13 +32,7 @@ fn lineage_reports_original_ingest_and_mcp_anchor_sequences() {
     let anchor_ref = vault
         .anchor_with_ledger_entry(
             cx_id,
-            Anchor {
-                kind: AnchorKind::TestPass,
-                value: AnchorValue::Bool(true),
-                source: "unit".to_string(),
-                observed_at: 12,
-                confidence: 1.0,
-            },
+            test_anchor(),
             EntryKind::Ingest,
             SubjectId::Cx(cx_id),
             serde_json::to_vec(&json!({
@@ -72,14 +66,7 @@ fn lineage_refuses_generic_anchor_ledger_fallback() {
     let cx_id = cx.cx_id;
     vault.put(cx).unwrap();
     vault.flush().unwrap();
-    let anchor = Anchor {
-        kind: AnchorKind::TestPass,
-        value: AnchorValue::Bool(true),
-        source: "unit".to_string(),
-        observed_at: 12,
-        confidence: 1.0,
-    };
-    vault.anchor(cx_id, anchor).unwrap();
+    vault.anchor(cx_id, test_anchor()).unwrap();
     let generic_ref = vault
         .append_ledger_entry(
             EntryKind::Ingest,
@@ -111,6 +98,35 @@ fn lineage_refuses_generic_anchor_ledger_fallback() {
         err_code(&err),
         &err_message,
     );
+    fs::remove_dir_all(root).ok();
+}
+
+#[test]
+fn lineage_rejects_malformed_anchor_payload() {
+    let (root, resolved, vault) = test_vault("anchor-malformed");
+    let cx = sample_constellation(&vault, resolved.vault_id);
+    let cx_id = cx.cx_id;
+    vault.put(cx).unwrap();
+    vault.flush().unwrap();
+    let corrupt_ref = vault
+        .anchor_with_ledger_entry(
+            cx_id,
+            test_anchor(),
+            EntryKind::Ingest,
+            SubjectId::Cx(cx_id),
+            b"{not-json".to_vec(),
+            ActorId::Service("calyx-mcp-test".to_string()),
+        )
+        .unwrap();
+    vault.flush().unwrap();
+
+    let err = core::lineage_for_resolved(&resolved, cx_id).unwrap_err();
+
+    assert_eq!(err_code(&err), "CALYX_LEDGER_CORRUPT");
+    assert!(tool_error_message(&err).contains(&format!(
+        "decode ledger payload seq={} kind=Ingest",
+        corrupt_ref.seq
+    )));
     fs::remove_dir_all(root).ok();
 }
 
@@ -225,6 +241,25 @@ fn reproduce_missing_and_mismatch_fail_closed() {
 }
 
 #[test]
+fn reproduce_rejects_malformed_reproduce_payload() {
+    let answer_id = b"answer-bad".to_vec();
+    let entry = LedgerEntry::new(
+        7,
+        [0; 32],
+        EntryKind::Admin,
+        SubjectId::Query(answer_id.clone()),
+        b"{not-json".to_vec(),
+        ActorId::Service("unit".to_string()),
+        1,
+    );
+
+    let err = core::reproduce_report(&[entry], &answer_id).unwrap_err();
+
+    assert_eq!(err_code(&err), "CALYX_LEDGER_CORRUPT");
+    assert!(tool_error_message(&err).contains("decode ledger payload seq=7 kind=Admin"));
+}
+
+#[test]
 fn anneal_status_contains_required_fields_from_proposal_row() {
     let (root, resolved, vault) = test_vault("anneal-status");
     vault
@@ -301,6 +336,16 @@ fn sample_constellation(vault: &AsterVault, vault_id: VaultId) -> calyx_core::Co
             hash: [0; 32],
         },
         flags: CxFlags::default(),
+    }
+}
+
+fn test_anchor() -> Anchor {
+    Anchor {
+        kind: AnchorKind::TestPass,
+        value: AnchorValue::Bool(true),
+        source: "unit".to_string(),
+        observed_at: 12,
+        confidence: 1.0,
     }
 }
 
@@ -417,7 +462,9 @@ fn write_anchor_fsv(
         "ledger_entries": entries
             .iter()
             .map(|entry| {
-                let payload = serde_json::from_slice::<Value>(&entry.payload).unwrap_or_else(|_| json!({}));
+                let payload = serde_json::from_slice::<Value>(&entry.payload).unwrap_or_else(|error| {
+                    json!({"decode_error": error.to_string()})
+                });
                 json!({
                     "seq": entry.seq,
                     "kind": format!("{:?}", entry.kind),

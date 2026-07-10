@@ -12,7 +12,7 @@ use calyx_ledger::{
 };
 use calyx_registry::load_vault_panel_state;
 use serde::Serialize;
-use serde_json::{Value, json};
+use serde_json::Value;
 
 use crate::server::{ToolError, ToolResult};
 use crate::tools::vault::store::{ResolvedVault, home_dir, resolve_vault_info, vault_salt};
@@ -312,20 +312,24 @@ fn verify_current_base_ref(
 }
 
 fn ingest_entry(cx_id: CxId, entries: &[LedgerEntry]) -> ToolResult<&LedgerEntry> {
-    entries
-        .iter()
-        .filter(|entry| {
-            entry.kind == EntryKind::Ingest
-                && matches!(entry.subject, SubjectId::Cx(id) if id == cx_id)
-                && json_payload(entry)
-                    .get("anchor_kind")
-                    .and_then(Value::as_str)
-                    .is_none()
-        })
-        .min_by_key(|entry| entry.seq)
-        .ok_or_else(|| {
-            CalyxError::ledger_corrupt(format!("missing ingest ledger row for {cx_id}")).into()
-        })
+    let mut ingest = None;
+    for entry in entries {
+        if entry.kind != EntryKind::Ingest
+            || !matches!(entry.subject, SubjectId::Cx(id) if id == cx_id)
+        {
+            continue;
+        }
+        let payload = json_payload(entry)?;
+        if payload.get("anchor_kind").and_then(Value::as_str).is_some() {
+            continue;
+        }
+        if ingest.is_none_or(|current: &LedgerEntry| entry.seq < current.seq) {
+            ingest = Some(entry);
+        }
+    }
+    ingest.ok_or_else(|| {
+        CalyxError::ledger_corrupt(format!("missing ingest ledger row for {cx_id}")).into()
+    })
 }
 
 fn anchor_outputs(
@@ -362,7 +366,7 @@ fn match_anchor_entry(
         {
             continue;
         }
-        let payload = json_payload(entry);
+        let payload = json_payload(entry)?;
         let mode = payload.get("mode").and_then(Value::as_str);
         let anchor_kind = payload.get("anchor_kind").and_then(Value::as_str);
         if matches!(mode, Some("mcp-anchor" | "cli-anchor")) && anchor_kind == Some(kind) {
@@ -381,13 +385,13 @@ fn latest_reproduce_payload(
     answer_id: &[u8],
 ) -> ToolResult<Option<Value>> {
     for entry in entries.iter().rev() {
-        if !matches!(&entry.subject, SubjectId::Query(id) if id == answer_id) {
+        if entry.kind != EntryKind::Admin
+            || !matches!(&entry.subject, SubjectId::Query(id) if id == answer_id)
+        {
             continue;
         }
-        let payload = json_payload(entry);
-        if entry.kind == EntryKind::Admin
-            && payload.get("type").and_then(Value::as_str) == Some(REPRODUCE_PAYLOAD_TAG)
-        {
+        let payload = json_payload(entry)?;
+        if payload.get("type").and_then(Value::as_str) == Some(REPRODUCE_PAYLOAD_TAG) {
             return Ok(Some(payload));
         }
     }
@@ -459,8 +463,14 @@ fn measured_slot(slots: &BTreeMap<SlotId, SlotVector>, slot: SlotId) -> Option<(
         .map(|_| ())
 }
 
-fn json_payload(entry: &LedgerEntry) -> Value {
-    serde_json::from_slice(&entry.payload).unwrap_or_else(|_| json!({}))
+fn json_payload(entry: &LedgerEntry) -> ToolResult<Value> {
+    serde_json::from_slice(&entry.payload).map_err(|err| {
+        CalyxError::ledger_corrupt(format!(
+            "decode ledger payload seq={} kind={:?}: {err}",
+            entry.seq, entry.kind
+        ))
+        .into()
+    })
 }
 
 fn hash_json(value: &Value) -> ToolResult<String> {
