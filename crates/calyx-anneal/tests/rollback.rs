@@ -54,6 +54,51 @@ fn rollback_after_commit_fails_closed() {
 }
 
 #[test]
+fn stale_rollback_marks_reverted_without_clobbering_newer_live_pointer() {
+    let clock = FixedClock::new(1_785_500_396);
+    let storage = MemoryStorage::default();
+    let store = RollbackStore::open(&clock, 7, storage).unwrap();
+    let rollback_key = key(7);
+    store
+        .install_live_ptr(rollback_key.clone(), ptr(8))
+        .unwrap();
+    let first = store.prepare(rollback_key.clone(), ptr(9)).unwrap();
+    store.promote(first).unwrap();
+    let second = store.prepare(rollback_key.clone(), ptr(10)).unwrap();
+    store.promote(second).unwrap();
+
+    let err = store.rollback(first).unwrap_err();
+
+    assert_eq!(err.code, CALYX_ANNEAL_INVALID_ROLLBACK_STATE);
+    assert_eq!(store.live_ptr(&rollback_key).unwrap(), Some(ptr(10)));
+    assert!(store.snapshot(first).unwrap().unwrap().reverted);
+    assert!(!store.snapshot(second).unwrap().unwrap().reverted);
+}
+
+#[test]
+fn reject_prepared_marks_unpromoted_snapshot_without_live_pointer_swap() {
+    let clock = FixedClock::new(1_785_500_396);
+    let store = RollbackStore::open(&clock, 7, MemoryStorage::default()).unwrap();
+    let rollback_key = key(13);
+    let prior = ptr(14);
+    store
+        .install_live_ptr(rollback_key.clone(), prior.clone())
+        .unwrap();
+    let change_id = store.prepare(rollback_key.clone(), ptr(15)).unwrap();
+
+    store.reject_prepared(change_id).unwrap();
+
+    let snapshot = store.snapshot(change_id).unwrap().unwrap();
+    assert!(!snapshot.promoted);
+    assert!(snapshot.reverted);
+    assert_eq!(store.live_ptr(&rollback_key).unwrap(), Some(prior));
+    assert_eq!(
+        store.rollback(change_id).unwrap_err().code,
+        CALYX_ANNEAL_INVALID_ROLLBACK_STATE
+    );
+}
+
+#[test]
 fn unknown_and_empty_store_fail_closed() {
     let clock = FixedClock::new(1_785_500_396);
     let store = RollbackStore::open(&clock, 0, MemoryStorage::default()).unwrap();
@@ -74,6 +119,7 @@ fn concurrent_promote_and_rollback_on_different_keys_are_independent() {
     store.install_live_ptr(key_b.clone(), ptr(21)).unwrap();
     let id_a = store.prepare(key_a.clone(), ptr(12)).unwrap();
     let id_b = store.prepare(key_b.clone(), ptr(22)).unwrap();
+    store.promote(id_b).unwrap();
 
     thread::scope(|scope| {
         let promote = store.clone();

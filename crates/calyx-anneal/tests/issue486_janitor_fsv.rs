@@ -264,20 +264,23 @@ fn run_zero_budget(root: &Path) -> serde_json::Value {
 
 fn run_compression_conflict(root: &Path) -> serde_json::Value {
     let log = root.join("logs").join("bad.log");
-    write_file(&log, 64, 20);
+    write_file(&log, 1024 * 1024, 20);
     fs::create_dir_all(log.with_file_name("bad.log.zst")).unwrap();
     let before = inventory(root);
     let janitor = janitor(root, 1_000);
     let result = janitor.prune_logs().unwrap();
-    assert_eq!(result.errors[0].code, "CALYX_IO_ERROR");
-    assert!(log.exists());
+    let unique_zst = log.with_file_name("bad.log.1.zst");
+    assert!(result.errors.is_empty());
+    assert!(!log.exists());
+    assert!(unique_zst.exists());
     json!({
         "trigger": "Janitor::prune_logs sees conflicting .zst destination",
-        "expected": {"error_code": "CALYX_IO_ERROR", "source_log_kept": true},
+        "expected": {"unique_zst_written": true, "source_log_removed": true},
         "before_inventory": before,
         "after_inventory": inventory(root),
         "result": result,
-        "source_exists_after": log.exists()
+        "source_exists_after": log.exists(),
+        "unique_zst_exists_after": unique_zst.exists()
     })
 }
 

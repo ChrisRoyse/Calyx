@@ -208,12 +208,16 @@ where
         } else {
             AnnealLedgerAction::AutotuneAB
         };
-        let event = self.event_for(action, &record, Some(bandit));
-        self.writer.write_ab_event(&event)?;
         if promoted {
             self.persist_cache(&trial)?;
         }
+        let prior_bandit = bandit.clone();
         *bandit = candidate_bandit;
+        let event = self.event_for(action, &record, Some(bandit));
+        if let Err(error) = self.writer.write_ab_event(&event) {
+            *bandit = prior_bandit;
+            return Err(error);
+        }
         let verdict = if promoted {
             ABVerdict::Promoted(record)
         } else {

@@ -137,6 +137,8 @@ impl LensHotAdder for TestHotAdder {
 
 pub struct FixtureAssay {
     sufficiency: Mutex<VecDeque<f64>>,
+    sufficiency_calls: Mutex<usize>,
+    fail_sufficiency_on_call: Mutex<Option<usize>>,
     entropy: f64,
     expected: Vec<Modality>,
     lens_modalities: BTreeMap<LensId, Modality>,
@@ -146,6 +148,8 @@ impl FixtureAssay {
     pub fn new<const N: usize>(sufficiency: [f64; N], entropy: f64) -> Self {
         Self {
             sufficiency: Mutex::new(VecDeque::from(sufficiency)),
+            sufficiency_calls: Mutex::new(0),
+            fail_sufficiency_on_call: Mutex::new(None),
             entropy,
             expected: Vec::new(),
             lens_modalities: BTreeMap::from([(existing_lens(), Modality::Structured)]),
@@ -156,6 +160,11 @@ impl FixtureAssay {
         self.expected = expected;
         self
     }
+
+    pub fn fail_sufficiency_on_call(self, call: usize) -> Self {
+        *self.fail_sufficiency_on_call.lock().unwrap() = Some(call);
+        self
+    }
 }
 
 impl AssayAttribution for FixtureAssay {
@@ -164,6 +173,20 @@ impl AssayAttribution for FixtureAssay {
     }
 
     fn panel_sufficiency(&self, _anchor: &AnchorId) -> Result<f64> {
+        let mut calls = self.sufficiency_calls.lock().unwrap();
+        *calls += 1;
+        let should_fail = self
+            .fail_sufficiency_on_call
+            .lock()
+            .unwrap()
+            .is_some_and(|call| call == *calls);
+        if should_fail {
+            return Err(CalyxError {
+                code: "CALYX_TEST_SUFFICIENCY_UNAVAILABLE",
+                message: "scripted sufficiency read failure".to_string(),
+                remediation: "repair test assay fixture",
+            });
+        }
         Ok(self.sufficiency.lock().unwrap().pop_front().unwrap_or(0.0))
     }
 

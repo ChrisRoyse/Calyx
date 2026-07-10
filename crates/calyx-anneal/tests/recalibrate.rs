@@ -408,6 +408,7 @@ fn scripted_probe() -> ScriptedProbe {
             cpu_used_fraction: 0.0,
             vram_used_bytes: 0,
             nvml_available: true,
+            warning_code: None,
         },
     }
 }

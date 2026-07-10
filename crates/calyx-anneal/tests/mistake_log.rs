@@ -60,6 +60,15 @@ fn empty_and_invalid_window_edges_fail_closed() {
 }
 
 #[test]
+fn mistake_rate_warmup_divides_by_entries_examined() {
+    let log = memory_log(10, 102);
+
+    log.append(cx(1), 1.0, 0.0, AnchorKind::Reward).unwrap();
+
+    assert_eq!(log.mistake_rate(10).unwrap(), 1.0);
+}
+
+#[test]
 fn non_finite_values_do_not_append() {
     let log = memory_log(10, 103);
 
@@ -72,7 +81,7 @@ fn non_finite_values_do_not_append() {
 }
 
 #[test]
-fn storage_write_failure_returns_cf_error_but_keeps_session_entry() {
+fn storage_write_failure_returns_cf_error_without_session_entry() {
     let storage = MemoryMistakeStorage::default();
     storage.fail_next_put.store(true, Ordering::SeqCst);
     let clock: Arc<dyn Clock> = Arc::new(FixedClock::new(104));
@@ -81,9 +90,9 @@ fn storage_write_failure_returns_cf_error_but_keeps_session_entry() {
     let err = log.append(cx(1), 1.0, 0.0, AnchorKind::Reward).unwrap_err();
 
     assert_eq!(err.code, CALYX_ASTER_CF_UNAVAILABLE);
-    let recent = log.recent(1).unwrap();
-    assert_eq!(recent.len(), 1);
-    assert_eq!(recent[0].surprise, 1.0);
+    assert!(log.recent(1).unwrap().is_empty());
+    let retry = log.append(cx(1), 1.0, 0.0, AnchorKind::Reward).unwrap();
+    assert_eq!(retry.seq, 1);
 }
 
 #[test]

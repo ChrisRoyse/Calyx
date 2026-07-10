@@ -14,6 +14,8 @@ use crate::{
 };
 
 mod support;
+#[cfg(test)]
+mod tests;
 
 use support::{backoff_ticks, budget_exhausted, component_details, sha256, write_fault_event};
 
@@ -144,6 +146,7 @@ where
         C: Clock,
     {
         let mut events = Vec::new();
+        self.budget.replenish();
         for detector in &self.detectors {
             if !self.budget.try_consume() {
                 return Err(budget_exhausted());
@@ -264,6 +267,14 @@ where
     fn check(&self, _registry: &DegradeRegistry<S>) -> Vec<FaultEvent> {
         let mut events = Vec::new();
         let Ok(mut state) = self.state.lock() else {
+            for (lens_id, _) in &self.endpoints {
+                events.push(FaultEvent::new(
+                    ComponentKind::lens_endpoint(*lens_id),
+                    FaultKind::MetricsUnavailable,
+                    "lens probe state unavailable",
+                    self.clock.now(),
+                ));
+            }
             return events;
         };
         for (lens_id, endpoint) in &self.endpoints {

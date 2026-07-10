@@ -16,6 +16,7 @@ fn stable_frozen_lenses_report_ok() {
     let report = guard.check().unwrap();
 
     assert_eq!(report.violations, Vec::<LensId>::new());
+    assert_eq!(report.missing_lenses, Vec::<LensId>::new());
     assert_eq!(report.new_lenses, Vec::<LensId>::new());
     assert_eq!(report.ok, vec![lens(1), lens(2)]);
     assert!(report.rows.iter().all(|row| row.stable));
@@ -38,7 +39,24 @@ fn changed_weight_hash_is_a_frozen_violation() {
     let error = guard.assert_no_violation().unwrap_err();
 
     assert_eq!(report.violations, vec![lens(1)]);
+    assert!(report.missing_lenses.is_empty());
     assert_eq!(report.ok, vec![lens(2)]);
+    assert_eq!(error.code, "CALYX_LENS_FROZEN_VIOLATION");
+}
+
+#[test]
+fn deleted_frozen_lens_is_a_frozen_violation() {
+    let source = Arc::new(MutableSource::new(vec![snapshot(1, 7), snapshot(2, 8)]));
+    let mut guard = FrozenLensGuard::new(source.clone());
+    guard.initialize().unwrap();
+    source.remove(lens(2));
+
+    let report = guard.check().unwrap();
+    let error = guard.assert_no_violation().unwrap_err();
+
+    assert_eq!(report.missing_lenses, vec![lens(2)]);
+    assert_eq!(report.rows[0].status, FrozenLensStatus::Stable);
+    assert_eq!(report.rows[1].status, FrozenLensStatus::Missing);
     assert_eq!(error.code, "CALYX_LENS_FROZEN_VIOLATION");
 }
 
@@ -60,6 +78,7 @@ proptest! {
         guard.initialize().unwrap();
 
         prop_assert!(guard.check().unwrap().violations.is_empty());
+        prop_assert!(guard.check().unwrap().missing_lenses.is_empty());
     }
 }
 
@@ -74,6 +93,7 @@ fn zero_new_and_unavailable_edges_are_fail_closed() {
     let report = guard.check().unwrap();
     assert_eq!(report.new_lenses, vec![lens(3)]);
     assert!(report.violations.is_empty());
+    assert!(report.missing_lenses.is_empty());
     assert_eq!(report.rows[0].status, FrozenLensStatus::New);
 
     let unavailable = FrozenLensGuard::new(Arc::new(UnavailableSource));
@@ -124,6 +144,13 @@ impl MutableSource {
                 row.weights_sha256[0] ^= mask;
             }
         }
+    }
+
+    fn remove(&self, lens_id: LensId) {
+        self.rows
+            .lock()
+            .unwrap()
+            .retain(|row| row.lens_id != lens_id);
     }
 }
 

@@ -68,11 +68,11 @@ pub(crate) fn encode_head_rows(heads: &[OnlineHead]) -> Result<Vec<(HeadKind, Ve
         .collect()
 }
 
-pub(crate) fn heads_hash(heads: Vec<OnlineHead>) -> [u8; 32] {
+pub(crate) fn heads_hash(heads: Vec<OnlineHead>) -> Result<[u8; 32]> {
     let mut parts = Vec::with_capacity(heads.len() + 1);
     parts.push(STATE_KEY_HASH_SEED.to_vec());
     for head in heads {
-        parts.push(encode_online_head(&head).unwrap_or_default());
+        parts.push(encode_online_head(&head)?);
     }
-    full_content_hash(parts.iter().map(Vec::as_slice))
+    Ok(full_content_hash(parts.iter().map(Vec::as_slice)))
 }

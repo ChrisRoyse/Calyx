@@ -22,9 +22,11 @@ pub fn frozen_guard_report(path: &Path) -> crate::error::CliResult {
         "artifact": path.display().to_string(),
         "ok_count": report.ok.len(),
         "violation_count": report.violations.len(),
+        "missing_count": report.missing_lenses.len(),
         "new_count": report.new_lenses.len(),
         "ok": report.ok,
         "violations": report.violations,
+        "missing_lenses": report.missing_lenses,
         "new_lenses": report.new_lenses,
         "rows": rows,
     });
@@ -40,7 +42,7 @@ fn row_json(row: &FrozenLensReportRow) -> crate::error::CliResult<serde_json::Va
     Ok(json!({
         "lens_id": row.lens_id,
         "known_hash_hex": row.known_hash.map(|hash| hex32(&hash)).transpose()?,
-        "observed_hash_hex": hex32(&row.observed_hash)?,
+        "observed_hash_hex": row.observed_hash.map(|hash| hex32(&hash)).transpose()?,
         "stable": row.stable,
         "status": row.status,
     }))

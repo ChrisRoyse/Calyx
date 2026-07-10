@@ -170,6 +170,29 @@ fn monitor_applies_registry_state_and_logs_fault_event() {
     assert!(recent.iter().any(|entry| entry.fault.is_some()));
 }
 
+#[test]
+fn monitor_budget_replenishes_each_run_once() {
+    let path = write_temp_file("monitor-replenish.bin", b"changed");
+    let store = MemoryHealthStore::default();
+    let mut registry = memory_registry(store);
+    let mut ledger = memory_ledger();
+    let component = ComponentKind::ann_index(SlotId::new(5));
+    let detector = ChecksumDetector::new(
+        vec![(component.clone(), ChecksumEntry::new(path, [0; 32]))],
+        clock(),
+    );
+    let mut monitor = FaultMonitor::new(vec![Box::new(detector)], BudgetHandle::new(1), 10_000);
+
+    assert_eq!(
+        monitor.run_once(&mut registry, &mut ledger).unwrap().len(),
+        1
+    );
+    assert_eq!(
+        monitor.run_once(&mut registry, &mut ledger).unwrap().len(),
+        1
+    );
+}
+
 #[ignore = "manual FSV for #401 fault ledger and health readback"]
 #[test]
 fn ph44_fault_detectors_manual_fsv() {

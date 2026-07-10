@@ -24,6 +24,9 @@ pub trait HeadPromotionGate {
         incumbent: &HeadShadowProposal,
         description: &str,
     ) -> Result<ChangeOutcome>;
+    fn rollback_head_change(&mut self, _change_id: ChangeId, _description: String) -> Result<()> {
+        Ok(())
+    }
     fn record_sleep_pass_deferred(
         &mut self,
         _buffer_len: usize,
@@ -94,6 +97,14 @@ where
                 AnnealLedgerAction::HeadUpdate,
                 AnnealLedgerAction::HeadUpdateReverted,
             ),
+            description,
+        )
+    }
+
+    fn rollback_head_change(&mut self, change_id: ChangeId, description: String) -> Result<()> {
+        self.rollback_explicit_with_action(
+            change_id,
+            AnnealLedgerAction::HeadUpdateReverted,
             description,
         )
     }

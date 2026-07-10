@@ -92,14 +92,25 @@ impl Janitor {
         for path in collect_files(&logs)? {
             if is_zst(&path) && age_ms(&path, now)? >= duration_ms(self.config.log_ttl) {
                 self.delete_file(&path, CleanupKind::Log, "log_ttl_delete", &mut result)?;
+                if result.rate_limited {
+                    break;
+                }
             }
         }
         for path in collect_files(&logs)? {
+            if result.rate_limited {
+                break;
+            }
             if !is_zst(&path) && age_ms(&path, now)? >= duration_ms(self.config.log_rotation_age) {
                 self.compress_log(&path, &mut result)?;
+                if result.rate_limited {
+                    break;
+                }
             }
         }
-        self.enforce_log_cap(&logs, &mut result)?;
+        if !result.rate_limited {
+            self.enforce_log_cap(&logs, &mut result)?;
+        }
         self.record_metrics(&result);
         Ok(result)
     }
@@ -110,14 +121,20 @@ impl Janitor {
         if !target.exists() {
             return Ok(result);
         }
-        let mut dirs = immediate_dirs(&target)?;
-        dirs.sort_by_key(|path| modified_ms(path).unwrap_or(0));
+        let mut dirs = Vec::new();
+        for path in immediate_dirs(&target)? {
+            match modified_ms(&path) {
+                Ok(modified) => dirs.push((modified, path)),
+                Err(error) => result.record_error(hash_path(&path), error),
+            }
+        }
+        dirs.sort_by_key(|(modified, _)| *modified);
         dirs.reverse();
         let current = self
             .current_exe
             .as_ref()
             .and_then(|path| path.canonicalize().ok());
-        for (idx, dir) in dirs.into_iter().enumerate() {
+        for (idx, (_, dir)) in dirs.into_iter().enumerate() {
             if idx < self.config.build_artifact_keep_releases {
                 continue;
             }
@@ -135,8 +152,7 @@ impl Janitor {
             result.artifact_dirs_deleted += 1;
             self.ledger_event("artifact_pruned", &dir, bytes)?;
             result.ledger_events += 1;
-            result.rate_limited |= result.bytes_freed >= self.config.max_bytes_per_tick;
-            if result.rate_limited {
+            if self.update_rate_limit(&mut result) {
                 break;
             }
         }
@@ -148,6 +164,9 @@ impl Janitor {
         let mut result = GcResult::default();
         let now = self.clock.now();
         for temp_dir in temp_dirs(&self.home)? {
+            if result.rate_limited {
+                break;
+            }
             let Some(dataset_root) = temp_dir.parent() else {
                 continue;
             };
@@ -155,6 +174,9 @@ impl Janitor {
                 ensure_inside_dataset(dataset_root, &path)?;
                 if age_ms(&path, now)? >= duration_ms(self.config.temp_ttl) {
                     self.delete_file(&path, CleanupKind::Temp, "temp_ttl_delete", &mut result)?;
+                    if result.rate_limited {
+                        break;
+                    }
                 }
             }
         }
@@ -168,10 +190,13 @@ impl Janitor {
             return Ok(result);
         }
         for dir in immediate_dirs(&manifest.datasets_dir)? {
-            let name = dir
-                .file_name()
-                .and_then(|name| name.to_str())
-                .unwrap_or_default();
+            let Some(name) = dir.file_name().and_then(|name| name.to_str()) else {
+                result.record_error(
+                    hash_path(&dir),
+                    io_error(format!("dataset dir name is not UTF-8: {}", dir.display())),
+                );
+                continue;
+            };
             if manifest.keep.contains(name) || dir.join(".calyx-active").exists() {
                 continue;
             }
@@ -183,6 +208,9 @@ impl Janitor {
             result.dataset_dirs_deleted += 1;
             self.ledger_event("dataset_pruned", &dir, bytes)?;
             result.ledger_events += 1;
+            if self.update_rate_limit(&mut result) {
+                break;
+            }
         }
         self.record_metrics(&result);
         Ok(result)
@@ -197,9 +225,15 @@ impl Janitor {
             disk_pressure.request_spill();
         }
         result.merge(self.prune_temp_files()?);
-        result.merge(self.prune_logs()?);
-        result.merge(self.prune_build_artifacts()?);
-        if let Some(manifest) = &self.dataset_manifest {
+        if !result.rate_limited {
+            result.merge(self.prune_logs()?);
+        }
+        if !result.rate_limited {
+            result.merge(self.prune_build_artifacts()?);
+        }
+        if !result.rate_limited
+            && let Some(manifest) = &self.dataset_manifest
+        {
             result.merge(self.prune_datasets(manifest)?);
         }
         result.disk_pressure_after = disk_pressure.check().is_err();
@@ -211,7 +245,13 @@ impl Janitor {
 
     fn compress_log(&self, path: &Path, result: &mut GcResult) -> Result<()> {
         let before = file_len(path)?;
-        let output = zst_path(path)?;
+        let output = match next_zst_path(path) {
+            Ok(output) => output,
+            Err(error) => {
+                result.record_error(hash_path(path), error);
+                return Ok(());
+            }
+        };
         if output.exists() {
             result.record_error(
                 hash_path(path),
@@ -247,6 +287,7 @@ impl Janitor {
         result.logs_compressed += 1;
         self.ledger_event("log_compressed", path, freed)?;
         result.ledger_events += 1;
+        self.update_rate_limit(result);
         Ok(())
     }
 
@@ -263,6 +304,9 @@ impl Janitor {
             }
             self.delete_file(&path, CleanupKind::Log, "log_cap_delete", result)?;
             total = total.saturating_sub(len);
+            if result.rate_limited {
+                break;
+            }
         }
         Ok(())
     }
@@ -290,6 +334,7 @@ impl Janitor {
         }
         self.ledger_event(action, path, bytes)?;
         result.ledger_events += 1;
+        self.update_rate_limit(result);
         Ok(())
     }
 
@@ -335,4 +380,35 @@ impl Janitor {
             .expect("janitor counters poisoned")
             .record(result);
     }
+
+    fn update_rate_limit(&self, result: &mut GcResult) -> bool {
+        result.rate_limited |= result.bytes_freed >= self.config.max_bytes_per_tick;
+        result.rate_limited
+    }
+}
+
+fn next_zst_path(path: &Path) -> Result<PathBuf> {
+    let first = zst_path(path)?;
+    if !first.exists() {
+        return Ok(first);
+    }
+    let name = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .ok_or_else(|| {
+            io_error(format!(
+                "log path has no UTF-8 file name: {}",
+                path.display()
+            ))
+        })?;
+    for index in 1..=1024 {
+        let candidate = path.with_file_name(format!("{name}.{index}.zst"));
+        if !candidate.exists() {
+            return Ok(candidate);
+        }
+    }
+    Err(io_error(format!(
+        "no available zstd destination for {}",
+        path.display()
+    )))
 }

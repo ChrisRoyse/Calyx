@@ -10,6 +10,8 @@ use super::types::{
 };
 use crate::LogicalTime;
 
+const UNMEASURED_ERROR_RATE: f64 = 1.0;
+
 pub struct FileWardTauStore {
     path: PathBuf,
     rows: BTreeMap<SlotId, WardTauReadback>,
@@ -51,8 +53,14 @@ impl FileWardTauStore {
             WardTauReadback {
                 slot_id,
                 tau,
-                far: 0.0,
-                frr: 0.0,
+                far: self
+                    .rows
+                    .get(&slot_id)
+                    .map_or(UNMEASURED_ERROR_RATE, |row| row.far),
+                frr: self
+                    .rows
+                    .get(&slot_id)
+                    .map_or(UNMEASURED_ERROR_RATE, |row| row.frr),
                 updated_at,
             },
         );
@@ -74,8 +82,7 @@ impl FileWardTauStore {
         };
         let bytes = serde_json::to_vec_pretty(&file)
             .map_err(|error| invalid_tau(format!("encode ward tau file: {error}")))?;
-        fs::write(&self.path, bytes)
-            .map_err(|error| invalid_tau(format!("write {}: {error}", self.path.display())))
+        atomic_write(&self.path, &bytes)
     }
 }
 
@@ -119,4 +126,27 @@ struct WardTauFile {
 
 pub fn ward_tau_path(vault: &Path) -> PathBuf {
     vault.join(".anneal").join("ward_tau.json")
+}
+
+fn atomic_write(path: &Path, bytes: &[u8]) -> Result<()> {
+    let tmp = temp_path(path)?;
+    fs::write(&tmp, bytes)
+        .map_err(|error| invalid_tau(format!("write {}: {error}", tmp.display())))?;
+    fs::rename(&tmp, path).map_err(|error| {
+        let _ = fs::remove_file(&tmp);
+        invalid_tau(format!(
+            "rename {} -> {}: {error}",
+            tmp.display(),
+            path.display()
+        ))
+    })
+}
+
+fn temp_path(path: &Path) -> Result<PathBuf> {
+    let file_name = path
+        .file_name()
+        .ok_or_else(|| invalid_tau("ward tau path must include a file name"))?;
+    let mut tmp_name = file_name.to_os_string();
+    tmp_name.push(format!(".tmp-{}", std::process::id()));
+    Ok(path.with_file_name(tmp_name))
 }

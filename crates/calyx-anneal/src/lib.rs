@@ -17,9 +17,10 @@ mod tune;
 
 pub use budget::{
     BACKGROUND_NICE, BudgetConfig, BudgetConfigReadback, BudgetEnforcer, BudgetHandle, BudgetProbe,
-    BudgetProbeSample, BudgetStatus, CALYX_ANNEAL_BUDGET_EXHAUSTED,
-    CALYX_ANNEAL_BUDGET_INVALID_CONFIG, CALYX_ANNEAL_BUDGET_NVML_UNAVAILABLE, ProcStatBudgetProbe,
-    budget_config_path, read_budget_config_from_vault,
+    BudgetProbeSample, BudgetStatus, CALYX_ANNEAL_BUDGET_CPU_UNAVAILABLE,
+    CALYX_ANNEAL_BUDGET_EXHAUSTED, CALYX_ANNEAL_BUDGET_INVALID_CONFIG,
+    CALYX_ANNEAL_BUDGET_NVML_UNAVAILABLE, ProcStatBudgetProbe, budget_config_path,
+    read_budget_config_from_vault,
 };
 pub use heal::degrade::{
     ANNEAL_HEALTH_TAG, AsterHealthStore, CALYX_ANNEAL_HEAL_CONFIRMATION_REQUIRED,

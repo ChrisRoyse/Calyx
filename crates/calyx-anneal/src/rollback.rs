@@ -211,11 +211,45 @@ where
         Ok(())
     }
 
+    pub fn reject_prepared(&self, change_id: ChangeId) -> Result<()> {
+        let mut state = self.write_state()?;
+        let mut snapshot = state.snapshot(change_id)?.clone();
+        if snapshot.committed {
+            return Err(change_committed(change_id));
+        }
+        if snapshot.promoted {
+            return Err(invalid_state(
+                "cannot reject a promoted rollback snapshot without rollback",
+            ));
+        }
+        if snapshot.reverted {
+            return Err(invalid_state("rollback snapshot is already reverted"));
+        }
+        snapshot.reverted = true;
+        self.storage.put_many(vec![snapshot_row(&snapshot)?])?;
+        state.snapshots.insert(change_id, snapshot);
+        Ok(())
+    }
+
     pub fn rollback(&self, change_id: ChangeId) -> Result<()> {
         let mut state = self.write_state()?;
         let mut snapshot = state.snapshot(change_id)?.clone();
         if snapshot.committed {
             return Err(change_committed(change_id));
+        }
+        if !snapshot.promoted {
+            return Err(invalid_state("cannot rollback an unpromoted snapshot"));
+        }
+        if snapshot.reverted {
+            return Err(invalid_state("rollback snapshot is already reverted"));
+        }
+        if state.live_ptrs.get(&snapshot.key) != Some(&snapshot.candidate_ptr) {
+            snapshot.reverted = true;
+            self.storage.put_many(vec![snapshot_row(&snapshot)?])?;
+            state.snapshots.insert(change_id, snapshot);
+            return Err(invalid_state(
+                "rollback snapshot is stale; live pointer no longer matches candidate",
+            ));
         }
         snapshot.reverted = true;
         let rows = vec![

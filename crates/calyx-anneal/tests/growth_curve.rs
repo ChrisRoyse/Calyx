@@ -71,6 +71,10 @@ fn edges_single_sample_max_samples_and_storage_failure_are_explicit() {
     let mut failing = curve(storage, 10);
     let error = failing.record_sample(&report(7.0), 3, vec!["sample".to_string()]);
     assert_eq!(error.unwrap_err().code, "CALYX_TEST_GROWTH_CF_FAIL");
+    assert!(failing.is_empty());
+    failing
+        .record_sample(&report(7.0), 3, vec!["retry".to_string()])
+        .unwrap();
     assert_eq!(failing.len(), 1);
     assert_eq!(failing.samples().next().unwrap().j, 7.0);
 }

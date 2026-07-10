@@ -148,15 +148,16 @@ where
             actions_taken,
         };
         let seq = self.next_seq;
-        self.next_seq = self
+        let next_seq = self
             .next_seq
             .checked_add(1)
             .ok_or_else(|| invalid_config("growth sample sequence exhausted"))?;
-        self.push_sample(sample.clone());
         self.cf.put(
             anneal_growth_key(sample.ts, seq),
             encode_growth_row(seq, &sample)?,
         )?;
+        self.next_seq = next_seq;
+        self.push_sample(sample.clone());
         Ok(sample)
     }
 

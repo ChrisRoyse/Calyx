@@ -1,13 +1,16 @@
+use std::collections::HashMap;
 use std::fs;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use calyx_anneal::{
-    ABLedgerEvent, ABLedgerWriter, ABResult, ABRunner, ABVerdict, AnnealLedgerAction, BanditPolicy,
+    ABLedgerEvent, ABLedgerWriter, ABPromotionConfig, ABResult, ABRunner, ABVerdict,
+    AnnealLedgerAction, BanditPolicy, CALYX_ANNEAL_AB_CACHE_WRITE_FAIL,
     CALYX_ANNEAL_TRIAL_ALREADY_ACTIVE, ConfigBandit, DType, NoopABBudget, ShapeKey,
     TripwireRegistry,
 };
 use calyx_core::{FixedClock, Result};
+use calyx_forge::{AutotuneCache, AutotuneKey, BackendKind, BestConfig};
 use proptest::prelude::*;
 
 const TEST_TS: u64 = 1_785_500_416;
@@ -151,6 +154,41 @@ fn duplicate_trial_fails_closed_and_budget_exhaustion_abandons() {
     );
 }
 
+#[test]
+fn promotion_cache_failure_writes_no_ledger_or_bandit_claim() {
+    let mut bandit = make_bandit();
+    let cache_dir = temp_path("cache-fail");
+    fs::create_dir_all(&cache_dir).unwrap();
+    let cache_path = cache_dir.join("autotune.json");
+    let cache = AutotuneCache::load(&cache_path).unwrap();
+    fs::remove_dir_all(&cache_dir).unwrap();
+    let mut runner = ABRunner::new(
+        tripwires(),
+        RecordingWriter::default(),
+        NoopABBudget::default(),
+        Arc::new(FixedClock::new(TEST_TS)),
+    )
+    .with_cache(cache);
+    let key = shape_key();
+    runner
+        .start_trial_with_config(key.clone(), 1, 0, 1, Some(promotion_config()))
+        .unwrap();
+
+    let error = runner
+        .record_query(
+            &key,
+            result(0, 100, 0.95, 1.2),
+            result(1, 70, 0.95, 1.2),
+            &mut bandit,
+        )
+        .unwrap_err();
+
+    assert_eq!(error.code, CALYX_ANNEAL_AB_CACHE_WRITE_FAIL);
+    assert_eq!(bandit.incumbent_idx, 0);
+    assert!(runner.writer.events.is_empty());
+    assert!(runner.active_trials.get(&key).unwrap().verdict.is_none());
+}
+
 proptest! {
     #![proptest_config(calyx_testkit::integration_proptest_config(48))]
 
@@ -232,14 +270,31 @@ fn shape_key() -> ShapeKey {
 }
 
 fn tripwires() -> TripwireRegistry {
-    static NEXT: AtomicU64 = AtomicU64::new(1);
-    let dir = std::env::temp_dir().join(format!(
-        "calyx-ab-runner-test-{}-{}",
-        std::process::id(),
-        NEXT.fetch_add(1, Ordering::Relaxed)
-    ));
+    let dir = temp_path("tripwires");
     let _ = fs::remove_dir_all(&dir);
     let registry = TripwireRegistry::load_from_vault(&dir).unwrap();
     let _ = fs::remove_dir_all(&dir);
     registry
+}
+
+fn promotion_config() -> ABPromotionConfig {
+    ABPromotionConfig {
+        key: AutotuneKey::default_for("gemm", &[128, 64], "fp32", "cpu0"),
+        config: BestConfig {
+            backend: BackendKind::Cpu,
+            tile_m: 16,
+            tile_n: 16,
+            tile_k: 16,
+            extra: HashMap::new(),
+        },
+    }
+}
+
+fn temp_path(label: &str) -> std::path::PathBuf {
+    static NEXT: AtomicU64 = AtomicU64::new(1);
+    std::env::temp_dir().join(format!(
+        "calyx-ab-runner-{label}-{}-{}",
+        std::process::id(),
+        NEXT.fetch_add(1, Ordering::Relaxed)
+    ))
 }

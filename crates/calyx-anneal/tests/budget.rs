@@ -5,8 +5,9 @@ use std::sync::{Arc, Mutex};
 
 use calyx_anneal::{
     BudgetConfig, BudgetEnforcer, BudgetHandle, BudgetProbe, BudgetProbeSample,
-    CALYX_ANNEAL_BUDGET_EXHAUSTED, CALYX_ANNEAL_BUDGET_NVML_UNAVAILABLE, ProcStatBudgetProbe,
-    budget_config_path, read_budget_config_from_vault,
+    CALYX_ANNEAL_BUDGET_CPU_UNAVAILABLE, CALYX_ANNEAL_BUDGET_EXHAUSTED,
+    CALYX_ANNEAL_BUDGET_NVML_UNAVAILABLE, ProcStatBudgetProbe, budget_config_path,
+    read_budget_config_from_vault,
 };
 use calyx_core::FixedClock;
 use proptest::prelude::*;
@@ -114,6 +115,22 @@ fn nvml_unavailable_uses_static_pool_warning() {
 }
 
 #[test]
+fn probe_warning_code_overrides_static_vram_warning() {
+    let clock = FixedClock::new(TEST_TS);
+    let probe = ScriptedProbe::new(1.0, 0, false);
+    probe.set_warning(Some(CALYX_ANNEAL_BUDGET_CPU_UNAVAILABLE.to_string()));
+    let enforcer = BudgetEnforcer::with_probe(config(0.20, MIB, 100), &clock, probe).unwrap();
+
+    let status = enforcer.tick().expect("tick");
+
+    assert_eq!(
+        status.warning_code.as_deref(),
+        Some(CALYX_ANNEAL_BUDGET_CPU_UNAVAILABLE)
+    );
+    expect_exhausted(enforcer.acquire(0.0, 0));
+}
+
+#[test]
 fn proc_stat_probe_first_sample_establishes_cpu_baseline() {
     let clock = FixedClock::new(TEST_TS);
     let enforcer = BudgetEnforcer::with_probe(
@@ -188,6 +205,7 @@ impl ScriptedProbe {
                 cpu_used_fraction,
                 vram_used_bytes,
                 nvml_available,
+                warning_code: None,
             })),
         }
     }
@@ -197,7 +215,12 @@ impl ScriptedProbe {
             cpu_used_fraction,
             vram_used_bytes,
             nvml_available,
+            warning_code: None,
         };
+    }
+
+    fn set_warning(&self, warning_code: Option<String>) {
+        self.sample.lock().unwrap().warning_code = warning_code;
     }
 }
 

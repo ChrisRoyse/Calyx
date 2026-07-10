@@ -200,7 +200,10 @@ impl ConfigBandit {
         } else {
             arm.consecutive_wins = 0;
         }
-        if won && (self.hysteresis_wins == 0 || arm.consecutive_wins >= self.hysteresis_wins) {
+        if won
+            && arm_idx != self.incumbent_idx
+            && (self.hysteresis_wins == 0 || arm.consecutive_wins >= self.hysteresis_wins)
+        {
             self.incumbent_idx = arm_idx;
             for arm in &mut self.arms {
                 arm.consecutive_wins = 0;

@@ -181,6 +181,27 @@ fn dataset_prune_removes_only_dirs_absent_from_manifest() {
     fs::remove_dir_all(root).unwrap();
 }
 
+#[cfg(unix)]
+#[test]
+fn dataset_prune_skips_non_utf8_dir_without_delete() {
+    use std::ffi::OsString;
+    use std::os::unix::ffi::OsStringExt;
+
+    let root = root("datasets-non-utf8");
+    let datasets = root.join("datasets");
+    let bad_name = OsString::from_vec(vec![0xff, b'b', b'a', b'd']);
+    let bad_dir = datasets.join(&bad_name);
+    write_file(&bad_dir.join("data.bin"), 5, 100);
+    let manifest = DatasetManifest::new(&datasets, ["keep"]);
+
+    let result = janitor(&root).prune_datasets(&manifest).unwrap();
+
+    assert_eq!(result.dataset_dirs_deleted, 0);
+    assert_eq!(result.errors.len(), 1);
+    assert!(bad_dir.exists());
+    fs::remove_dir_all(root).unwrap();
+}
+
 #[test]
 fn zero_log_budget_deletes_all_log_files() {
     let root = root("zero-budget");
@@ -197,6 +218,37 @@ fn zero_log_budget_deletes_all_log_files() {
     assert_eq!(result.log_files_deleted, 2);
     assert_eq!(result.log_bytes_freed, 30);
     assert_eq!(fs::read_dir(root.join("logs")).unwrap().count(), 0);
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn run_tick_rate_limit_stops_after_temp_phase() {
+    let root = root("run-tick-rate-limit");
+    let tmp = root.join("vault-a").join(".tmp");
+    write_file(&tmp.join("old-a.tmp"), 7, 90);
+    write_file(&tmp.join("old-b.tmp"), 7, 90);
+    write_file(&root.join("logs").join("old.log.zst"), 20, 90);
+    let mut cfg = config();
+    cfg.max_bytes_per_tick = 10;
+    let guard = DiskPressureGuard::with_probe(
+        &root,
+        0.85,
+        Arc::new(FixedClock::new(NOW)),
+        Arc::new(Probe {
+            sample: Ok(DiskSample {
+                blocks: 100,
+                blocks_available: 50,
+            }),
+        }),
+    );
+    let janitor = Janitor::with_home(cfg, Arc::new(FixedClock::new(NOW)), &root);
+
+    let result = janitor.run_tick(&guard).unwrap();
+
+    assert!(result.rate_limited);
+    assert_eq!(result.temp_files_deleted, 2);
+    assert_eq!(result.log_files_deleted, 0);
+    assert!(root.join("logs").join("old.log.zst").exists());
     fs::remove_dir_all(root).unwrap();
 }
 
@@ -232,17 +284,23 @@ fn run_tick_is_proactive_when_disk_is_below_high_water() {
 }
 
 #[test]
-fn compression_output_conflict_reports_io_error_and_keeps_source() {
+fn compression_output_conflict_uses_unique_zstd_name() {
     let root = root("compress-fail");
     let log = root.join("logs").join("bad.log");
-    write_file(&log, 64, 20);
+    let input = vec![b'a'; 1024 * 1024];
+    fs::create_dir_all(log.parent().unwrap()).unwrap();
+    fs::write(&log, &input).unwrap();
+    let mtime = UNIX_EPOCH + Duration::from_millis(NOW - 20_000);
+    set_file_mtime(&log, FileTime::from_system_time(mtime)).unwrap();
     fs::create_dir_all(log.with_file_name("bad.log.zst")).unwrap();
 
     let result = janitor(&root).prune_logs().unwrap();
+    let zst = log.with_file_name("bad.log.1.zst");
+    let decoded = zstd::decode_all(fs::File::open(&zst).unwrap()).unwrap();
 
-    assert_eq!(result.logs_compressed, 0);
-    assert_eq!(result.errors.len(), 1);
-    assert_eq!(result.errors[0].code, "CALYX_IO_ERROR");
-    assert!(log.exists());
+    assert_eq!(result.logs_compressed, 1);
+    assert!(result.errors.is_empty());
+    assert!(!log.exists());
+    assert_eq!(decoded, input);
     fs::remove_dir_all(root).unwrap();
 }

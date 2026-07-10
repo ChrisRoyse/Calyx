@@ -276,7 +276,24 @@ impl<'a> ProposeLens<'a> {
                         ));
                     }
                 };
-                let sufficiency_after = read_sufficiency(request.assay, request.anchor)?;
+                let sufficiency_after = match read_sufficiency(request.assay, request.anchor) {
+                    Ok(value) => value,
+                    Err(error) => {
+                        *request.controller = prior_controller.clone();
+                        request.substrate.rollback_hot_add(change_id)?;
+                        return Ok(ProposalOutcome::terminal(
+                            Some(candidate),
+                            Some(gate_outcome),
+                            sufficiency_before,
+                            None,
+                            Some(receipt),
+                            Some(change_id),
+                            ProposalTerminalState::HotAddFailed {
+                                code: error.code.to_string(),
+                            },
+                        ));
+                    }
+                };
                 if sufficiency_after <= sufficiency_before + METRIC_EPSILON {
                     *request.controller = prior_controller;
                     request.substrate.rollback_hot_add(change_id)?;

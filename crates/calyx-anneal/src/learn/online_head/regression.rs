@@ -108,8 +108,8 @@ where
             contexts,
         )?;
 
-        let prior_ptr = ArtifactPtr::ConfigCacheKeyHash(heads_hash(self.sorted_heads()?));
-        let candidate_ptr = ArtifactPtr::ConfigCacheKeyHash(heads_hash(candidate_heads.clone()));
+        let prior_ptr = ArtifactPtr::ConfigCacheKeyHash(heads_hash(self.sorted_heads()?)?);
+        let candidate_ptr = ArtifactPtr::ConfigCacheKeyHash(heads_hash(candidate_heads.clone())?);
         let key = head_state_artifact_key();
         self.substrate.ensure_head_prior(key.clone(), prior_ptr)?;
         let rate = regression_rate(&report)?;
@@ -132,7 +132,13 @@ where
                     return Err(regression_recurred(&report));
                 }
                 let rows = encode_head_rows(&candidate_heads)?;
-                self.storage.save_heads(rows)?;
+                if let Err(error) = self.storage.save_heads(rows) {
+                    self.substrate.rollback_head_change(
+                        change_id,
+                        format!("head update storage save failed: {}", error.code),
+                    )?;
+                    return Err(error);
+                }
                 let prior_heads = std::mem::take(&mut self.heads);
                 self.heads = candidate_map;
                 let update = HeadUpdateOutcome {

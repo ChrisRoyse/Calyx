@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 pub const CALYX_ANNEAL_BUDGET_EXHAUSTED: &str = "CALYX_ANNEAL_BUDGET_EXHAUSTED";
 pub const CALYX_ANNEAL_BUDGET_INVALID_CONFIG: &str = "CALYX_ANNEAL_BUDGET_INVALID_CONFIG";
 pub const CALYX_ANNEAL_BUDGET_NVML_UNAVAILABLE: &str = "CALYX_ANNEAL_BUDGET_NVML_UNAVAILABLE";
+pub const CALYX_ANNEAL_BUDGET_CPU_UNAVAILABLE: &str = "CALYX_ANNEAL_BUDGET_CPU_UNAVAILABLE";
 pub const BACKGROUND_NICE: i32 = 10;
 
 const CONFIG_DIR: &str = ".anneal";
@@ -81,6 +82,7 @@ pub struct BudgetProbeSample {
     pub cpu_used_fraction: f64,
     pub vram_used_bytes: u64,
     pub nvml_available: bool,
+    pub warning_code: Option<String>,
 }
 
 pub struct BudgetEnforcer<'a, P = ProcStatBudgetProbe>
@@ -106,6 +108,7 @@ struct BudgetState {
 
 pub struct BudgetHandle {
     remaining_ticks: usize,
+    max_ticks: usize,
     release: Option<BudgetRelease>,
 }
 
@@ -123,6 +126,7 @@ impl BudgetHandle {
     pub const fn new(ticks: usize) -> Self {
         Self {
             remaining_ticks: ticks,
+            max_ticks: ticks,
             release: None,
         }
     }
@@ -137,6 +141,10 @@ impl BudgetHandle {
         }
         self.remaining_ticks -= 1;
         true
+    }
+
+    pub(crate) fn replenish(&mut self) {
+        self.remaining_ticks = self.max_ticks;
     }
 }
 
@@ -186,8 +194,9 @@ where
         state.sampled_cpu_fraction = sample.cpu_used_fraction.clamp(0.0, 1.0);
         state.sampled_vram_bytes = sample.vram_used_bytes;
         state.last_tick_at = self.clock.now();
-        state.warning_code =
-            (!sample.nvml_available).then(|| CALYX_ANNEAL_BUDGET_NVML_UNAVAILABLE.to_string());
+        state.warning_code = sample.warning_code.or_else(|| {
+            (!sample.nvml_available).then(|| CALYX_ANNEAL_BUDGET_NVML_UNAVAILABLE.to_string())
+        });
         Ok(state.status())
     }
 
@@ -214,6 +223,7 @@ where
         state.handles_active += 1;
         Ok(BudgetHandle {
             remaining_ticks: handle_ticks(self.config),
+            max_ticks: handle_ticks(self.config),
             release: Some(BudgetRelease {
                 state: Arc::downgrade(&self.state),
                 cpu_weight,
@@ -267,22 +277,32 @@ pub struct ProcStatBudgetProbe {
 
 impl BudgetProbe for ProcStatBudgetProbe {
     fn sample(&self) -> BudgetProbeSample {
-        let cpu_used_fraction = read_proc_stat().map_or(0.0, |current| {
-            let Ok(mut previous) = self.previous.lock() else {
-                return 0.0;
-            };
-            let cpu = previous
-                .as_ref()
-                .and_then(|prev| current.usage_since(*prev))
-                .unwrap_or(0.0);
-            *previous = Some(current);
-            cpu
-        });
+        let Some(current) = read_proc_stat() else {
+            return cpu_unavailable_sample();
+        };
+        let Ok(mut previous) = self.previous.lock() else {
+            return cpu_unavailable_sample();
+        };
+        let cpu_used_fraction = previous
+            .as_ref()
+            .and_then(|prev| current.usage_since(*prev))
+            .unwrap_or(0.0);
+        *previous = Some(current);
         BudgetProbeSample {
             cpu_used_fraction,
             vram_used_bytes: 0,
             nvml_available: false,
+            warning_code: None,
         }
+    }
+}
+
+fn cpu_unavailable_sample() -> BudgetProbeSample {
+    BudgetProbeSample {
+        cpu_used_fraction: 1.0,
+        vram_used_bytes: 0,
+        nvml_available: false,
+        warning_code: Some(CALYX_ANNEAL_BUDGET_CPU_UNAVAILABLE.to_string()),
     }
 }
 
@@ -331,9 +351,30 @@ fn persist_budget_config(path: &Path, config: BudgetConfig) -> Result<()> {
         fs::create_dir_all(parent)
             .map_err(|error| invalid_config(format!("create {}: {error}", parent.display())))?;
     }
-    fs::write(path, text)
-        .map_err(|error| invalid_config(format!("write {}: {error}", path.display())))?;
-    Ok(())
+    atomic_write_text(path, &text)
+}
+
+fn atomic_write_text(path: &Path, text: &str) -> Result<()> {
+    let tmp = temp_path(path)?;
+    fs::write(&tmp, text)
+        .map_err(|error| invalid_config(format!("write {}: {error}", tmp.display())))?;
+    fs::rename(&tmp, path).map_err(|error| {
+        let _ = fs::remove_file(&tmp);
+        invalid_config(format!(
+            "rename {} -> {}: {error}",
+            tmp.display(),
+            path.display()
+        ))
+    })
+}
+
+fn temp_path(path: &Path) -> Result<PathBuf> {
+    let file_name = path
+        .file_name()
+        .ok_or_else(|| invalid_config("budget config path must include a file name"))?;
+    let mut tmp_name = file_name.to_os_string();
+    tmp_name.push(format!(".tmp-{}", std::process::id()));
+    Ok(path.with_file_name(tmp_name))
 }
 
 fn read_proc_stat() -> Option<ProcStat> {

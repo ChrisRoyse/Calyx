@@ -203,9 +203,9 @@ where
             });
         }
         let candidate_heads = self.candidate_heads(batch, lr, fisher_weight)?;
-        let prior_ptr = crate::ArtifactPtr::ConfigCacheKeyHash(heads_hash(self.sorted_heads()?));
+        let prior_ptr = crate::ArtifactPtr::ConfigCacheKeyHash(heads_hash(self.sorted_heads()?)?);
         let candidate_ptr =
-            crate::ArtifactPtr::ConfigCacheKeyHash(heads_hash(candidate_heads.clone()));
+            crate::ArtifactPtr::ConfigCacheKeyHash(heads_hash(candidate_heads.clone())?);
         let key = head_state_artifact_key();
         self.substrate.ensure_head_prior(key.clone(), prior_ptr)?;
         let description = format!(
@@ -222,7 +222,13 @@ where
         )? {
             ChangeOutcome::Promoted(change_id) => {
                 let rows = encode_head_rows(&candidate_heads)?;
-                self.storage.save_heads(rows)?;
+                if let Err(error) = self.storage.save_heads(rows) {
+                    self.substrate.rollback_head_change(
+                        change_id,
+                        format!("head update storage save failed: {}", error.code),
+                    )?;
+                    return Err(error);
+                }
                 let prior_heads = std::mem::take(&mut self.heads);
                 self.heads = candidate_heads
                     .into_iter()

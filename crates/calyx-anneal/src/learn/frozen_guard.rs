@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use calyx_core::{CalyxError, LensId, Result};
@@ -40,6 +40,7 @@ pub struct FrozenLensGuard<S = Registry> {
 pub struct FrozenCheckReport {
     pub ok: Vec<LensId>,
     pub violations: Vec<LensId>,
+    pub missing_lenses: Vec<LensId>,
     pub new_lenses: Vec<LensId>,
     pub rows: Vec<FrozenLensReportRow>,
 }
@@ -48,7 +49,7 @@ pub struct FrozenCheckReport {
 pub struct FrozenLensReportRow {
     pub lens_id: LensId,
     pub known_hash: Option<[u8; 32]>,
-    pub observed_hash: [u8; 32],
+    pub observed_hash: Option<[u8; 32]>,
     pub stable: bool,
     pub status: FrozenLensStatus,
 }
@@ -59,6 +60,7 @@ pub enum FrozenLensStatus {
     Stable,
     New,
     Violation,
+    Missing,
 }
 
 impl<S> FrozenLensGuard<S>
@@ -85,10 +87,13 @@ where
         let mut rows = Vec::new();
         let mut ok = Vec::new();
         let mut violations = Vec::new();
+        let mut missing_lenses = Vec::new();
         let mut new_lenses = Vec::new();
+        let mut observed_ids = HashSet::new();
         for snapshot in self.registry.frozen_lens_snapshots()? {
             let observed_hash = weights_hash(snapshot);
             let known_hash = self.known_hashes.get(&snapshot.lens_id).copied();
+            observed_ids.insert(snapshot.lens_id);
             let status = match known_hash {
                 Some(known) if known == observed_hash => {
                     ok.push(snapshot.lens_id);
@@ -106,18 +111,33 @@ where
             rows.push(FrozenLensReportRow {
                 lens_id: snapshot.lens_id,
                 known_hash,
-                observed_hash,
+                observed_hash: Some(observed_hash),
                 stable: !matches!(status, FrozenLensStatus::Violation),
                 status,
+            });
+        }
+        for (&lens_id, &known_hash) in &self.known_hashes {
+            if observed_ids.contains(&lens_id) {
+                continue;
+            }
+            missing_lenses.push(lens_id);
+            rows.push(FrozenLensReportRow {
+                lens_id,
+                known_hash: Some(known_hash),
+                observed_hash: None,
+                stable: false,
+                status: FrozenLensStatus::Missing,
             });
         }
         rows.sort_by_key(|row| row.lens_id);
         ok.sort();
         violations.sort();
+        missing_lenses.sort();
         new_lenses.sort();
         Ok(FrozenCheckReport {
             ok,
             violations,
+            missing_lenses,
             new_lenses,
             rows,
         })
@@ -125,12 +145,19 @@ where
 
     pub fn assert_no_violation(&self) -> Result<()> {
         let report = self.check()?;
-        if report.violations.is_empty() {
+        if report.violations.is_empty() && report.missing_lenses.is_empty() {
             return Ok(());
         }
+        let mut reasons = Vec::new();
+        if !report.violations.is_empty() {
+            reasons.push(format!("changed={}", join_lens_ids(&report.violations)));
+        }
+        if !report.missing_lenses.is_empty() {
+            reasons.push(format!("missing={}", join_lens_ids(&report.missing_lenses)));
+        }
         Err(CalyxError::lens_frozen_violation(format!(
-            "frozen lens weights changed: {}",
-            join_lens_ids(&report.violations)
+            "frozen lens set violated: {}",
+            reasons.join(" ")
         )))
     }
 
@@ -139,7 +166,13 @@ where
             .check()?
             .rows
             .into_iter()
-            .map(|row| (row.lens_id, row.observed_hash, row.stable))
+            .map(|row| {
+                (
+                    row.lens_id,
+                    row.observed_hash.or(row.known_hash).unwrap_or([0; 32]),
+                    row.stable,
+                )
+            })
             .collect())
     }
 

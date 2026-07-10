@@ -161,9 +161,9 @@ where
             .last_seq
             .checked_add(1)
             .ok_or_else(|| invalid_row("mistake sequence exhausted"))?;
+        self.storage.put_new(seq, &value)?;
         state.entries.insert(seq, entry);
         state.last_seq = seq;
-        self.storage.put_new(seq, &value)?;
         Ok(MistakeRef { seq, surprise })
     }
 
@@ -175,11 +175,12 @@ where
         if state.entries.is_empty() {
             return Ok(0.0);
         }
-        let high_surprise = last_entries(&state.entries, window)
+        let entries = last_entries(&state.entries, window);
+        let high_surprise = entries
             .iter()
             .filter(|entry| entry.surprise > self.high_surprise_threshold)
             .count();
-        Ok(high_surprise as f64 / window as f64)
+        Ok(high_surprise as f64 / entries.len() as f64)
     }
 
     pub fn mistake_rate_default_window(&self) -> Result<f64> {

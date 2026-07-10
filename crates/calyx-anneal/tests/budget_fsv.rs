@@ -205,6 +205,7 @@ impl ScriptedProbe {
                 cpu_used_fraction,
                 vram_used_bytes,
                 nvml_available,
+                warning_code: None,
             })),
         }
     }

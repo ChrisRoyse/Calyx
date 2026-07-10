@@ -41,6 +41,23 @@ fn hysteresis_promotes_only_after_required_consecutive_wins() {
 }
 
 #[test]
+fn incumbent_self_win_does_not_clear_challenger_hysteresis() {
+    let mut bandit =
+        ConfigBandit::new(BanditPolicy::EpsilonGreedy { epsilon: 0.0 }, 12).with_hysteresis(3);
+    bandit.add_arm(b"incumbent".to_vec());
+    bandit.add_arm(b"candidate".to_vec());
+
+    bandit.record_result(1, true).unwrap();
+    bandit.record_result(1, true).unwrap();
+    bandit.record_result(0, true).unwrap();
+
+    assert_eq!(bandit.incumbent_idx, 0);
+    assert_eq!(bandit.arms[1].consecutive_wins, 2);
+    bandit.record_result(1, true).unwrap();
+    assert_eq!(bandit.incumbent_idx, 1);
+}
+
+#[test]
 fn thompson_sampling_is_reproducible_by_seed() {
     let mut left = uniform_thompson(42);
     let mut right = uniform_thompson(42);

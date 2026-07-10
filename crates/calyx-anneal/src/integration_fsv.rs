@@ -210,7 +210,7 @@ where
                 Ok(ChangeOutcome::Promoted(change_id))
             }
             ShadowVerdict::Revert { reason, metrics } => {
-                self.rollback.rollback(change_id)?;
+                self.rollback.reject_prepared(change_id)?;
                 let reverted = self.rollback.readback(change_id)?;
                 let entry = ledger_entry(
                     &reverted,

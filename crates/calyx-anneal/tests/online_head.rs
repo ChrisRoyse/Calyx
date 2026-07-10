@@ -11,7 +11,7 @@ use calyx_anneal::{
 };
 use calyx_aster::cf::ColumnFamily;
 use calyx_aster::vault::{AsterVault, VaultOptions};
-use calyx_core::{CxId, FixedClock, Result};
+use calyx_core::{CalyxError, CxId, FixedClock, Result};
 use proptest::prelude::*;
 
 mod fsv_support;
@@ -106,6 +106,22 @@ fn reverted_substrate_does_not_update_params_version_or_storage() {
     assert_eq!(head.version, 0);
     assert_eq!(head.params, vec![0.0]);
     assert!(storage.scan_heads().unwrap().is_empty());
+}
+
+#[test]
+fn promoted_save_failure_rolls_back_and_keeps_prior_head() {
+    let storage = FailingHeadStorage;
+    let gate = ScriptedGate::promote();
+    let rollbacks = gate.rollbacks.clone();
+    let mut state = state_with_heads(storage, gate, [zero_predictor()]);
+
+    let err = state.update(&[entry(1.0, 1)], 0.01, 0.0).unwrap_err();
+
+    assert_eq!(err.code, "CALYX_TEST_HEAD_SAVE_FAILED");
+    assert_eq!(rollbacks.load(Ordering::SeqCst), 1);
+    let head = state.head(HeadKind::Predictor).unwrap();
+    assert_eq!(head.version, 0);
+    assert_eq!(head.params, vec![0.0]);
 }
 
 #[test]
@@ -213,6 +229,27 @@ impl HeadStorage for MemoryHeadStorage {
     }
 }
 
+#[derive(Clone, Copy)]
+struct FailingHeadStorage;
+
+impl HeadStorage for FailingHeadStorage {
+    fn load_head(&self, _kind: HeadKind) -> Result<Option<Vec<u8>>> {
+        Ok(None)
+    }
+
+    fn save_heads(&self, _rows: Vec<(HeadKind, Vec<u8>)>) -> Result<()> {
+        Err(CalyxError {
+            code: "CALYX_TEST_HEAD_SAVE_FAILED",
+            message: "scripted head save failure".to_string(),
+            remediation: "fix the test head sink",
+        })
+    }
+
+    fn scan_heads(&self) -> Result<Vec<(Vec<u8>, Vec<u8>)>> {
+        Ok(Vec::new())
+    }
+}
+
 #[derive(Clone, Default)]
 struct CountingFrozenGuard {
     calls: Arc<AtomicUsize>,
@@ -230,6 +267,7 @@ struct ScriptedGate {
     next_id: Arc<AtomicU64>,
     revert: Arc<AtomicBool>,
     ensured: Arc<AtomicUsize>,
+    rollbacks: Arc<AtomicUsize>,
 }
 
 impl ScriptedGate {
@@ -238,6 +276,7 @@ impl ScriptedGate {
             next_id: Arc::new(AtomicU64::new(408_000)),
             revert: Arc::new(AtomicBool::new(false)),
             ensured: Arc::new(AtomicUsize::new(0)),
+            rollbacks: Arc::new(AtomicUsize::new(0)),
         }
     }
 
@@ -275,6 +314,15 @@ impl HeadPromotionGate for ScriptedGate {
         Ok(ChangeOutcome::Promoted(calyx_anneal::ChangeId(
             self.next_id.fetch_add(1, Ordering::SeqCst),
         )))
+    }
+
+    fn rollback_head_change(
+        &mut self,
+        _change_id: calyx_anneal::ChangeId,
+        _description: String,
+    ) -> Result<()> {
+        self.rollbacks.fetch_add(1, Ordering::SeqCst);
+        Ok(())
     }
 }
 
