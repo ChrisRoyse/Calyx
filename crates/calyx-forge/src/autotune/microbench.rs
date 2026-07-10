@@ -341,7 +341,7 @@ fn matrix_len(rows: usize, cols: usize, name: &str) -> Result<usize> {
 
 fn random_values(len: usize, seed: u64) -> Vec<f32> {
     let mut rng = ChaCha8Rng::seed_from_u64(seed);
-    (0..len).map(|_| rng.gen_range(-0.5..0.5)).collect()
+    (0..len).map(|_| rng.random_range(-0.5..0.5)).collect()
 }
 
 fn quant_level(config: &BestConfig) -> QuantLevel {

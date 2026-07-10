@@ -141,7 +141,7 @@ where
         while sampled.len() < n && !candidates.is_empty() {
             let total: f64 = candidates.iter().map(|entry| entry.surprise).sum();
             let index = if total > 0.0 {
-                weighted_index(&candidates, rng.gen_range(0.0..total))
+                weighted_index(&candidates, rng.random_range(0.0..total))
             } else {
                 0
             };

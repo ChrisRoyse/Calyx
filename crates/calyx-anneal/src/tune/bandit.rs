@@ -280,8 +280,8 @@ impl ConfigBandit {
             return Ok(self.best_win_rate_index());
         }
         let mut rng = ChaCha8Rng::seed_from_u64(self.rng_seed);
-        let idx = if rng.gen_range(0.0..1.0) < epsilon {
-            rng.gen_range(0..self.arms.len())
+        let idx = if rng.random_range(0.0..1.0) < epsilon {
+            rng.random_range(0..self.arms.len())
         } else {
             self.best_win_rate_index()
         };
@@ -403,7 +403,7 @@ fn sample_beta(alpha: f64, beta: f64, rng: &mut ChaCha8Rng) -> f64 {
 
 fn sample_gamma(shape: f64, rng: &mut ChaCha8Rng) -> f64 {
     if shape == 1.0 {
-        return -rng.gen_range(f64::MIN_POSITIVE..1.0).ln();
+        return -rng.random_range(f64::MIN_POSITIVE..1.0).ln();
     }
     let d = shape - (1.0 / 3.0);
     let c = (1.0 / (9.0 * d)).sqrt();
@@ -414,7 +414,7 @@ fn sample_gamma(shape: f64, rng: &mut ChaCha8Rng) -> f64 {
             continue;
         }
         let v3 = v * v * v;
-        let u = rng.gen_range(0.0..1.0);
+        let u = rng.random_range(0.0..1.0);
         if u < 1.0 - 0.0331 * x.powi(4) {
             return d * v3;
         }
@@ -425,8 +425,8 @@ fn sample_gamma(shape: f64, rng: &mut ChaCha8Rng) -> f64 {
 }
 
 fn standard_normal(rng: &mut ChaCha8Rng) -> f64 {
-    let u1 = rng.gen_range(f64::MIN_POSITIVE..1.0);
-    let u2 = rng.gen_range(0.0..1.0);
+    let u1 = rng.random_range(f64::MIN_POSITIVE..1.0);
+    let u2 = rng.random_range(0.0..1.0);
     (-2.0 * u1.ln()).sqrt() * (2.0 * std::f64::consts::PI * u2).cos()
 }
 

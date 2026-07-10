@@ -241,7 +241,7 @@ where
             return base;
         }
         let half = (self.jitter_ms / 2) as i64;
-        let offset = self.rng.gen_range(-half..=half);
+        let offset = self.rng.random_range(-half..=half);
         if offset >= 0 {
             base.saturating_add(offset as u64)
         } else {

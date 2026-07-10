@@ -212,17 +212,17 @@ proptest! {
 
         for idx in 0..100 {
             let shape = [
-                rng.gen_range(1..=64),
-                rng.gen_range(1..=64),
-                rng.gen_range(1..=64),
+                rng.random_range(1..=64),
+                rng.random_range(1..=64),
+                rng.random_range(1..=64),
             ];
             let key = AutotuneKey::default_for(
-                &format!("op_{idx}_{}", rng.gen_range(0..=u16::MAX)),
+                &format!("op_{idx}_{}", rng.random_range(0..=u16::MAX)),
                 &shape,
                 "f32",
                 "cpu",
             );
-            let cfg = config(rng.gen_range(1..=512), BackendKind::Cpu, "prop");
+            let cfg = config(rng.random_range(1..=512), BackendKind::Cpu, "prop");
             cache.insert(key.clone(), cfg.clone());
             expected.push((key, cfg));
         }

@@ -3,7 +3,7 @@ use std::io::Write;
 use std::path::Path;
 
 use calyx_core::{CalyxError, VaultId, content_address};
-use rand::{RngCore, rngs::OsRng};
+use rand::{TryRngCore, rngs::OsRng};
 use ulid::Ulid;
 
 use super::EngineResult;
@@ -47,7 +47,13 @@ pub(super) fn salt_for_dir(dir: &Path, vault_ref: &str) -> EngineResult<Vec<u8>>
         return Ok(salt_for(vault_ref));
     }
     let mut salt = vec![0_u8; SALT_LEN];
-    OsRng.fill_bytes(&mut salt);
+    OsRng.try_fill_bytes(&mut salt).map_err(|error| {
+        salt_error(
+            CALYX_LEAPABLE_SALT_IO,
+            format!("generate random salt for {}: {error}", path.display()),
+            "verify the host random source is available and retry vault.create",
+        )
+    })?;
     let mut file = OpenOptions::new()
         .write(true)
         .create_new(true)

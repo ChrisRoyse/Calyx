@@ -29,7 +29,7 @@ fn vectors(n: usize, dim: usize, seed: u64) -> Vec<(CxId, Vec<f32>)> {
     let mut rng = ChaCha8Rng::seed_from_u64(seed);
     (0..n)
         .map(|idx| {
-            let mut vector: Vec<f32> = (0..dim).map(|_| rng.gen_range(-1.0..1.0)).collect();
+            let mut vector: Vec<f32> = (0..dim).map(|_| rng.random_range(-1.0..1.0)).collect();
             vector[idx % dim] += 4.0;
             (cx(idx), vector)
         })

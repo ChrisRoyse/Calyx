@@ -52,7 +52,7 @@ pub fn bootstrap_mean_ci_with_config(
     for _ in 0..config.resamples {
         let mut sum = 0.0;
         for _ in 0..values.len() {
-            sum += values[rng.gen_range(0..values.len())];
+            sum += values[rng.random_range(0..values.len())];
         }
         means.push(sum / values.len() as f32);
     }
@@ -83,7 +83,7 @@ where
         let mut sampled_left = Vec::with_capacity(left.len());
         let mut sampled_right = Vec::with_capacity(right.len());
         for _ in 0..left.len() {
-            let index = rng.gen_range(0..left.len());
+            let index = rng.random_range(0..left.len());
             sampled_left.push(left[index].clone());
             sampled_right.push(right[index].clone());
         }

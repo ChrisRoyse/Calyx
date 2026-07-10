@@ -441,8 +441,8 @@ fn sign_count(values: &[f32]) -> (usize, usize) {
 }
 
 fn standard_normal(rng: &mut ChaCha8Rng) -> f64 {
-    let u1: f64 = rng.gen_range(f64::EPSILON..1.0);
-    let u2: f64 = rng.gen_range(0.0..1.0);
+    let u1: f64 = rng.random_range(f64::EPSILON..1.0);
+    let u2: f64 = rng.random_range(0.0..1.0);
     (-2.0 * u1.ln()).sqrt() * (2.0 * std::f64::consts::PI * u2).cos()
 }
 

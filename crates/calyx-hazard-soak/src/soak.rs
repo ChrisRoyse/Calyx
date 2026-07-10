@@ -131,7 +131,7 @@ pub fn run_integrated_soak_at(root: &Path, n_ops: u64, seed: u64) -> Result<Soak
     let mut tombstone_values = 0_u64;
 
     for op in 0..n_ops {
-        match rng.gen_range(0..100) {
+        match rng.random_range(0..100) {
             0..=39 => write_op(
                 op,
                 WriteOpState {

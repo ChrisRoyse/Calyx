@@ -33,7 +33,7 @@ pub fn new_seed(dim: usize, entropy: &[u8]) -> RotationSeed {
     let rng_seed = sha256_entropy_dim(entropy, dim);
     let mut rng = ChaCha8Rng::from_seed(rng_seed);
     let diagonal: Vec<f32> = (0..dim)
-        .map(|_| if rng.r#gen::<bool>() { 1.0 } else { -1.0 })
+        .map(|_| if rng.random::<bool>() { 1.0 } else { -1.0 })
         .collect();
     let id = content_id(&diagonal, CURRENT_SEED_VERSION, dim);
     RotationSeed {

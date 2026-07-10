@@ -58,7 +58,7 @@ fn normalize(vec: &mut [f32]) {
 
 fn random_unit(dim: usize, rng: &mut ChaCha8Rng) -> Vec<f32> {
     let mut vec = (0..dim)
-        .map(|_| rng.gen_range(-1.0..1.0))
+        .map(|_| rng.random_range(-1.0..1.0))
         .collect::<Vec<_>>();
     normalize(&mut vec);
     vec
@@ -67,7 +67,7 @@ fn random_unit(dim: usize, rng: &mut ChaCha8Rng) -> Vec<f32> {
 fn noisy_neighbor(query: &[f32], rng: &mut ChaCha8Rng, noise_scale: f32) -> Vec<f32> {
     let mut vec = query
         .iter()
-        .map(|value| *value + rng.gen_range(-noise_scale..noise_scale))
+        .map(|value| *value + rng.random_range(-noise_scale..noise_scale))
         .collect::<Vec<_>>();
     normalize(&mut vec);
     vec

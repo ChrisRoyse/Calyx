@@ -33,7 +33,7 @@ fn synthetic_vectors(n: usize, dim: usize, seed: u64) -> Vec<(u32, Vec<f32>)> {
         .map(|i| {
             (
                 u32::try_from(i).expect("test n fits u32"),
-                (0..dim).map(|_| rng.gen_range(-1.0_f32..1.0)).collect(),
+                (0..dim).map(|_| rng.random_range(-1.0_f32..1.0)).collect(),
             )
         })
         .collect()

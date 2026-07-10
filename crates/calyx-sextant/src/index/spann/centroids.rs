@@ -305,7 +305,7 @@ fn effective_cluster_count(vector_count: usize, requested: usize) -> usize {
 
 fn kmeans_pp(vectors: &[(u32, Vec<f32>)], k: usize, seed: u64) -> Vec<Vec<f32>> {
     let mut rng = ChaCha8Rng::seed_from_u64(seed);
-    let first = vectors[rng.gen_range(0..vectors.len())].1.clone();
+    let first = vectors[rng.random_range(0..vectors.len())].1.clone();
     // Canonical kmeans++ with a cached D^2 array: `min_dist[i]` is the squared
     // distance from vector i to its NEAREST chosen centroid so far. Adding a
     // centroid updates the cache in O(N*dim) instead of re-scanning the whole
@@ -342,7 +342,7 @@ fn kmeans_pp(vectors: &[(u32, Vec<f32>)], k: usize, seed: u64) -> Vec<Vec<f32>> 
             }
             continue;
         }
-        let mut cut = rng.gen_range(0.0..total);
+        let mut cut = rng.random_range(0.0..total);
         let mut chosen = vectors.len() - 1;
         for (idx, distance) in min_dist.iter().enumerate() {
             cut -= *distance;

@@ -147,7 +147,7 @@ fn run_soak(root: &Path, op_count: u64, flood_ops: u64, full: bool) -> SoakRepor
         let utilization = exercise_allocators(op, &mut arena, &slab, &page_slab);
         slab_max = slab_max.max(utilization.slab);
         page_slab_max = page_slab_max.max(utilization.page_slab);
-        let roll = rng.gen_range(0..100);
+        let roll = rng.random_range(0..100);
         match roll {
             0..=49 => write_op(
                 op,
@@ -282,7 +282,7 @@ fn write_op(
     counts: &mut Counts,
 ) {
     let key = (op % KEY_SPACE).to_be_bytes();
-    let len = rng.gen_range(64..=4096);
+    let len = rng.random_range(64..=4096);
     value[0] = op as u8;
     value[len - 1] = (op >> 8) as u8;
     router.put(ColumnFamily::Base, &key, &value[..len]).unwrap();
@@ -295,7 +295,7 @@ fn write_op(
 
 fn point_read_op(router: &CfRouter, recent: &[[u8; 8]], rng: &mut StdRng, counts: &mut Counts) {
     if !recent.is_empty() {
-        let key = recent[rng.gen_range(0..recent.len())];
+        let key = recent[rng.random_range(0..recent.len())];
         let _ = router.get(ColumnFamily::Base, &key).unwrap();
     }
     counts.point_reads += 1;

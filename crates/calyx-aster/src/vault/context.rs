@@ -21,7 +21,7 @@ use crate::vault::keyspace::KeyspaceGuard;
 use crate::vault::quota::{QuotaConfig, QuotaGuard};
 use calyx_core::{CalyxError, Result, Ts, VaultId};
 use calyx_ledger::ActorId;
-use rand::RngCore;
+use rand::TryRngCore;
 use rand::rngs::OsRng;
 use std::path::Path;
 use std::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
@@ -31,6 +31,7 @@ const VALUE_NONCE_LEN: usize = 12;
 /// AES-GCM authentication tag length appended by `VaultKey`.
 const VALUE_TAG_LEN: usize = 16;
 pub const CALYX_VAULT_KEY_SHREDDED: &str = "CALYX_VAULT_KEY_SHREDDED";
+pub const CALYX_VAULT_NONCE_RANDOM_FAILED: &str = "CALYX_VAULT_NONCE_RANDOM_FAILED";
 
 /// The single per-vault security aggregate threaded through every storage op.
 #[derive(Debug)]
@@ -149,7 +150,11 @@ impl VaultContext {
             });
         }
         let mut nonce = [0_u8; VALUE_NONCE_LEN];
-        OsRng.fill_bytes(&mut nonce);
+        OsRng.try_fill_bytes(&mut nonce).map_err(|error| CalyxError {
+            code: CALYX_VAULT_NONCE_RANDOM_FAILED,
+            message: format!("failed to generate AES-GCM value nonce: {error}"),
+            remediation: "verify the host random source is available before encrypting vault values",
+        })?;
         let mut ciphertext = self.key.encrypt(&nonce, plaintext, aad)?;
         let mut sealed = Vec::with_capacity(VALUE_NONCE_LEN + ciphertext.len());
         sealed.extend_from_slice(&nonce);

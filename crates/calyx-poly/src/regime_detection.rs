@@ -107,7 +107,8 @@ pub fn run_regime_detection_report(
     let report = compute_regime_detection_report(request)?;
     let report_path = write_regime_detection_report(output_root, &report)?;
     let readback = read_regime_detection_report(&report_path)?;
-    if readback != report {
+    let json_normalized_report = json_normalized_report(&report)?;
+    if readback != json_normalized_report {
         return Err(PolyError::diagnostics(
             ERR_REGIME_DETECTION_READBACK_MISMATCH,
             format!(
@@ -119,6 +120,21 @@ pub fn run_regime_detection_report(
     Ok(RegimeDetectionRun {
         report_path,
         report: readback,
+    })
+}
+
+fn json_normalized_report(report: &RegimeDetectionReport) -> Result<RegimeDetectionReport> {
+    let bytes = serde_json::to_vec(report).map_err(|err| {
+        PolyError::diagnostics(
+            ERR_REGIME_DETECTION_READBACK_MISMATCH,
+            format!("normalize regime detection report through JSON serializer: {err}"),
+        )
+    })?;
+    serde_json::from_slice(&bytes).map_err(|err| {
+        PolyError::diagnostics(
+            ERR_REGIME_DETECTION_READBACK_MISMATCH,
+            format!("normalize regime detection report through JSON deserializer: {err}"),
+        )
     })
 }
 

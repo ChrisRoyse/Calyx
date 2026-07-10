@@ -181,8 +181,8 @@ fn next_epsilon_greedy(
     incumbent: &BestConfig,
     candidate_pool: &[BestConfig],
 ) -> BestConfig {
-    if explorer.rng.gen_range(0.0..1.0) < EPSILON {
-        let idx = explorer.rng.gen_range(0..candidate_pool.len());
+    if explorer.rng.random_range(0.0..1.0) < EPSILON {
+        let idx = explorer.rng.random_range(0..candidate_pool.len());
         candidate_pool[idx].clone()
     } else {
         incumbent.clone()
@@ -258,7 +258,7 @@ fn sample_beta_integer(alpha: u32, beta: u32, rng: &mut ChaCha8Rng) -> f64 {
 fn sample_gamma_integer(shape: u32, rng: &mut ChaCha8Rng) -> f64 {
     (0..shape)
         .map(|_| {
-            let uniform = rng.gen_range(f64::MIN_POSITIVE..1.0);
+            let uniform = rng.random_range(f64::MIN_POSITIVE..1.0);
             -uniform.ln()
         })
         .sum()

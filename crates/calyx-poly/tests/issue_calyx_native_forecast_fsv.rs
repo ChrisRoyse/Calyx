@@ -33,8 +33,8 @@ use support::{named_fsv_root, reset_dir, write_blake3sums, write_json};
 
 fn gaussian(rng: &mut ChaCha8Rng) -> f32 {
     use std::f64::consts::PI;
-    let u1 = rng.r#gen::<f64>().max(1e-12);
-    let u2 = rng.r#gen::<f64>();
+    let u1 = rng.random::<f64>().max(1e-12);
+    let u2 = rng.random::<f64>();
     ((-2.0 * u1.ln()).sqrt() * (2.0 * PI * u2).cos()) as f32
 }
 

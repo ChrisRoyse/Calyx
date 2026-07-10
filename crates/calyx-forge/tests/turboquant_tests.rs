@@ -37,7 +37,7 @@ fn run_cosine_error_trial_with_seed(
 }
 
 fn random_vec(dim: usize, rng: &mut ChaCha8Rng) -> Vec<f32> {
-    (0..dim).map(|_| rng.gen_range(-1.0..1.0)).collect()
+    (0..dim).map(|_| rng.random_range(-1.0..1.0)).collect()
 }
 
 fn normalize_unit(vec: &mut [f32]) -> Result<(), ForgeError> {

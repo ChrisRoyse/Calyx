@@ -193,7 +193,7 @@ pub fn should_use_challenger(hook: &AbHook, rng: &mut ChaCha8Rng) -> bool {
     if hook.rate >= 1.0 {
         return true;
     }
-    rng.gen_range(0.0..1.0) < hook.rate
+    rng.random_range(0.0..1.0) < hook.rate
 }
 
 pub fn autotune(cache: &AutotuneCache, key: &AutotuneKey) -> BestConfig {

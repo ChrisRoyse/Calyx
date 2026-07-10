@@ -16,8 +16,8 @@ use rand_chacha::ChaCha8Rng;
 
 /// A standard-normal sample via Box–Muller from the seeded uniform stream.
 pub fn gaussian(rng: &mut ChaCha8Rng) -> f32 {
-    let u1 = rng.r#gen::<f64>().max(1e-12);
-    let u2 = rng.r#gen::<f64>();
+    let u1 = rng.random::<f64>().max(1e-12);
+    let u2 = rng.random::<f64>();
     ((-2.0 * u1.ln()).sqrt() * (2.0 * PI * u2).cos()) as f32
 }
 

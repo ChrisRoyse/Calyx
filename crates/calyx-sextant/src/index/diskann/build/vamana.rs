@@ -145,7 +145,7 @@ fn initial_neighbors(
         seen.insert(entry);
     }
     while out.len() < degree {
-        let candidate = rng.gen_range(0..node_count);
+        let candidate = rng.random_range(0..node_count);
         if candidate != node && seen.insert(candidate) {
             out.push(candidate);
         }

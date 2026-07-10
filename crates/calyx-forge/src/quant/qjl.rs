@@ -236,8 +236,8 @@ mod tests {
         let mut left = vec![0.0; dim];
         let mut right = vec![0.0; dim];
         for idx in 0..dim {
-            left[idx] = rng.gen_range(-1.0..1.0);
-            right[idx] = rng.gen_range(-1.0..1.0);
+            left[idx] = rng.random_range(-1.0..1.0);
+            right[idx] = rng.random_range(-1.0..1.0);
         }
         normalize(&mut left);
         normalize(&mut right);

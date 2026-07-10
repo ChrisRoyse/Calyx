@@ -83,7 +83,7 @@ pub fn synthetic_dense_rows(n: usize, dim: usize, seed: u64) -> Vec<(CxId, Vec<f
     (0..n)
         .map(|idx| {
             let mut vector = (0..dim)
-                .map(|j| rng.gen_range(-1.0_f32..1.0) + ((idx + j) % dim) as f32 * 0.001)
+                .map(|j| rng.random_range(-1.0_f32..1.0) + ((idx + j) % dim) as f32 * 0.001)
                 .collect::<Vec<_>>();
             vector[idx % dim] += 4.0;
             normalize(&mut vector);

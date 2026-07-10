@@ -25,14 +25,14 @@ fn scratch(tag: &str) -> PathBuf {
     dir
 }
 
-/// Planted clustered corpus: each vector gets a strong +4.0 spike at dim
+/// Planted clustered corpus: each vector gets a strong +6.0 spike at dim
 /// `idx % clusters`, so its true nearest neighbours are the same-residue nodes.
 fn corpus(n: usize, dim: usize, clusters: usize, seed: u64) -> Vec<(CxId, Vec<f32>)> {
     let mut rng = ChaCha8Rng::seed_from_u64(seed);
     (0..n)
         .map(|idx| {
-            let mut v: Vec<f32> = (0..dim).map(|_| rng.gen_range(-1.0..1.0)).collect();
-            v[idx % clusters] += 4.0;
+            let mut v: Vec<f32> = (0..dim).map(|_| rng.random_range(-1.0..1.0)).collect();
+            v[idx % clusters] += 6.0;
             (cx(idx), v)
         })
         .collect()

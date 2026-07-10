@@ -12,7 +12,7 @@ use std::path::{Path, PathBuf};
 
 use calyx_aster::vault::{CALYX_DECRYPTION_FAILED, QuotaConfig, VaultContext};
 use calyx_core::VaultId;
-use rand::RngCore;
+use rand::TryRngCore;
 use serde_json::json;
 use ulid::Ulid;
 
@@ -44,7 +44,7 @@ fn seed_source_vault() -> Result<(), Box<dyn Error>> {
     fs::create_dir_all(vault.join("key-state"))?;
 
     let mut master = [0_u8; 32];
-    rand::rngs::OsRng.fill_bytes(&mut master);
+    rand::rngs::OsRng.try_fill_bytes(&mut master)?;
 
     let mut ctx = vault_context(&master)?;
     let ciphertext = ctx.encrypt_value(SENTINEL, AAD)?;

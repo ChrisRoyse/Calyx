@@ -82,7 +82,7 @@ fn old_with_replacement_ci(
         let mut sampled_x = Vec::with_capacity(x.len());
         let mut sampled_y = Vec::with_capacity(y.len());
         for _ in 0..x.len() {
-            let index = rng.gen_range(0..x.len());
+            let index = rng.random_range(0..x.len());
             sampled_x.push(x[index].clone());
             sampled_y.push(y[index].clone());
         }
@@ -120,7 +120,7 @@ fn old_replacement_duplicate_stats(
         let mut seen = vec![false; n];
         let mut unique = 0;
         for _ in 0..draws {
-            let index = rng.gen_range(0..n);
+            let index = rng.random_range(0..n);
             if !seen[index] {
                 seen[index] = true;
                 unique += 1;
@@ -191,8 +191,8 @@ fn independent_samples(n: usize, seed: u64) -> (Vec<Vec<f32>>, Vec<Vec<f32>>) {
     let mut x = Vec::with_capacity(n);
     let mut y = Vec::with_capacity(n);
     for _ in 0..n {
-        x.push(vec![rng.gen_range(-1.0..1.0)]);
-        y.push(vec![rng.gen_range(-1.0..1.0)]);
+        x.push(vec![rng.random_range(-1.0..1.0)]);
+        y.push(vec![rng.random_range(-1.0..1.0)]);
     }
     (x, y)
 }
@@ -202,8 +202,8 @@ fn planted_samples(n: usize, seed: u64) -> (Vec<Vec<f32>>, Vec<Vec<f32>>) {
     let mut x = Vec::with_capacity(n);
     let mut y = Vec::with_capacity(n);
     for _ in 0..n {
-        let signal = rng.gen_range(-1.0..1.0);
-        let noise = rng.gen_range(-0.18..0.18);
+        let signal = rng.random_range(-1.0..1.0);
+        let noise = rng.random_range(-0.18..0.18);
         x.push(vec![signal]);
         y.push(vec![0.75 * signal + noise]);
     }

@@ -389,7 +389,7 @@ mod grouped_gemm_tests {
     #[cfg(feature = "cuda")]
     fn random_values(rng: &mut ChaCha8Rng, len: usize) -> Vec<f32> {
         (0..len)
-            .map(|_| rng.gen_range(-0.75_f32..0.75_f32))
+            .map(|_| rng.random_range(-0.75_f32..0.75_f32))
             .collect()
     }
 
