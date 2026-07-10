@@ -91,7 +91,14 @@ impl LedgerCfStore for DirectoryLedgerStore {
     }
 
     fn head_anchor(&self) -> Result<Option<LedgerHeadAnchor>> {
-        read_anchor_file(&self.anchor_path())
+        let anchor = read_anchor_file(&self.anchor_path())?;
+        if anchor.is_none() && !self.scan()?.is_empty() {
+            return Err(CalyxError::ledger_chain_broken(format!(
+                "ledger head anchor missing for non-empty directory ledger {}",
+                self.root.display()
+            )));
+        }
+        Ok(anchor)
     }
 
     fn put_head_anchor(&mut self, anchor: &LedgerHeadAnchor) -> Result<()> {
@@ -129,4 +136,54 @@ fn parse_row_seq(path: &Path) -> Result<u64> {
 
 fn append_only_violation(message: impl Into<String>) -> CalyxError {
     CalyxError::ledger_append_only_violation(message)
+}
+
+#[cfg(test)]
+mod tests {
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    use calyx_core::{CxId, FixedClock};
+
+    use super::*;
+    use crate::{ActorId, EntryKind, LedgerAppender, SubjectId, verify_chain};
+
+    #[test]
+    fn missing_anchor_on_truncated_directory_ledger_fails_closed() {
+        let root = temp_root("missing-anchor-truncated");
+        let mut appender = LedgerAppender::open(
+            DirectoryLedgerStore::open(&root).expect("open directory store"),
+            FixedClock::new(1395),
+        )
+        .expect("open appender");
+        for seed in 0..3 {
+            appender
+                .append(
+                    EntryKind::Ingest,
+                    SubjectId::Cx(CxId::from_bytes([seed; 16])),
+                    format!("payload-{seed}").into_bytes(),
+                    ActorId::Service("directory-ledger-test".to_string()),
+                )
+                .expect("append row");
+        }
+        let store = appender.into_store();
+        fs::remove_file(store.anchor_path()).expect("remove head anchor");
+        fs::remove_file(store.row_path(2)).expect("remove newest row");
+
+        let error = verify_chain(&store, 0..2).unwrap_err();
+
+        assert_eq!(error.code, "CALYX_LEDGER_CHAIN_BROKEN");
+        assert!(error.message.contains("head anchor missing"));
+        fs::remove_dir_all(root).ok();
+    }
+
+    fn temp_root(name: &str) -> PathBuf {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system clock")
+            .as_nanos();
+        std::env::temp_dir().join(format!(
+            "calyx-directory-ledger-{name}-{}-{unique}",
+            std::process::id()
+        ))
+    }
 }

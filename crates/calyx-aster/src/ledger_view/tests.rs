@@ -13,6 +13,8 @@ use calyx_core::{
 };
 use calyx_ledger::{ActorId, EntryKind, SubjectId};
 
+mod head_anchor_missing;
+
 #[test]
 fn open_waits_for_durable_commit_lock_before_reading_rows_and_anchor() {
     let root = test_vault_dir("issue973-open-lock");

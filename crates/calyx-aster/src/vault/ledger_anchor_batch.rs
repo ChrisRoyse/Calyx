@@ -292,10 +292,15 @@ where
     }
 
     fn head_anchor(&self) -> Result<Option<LedgerHeadAnchor>> {
-        match &self.vault.durable {
-            Some(durable) => crate::ledger_head::read_head_anchor(durable.root()),
-            None => Ok(None),
+        let Some(durable) = &self.vault.durable else {
+            return Ok(None);
+        };
+        let anchor = crate::ledger_head::read_head_anchor(durable.root())?;
+        if anchor.is_none() {
+            let rows = self.scan()?;
+            return crate::ledger_head::require_head_anchor_for_rows(durable.root(), anchor, &rows);
         }
+        Ok(anchor)
     }
 
     fn put_head_anchor(&mut self, anchor: &LedgerHeadAnchor) -> Result<()> {

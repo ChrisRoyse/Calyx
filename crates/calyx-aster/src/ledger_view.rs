@@ -82,13 +82,16 @@ impl AsterLedgerCfStore {
             }
         }
 
-        Ok(Self {
-            anchor: crate::ledger_head::read_head_anchor(vault)?,
-            rows: rows
-                .into_iter()
-                .map(|(seq, bytes)| LedgerRow { seq, bytes })
-                .collect(),
-        })
+        let rows = rows
+            .into_iter()
+            .map(|(seq, bytes)| LedgerRow { seq, bytes })
+            .collect::<Vec<_>>();
+        let anchor = crate::ledger_head::require_head_anchor_for_rows(
+            vault,
+            crate::ledger_head::read_head_anchor(vault)?,
+            &rows,
+        )?;
+        Ok(Self { anchor, rows })
     }
 }
 

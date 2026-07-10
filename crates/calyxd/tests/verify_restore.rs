@@ -160,6 +160,19 @@ fn write_ledger_sst(dir: &Path, encoded: &[(u64, Vec<u8>)]) {
     write_single_sst(dir, "ledger", &rows);
 }
 
+fn encoded_chain_with_anchor(dir: &Path, count: u64) -> Vec<(u64, Vec<u8>)> {
+    let entries = ledger_chain(count);
+    let tip = entries.last().expect("non-empty ledger fixture");
+    let anchor = calyx_ledger::LedgerHeadAnchor::new(tip.seq + 1, tip.entry_hash).unwrap();
+    let path = calyx_aster::ledger_head::head_anchor_path(dir);
+    fs::create_dir_all(path.parent().unwrap()).unwrap();
+    fs::write(path, serde_json::to_vec(&anchor).unwrap()).unwrap();
+    entries
+        .iter()
+        .map(|entry| (entry.seq, encode_ledger_entry(entry)))
+        .collect()
+}
+
 fn write_base_fixture(dir: &Path) {
     let cx = constellation(9);
     write_single_sst(
@@ -203,10 +216,7 @@ fn write_wal_fixture(dir: &Path) {
 }
 
 fn handbuilt_vault(dir: &Path, chain_len: u64) -> Vec<(u64, Vec<u8>)> {
-    let encoded: Vec<(u64, Vec<u8>)> = ledger_chain(chain_len)
-        .iter()
-        .map(|entry| (entry.seq, encode_ledger_entry(entry)))
-        .collect();
+    let encoded = encoded_chain_with_anchor(dir, chain_len);
     write_ledger_sst(dir, &encoded);
     write_base_fixture(dir);
     write_wal_fixture(dir);
@@ -320,10 +330,7 @@ fn truncated_last_ledger_entry_reports_corrupt_at_break_seq() {
 #[test]
 fn zero_constellations_fails_pass_predicate() {
     let dir = test_dir("nobase");
-    let encoded: Vec<(u64, Vec<u8>)> = ledger_chain(2)
-        .iter()
-        .map(|entry| (entry.seq, encode_ledger_entry(entry)))
-        .collect();
+    let encoded = encoded_chain_with_anchor(&dir, 2);
     write_ledger_sst(&dir, &encoded);
     // WAL carries the seq-0 ledger row with bytes IDENTICAL to the SST (a
     // checkpointed write), so the base CF stays genuinely empty.
@@ -356,10 +363,7 @@ fn zero_constellations_fails_pass_predicate() {
 #[test]
 fn missing_wal_bytes_fails_pass_predicate() {
     let dir = test_dir("nowal");
-    let encoded: Vec<(u64, Vec<u8>)> = ledger_chain(2)
-        .iter()
-        .map(|entry| (entry.seq, encode_ledger_entry(entry)))
-        .collect();
+    let encoded = encoded_chain_with_anchor(&dir, 2);
     write_ledger_sst(&dir, &encoded);
     write_base_fixture(&dir);
 
@@ -434,11 +438,7 @@ fn empty_dir_without_aster_state_is_config_invalid() {
 #[test]
 fn divergent_sst_and_wal_ledger_row_fails_closed() {
     let dir = test_dir("diverge");
-    let entries = ledger_chain(2);
-    let encoded: Vec<(u64, Vec<u8>)> = entries
-        .iter()
-        .map(|entry| (entry.seq, encode_ledger_entry(entry)))
-        .collect();
+    let encoded = encoded_chain_with_anchor(&dir, 2);
     write_ledger_sst(&dir, &encoded);
     write_base_fixture(&dir);
 

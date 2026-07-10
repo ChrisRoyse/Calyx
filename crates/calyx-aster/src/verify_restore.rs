@@ -151,6 +151,12 @@ fn verify_restore_inner(
     report.anchor_count = scan.anchor_count;
     report.ledger_entry_count = scan.ledger_rows.len() as u64;
     report.first_cx_id = scan.first_cx_id;
+    if scan.ledger_anchor.is_none()
+        && let Some(head) = scan.ledger_rows.last().map(|row| row.seq.saturating_add(1))
+    {
+        report.error = Some(crate::ledger_head::missing_head_anchor(vault_path, head).to_string());
+        return Ok(report);
+    }
 
     let store = RestoredLedgerRows {
         rows: scan.ledger_rows,

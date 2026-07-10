@@ -3,7 +3,7 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use calyx_core::{CalyxError, Result};
-use calyx_ledger::{LedgerHeadAnchor, decode};
+use calyx_ledger::{LedgerHeadAnchor, LedgerRow, decode};
 
 use crate::cf::ColumnFamily;
 use crate::ledger_view::parse_aster_ledger_seq;
@@ -91,6 +91,26 @@ pub(crate) fn newest_anchor_from_rows(rows: &[WriteRow]) -> Result<Option<Ledger
             LedgerHeadAnchor::new(height, hash)
         })
         .transpose()
+}
+
+pub(crate) fn require_head_anchor_for_rows(
+    vault: &Path,
+    anchor: Option<LedgerHeadAnchor>,
+    rows: &[LedgerRow],
+) -> Result<Option<LedgerHeadAnchor>> {
+    if anchor.is_none()
+        && let Some(head) = rows.last().map(|row| row.seq.saturating_add(1))
+    {
+        return Err(missing_head_anchor(vault, head));
+    }
+    Ok(anchor)
+}
+
+pub(crate) fn missing_head_anchor(vault: &Path, head: u64) -> CalyxError {
+    CalyxError::ledger_chain_broken(format!(
+        "Aster ledger head anchor missing for non-empty durable ledger at head {head} in {}",
+        vault.display()
+    ))
 }
 
 fn replace_file(tmp: &Path, path: &Path) -> Result<()> {

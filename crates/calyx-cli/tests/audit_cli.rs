@@ -222,6 +222,10 @@ fn write_partial_vault_ledger(vault: &Path) {
 fn write_ledger_sst(vault: &Path, store: MemoryLedgerStore) {
     let ledger_dir = vault.join("cf").join("ledger");
     fs::create_dir_all(&ledger_dir).unwrap();
+    let anchor = store.head_anchor().unwrap().expect("ledger head anchor");
+    let anchor_path = calyx_aster::ledger_head::head_anchor_path(vault);
+    fs::create_dir_all(anchor_path.parent().unwrap()).unwrap();
+    fs::write(anchor_path, serde_json::to_vec(&anchor).unwrap()).unwrap();
     let rows = store.scan().unwrap();
     let entries = rows
         .iter()
