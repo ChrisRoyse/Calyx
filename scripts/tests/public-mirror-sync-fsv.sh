@@ -13,10 +13,15 @@ set -euo pipefail
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 repo_scripts="$(cd "$script_dir/.." && pwd)"
+repo_root="$(cd "$repo_scripts/.." && pwd)"
 sync_src="$repo_scripts/public-mirror-sync.sh"
 leak_src="$repo_scripts/public-leak-scan.sh"
+secret_src="$repo_scripts/secret-scan.sh"
+precommit_cfg="$repo_root/.pre-commit-config.yaml"
+githook_precommit="$repo_root/.githooks/pre-commit"
+real_git="$(command -v git)"
 
-for f in "$sync_src" "$leak_src"; do
+for f in "$sync_src" "$leak_src" "$secret_src" "$precommit_cfg" "$githook_precommit"; do
   [[ -f "$f" ]] || { echo "FSV ERROR: missing $f" >&2; exit 2; }
 done
 
@@ -27,6 +32,38 @@ fail=0
 pass() { echo "  PASS: $1"; }
 bad()  { echo "  FAIL: $1" >&2; fail=1; }
 
+fake_bin="$work/bin"
+mkdir -p "$fake_bin"
+cat >"$fake_bin/gitleaks" <<'FAKE_GITLEAKS'
+#!/usr/bin/env bash
+set -euo pipefail
+mode="${1:-}"
+shift || true
+case "$mode" in
+  dir)
+    leak=0
+    for arg in "$@"; do
+      [[ -d "$arg" ]] || continue
+      if grep -R "SECRET_LEAK_TOKEN" "$arg" >/dev/null 2>&1; then
+        leak=1
+      fi
+    done
+    if [[ "$leak" -ne 0 ]]; then
+      echo "fake gitleaks: leak found" >&2
+      exit 1
+    fi
+    ;;
+  git)
+    ;;
+  *)
+    echo "fake gitleaks: unsupported mode $mode" >&2
+    exit 2
+    ;;
+esac
+FAKE_GITLEAKS
+chmod +x "$fake_bin/gitleaks"
+export PATH="$fake_bin:$PATH"
+
 # Builds a synthetic dev repo with the real sync/leak scripts vendored under
 # scripts/, plus the caller-provided allowlist body written into crates/.
 make_dev() {
@@ -34,6 +71,7 @@ make_dev() {
   mkdir -p "$dev/scripts" "$dev/crates/demo/src" "$dev/docs/readme"
   cp "$sync_src" "$dev/scripts/public-mirror-sync.sh"
   cp "$leak_src" "$dev/scripts/public-leak-scan.sh"
+  cp "$secret_src" "$dev/scripts/secret-scan.sh"
   printf '%s\n' "$crate_body" > "$dev/crates/demo/src/lib.rs"
   printf 'public README image contract\n' > "$dev/docs/readme/README.md"
   printf '[workspace]\nmembers=["crates/demo"]\n' > "$dev/Cargo.toml"
@@ -209,6 +247,151 @@ echo "$out4" | sed 's/^/   /'
 echo "$out4" | grep -q "forbidden tracked path" \
   && pass "leak-scan reported forbidden tracked path reason" \
   || bad "leak-scan did not report forbidden tracked path reason"
+
+echo
+echo "=================================================================="
+echo "SCENARIO 5 - sync copies only tracked allowlist bytes; untracked"
+echo "dev scratch/secret files under crates/ must not reach the mirror."
+echo "=================================================================="
+dev5="$work/dev5"; pub5="$work/pub5"
+make_dev  "$dev5" "pub fn demo() -> u32 { 11 }"
+make_public "$pub5" "pub fn demo() -> u32 { 4 }"
+printf 'const SECRET: &str = \"SECRET_LEAK_TOKEN\";\n' > "$dev5/crates/demo/src/private.rs"
+set +e
+out5="$( cd "$dev5" && bash scripts/public-mirror-sync.sh --public-dir "$pub5" 2>&1 )"
+rc5=$?
+set -e
+echo "-- sync exit code: $rc5 --"
+echo "$out5" | sed 's/^/   /'
+[[ $rc5 -eq 0 ]] \
+  && pass "sync ignores untracked dev allowlist files" \
+  || bad "sync should not copy or scan untracked dev scratch files"
+git -C "$pub5" diff --cached --name-only | grep -qx "crates/demo/src/private.rs" \
+  && bad "untracked dev file was staged into public mirror" \
+  || pass "untracked dev file not staged into public mirror"
+[[ ! -e "$pub5/crates/demo/src/private.rs" ]] \
+  && pass "untracked dev file absent from public worktree" \
+  || bad "untracked dev file copied into public worktree"
+
+echo
+echo "=================================================================="
+echo "SCENARIO 6 - staged public mirror secrets must fail closed before"
+echo "sync claims success."
+echo "=================================================================="
+dev6="$work/dev6"; pub6="$work/pub6"
+make_dev  "$dev6" 'pub const TOKEN: &str = "SECRET_LEAK_TOKEN";'
+make_public "$pub6" "pub fn demo() {}"
+set +e
+out6="$( cd "$dev6" && bash scripts/public-mirror-sync.sh --public-dir "$pub6" 2>&1 )"
+rc6=$?
+set -e
+echo "-- sync exit code: $rc6 --"
+echo "$out6" | sed 's/^/   /'
+[[ $rc6 -ne 0 ]] \
+  && pass "sync failed closed on staged public secret" \
+  || bad "sync should fail when staged public mirror contains a secret"
+echo "$out6" | grep -q "staged public allowlist sync" \
+  && bad "sync wrongly claimed staged success after secret failure" \
+  || pass "sync did NOT claim staged success after secret failure"
+
+echo
+echo "=================================================================="
+echo "SCENARIO 7 - public-leak-scan fails closed on git grep errors."
+echo "=================================================================="
+dev7="$work/dev7"
+make_dev "$dev7" "pub fn demo() {}"
+fake_git_grep="$work/fake-git-grep"
+mkdir -p "$fake_git_grep"
+cat >"$fake_git_grep/git" <<FAKE_GIT_GREP
+#!/usr/bin/env bash
+if [[ "\${1:-}" == "grep" ]]; then
+  echo "fatal: simulated git grep failure" >&2
+  exit 128
+fi
+exec "$real_git" "\$@"
+FAKE_GIT_GREP
+chmod +x "$fake_git_grep/git"
+set +e
+out7="$( cd "$dev7" && PATH="$fake_git_grep:$PATH" bash "$leak_src" 2>&1 )"
+rc7=$?
+set -e
+echo "-- leak-scan exit code: $rc7 --"
+echo "$out7" | sed 's/^/   /'
+[[ $rc7 -eq 2 ]] \
+  && pass "git grep plumbing error exits as environment failure" \
+  || bad "git grep plumbing error should exit 2"
+echo "$out7" | grep -q "git grep failed" \
+  && pass "git grep failure reason reported" \
+  || bad "git grep failure reason missing"
+
+echo
+echo "=================================================================="
+echo "SCENARIO 8 - public-leak-scan fails closed on public git ls-files"
+echo "errors instead of treating them as no forbidden paths."
+echo "=================================================================="
+dev8="$work/dev8"; pub8="$work/pub8"
+make_dev "$dev8" "pub fn demo() {}"
+make_public "$pub8" "pub fn demo() {}"
+fake_git_ls="$work/fake-git-ls"
+mkdir -p "$fake_git_ls"
+cat >"$fake_git_ls/git" <<FAKE_GIT_LS
+#!/usr/bin/env bash
+if [[ "\${1:-}" == "ls-files" ]]; then
+  echo "fatal: simulated git ls-files failure" >&2
+  exit 128
+fi
+exec "$real_git" "\$@"
+FAKE_GIT_LS
+chmod +x "$fake_git_ls/git"
+set +e
+out8="$( PATH="$fake_git_ls:$PATH" bash "$leak_src" --public-tree "$pub8" 2>&1 )"
+rc8=$?
+set -e
+echo "-- leak-scan exit code: $rc8 --"
+echo "$out8" | sed 's/^/   /'
+[[ $rc8 -eq 2 ]] \
+  && pass "git ls-files plumbing error exits as environment failure" \
+  || bad "git ls-files plumbing error should exit 2"
+echo "$out8" | grep -q "git ls-files failed" \
+  && pass "git ls-files failure reason reported" \
+  || bad "git ls-files failure reason missing"
+
+echo
+echo "=================================================================="
+echo "SCENARIO 9 - secret-scan temp copies are removed after gitleaks."
+echo "=================================================================="
+scan_repo="$work/scanrepo"
+scan_tmp="$work/scan-tmp"
+mkdir -p "$scan_repo" "$scan_tmp"
+printf 'clean\n' > "$scan_repo/file.txt"
+git -C "$scan_repo" init -q
+git -C "$scan_repo" config user.email fsv@example.com
+git -C "$scan_repo" config user.name FSV
+git -C "$scan_repo" add -A
+git -C "$scan_repo" commit -qm "scan base"
+( cd "$scan_repo" && TMPDIR="$scan_tmp" bash "$secret_src" )
+( cd "$scan_repo" && TMPDIR="$scan_tmp" bash "$secret_src" --staged )
+leftover_secret_tmp="$(find "$scan_tmp" -maxdepth 1 -type d -name 'calyx-secret-scan-*' -print -quit)"
+[[ -z "$leftover_secret_tmp" ]] \
+  && pass "secret-scan worktree/staged temp dirs cleaned" \
+  || bad "secret-scan temp dir remained: $leftover_secret_tmp"
+
+echo
+echo "=================================================================="
+echo "SCENARIO 10 - pre-commit config mirrors the active staged hooks."
+echo "=================================================================="
+grep -Fq "entry: scripts/secret-scan.sh" "$precommit_cfg" \
+  && grep -Fq -- "--staged" "$precommit_cfg" \
+  && pass "pre-commit config secret scan is staged like .githooks/pre-commit" \
+  || bad "pre-commit config secret scan is not staged"
+grep -Fq "entry: scripts/public-leak-scan.sh" "$precommit_cfg" \
+  && grep -Fq -- "--cached" "$precommit_cfg" \
+  && pass "pre-commit config public leak scan is cached like .githooks/pre-commit" \
+  || bad "pre-commit config public leak scan is not cached"
+grep -Fq "scripts/secret-scan.sh\" --staged" "$githook_precommit" \
+  && grep -Fq "scripts/public-leak-scan.sh\" --cached" "$githook_precommit" \
+  && pass ".githooks/pre-commit keeps staged secret/cached public scans" \
+  || bad ".githooks/pre-commit staged/cached hook parity missing"
 
 echo
 if [[ $fail -eq 0 ]]; then

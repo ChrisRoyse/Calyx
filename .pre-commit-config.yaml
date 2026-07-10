@@ -4,6 +4,7 @@ repos:
       - id: calyx-secret-scan
         name: Calyx secret scan
         entry: scripts/secret-scan.sh
+        args: ['--staged']
         language: system
         pass_filenames: false
       - id: calyx-public-leak-scan

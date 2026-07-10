@@ -78,15 +78,15 @@ case "$mode" in
         mkdir -p "$tmp/$(dirname "$rel")"
         cp -p "$src" "$tmp/$rel"
       done
-    exec "${GITLEAKS_BIN}" dir --redact "$tmp" "$@"
+    "${GITLEAKS_BIN}" dir --redact "$tmp" "$@"
     ;;
   git-history)
     echo "secret-scan: scanning git history reachable from HEAD" >&2
-    exec "${GITLEAKS_BIN}" git --redact --log-opts HEAD "$repo_root" "$@"
+    "${GITLEAKS_BIN}" git --redact --log-opts HEAD "$repo_root" "$@"
     ;;
   git-log-opts)
     echo "secret-scan: scanning git history with log opts: $git_log_opts" >&2
-    exec "${GITLEAKS_BIN}" git --redact --log-opts "$git_log_opts" "$repo_root" "$@"
+    "${GITLEAKS_BIN}" git --redact --log-opts "$git_log_opts" "$repo_root" "$@"
     ;;
   staged)
     tmp="$(mktemp -d -t calyx-secret-scan-index.XXXXXX)"
@@ -95,7 +95,7 @@ case "$mode" in
     }
     trap cleanup EXIT
     git -C "$repo_root" checkout-index --all --force --prefix="$tmp/"
-    exec "${GITLEAKS_BIN}" dir --redact "$tmp" "$@"
+    "${GITLEAKS_BIN}" dir --redact "$tmp" "$@"
     ;;
   *)
     echo "unknown secret scan mode: $mode" >&2

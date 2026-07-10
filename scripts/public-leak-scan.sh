@@ -85,8 +85,12 @@ PUBLIC_FORBIDDEN_PATH_RE='^(docs/|docs2/|scripts/|infra/|datasets/|env\.sh$|\.en
 PUBLIC_ALLOWED_EXCEPTION_RE='^docs/readme/README\.md$'
 
 if [[ "$mode" == "public" ]]; then
+  if ! tracked_paths="$(git ls-files)"; then
+    echo "public-leak-scan: ERROR — git ls-files failed while inspecting public checkout." >&2
+    exit 2
+  fi
   forbidden_paths="$(
-    git ls-files |
+    printf '%s\n' "$tracked_paths" |
       grep -E "$PUBLIC_FORBIDDEN_PATH_RE" |
       grep -Ev "$PUBLIC_ALLOWED_EXCEPTION_RE" || true
   )"
@@ -111,7 +115,22 @@ if [[ ${#paths[@]} -eq 0 ]]; then
 fi
 
 # git grep exits 1 when there are no matches; that is the success case here.
-hits="$(git grep ${cached} -nIE -i -e "$FORBIDDEN" -- "${paths[@]}" 2>/dev/null || true)"
+grep_args=()
+if [[ -n "$cached" ]]; then
+  grep_args+=("$cached")
+fi
+grep_args+=(-nIE -i -e "$FORBIDDEN" -- "${paths[@]}")
+set +e
+hits="$(git grep "${grep_args[@]}" 2>&1)"
+grep_status=$?
+set -e
+if [[ "$grep_status" -eq 1 ]]; then
+  hits=""
+elif [[ "$grep_status" -ne 0 ]]; then
+  echo "public-leak-scan: ERROR — git grep failed while scanning public-bound source." >&2
+  printf '%s\n' "$hits" | sed 's/^/  /' >&2
+  exit 2
+fi
 
 if [[ -n "$hits" ]]; then
   echo "" >&2

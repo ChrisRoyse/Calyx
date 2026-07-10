@@ -92,9 +92,47 @@ else
 fi
 target_dir="$(cd "$target_dir" && pwd -P)"
 
+public_unstaged_status() {
+  git -C "$public_root" status --porcelain | grep -E '^(.[^ ]|\?\?)' || true
+}
+
+reject_unstaged_public_changes() {
+  local phase="$1"
+  local dirty
+  dirty="$(public_unstaged_status)"
+  if [[ -n "$dirty" ]]; then
+    echo "public-mirror-gate: ERROR public checkout has unstaged/untracked changes $phase:" >&2
+    echo "$dirty" | sed 's/^/  /' >&2
+    exit 1
+  fi
+}
+
+cleanup_public_scratch() {
+  local rel='crates/calyx-poly/C:\code\poly\target\fsv\issue029_ws_market_client_20260707'
+  local path="$public_root/$rel"
+  if [[ ! -e "$path" ]]; then
+    echo "public-mirror-gate: scratch_absent path=$path"
+    return 0
+  fi
+
+  local abs
+  abs="$(realpath -m "$path")"
+  case "$abs" in
+    "$public_root"/*)
+      rm -rf -- "$path"
+      echo "public-mirror-gate: scratch_absent path=$path"
+      ;;
+    *)
+      echo "public-mirror-gate: ERROR refusing scratch cleanup outside public checkout: $abs" >&2
+      return 1
+      ;;
+  esac
+}
+
 cleanup_targets() {
   local status=$?
   local cleanup_status=0
+  cleanup_public_scratch || cleanup_status=$?
   bash "$dev_root/scripts/cargo-target-clean.sh" \
     --repo-root "$public_root" \
     --target-dir "$target_dir" \
@@ -113,8 +151,10 @@ echo "public-mirror-gate: dev_root=$dev_root"
 echo "public-mirror-gate: public_root=$public_root"
 echo "public-mirror-gate: target_dir=$CARGO_TARGET_DIR"
 
+reject_unstaged_public_changes "before gate"
+( cd "$public_root" && bash "$dev_root/scripts/secret-scan.sh" --staged )
 bash "$dev_root/scripts/public-leak-scan.sh" --public-tree "$public_root"
-git -C "$public_root" diff --check
+git -C "$public_root" diff --cached --check
 bash "$dev_root/scripts/cargo-fmt-workspace.sh" --check --repo-root "$public_root"
 (
   cd "$public_root"
@@ -126,3 +166,5 @@ bash "$dev_root/scripts/cargo-fmt-workspace.sh" --check --repo-root "$public_roo
 )
 bash "$dev_root/scripts/orphan_rs.sh" --repo-root "$public_root"
 bash "$dev_root/scripts/linecount.sh" --repo-root "$public_root"
+cleanup_public_scratch
+reject_unstaged_public_changes "after gate"

@@ -74,12 +74,17 @@ allow_paths=(
 
 for path in "${allow_paths[@]}"; do
   rm -rf "$public_root/$path"
-  if [[ -e "$dev_root/$path" ]]; then
-    parent="$(dirname "$public_root/$path")"
-    mkdir -p "$parent"
-    cp -a "$dev_root/$path" "$parent/"
-  fi
 done
+
+# Copy only tracked source bytes from Calyx-Dev. Directory-level `cp -a` would
+# also mirror untracked scratch output under allowlisted trees such as crates/.
+while IFS= read -r -d '' rel; do
+  src="$dev_root/$rel"
+  dst="$public_root/$rel"
+  [[ -f "$src" ]] || continue
+  mkdir -p "$(dirname "$dst")"
+  cp -p "$src" "$dst"
+done < <(git -C "$dev_root" ls-files -z -- "${allow_paths[@]}")
 
 # Stage the full allowlist sync (issue #1195). The copy loop above only touches
 # the working tree; without an explicit `git add` the copied/modified files stay
@@ -114,13 +119,14 @@ git -C "$public_root" rm -r --ignore-unmatch -- \
   .pre-commit-config.yaml .githooks CONTRIBUTING.md >/dev/null
 
 bash "$dev_root/scripts/public-leak-scan.sh" --public-tree "$public_root"
+( cd "$public_root" && bash "$dev_root/scripts/secret-scan.sh" --staged )
 
 # Fail closed if the allowlist sync left changes unstaged: the whole point of
 # this script is that the operator can commit immediately after it returns. Any
 # unstaged/untracked path under the working tree here means the sync did not
 # fully stage what it copied, so we refuse rather than repeat the #1195 bug of
 # claiming a staged sync that isn't.
-unstaged="$(git -C "$public_root" status --porcelain | grep -E '^( .|\?\?)' || true)"
+unstaged="$(git -C "$public_root" status --porcelain | grep -E '^(.[^ ]|\?\?)' || true)"
 if [[ -n "$unstaged" ]]; then
   echo "public-mirror-sync: ERROR: allowlist sync left unstaged/untracked paths:" >&2
   echo "$unstaged" | sed 's/^/  /' >&2

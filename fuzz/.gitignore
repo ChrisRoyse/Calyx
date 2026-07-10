@@ -1,5 +1,8 @@
-Cargo.lock
 artifacts/
 corpus/*/*
 !corpus/*/*.json
 !corpus/*/*.txt
+
+# The standalone fuzz workspace is gated with `cargo ... --locked`, so the
+# lockfile is source state and must be mirrored publicly.
+!Cargo.lock
