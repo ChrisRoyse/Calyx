@@ -293,15 +293,9 @@ fn build_vault_kernel_inputs<C: Clock>(
     let graph = builder.build();
 
     let mut kernel = build_kernel_pipeline(&graph, &anchors, kernel_params)?;
-    // A kernel with no selected members cannot be recall-tested; fall back to the
-    // kernel graph (or the full corpus) so recall reflects real data, not an
-    // empty set.
+    // Injecting fallback members fabricates recall and invalidates the kernel identity.
     if kernel.members.is_empty() {
-        kernel.members = if kernel.kernel_graph.is_empty() {
-            rows.iter().map(|row| row.cx_id).collect()
-        } else {
-            kernel.kernel_graph.clone()
-        };
+        return Err(LodestarError::KernelEmptyResult);
     }
     if anchors.is_empty() {
         kernel.groundedness = GroundednessReport {
