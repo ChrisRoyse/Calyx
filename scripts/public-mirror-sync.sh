@@ -12,12 +12,7 @@ usage: scripts/public-mirror-sync.sh --public-dir <path-to-Calyx-public-checkout
 
 After this succeeds:
   cd <path-to-Calyx-public-checkout>
-  git diff --check
-  bash <Calyx-Dev>/scripts/linecount.sh --repo-root <path-to-Calyx-public-checkout>
-  pwsh -File <Calyx-Dev>/scripts/cargo-fmt-workspace.ps1 -RepoRoot <path-to-Calyx-public-checkout>
-  # or from Bash with cargo on PATH:
-  bash <Calyx-Dev>/scripts/cargo-fmt-workspace.sh --check --repo-root <path-to-Calyx-public-checkout>
-  cargo test ... / cargo check ...
+  bash <Calyx-Dev>/scripts/public-mirror-gate.sh --public-dir <path-to-Calyx-public-checkout>
   git commit -m "Sync public mirror"
   git push origin main
 USAGE

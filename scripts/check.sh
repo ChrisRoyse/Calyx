@@ -58,10 +58,21 @@ if [[ -n "${CALYX_FSV_ROOT:-}" ]]; then
 fi
 
 tmp_guard_baseline="$(mktemp -t calyx-check-tmp-baseline.XXXXXX)"
+target_scratch_root="${CALYX_TARGET_SCRATCH_ROOT:-$(dirname "$repo_root")/target-scratch}"
+mkdir -p "$target_scratch_root"
+check_target_dir="$(mktemp -d "$target_scratch_root/check.XXXXXX")"
 cleanup_tmp_guard() {
   local status=$?
+  local cleanup_status=0
   bash "$repo_root/scripts/tmp_scratch_guard.sh" post "$tmp_guard_baseline" || true
+  bash "$repo_root/scripts/cargo-target-clean.sh" \
+    --repo-root "$repo_root" \
+    --target-dir "$check_target_dir" \
+    --also-workspace-target || cleanup_status=$?
   rm -f "$tmp_guard_baseline"
+  if [[ "$status" -eq 0 && "$cleanup_status" -ne 0 ]]; then
+    exit "$cleanup_status"
+  fi
   exit "$status"
 }
 trap cleanup_tmp_guard EXIT
@@ -71,6 +82,8 @@ trap cleanup_tmp_guard EXIT
 # shared build host). Disable it for the manual aiwonder gate; interactive dev
 # keeps its own default. This project has no Actions/hosted CI gate.
 export CARGO_INCREMENTAL=0
+export CARGO_TARGET_DIR="$check_target_dir"
+echo "scripts/check.sh: CARGO_TARGET_DIR=$CARGO_TARGET_DIR"
 
 bash "$repo_root/scripts/tmp_scratch_guard.sh" pre "$tmp_guard_baseline"
 
