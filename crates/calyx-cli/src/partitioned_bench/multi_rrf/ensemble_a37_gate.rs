@@ -1,4 +1,4 @@
-use calyx_assay::{A37_DIVERSITY_GATE_PASSED, A37DiversityGate};
+use calyx_assay::{A37_DIVERSITY_GATE_PASSED, A37_DIVERSITY_SCHEMA_VERSION, A37DiversityGate};
 use calyx_core::CalyxError;
 
 use crate::error::{CliError, CliResult};
@@ -7,8 +7,10 @@ pub(super) fn validate(gate: &A37DiversityGate, required: bool) -> CliResult {
     if !required {
         return Ok(());
     }
-    if gate.status == A37_DIVERSITY_GATE_PASSED
+    if gate.schema_version == A37_DIVERSITY_SCHEMA_VERSION
+        && gate.status == A37_DIVERSITY_GATE_PASSED
         && gate.family_span_pass
+        && gate.pair_evidence_pass
         && gate.redundancy_bound_pass
         && gate.no_collapse_pass
     {
@@ -17,9 +19,12 @@ pub(super) fn validate(gate: &A37DiversityGate, required: bool) -> CliResult {
     Err(CliError::Calyx(CalyxError {
         code: "CALYX_FSV_A37_ENSEMBLE_CARD_REFUSED",
         message: format!(
-            "A37 ensemble card refused: status={} family_span_pass={} redundancy_bound_pass={} no_collapse_pass={} n_eff={:.6} n_eff_floor={:.6} mean_pairwise_corr={:.6} mean_pairwise_nmi={:.6}",
+            "A37 ensemble card refused: schema_version={} expected_schema={} status={} family_span_pass={} pair_evidence_pass={} redundancy_bound_pass={} no_collapse_pass={} n_eff={:.6} n_eff_floor={:.6} mean_pairwise_corr={:.6} mean_pairwise_nmi={:.6}",
+            gate.schema_version,
+            A37_DIVERSITY_SCHEMA_VERSION,
             gate.status,
             gate.family_span_pass,
+            gate.pair_evidence_pass,
             gate.redundancy_bound_pass,
             gate.no_collapse_pass,
             gate.n_eff,
@@ -35,7 +40,7 @@ pub(super) fn validate(gate: &A37DiversityGate, required: bool) -> CliResult {
 mod tests {
     use std::collections::BTreeMap;
 
-    use calyx_assay::{A37_DIVERSITY_DIAGNOSTIC_ONLY, A37_DIVERSITY_SCHEMA_VERSION};
+    use calyx_assay::A37_DIVERSITY_DIAGNOSTIC_ONLY;
     use calyx_core::SlotId;
 
     use super::*;
@@ -66,6 +71,18 @@ mod tests {
         .unwrap();
     }
 
+    #[test]
+    fn gate_mode_rejects_legacy_schema_without_content_pair_evidence() {
+        let mut legacy = gate(A37_DIVERSITY_GATE_PASSED, true, true, true);
+        legacy.schema_version = A37_DIVERSITY_SCHEMA_VERSION - 1;
+        legacy.pair_evidence_pass = false;
+
+        let err = validate(&legacy, true).unwrap_err();
+
+        assert_eq!(err.code(), "CALYX_FSV_A37_ENSEMBLE_CARD_REFUSED");
+        assert!(err.message().contains("pair_evidence_pass=false"));
+    }
+
     fn gate(
         status: &str,
         family_span_pass: bool,
@@ -87,6 +104,9 @@ mod tests {
             ]),
             temporal_sidecar_slots: Vec::new(),
             family_span_pass,
+            content_pair_count: 45,
+            expected_content_pair_count: 45,
+            pair_evidence_pass: true,
             redundancy_bound_pass,
             no_collapse_pass,
             n_eff: 8.5,

@@ -317,7 +317,7 @@ mod tests {
         let report = load(Some(&path), &plan(10), false).unwrap().unwrap();
 
         assert_eq!(report["panel_lens_count"], 10);
-        assert_eq!(report["n_eff"], 8.5);
+        assert_eq!(report["n_eff"], serde_json::json!(card(10, 0).n_eff));
         assert_eq!(report["card_sha256"].as_str().unwrap().len(), 64);
         assert_eq!(report["lens_values"].as_array().unwrap().len(), 10);
         assert_eq!(report["pair_values"].as_array().unwrap().len(), 45);
@@ -417,7 +417,7 @@ mod tests {
                 pairs.push(pair_value(a + slot_offset, b + slot_offset));
             }
         }
-        let a37_diversity = a37_diversity_gate(&lenses, &pairs, 8.5, &EnsembleConfig::default());
+        let a37_diversity = a37_diversity_gate(&lenses, &pairs, &EnsembleConfig::default());
         EnsembleCard {
             schema_version: 1,
             source: "unit-test".to_string(),
@@ -427,7 +427,7 @@ mod tests {
             anchor_entropy_bits: 1.0,
             panel_bits: 0.5,
             panel_ci: [0.4, 0.6],
-            n_eff: 8.5,
+            n_eff: a37_diversity.n_eff,
             sufficient: false,
             deficit_bits: 0.5,
             a37_diversity,
@@ -456,6 +456,7 @@ mod tests {
         EnsembleLensValue {
             name: format!("lens-{slot}"),
             slot: SlotId::new(slot),
+            role: Default::default(),
             solo_bits: 0.2,
             solo_ci: [0.1, 0.3],
             panel_without_bits: 0.45,
@@ -472,7 +473,6 @@ mod tests {
             decision_reason: "unit test".to_string(),
         }
     }
-
     fn pair_value(a: u16, b: u16) -> EnsemblePairValue {
         EnsemblePairValue {
             a: format!("lens-{a}"),

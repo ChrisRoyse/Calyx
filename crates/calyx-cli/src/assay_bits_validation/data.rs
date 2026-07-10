@@ -2,6 +2,7 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::path::Path;
 
+use calyx_assay::EnsembleLensRole;
 use serde::Deserialize;
 
 use crate::assay_anchor_audit::AnchorAudit;
@@ -31,6 +32,7 @@ pub(crate) struct AssayCorpus {
 pub(crate) struct LensSpec {
     pub(crate) name: String,
     pub(crate) redundant: bool,
+    pub(crate) role: EnsembleLensRole,
 }
 
 impl AssayCorpus {
@@ -81,6 +83,7 @@ impl AssayCorpus {
             lenses.push(LensSpec {
                 name: spec.name.clone(),
                 redundant: spec.redundant,
+                role: spec.role,
             });
             lens_vectors.push(rows.clone());
         }
@@ -210,6 +213,8 @@ struct ManifestLens {
     name: String,
     #[serde(default)]
     redundant: bool,
+    #[serde(default)]
+    role: EnsembleLensRole,
 }
 
 #[derive(Deserialize)]

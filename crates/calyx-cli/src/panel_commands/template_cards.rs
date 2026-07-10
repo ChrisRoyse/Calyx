@@ -2,7 +2,9 @@ use std::collections::BTreeSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use calyx_assay::{A37_DIVERSITY_GATE_PASSED, EnsembleCard, a37_association_family};
+use calyx_assay::{
+    A37_DIVERSITY_GATE_PASSED, A37_DIVERSITY_SCHEMA_VERSION, EnsembleCard, a37_association_family,
+};
 use calyx_registry::{CapabilityCard, LensHealth};
 use serde::Deserialize;
 
@@ -111,7 +113,12 @@ fn a37_admission_from_assay_card(
     let admission = TemplateA37Admission {
         schema_version: A37_ADMISSION_VERSION,
         source: "assay_ensemble_card_a37".to_string(),
-        gate_eligible: gate.status == A37_DIVERSITY_GATE_PASSED,
+        gate_eligible: gate.schema_version == A37_DIVERSITY_SCHEMA_VERSION
+            && gate.status == A37_DIVERSITY_GATE_PASSED
+            && gate.family_span_pass
+            && gate.pair_evidence_pass
+            && gate.redundancy_bound_pass
+            && gate.no_collapse_pass,
         status: gate.status.clone(),
         verdict: gate.verdict.clone(),
         content_lens_count: gate.content_lens_count,
@@ -187,14 +194,11 @@ fn missing_a37_admission(template: &SavedPanelTemplate) -> TemplateA37Admission 
         .iter()
         .filter(|lens| lens.counts_toward_a35)
         .map(|lens| a37_association_family(&lens.lens_name))
-        .filter(|family| *family != "temporal_sidecar")
         .collect::<BTreeSet<_>>();
     let temporal_lens_count = template
         .lenses
         .iter()
-        .filter(|lens| {
-            !lens.counts_toward_a35 || a37_association_family(&lens.lens_name) == "temporal_sidecar"
-        })
+        .filter(|lens| !lens.counts_toward_a35)
         .count();
     TemplateA37Admission {
         schema_version: A37_ADMISSION_VERSION,
@@ -227,7 +231,7 @@ fn ensure_a37_card_matches_template(
     let measured = card
         .lenses
         .iter()
-        .filter(|lens| a37_association_family(&lens.name) != "temporal_sidecar")
+        .filter(|lens| lens.role.is_content())
         .map(|lens| lens.name.as_str())
         .collect::<BTreeSet<_>>();
     let missing = wanted.difference(&measured).copied().collect::<Vec<_>>();

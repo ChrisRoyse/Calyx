@@ -16,6 +16,8 @@ pub const DEFAULT_MAX_REDUNDANCY: f32 = 0.6;
 pub struct EnsembleLensInput {
     pub name: String,
     pub slot: SlotId,
+    #[serde(default)]
+    pub role: EnsembleLensRole,
     pub vectors: Vec<Vec<f32>>,
 }
 
@@ -24,8 +26,28 @@ impl EnsembleLensInput {
         Self {
             name: name.into(),
             slot,
+            role: EnsembleLensRole::Content,
             vectors,
         }
+    }
+
+    pub fn with_role(mut self, role: EnsembleLensRole) -> Self {
+        self.role = role;
+        self
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum EnsembleLensRole {
+    #[default]
+    Content,
+    TemporalSidecar,
+}
+
+impl EnsembleLensRole {
+    pub const fn is_content(self) -> bool {
+        matches!(self, Self::Content)
     }
 }
 
@@ -78,6 +100,8 @@ pub struct EnsembleCard {
 pub struct EnsembleLensValue {
     pub name: String,
     pub slot: SlotId,
+    #[serde(default)]
+    pub role: EnsembleLensRole,
     pub solo_bits: f32,
     pub solo_ci: [f32; 2],
     pub panel_without_bits: f32,
