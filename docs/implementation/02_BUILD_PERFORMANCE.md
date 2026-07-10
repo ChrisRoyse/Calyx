@@ -85,9 +85,18 @@ test across every binary in a single pool sized to all logical CPUs:
 Cargo has no built-in GC, and on this box churn (not age) is the enemy — age-
 based pruning reclaims ~0 because everything is days old. So we bound by **size**:
 
+- **Per-run cleanup is mandatory.** `target/` is never durable project state and
+  must not build up between agent turns. After every Cargo invocation, clean the
+  target directory touched by that run with `scripts/cargo-target-clean.sh`,
+  `cargo clean`, or a path-checked in-workspace removal, then read back
+  absence/size. This applies to workspace-root targets, crate-local targets,
+  worktree/FSV targets, public-mirror targets, and isolated `CARGO_TARGET_DIR`
+  scratch paths. Issue work must record the cleanup command and the readback in
+  the GitHub issue comment.
 - **`scripts/target-gc.sh`** runs `cargo sweep --maxsize ${CALYX_TARGET_MAXSIZE:-40GB}`,
-  removing the oldest artifacts until the dir is under the cap. Worst case a
-  stale crate recompiles next build — never a correctness issue.
+  removing the oldest artifacts until the dir is under the cap. This is a host
+  safety net only; it does not replace per-run cleanup. Worst case a stale crate
+  recompiles next build — never a correctness issue.
 - **`scripts/aiwonder-build-setup.sh`** installs a **daily user cron** (04:00 UTC,
   no sudo) that runs it against the canonical checkout's explicit shared target
   dir, logging to `CALYX_HOME/logs/target-gc.log`.
