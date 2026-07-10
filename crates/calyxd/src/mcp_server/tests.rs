@@ -70,6 +70,8 @@ fn from_config_requires_mtls_block() {
         health_log_path: "/h".into(),
         tei_endpoints: Vec::new(),
         healthcheck_timeout_secs: 30,
+        max_metrics_connections: 128,
+        max_mcp_connections: 128,
         mcp_mtls: None,
         learner_origin: None,
     };
@@ -91,6 +93,8 @@ fn from_config_requires_mcp_bind_addr() {
         health_log_path: "/h".into(),
         tei_endpoints: Vec::new(),
         healthcheck_timeout_secs: 30,
+        max_metrics_connections: 128,
+        max_mcp_connections: 128,
         mcp_mtls: Some(mtls_config()),
         learner_origin: None,
     };
@@ -112,6 +116,8 @@ fn from_config_binds_when_mtls_present() {
         health_log_path: "/h".into(),
         tei_endpoints: Vec::new(),
         healthcheck_timeout_secs: 30,
+        max_metrics_connections: 128,
+        max_mcp_connections: 128,
         mcp_mtls: Some(mtls_config()),
         learner_origin: None,
     };

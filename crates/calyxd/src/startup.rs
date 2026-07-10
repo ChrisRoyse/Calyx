@@ -89,10 +89,17 @@ pub(crate) async fn run_server(config_path: &Path, once: bool, audit_vram: bool)
     }
 
     let server = match &origin {
-        Some(origin) => {
-            MetricsServer::bind_with_origin(cfg.bind_addr, Arc::clone(&surface), Arc::clone(origin))
-        }
-        None => MetricsServer::bind(cfg.bind_addr, Arc::clone(&surface)),
+        Some(origin) => MetricsServer::bind_with_origin_and_connection_limit(
+            cfg.bind_addr,
+            Arc::clone(&surface),
+            Arc::clone(origin),
+            cfg.max_metrics_connections,
+        ),
+        None => MetricsServer::bind_with_connection_limit(
+            cfg.bind_addr,
+            Arc::clone(&surface),
+            cfg.max_metrics_connections,
+        ),
     };
     let server = match server {
         Ok(server) => server,
@@ -441,6 +448,8 @@ mod tests {
             health_log_path: "/h".into(),
             tei_endpoints: Vec::new(),
             healthcheck_timeout_secs: 30,
+            max_metrics_connections: 128,
+            max_mcp_connections: 128,
             mcp_mtls,
             learner_origin: None,
         }

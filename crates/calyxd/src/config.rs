@@ -16,6 +16,7 @@ use std::path::{Path, PathBuf};
 use calyx_core::MtlsConfig;
 use serde::Deserialize;
 
+use crate::connection_tracker::{DEFAULT_MAX_CONNECTIONS, MAX_CONNECTION_LIMIT_CEILING};
 use crate::error::DaemonError;
 use crate::learner_origin::LearnerOriginConfig;
 
@@ -38,6 +39,10 @@ fn default_health_log_path() -> PathBuf {
 
 fn default_healthcheck_timeout_secs() -> u32 {
     30
+}
+
+fn default_max_connections() -> usize {
+    DEFAULT_MAX_CONNECTIONS
 }
 
 /// Authoritative runtime configuration for the Calyx daemon.
@@ -73,6 +78,12 @@ pub struct CalyxConfig {
     /// Healthcheck timeout in seconds. Default `30`.
     #[serde(default = "default_healthcheck_timeout_secs")]
     pub healthcheck_timeout_secs: u32,
+    /// Maximum concurrent `/metrics`/learner-origin HTTP handlers.
+    #[serde(default = "default_max_connections")]
+    pub max_metrics_connections: usize,
+    /// Maximum concurrent MCP socket handlers.
+    #[serde(default = "default_max_connections")]
+    pub max_mcp_connections: usize,
     /// Optional MCP mTLS block. MCP startup requires this; config parsing keeps
     /// it optional so non-MCP daemon tasks can still load minimal config.
     #[serde(default)]
@@ -135,6 +146,8 @@ impl CalyxConfig {
                 self.vram_budget_mib
             )));
         }
+        validate_connection_limit("max_metrics_connections", self.max_metrics_connections)?;
+        validate_connection_limit("max_mcp_connections", self.max_mcp_connections)?;
         if let Some(mtls) = &self.mcp_mtls {
             validate_mcp_mtls(mtls)?;
             if self.mcp_bind_addr.is_none() {
@@ -159,6 +172,15 @@ impl CalyxConfig {
     pub fn vault_path_resolved(&self) -> PathBuf {
         resolve_home(&self.vault_path, std::env::var(VAULT_PATH_HOME_VAR).ok())
     }
+}
+
+fn validate_connection_limit(name: &str, value: usize) -> Result<(), DaemonError> {
+    if value == 0 || value > MAX_CONNECTION_LIMIT_CEILING {
+        return Err(DaemonError::config_invalid(format!(
+            "{name} {value} out of range (must be 1..={MAX_CONNECTION_LIMIT_CEILING})"
+        )));
+    }
+    Ok(())
 }
 
 fn validate_mcp_mtls(mtls: &MtlsConfig) -> Result<(), DaemonError> {
@@ -205,6 +227,8 @@ log_dir = \"/zfs/hot/logs/calyx\"
 health_log_path = \"/zfs/hot/logs/calyx-health/latest.json\"
 tei_endpoints = [\"http://127.0.0.1:18190\", \"http://127.0.0.1:18188\", \"http://127.0.0.1:8088\", \"http://127.0.0.1:8089\", \"http://127.0.0.1:8090\"]
 healthcheck_timeout_secs = 30
+max_metrics_connections = 64
+max_mcp_connections = 32
 ";
 
     #[test]
@@ -228,6 +252,8 @@ log_dir = \"/data/logs\"
         );
         assert!(config.tei_endpoints.is_empty());
         assert_eq!(config.healthcheck_timeout_secs, 30);
+        assert_eq!(config.max_metrics_connections, DEFAULT_MAX_CONNECTIONS);
+        assert_eq!(config.max_mcp_connections, DEFAULT_MAX_CONNECTIONS);
     }
 
     #[test]
@@ -240,6 +266,8 @@ log_dir = \"/data/logs\"
         assert_eq!(config.tei_endpoints[0], "http://127.0.0.1:18190");
         assert_eq!(config.tei_endpoints[2], "http://127.0.0.1:8088");
         assert_eq!(config.healthcheck_timeout_secs, 30);
+        assert_eq!(config.max_metrics_connections, 64);
+        assert_eq!(config.max_mcp_connections, 32);
     }
 
     #[test]
@@ -290,6 +318,27 @@ log_dir = \"/data/logs\"
             CalyxConfig::from_toml_str(&over).unwrap_err().code(),
             "CALYX_FORGE_VRAM_BUDGET"
         );
+    }
+
+    #[test]
+    fn connection_limits_reject_zero_and_above_ceiling() {
+        let zero = VALID_TOML.replace(
+            "max_metrics_connections = 64",
+            "max_metrics_connections = 0",
+        );
+        let Err(error) = CalyxConfig::from_toml_str(&zero) else {
+            panic!("zero max_metrics_connections must fail");
+        };
+        assert_eq!(error.code(), "CALYX_DAEMON_CONFIG_INVALID");
+
+        let over = VALID_TOML.replace(
+            "max_mcp_connections = 32",
+            &format!("max_mcp_connections = {}", MAX_CONNECTION_LIMIT_CEILING + 1),
+        );
+        let Err(error) = CalyxConfig::from_toml_str(&over) else {
+            panic!("oversized max_mcp_connections must fail");
+        };
+        assert_eq!(error.code(), "CALYX_DAEMON_CONFIG_INVALID");
     }
 
     #[test]

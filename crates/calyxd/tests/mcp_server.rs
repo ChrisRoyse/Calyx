@@ -82,15 +82,27 @@ fn boot_server() -> (
     std::thread::JoinHandle<()>,
     TestIdentity,
 ) {
+    boot_server_with_limit(128)
+}
+
+fn boot_server_with_limit(
+    max_connections: usize,
+) -> (
+    SocketAddr,
+    ShutdownHandle,
+    std::thread::JoinHandle<()>,
+    TestIdentity,
+) {
     let identity = test_identity();
     let mut dispatcher = McpServer::new();
     dispatcher
         .register(Box::new(AdderTool))
         .expect("register adder tool");
-    let server = CalyxMcpServer::bind(
+    let server = CalyxMcpServer::bind_with_connection_limit(
         "127.0.0.1:0".parse().unwrap(),
         Arc::new(dispatcher),
         identity.mtls.clone(),
+        max_connections,
     )
     .unwrap();
     let addr = server.local_addr().unwrap();
@@ -354,6 +366,39 @@ fn pre_handshake_disconnect_leaves_no_leaked_connection() {
         "connection count did not drain to 0 after disconnect"
     );
 
+    handle.shutdown();
+    join.join().unwrap();
+}
+
+#[test]
+fn connection_limit_refuses_second_socket_before_tls() {
+    let (addr, handle, join, _identity) = boot_server_with_limit(1);
+
+    let first = TcpStream::connect(addr).unwrap();
+    assert!(
+        wait_until(Duration::from_secs(2), || handle.active_connections() == 1),
+        "first socket must occupy the only MCP handler slot"
+    );
+
+    let mut second = TcpStream::connect(addr).unwrap();
+    second
+        .set_read_timeout(Some(Duration::from_secs(2)))
+        .unwrap();
+    let _ = second.write_all(&[0x16, 0x03, 0x03, 0x00, 0x00]);
+    let mut byte = [0_u8; 1];
+    let refused = match second.read(&mut byte) {
+        Ok(0) => true,
+        Ok(_) => false,
+        Err(error) => error.kind() != std::io::ErrorKind::TimedOut,
+    };
+    assert!(refused, "over-limit MCP socket must be closed before TLS");
+    assert_eq!(handle.active_connections(), 1);
+
+    drop(first);
+    assert!(
+        wait_until(Duration::from_secs(3), || handle.active_connections() == 0),
+        "first socket must release the MCP handler slot"
+    );
     handle.shutdown();
     join.join().unwrap();
 }

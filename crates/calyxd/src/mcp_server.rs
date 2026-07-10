@@ -41,7 +41,7 @@ use calyx_mcp::{JsonRpcError, JsonRpcResponse, McpServer, decode_jsonrpc_request
 use rustls::ServerConfig;
 
 use crate::config::CalyxConfig;
-use crate::connection_tracker::ConnectionTracker;
+use crate::connection_tracker::{ConnectionTracker, DEFAULT_MAX_CONNECTIONS};
 use crate::error::DaemonError;
 
 mod tls;
@@ -54,6 +54,7 @@ pub const CALYX_DAEMON_FRAME_INVALID: &str = "CALYX_DAEMON_FRAME_INVALID";
 /// Daemon-local code logged when a connection handler panics. The accept loop
 /// isolates it; the connection is dropped, the server keeps serving.
 pub const CALYX_DAEMON_CONN_PANIC: &str = "CALYX_DAEMON_CONN_PANIC";
+pub const CALYX_DAEMON_CONN_LIMIT: &str = "CALYX_DAEMON_CONN_LIMIT";
 
 /// Hard ceiling on a single inbound frame, in bytes. A length prefix larger than
 /// this is refused before allocating — the mandatory "sanity check" that stops a
@@ -100,12 +101,24 @@ impl CalyxMcpServer {
         dispatcher: Arc<McpServer>,
         mtls: MtlsConfig,
     ) -> Result<Self, DaemonError> {
+        Self::bind_with_connection_limit(addr, dispatcher, mtls, DEFAULT_MAX_CONNECTIONS)
+    }
+
+    pub fn bind_with_connection_limit(
+        addr: SocketAddr,
+        dispatcher: Arc<McpServer>,
+        mtls: MtlsConfig,
+        max_connections: usize,
+    ) -> Result<Self, DaemonError> {
         if !addr.ip().is_loopback() {
             return Err(DaemonError::bind_failed(format!(
                 "refused non-loopback bind address {addr}; calyxd MCP serves loopback only"
             )));
         }
         let tls_config = tls::build_server_config(&mtls)?;
+        let active = Arc::new(ConnectionTracker::new(max_connections).map_err(|error| {
+            DaemonError::config_invalid(format!("max_mcp_connections: {error}"))
+        })?);
         let listener = TcpListener::bind(addr)
             .map_err(|error| DaemonError::bind_failed(format!("bind {addr}: {error}")))?;
         Ok(Self {
@@ -113,7 +126,7 @@ impl CalyxMcpServer {
             dispatcher,
             tls_config,
             shutdown: Arc::new(AtomicBool::new(false)),
-            active: Arc::new(ConnectionTracker::default()),
+            active,
         })
     }
 
@@ -130,7 +143,7 @@ impl CalyxMcpServer {
                 "mcp_mtls is required before calyxd MCP can accept network connections",
             )
         })?;
-        Self::bind(addr, dispatcher, mtls)
+        Self::bind_with_connection_limit(addr, dispatcher, mtls, cfg.max_mcp_connections)
     }
 
     /// The actually-bound address (resolves an OS-assigned port when `:0`).
@@ -163,28 +176,43 @@ impl CalyxMcpServer {
                     if self.shutdown.load(Ordering::SeqCst) {
                         break;
                     }
-                    self.active.enter();
+                    if !self.active.try_enter() {
+                        eprintln!(
+                            "calyxd: {CALYX_DAEMON_CONN_LIMIT}: mcp connection from {peer} \
+                             refused; active={} max={}",
+                            self.active.active(),
+                            self.active.max()
+                        );
+                        continue;
+                    }
                     let dispatcher = Arc::clone(&self.dispatcher);
                     let tls_config = Arc::clone(&self.tls_config);
                     let active = Arc::clone(&self.active);
-                    std::thread::spawn(move || {
-                        let outcome = catch_unwind(AssertUnwindSafe(|| {
-                            tls::serve_connection(stream, &dispatcher, tls_config)
-                        }));
+                    let active_for_thread = Arc::clone(&active);
+                    let spawn = std::thread::Builder::new()
+                        .name("calyxd-mcp-conn".to_string())
+                        .spawn(move || {
+                            let outcome = catch_unwind(AssertUnwindSafe(|| {
+                                tls::serve_connection(stream, &dispatcher, tls_config)
+                            }));
+                            active_for_thread.exit();
+                            match outcome {
+                                Ok(Ok(())) => {}
+                                Ok(Err(detail)) => {
+                                    eprintln!("calyxd: mcp connection from {peer}: {detail}");
+                                }
+                                Err(_panic) => {
+                                    eprintln!(
+                                        "calyxd: {CALYX_DAEMON_CONN_PANIC}: mcp connection from \
+                                         {peer} panicked; connection dropped, server continues"
+                                    );
+                                }
+                            }
+                        });
+                    if let Err(error) = spawn {
                         active.exit();
-                        match outcome {
-                            Ok(Ok(())) => {}
-                            Ok(Err(detail)) => {
-                                eprintln!("calyxd: mcp connection from {peer}: {detail}");
-                            }
-                            Err(_panic) => {
-                                eprintln!(
-                                    "calyxd: {CALYX_DAEMON_CONN_PANIC}: mcp connection from \
-                                     {peer} panicked; connection dropped, server continues"
-                                );
-                            }
-                        }
-                    });
+                        eprintln!("calyxd: spawn mcp connection from {peer}: {error}");
+                    }
                 }
                 Err(error) => {
                     if self.shutdown.load(Ordering::SeqCst) {

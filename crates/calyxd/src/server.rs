@@ -16,7 +16,7 @@ use std::time::Duration;
 
 use tokio_util::sync::CancellationToken;
 
-use crate::connection_tracker::ConnectionTracker;
+use crate::connection_tracker::{ConnectionTracker, DEFAULT_MAX_CONNECTIONS};
 use crate::error::DaemonError;
 use crate::learner_origin::LearnerOriginService;
 use crate::metrics::CalyxMetrics;
@@ -28,6 +28,7 @@ const DRAIN_TIMEOUT: Duration = Duration::from_secs(5);
 const CONTENT_TYPE: &str = "text/plain; version=0.0.4";
 const PLAIN_CONTENT_TYPE: &str = "text/plain; charset=utf-8";
 const JSON_CONTENT_TYPE: &str = "application/json";
+const CALYX_DAEMON_CONN_LIMIT: &str = "CALYX_DAEMON_CONN_LIMIT";
 
 /// Loopback `/metrics` server.
 pub struct MetricsServer {
@@ -41,7 +42,15 @@ pub struct MetricsServer {
 impl MetricsServer {
     /// Binds `addr`, refusing any non-loopback IP before touching the OS.
     pub fn bind(addr: SocketAddr, metrics: Arc<CalyxMetrics>) -> Result<Self, DaemonError> {
-        Self::bind_inner(addr, metrics, None)
+        Self::bind_with_connection_limit(addr, metrics, DEFAULT_MAX_CONNECTIONS)
+    }
+
+    pub fn bind_with_connection_limit(
+        addr: SocketAddr,
+        metrics: Arc<CalyxMetrics>,
+        max_connections: usize,
+    ) -> Result<Self, DaemonError> {
+        Self::bind_inner(addr, metrics, None, max_connections)
     }
 
     pub fn bind_with_origin(
@@ -49,19 +58,32 @@ impl MetricsServer {
         metrics: Arc<CalyxMetrics>,
         origin: Arc<LearnerOriginService>,
     ) -> Result<Self, DaemonError> {
-        Self::bind_inner(addr, metrics, Some(origin))
+        Self::bind_with_origin_and_connection_limit(addr, metrics, origin, DEFAULT_MAX_CONNECTIONS)
+    }
+
+    pub fn bind_with_origin_and_connection_limit(
+        addr: SocketAddr,
+        metrics: Arc<CalyxMetrics>,
+        origin: Arc<LearnerOriginService>,
+        max_connections: usize,
+    ) -> Result<Self, DaemonError> {
+        Self::bind_inner(addr, metrics, Some(origin), max_connections)
     }
 
     fn bind_inner(
         addr: SocketAddr,
         metrics: Arc<CalyxMetrics>,
         origin: Option<Arc<LearnerOriginService>>,
+        max_connections: usize,
     ) -> Result<Self, DaemonError> {
         if !addr.ip().is_loopback() {
             return Err(DaemonError::bind_failed(format!(
                 "refused non-loopback bind address {addr}; calyxd serves loopback only"
             )));
         }
+        let active = Arc::new(ConnectionTracker::new(max_connections).map_err(|error| {
+            DaemonError::config_invalid(format!("max_metrics_connections: {error}"))
+        })?);
         let listener = TcpListener::bind(addr)
             .map_err(|error| DaemonError::bind_failed(format!("bind {addr}: {error}")))?;
         Ok(Self {
@@ -69,7 +91,7 @@ impl MetricsServer {
             metrics,
             origin,
             shutdown: Arc::new(AtomicBool::new(false)),
-            active: Arc::new(ConnectionTracker::default()),
+            active,
         })
     }
 
@@ -122,25 +144,41 @@ impl MetricsServer {
                     let metrics = Arc::clone(&self.metrics);
                     let origin = self.origin.as_ref().map(Arc::clone);
                     let active = Arc::clone(&self.active);
-                    active.enter();
-                    std::thread::spawn(move || {
-                        let outcome = catch_unwind(AssertUnwindSafe(|| {
-                            handle_connection(stream, &metrics, origin.as_deref())
-                        }));
+                    if !active.try_enter() {
+                        eprintln!(
+                            "calyxd: {CALYX_DAEMON_CONN_LIMIT}: metrics connection from {peer} \
+                             refused; active={} max={}",
+                            active.active(),
+                            active.max()
+                        );
+                        reject_over_capacity(stream);
+                        continue;
+                    }
+                    let active_for_thread = Arc::clone(&active);
+                    let spawn = std::thread::Builder::new()
+                        .name("calyxd-metrics-conn".to_string())
+                        .spawn(move || {
+                            let outcome = catch_unwind(AssertUnwindSafe(|| {
+                                handle_connection(stream, &metrics, origin.as_deref())
+                            }));
+                            active_for_thread.exit();
+                            match outcome {
+                                Ok(Ok(())) => {}
+                                Ok(Err(detail)) => {
+                                    eprintln!("calyxd: metrics connection from {peer}: {detail}");
+                                }
+                                Err(_panic) => {
+                                    eprintln!(
+                                        "calyxd: CALYX_DAEMON_CONN_PANIC: metrics connection from \
+                                         {peer} panicked; connection dropped, server continues"
+                                    );
+                                }
+                            }
+                        });
+                    if let Err(error) = spawn {
                         active.exit();
-                        match outcome {
-                            Ok(Ok(())) => {}
-                            Ok(Err(detail)) => {
-                                eprintln!("calyxd: metrics connection from {peer}: {detail}");
-                            }
-                            Err(_panic) => {
-                                eprintln!(
-                                    "calyxd: CALYX_DAEMON_CONN_PANIC: metrics connection from \
-                                     {peer} panicked; connection dropped, server continues"
-                                );
-                            }
-                        }
-                    });
+                        eprintln!("calyxd: spawn metrics connection from {peer}: {error}");
+                    }
                 }
                 Err(error) => {
                     if self.shutdown.load(Ordering::SeqCst) {
@@ -172,6 +210,16 @@ impl MetricsShutdownHandle {
     pub fn active_connections(&self) -> usize {
         self.active.active()
     }
+}
+
+fn reject_over_capacity(mut stream: TcpStream) {
+    let _ = stream.set_write_timeout(Some(IO_TIMEOUT));
+    let response = HttpResponse {
+        status: "503 Service Unavailable",
+        content_type: PLAIN_CONTENT_TYPE,
+        body: "connection limit reached\n".to_string(),
+    };
+    let _ = write_response(&mut stream, &response);
 }
 
 fn wait_for_cancellation(cancel_token: CancellationToken) {
@@ -285,6 +333,7 @@ mod tests {
     use super::*;
     use crate::metrics::ChainVerifyMetrics;
     use std::io::{Read, Write};
+    use std::time::{Duration, Instant};
 
     fn metrics() -> Arc<CalyxMetrics> {
         let labels = ["/tmp/vault".to_string()];
@@ -376,5 +425,51 @@ mod tests {
         join.join()
             .expect("server thread joins")
             .expect("server returns Ok");
+    }
+
+    #[test]
+    fn connection_limit_returns_503_without_spawning_unbounded_handlers() {
+        let server =
+            MetricsServer::bind_with_connection_limit("127.0.0.1:0".parse().unwrap(), metrics(), 1)
+                .unwrap();
+        let addr = server.local_addr().unwrap();
+        let handle = server.shutdown_handle().unwrap();
+        let token = CancellationToken::new();
+        let stop = token.clone();
+        let join = std::thread::spawn(move || server.run(token));
+
+        let first = TcpStream::connect(addr).expect("first connection");
+        assert!(wait_until(Duration::from_secs(2), || {
+            handle.active_connections() == 1
+        }));
+
+        let mut second = TcpStream::connect(addr).expect("second connection");
+        second
+            .set_read_timeout(Some(Duration::from_secs(2)))
+            .unwrap();
+        let mut response = String::new();
+        second.read_to_string(&mut response).unwrap();
+        assert!(response.starts_with("HTTP/1.1 503 Service Unavailable"));
+        assert_eq!(handle.active_connections(), 1);
+
+        drop(first);
+        assert!(wait_until(Duration::from_secs(3), || {
+            handle.active_connections() == 0
+        }));
+        stop.cancel();
+        join.join().unwrap().unwrap();
+    }
+
+    fn wait_until(budget: Duration, mut cond: impl FnMut() -> bool) -> bool {
+        let deadline = Instant::now() + budget;
+        loop {
+            if cond() {
+                return true;
+            }
+            if Instant::now() >= deadline {
+                return false;
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
     }
 }
