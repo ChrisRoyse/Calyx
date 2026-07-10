@@ -291,7 +291,7 @@ fn best_contiguous_split(kernel: &KernelMatrix, n: usize, min_window: usize) -> 
     for split in min_window..=(n - min_window) {
         let left = (0..split).collect::<Vec<_>>();
         let right = (split..n).collect::<Vec<_>>();
-        let value = kernel.mmd2(&left, &right);
+        let value = kernel.mmd2_unbiased(&left, &right);
         if value > best_mmd {
             best_mmd = value;
             best_split = split;
@@ -313,7 +313,7 @@ fn change_point_max_null(
         indices.shuffle(&mut rng);
         let mut max_stat = f64::NEG_INFINITY;
         for split in min_window..=(n - min_window) {
-            max_stat = max_stat.max(kernel.mmd2(&indices[..split], &indices[split..]));
+            max_stat = max_stat.max(kernel.mmd2_unbiased(&indices[..split], &indices[split..]));
         }
         null.push(max_stat);
     }
@@ -342,6 +342,23 @@ impl KernelMatrix {
 
     fn mmd2(&self, x: &[usize], y: &[usize]) -> f64 {
         self.mean(x, x) + self.mean(y, y) - 2.0 * self.mean(x, y)
+    }
+
+    fn mmd2_unbiased(&self, x: &[usize], y: &[usize]) -> f64 {
+        self.off_diagonal_mean(x) + self.off_diagonal_mean(y) - 2.0 * self.mean(x, y)
+    }
+
+    fn off_diagonal_mean(&self, indices: &[usize]) -> f64 {
+        debug_assert!(indices.len() > 1);
+        let mut sum = 0.0;
+        for &i in indices {
+            for &j in indices {
+                if i != j {
+                    sum += self.values[i * self.n + j];
+                }
+            }
+        }
+        sum / (indices.len() * (indices.len() - 1)) as f64
     }
 
     fn mean(&self, left: &[usize], right: &[usize]) -> f64 {

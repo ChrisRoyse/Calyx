@@ -58,6 +58,23 @@ fn change_point_finds_planted_boundary() {
 }
 
 #[test]
+fn change_point_no_shift_stream_does_not_prefer_edge_windows() {
+    let stream = balanced_no_shift_stream();
+    let cfg = no_shift_scan_config();
+
+    let report = mmd_change_point(&stream, 4, &cfg).unwrap();
+
+    assert!(
+        report.split_index.abs_diff(stream.len() / 2) <= 2,
+        "unbiased scan should not let diagonal mass pull no-shift stream to an edge: {report:?}"
+    );
+    assert!(
+        !report.report.significant,
+        "max-over-splits null should not mark the balanced no-shift stream significant: {report:?}"
+    );
+}
+
+#[test]
 fn mmd_reports_are_deterministic() {
     let a = cluster(0.0, 0.0, 16, 0.0);
     let b = cluster(1.0, 1.0, 16, 1.0);
@@ -193,6 +210,11 @@ fn edge_cases() -> serde_json::Value {
             json!({"same_distribution": true}),
             gaussian_mmd_with_config(&a, &control, &config())
         ),
+        change_point_edge_case(
+            "change_point_no_shift_balanced_stream",
+            json!({"rows": 100, "min_window": 4, "expected_split_near": 50}),
+            mmd_change_point(&balanced_no_shift_stream(), 4, &no_shift_scan_config()),
+        ),
     ])
 }
 
@@ -208,6 +230,40 @@ fn edge_case(
         Err(error) => json!({"error_code": error.code, "message": error.message}),
     };
     json!({"case": name, "state_before": state_before, "state_after": state_after})
+}
+
+fn change_point_edge_case(
+    name: &str,
+    state_before: serde_json::Value,
+    outcome: Result<calyx_assay::ChangePointReport, calyx_core::CalyxError>,
+) -> serde_json::Value {
+    let state_after = match outcome {
+        Ok(report) => json!({
+            "ok": {
+                "split_index": report.split_index,
+                "left_n": report.left_n,
+                "right_n": report.right_n,
+                "mmd2": report.report.mmd2,
+                "p_value": report.report.p_value,
+                "significant": report.report.significant
+            }
+        }),
+        Err(error) => json!({"error_code": error.code, "message": error.message}),
+    };
+    json!({"case": name, "state_before": state_before, "state_after": state_after})
+}
+
+fn balanced_no_shift_stream() -> Vec<Vec<f64>> {
+    (0..100).map(|index| vec![(index % 2) as f64]).collect()
+}
+
+fn no_shift_scan_config() -> MmdConfig {
+    MmdConfig {
+        bandwidth: Some(1.0),
+        permutations: 31,
+        seed: FSV_SEED,
+        alpha: DEFAULT_MMD_ALPHA,
+    }
 }
 
 fn load_features(path: &Path) -> Result<Vec<Vec<f64>>, String> {
