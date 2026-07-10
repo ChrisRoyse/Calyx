@@ -1,7 +1,7 @@
 //! Issue #233 - grounded-resolution feedback controller.
 //!
-//! Source of truth: durable AsterVault Ledger CF rows, score artifacts/ledger rows, and the
-//! meta-learning ledger, all read back from disk.
+//! Source of truth: durable AsterVault and score Ledger rows. Score JSON and the meta-learning
+//! JSONL are diagnostic readbacks, not score authority.
 
 #[path = "issue233_feedback/support.rs"]
 mod issue233_feedback_support;
@@ -26,6 +26,7 @@ fn issue233_feedback_controller_fsv() {
     reset_dir(&root);
 
     let happy = happy_idempotent_no_lookahead(&root);
+    let manifest_orphan = manifest_only_orphan_is_recovered(&root);
     let no_match = no_match_noop(&root);
     let voided = voided_never_scores(&root);
     let contradiction = proxy_contradiction_fails_closed(&root);
@@ -37,13 +38,14 @@ fn issue233_feedback_controller_fsv() {
         "issue": 233,
         "proof_claim": "The feedback controller runs grounded-resolution cycles through join, score, backfill preflight, relearning/adaptation, and meta-ledger audit; reruns are idempotent and failing branches do not silently promote.",
         "minimum_sufficient_proof_corpus": {
-            "cases": 5,
-            "why_this_is_sufficient": "One happy cycle also proves idempotent replay and no-lookahead blocking; one no-match proves no-op logging; one voided case proves no scoring/backfill; one proxy contradiction proves fail-closed backfill; one rejected candidate proves rollback/guardrail/meta-ledger behavior.",
+            "cases": 6,
+            "why_this_is_sufficient": "One happy cycle proves ledger-authoritative replay even after diagnostics disappear and no-lookahead blocking; one manifest-only orphan proves diagnostics cannot suppress scoring; one no-match proves no-op logging; one voided case proves no scoring/backfill; one proxy contradiction proves fail-closed backfill; one rejected candidate proves rollback/guardrail/meta-ledger behavior.",
             "why_larger_is_wasteful": "The controller proof is over orchestration states, not corpus volume; extra markets would repeat the same branches."
         },
-        "source_of_truth": "durable AsterVault Ledger CF rows, score artifacts, score ledger rows, and meta-learning ledger JSONL",
+        "source_of_truth": "durable AsterVault Ledger CF rows and score ledger rows; score artifacts and meta-learning JSONL are diagnostics",
         "cases": {
             "happy_idempotent_no_lookahead": happy,
+            "manifest_only_orphan": manifest_orphan,
             "no_match": no_match,
             "voided": voided,
             "proxy_contradiction": contradiction,
@@ -85,6 +87,9 @@ fn happy_idempotent_no_lookahead(root: &Path) -> Value {
     let first =
         run_feedback_controller_cycle(&request, &fx.vault, &mut fx.register, &mut fx.score_ledger)
             .expect("happy cycle");
+    let score_diagnostics = fx.score_root.join("score233happy");
+    fs::remove_dir_all(&score_diagnostics).expect("remove score diagnostics before replay");
+    assert!(!score_diagnostics.exists());
     let second =
         run_feedback_controller_cycle(&request, &fx.vault, &mut fx.register, &mut fx.score_ledger)
             .expect("happy replay");
@@ -111,8 +116,64 @@ fn happy_idempotent_no_lookahead(root: &Path) -> Value {
             "first": first.report,
             "second": second.report,
             "score_ledger": score_payloads(&fx.score_ledger_dir),
+            "diagnostics_absent_on_ledger_dedup": !score_diagnostics.exists(),
             "meta_ledger": read_meta_learning_ledger_entries(&paths.meta_dir.join("meta_learning_ledger.jsonl")).expect("meta readback"),
             "future_status": fx.register.entries.iter().find(|entry| entry.forecast_id == "f233future").unwrap().status
+        }),
+    )
+}
+
+fn manifest_only_orphan_is_recovered(root: &Path) -> Value {
+    let mut fx = fixture(root, "manifest-only-orphan");
+    record(
+        &fx.vault,
+        &mut fx.register,
+        forecast("f1390orphan", "cond1390orphan", 0, 100),
+    );
+    let final_dir = fx.score_root.join("score1390orphan");
+    let staging_dir = fx.score_root.join(".score1390orphan.tmp");
+    fs::create_dir_all(&final_dir).expect("create orphan final diagnostics");
+    fs::create_dir_all(&staging_dir).expect("create orphan staging diagnostics");
+    fs::write(final_dir.join("manifest.json"), br#"{"stale":true}"#).expect("write stale manifest");
+    fs::write(final_dir.join("stale.txt"), b"uncommitted").expect("write stale final sentinel");
+    fs::write(staging_dir.join("stale.txt"), b"uncommitted").expect("write stale staging sentinel");
+
+    let request = cycle_request(
+        &fx.report_dir,
+        &fx.score_root,
+        "cycle1390orphan",
+        vec![input("cond1390orphan", 0, 200, false, false)],
+        vec![score(
+            "score1390orphan",
+            "f1390orphan",
+            "cond1390orphan",
+            true,
+        )],
+        Vec::new(),
+        None,
+    );
+    let run =
+        run_feedback_controller_cycle(&request, &fx.vault, &mut fx.register, &mut fx.score_ledger)
+            .expect("manifest-only orphan must be scored from ledger authority");
+    let payloads = score_payloads(&fx.score_ledger_dir);
+    let manifest: Value = serde_json::from_slice(
+        &fs::read(final_dir.join("manifest.json")).expect("read replacement manifest"),
+    )
+    .expect("decode replacement manifest");
+    assert_eq!(run.report.score_manifests.len(), 1);
+    assert!(run.report.skipped_existing_score_ids.is_empty());
+    assert_eq!(payloads.len(), 1);
+    assert_eq!(payloads[0]["score_id"], "score1390orphan");
+    assert_eq!(manifest["score_id"], "score1390orphan");
+    assert!(!final_dir.join("stale.txt").exists());
+    assert!(!staging_dir.exists());
+    persist_case(
+        &fx.root,
+        json!({
+            "report": run.report,
+            "score_ledger": payloads,
+            "replacement_manifest": manifest,
+            "staging_orphan_removed": !staging_dir.exists()
         }),
     )
 }

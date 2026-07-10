@@ -230,6 +230,7 @@ pub mod schema_derivation;
 mod schema_derivation_classify;
 mod schema_derivation_types;
 pub mod score;
+mod score_authority;
 pub mod seed_registry;
 pub mod self_evolution_guardrails;
 pub mod service_scaffold;

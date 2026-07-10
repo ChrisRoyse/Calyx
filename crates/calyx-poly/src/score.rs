@@ -9,6 +9,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
 use crate::pending_forecast_payload::safe_ref;
+use crate::score_authority::{clear_uncommitted_score_diagnostics, committed_score_ids};
 use crate::{PolyError, Result};
 
 pub const FORECAST_SCORE_SCHEMA_VERSION: &str = "poly.forecast.score.v1";
@@ -122,21 +123,16 @@ where
     validate_request(request)?;
     let final_dir = root.join(&request.score_id);
     let staging_dir = root.join(format!(".{}.tmp", request.score_id));
-    if final_dir.exists() {
+    if committed_score_ids(ledger, FORECAST_SCORE_SCHEMA_VERSION)?.contains(&request.score_id) {
         return Err(PolyError::score(
             "CALYX_POLY_SCORE_DUPLICATE",
-            format!("score artifact already exists: {}", final_dir.display()),
-        ));
-    }
-    if staging_dir.exists() {
-        return Err(PolyError::score(
-            "CALYX_POLY_SCORE_STAGING_EXISTS",
             format!(
-                "score staging directory already exists: {}",
-                staging_dir.display()
+                "score ledger already contains committed score_id {}",
+                request.score_id
             ),
         ));
     }
+    clear_uncommitted_score_diagnostics(&final_dir, &staging_dir)?;
 
     fs::create_dir_all(&staging_dir).map_err(|err| {
         PolyError::score("CALYX_POLY_SCORE_ARTIFACT_WRITE_FAILED", err.to_string())
@@ -176,6 +172,7 @@ where
         }
     };
     let ledger_ref = prepared.ledger_ref();
+    let ledger_seq = ledger_ref.seq;
 
     let manifest = ForecastScoreManifest {
         schema_version: FORECAST_SCORE_SCHEMA_VERSION.to_string(),
@@ -196,16 +193,13 @@ where
         ledger_ref,
     };
     write_json_file(&manifest_path, &manifest)?;
-    fs::rename(&staging_dir, &final_dir).map_err(|err| {
-        PolyError::score("CALYX_POLY_SCORE_ARTIFACT_PUBLISH_FAILED", err.to_string())
-    })?;
     if let Err(err) = ledger.commit_prepared(&prepared) {
-        let cleanup = fs::remove_dir_all(&final_dir)
-            .map(|()| "published score artifact cleanup succeeded".to_string())
+        let cleanup = fs::remove_dir_all(&staging_dir)
+            .map(|()| "staged score diagnostic cleanup succeeded".to_string())
             .unwrap_or_else(|cleanup_err| {
                 format!(
-                    "published score artifact cleanup failed for {}: {cleanup_err}",
-                    final_dir.display()
+                    "staged score diagnostic cleanup failed for {}: {cleanup_err}",
+                    staging_dir.display()
                 )
             });
         return Err(PolyError::score(
@@ -213,6 +207,17 @@ where
             format!("commit forecast score ledger row: {err}; {cleanup}"),
         ));
     }
+    fs::rename(&staging_dir, &final_dir).map_err(|err| {
+        PolyError::score(
+            "CALYX_POLY_SCORE_ARTIFACT_PUBLISH_FAILED",
+            format!(
+                "score ledger row {} committed, but diagnostic publish {} -> {} failed: {err}",
+                ledger_seq,
+                staging_dir.display(),
+                final_dir.display()
+            ),
+        )
+    })?;
     Ok(manifest)
 }
 

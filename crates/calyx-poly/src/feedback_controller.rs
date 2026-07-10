@@ -5,7 +5,7 @@
 //! and appends the meta-learning ledger. It deliberately reuses the existing primitives instead of
 //! reimplementing scoring or tuning math.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -31,7 +31,11 @@ use crate::pending_forecast_register::{
     PendingForecastLedgerStore, PendingForecastRegister, ResolutionJoinResult,
     join_resolution_to_pending_forecasts,
 };
-use crate::score::{ForecastScoreManifest, ForecastScoreRequest, write_forecast_score_artifacts};
+use crate::score::{
+    FORECAST_SCORE_SCHEMA_VERSION, ForecastScoreManifest, ForecastScoreRequest,
+    write_forecast_score_artifacts,
+};
+use crate::score_authority::committed_score_ids;
 use crate::self_evolution_guardrails::{
     SelfEvolutionGuardrailReport, SelfEvolutionGuardrailRequest, SelfEvolutionStatus,
     require_self_evolution_approved, run_self_evolution_guardrail,
@@ -167,6 +171,11 @@ where
     } else {
         Vec::new()
     };
+    let mut committed_scores = if has_scored_work {
+        committed_score_ids(score_ledger, FORECAST_SCORE_SCHEMA_VERSION)?
+    } else {
+        BTreeSet::new()
+    };
 
     let mut score_manifests = Vec::new();
     let mut skipped = Vec::new();
@@ -180,14 +189,13 @@ where
                 )
             })?;
         validate_score_matches_work(score_request, work.actual_win.expect("scored work"))?;
-        if score_artifact_exists(request.score_root, &score_request.score_id) {
+        if committed_scores.contains(&score_request.score_id) {
             skipped.push(score_request.score_id.clone());
         } else {
-            score_manifests.push(write_forecast_score_artifacts(
-                request.score_root,
-                score_ledger,
-                score_request,
-            )?);
+            let manifest =
+                write_forecast_score_artifacts(request.score_root, score_ledger, score_request)?;
+            committed_scores.insert(score_request.score_id.clone());
+            score_manifests.push(manifest);
         }
     }
 
@@ -336,8 +344,4 @@ fn append_or_reuse_meta_entry(
         fsv_artifact_path: request.fsv_artifact_path,
     })?;
     Ok((true, Some(run.appended)))
-}
-
-fn score_artifact_exists(root: &Path, score_id: &str) -> bool {
-    root.join(score_id).join("manifest.json").exists()
 }
