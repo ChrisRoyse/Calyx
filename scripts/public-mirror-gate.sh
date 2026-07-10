@@ -87,7 +87,10 @@ else
   export CALYX_TARGET_SCRATCH_ROOT="$scratch_root"
   bash "$dev_root/scripts/cargo-target-clean.sh" \
     --repo-root "$public_root" \
-    --target-dir "$target_dir" >/dev/null
+    --target-dir "$target_dir" \
+    --also-workspace-target \
+    --also-repo-targets \
+    --also-calyx-home-target >/dev/null
   mkdir -p "$target_dir"
 fi
 target_dir="$(cd "$target_dir" && pwd -P)"
@@ -136,7 +139,9 @@ cleanup_targets() {
   bash "$dev_root/scripts/cargo-target-clean.sh" \
     --repo-root "$public_root" \
     --target-dir "$target_dir" \
-    --also-workspace-target || cleanup_status=$?
+    --also-workspace-target \
+    --also-repo-targets \
+    --also-calyx-home-target || cleanup_status=$?
   if [[ "$status" -eq 0 && "$cleanup_status" -ne 0 ]]; then
     exit "$cleanup_status"
   fi

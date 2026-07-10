@@ -68,7 +68,9 @@ cleanup_tmp_guard() {
   bash "$repo_root/scripts/cargo-target-clean.sh" \
     --repo-root "$repo_root" \
     --target-dir "$check_target_dir" \
-    --also-workspace-target || cleanup_status=$?
+    --also-workspace-target \
+    --also-repo-targets \
+    --also-calyx-home-target || cleanup_status=$?
   rm -f "$tmp_guard_baseline"
   if [[ "$status" -eq 0 && "$cleanup_status" -ne 0 ]]; then
     exit "$cleanup_status"

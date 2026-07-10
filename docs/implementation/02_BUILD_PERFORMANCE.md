@@ -91,8 +91,14 @@ based pruning reclaims ~0 because everything is days old. So we bound by **size*
   `cargo clean`, or a path-checked in-workspace removal, then read back
   absence/size. This applies to workspace-root targets, crate-local targets,
   worktree/FSV targets, public-mirror targets, and isolated `CARGO_TARGET_DIR`
-  scratch paths. Issue work must record the cleanup command and the readback in
-  the GitHub issue comment.
+  scratch paths. Legacy FSV tests can also create `<repo-parent>/target`
+  (`/home/croyse/calyx/target` on aiwonder) independently of
+  `CARGO_TARGET_DIR`; cleanup wrappers must pass `--also-repo-targets` and
+  `--also-calyx-home-target`, then require the final recursive target scan of
+  `/home/croyse/calyx` to be empty. A workspace-root-only readback is not
+  sufficient because nested Cargo invocations can create crate-local targets.
+  Issue work must record the cleanup command and the readback in the GitHub
+  issue comment.
 - **`scripts/target-gc.sh`** runs `cargo sweep --maxsize ${CALYX_TARGET_MAXSIZE:-40GB}`,
   removing the oldest artifacts until the dir is under the cap. This is a host
   safety net only; it does not replace per-run cleanup. Worst case a stale crate

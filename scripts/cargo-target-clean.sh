@@ -4,12 +4,18 @@ set -euo pipefail
 
 usage() {
   cat >&2 <<'USAGE'
-Usage: bash scripts/cargo-target-clean.sh [--repo-root <path>] [--target-dir <path>] [--also-workspace-target]
+Usage: bash scripts/cargo-target-clean.sh [--repo-root <path>] [--target-dir <path>] [--also-workspace-target] [--also-repo-targets] [--also-calyx-home-target]
 
 Safely removes a Cargo target directory only when the resolved path is:
   - the workspace target directory,
   - a child of the workspace target directory, or
+  - a directory named target below the repository root, or
+  - the Calyx-home target directory (the workspace parent target), or
   - a child of CALYX_TARGET_SCRATCH_ROOT (default: <repo-parent>/target-scratch).
+
+--also-repo-targets recursively removes every directory named target below the
+repository root. Cargo gates must use it because nested Cargo invocations can
+ignore the parent CARGO_TARGET_DIR and create crate-local target directories.
 
 The script always prints a readback line for each requested target:
   cargo-target-clean: target_absent path=<path>
@@ -20,6 +26,8 @@ USAGE
 repo_root_arg=""
 target_dir_arg=""
 also_workspace_target=0
+also_repo_targets=0
+also_calyx_home_target=0
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -35,6 +43,14 @@ while [[ $# -gt 0 ]]; do
       ;;
     --also-workspace-target)
       also_workspace_target=1
+      shift
+      ;;
+    --also-repo-targets)
+      also_repo_targets=1
+      shift
+      ;;
+    --also-calyx-home-target)
+      also_calyx_home_target=1
       shift
       ;;
     -h|--help)
@@ -65,6 +81,7 @@ else
 fi
 
 workspace_target="$(realpath -m -- "$repo_root/target")"
+calyx_home_target="$(realpath -m -- "$(dirname "$repo_root")/target")"
 scratch_root_raw="${CALYX_TARGET_SCRATCH_ROOT:-$(dirname "$repo_root")/target-scratch}"
 scratch_root="$(realpath -m -- "$scratch_root_raw")"
 
@@ -76,14 +93,18 @@ target_dirs=("$target_dir_arg")
 if [[ "$also_workspace_target" -eq 1 ]]; then
   target_dirs+=("$workspace_target")
 fi
+if [[ "$also_calyx_home_target" -eq 1 ]]; then
+  target_dirs+=("$calyx_home_target")
+fi
 
 is_safe_target() {
   local target="$1"
   case "$target" in
     "$workspace_target"|"$workspace_target"/*) return 0 ;;
+    "$calyx_home_target") return 0 ;;
     "$scratch_root"/*) return 0 ;;
-    *) return 1 ;;
   esac
+  [[ "$target" == "$repo_root/"* && "${target##*/}" == "target" ]]
 }
 
 clean_one() {
@@ -94,6 +115,7 @@ clean_one() {
   if ! is_safe_target "$target"; then
     echo "cargo-target-clean: ERROR refusing unsafe target path: $target" >&2
     echo "cargo-target-clean: workspace_target=$workspace_target" >&2
+    echo "cargo-target-clean: calyx_home_target=$calyx_home_target" >&2
     echo "cargo-target-clean: scratch_root=$scratch_root" >&2
     return 2
   fi
@@ -134,5 +156,21 @@ $resolved
   seen="${seen}${resolved}"$'\n'
   clean_one "$resolved" || rc=$?
 done
+
+if [[ "$also_repo_targets" -eq 1 ]]; then
+  repo_target_count=0
+  while IFS= read -r -d '' target; do
+    clean_one "$target" || rc=$?
+    repo_target_count=$((repo_target_count + 1))
+  done < <(find "$repo_root" -mindepth 1 -type d -name target -prune -print0)
+
+  remaining_repo_target="$(find "$repo_root" -mindepth 1 -type d -name target -prune -print -quit)"
+  if [[ -n "$remaining_repo_target" ]]; then
+    echo "cargo-target-clean: ERROR repo target remains: $remaining_repo_target" >&2
+    rc=1
+  else
+    echo "cargo-target-clean: repo_targets_absent root=$repo_root cleaned=$repo_target_count"
+  fi
+fi
 
 exit "$rc"
