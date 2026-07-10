@@ -91,14 +91,21 @@ based pruning reclaims ~0 because everything is days old. So we bound by **size*
   `cargo clean`, or a path-checked in-workspace removal, then read back
   absence/size. This applies to workspace-root targets, crate-local targets,
   worktree/FSV targets, public-mirror targets, and isolated `CARGO_TARGET_DIR`
-  scratch paths. Legacy FSV tests can also create `<repo-parent>/target`
-  (`/home/croyse/calyx/target` on aiwonder) independently of
-  `CARGO_TARGET_DIR`; cleanup wrappers must pass `--also-repo-targets` and
-  `--also-calyx-home-target`, then require the final recursive target scan of
-  `/home/croyse/calyx` to be empty. A workspace-root-only readback is not
+  scratch paths. It also applies to top-level legacy Cargo roots matching
+  `<repo-parent>/target-*`; the managed `target-scratch` container is the only
+  prefix exception and must be empty after each run. Legacy FSV tests can create
+  `<repo-parent>/target` (`/home/croyse/calyx/target` on aiwonder)
+  independently of `CARGO_TARGET_DIR`. Cleanup wrappers must pass
+  `--also-repo-targets` and `--also-calyx-home-target`; the latter sweeps
+  only immediate current-user `target-*` siblings that are empty or carry a
+  Cargo root marker, preserves and reports non-Cargo lookalikes, preserves
+  `target-scratch`, and fails closed when scratch children remain. A
+  workspace-root-only readback is not
   sufficient because nested Cargo invocations can create crate-local targets.
-  Issue work must record the cleanup command and the readback in the GitHub
-  issue comment.
+  Require the recursive exact-name `target` scan, the immediate Calyx-home
+  `target-*` scan excluding `target-scratch`, and the `target-scratch`
+  contents scan all to be empty. Issue work must record the cleanup command and
+  all three readbacks in the GitHub issue comment.
 - **`scripts/target-gc.sh`** runs `cargo sweep --maxsize ${CALYX_TARGET_MAXSIZE:-40GB}`,
   removing the oldest artifacts until the dir is under the cap. This is a host
   safety net only; it does not replace per-run cleanup. Worst case a stale crate
