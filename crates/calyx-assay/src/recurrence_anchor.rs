@@ -158,18 +158,17 @@ pub fn oracle_self_consistency_from_agreements(agreements: &[OutcomeAgreement]) 
 pub fn outcome_agreement_from_observations(
     observations: &[Option<AnchorValue>],
 ) -> OutcomeAgreement {
-    if observations.len() < 3 {
-        return OutcomeAgreement::Insufficient {
-            n: observations.len(),
-        };
+    let measured = observations.iter().flatten().collect::<Vec<_>>();
+    if measured.len() < 3 {
+        return OutcomeAgreement::Insufficient { n: measured.len() };
     }
 
     let mut agreeing = 0_usize;
     let mut total = 0_usize;
-    for left in 0..observations.len() {
-        for right in (left + 1)..observations.len() {
+    for left in 0..measured.len() {
+        for right in (left + 1)..measured.len() {
             total += 1;
-            if observations[left] == observations[right] {
+            if measured[left] == measured[right] {
                 agreeing += 1;
             }
         }
@@ -202,12 +201,11 @@ fn outcome_from_context(
     if context.bytes.is_empty() {
         return Ok(None);
     }
-    let Ok(value) = serde_json::from_slice::<serde_json::Value>(&context.bytes) else {
-        return Ok(None);
-    };
-    let Some(object) = value.as_object() else {
-        return Ok(None);
-    };
+    let value = serde_json::from_slice::<serde_json::Value>(&context.bytes)
+        .map_err(|error| missing_outcome_slot(format!("invalid outcome context JSON: {error}")))?;
+    let object = value
+        .as_object()
+        .ok_or_else(|| missing_outcome_slot("outcome context must be a JSON object"))?;
     let Some(raw) = object.get(OUTCOME_CONTEXT_FIELD) else {
         return Ok(None);
     };

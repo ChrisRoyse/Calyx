@@ -8,7 +8,9 @@ use calyx_assay::{
 };
 use calyx_aster::cf::ColumnFamily;
 use calyx_aster::dedup::EpochSecs;
-use calyx_aster::recurrence::{FREQUENCY_SCALAR, RetentionPolicy, append_occurrence};
+use calyx_aster::recurrence::{
+    FREQUENCY_SCALAR, OccurrenceContext, RetentionPolicy, append_occurrence,
+};
 use calyx_aster::vault::{AsterVault, VaultOptions};
 use calyx_core::{AnchorKind, AnchorValue, CxId, VaultStore};
 use serde_json::{Value, json};
@@ -74,6 +76,23 @@ fn issue387_oracle_self_consistency_fsv_writes_assay_report() {
     )
     .expect("no recurring score");
 
+    let missing_id = cx_id(31);
+    vault.put(base_cx(missing_id)).expect("put missing base");
+    append_missing_contexts(&vault, missing_id);
+    let missing_agreement =
+        measure_outcome_agreement(missing_id, &vault).expect("missing agreement");
+    let missing_domain_score = oracle_self_consistency(
+        &Domain::new("issue1314-missing-outcomes", vec![missing_id]),
+        &vault,
+    )
+    .expect("missing score");
+
+    let corrupt_id = cx_id(32);
+    vault.put(base_cx(corrupt_id)).expect("put corrupt base");
+    append_corrupt_context(&vault, corrupt_id);
+    let corrupt_error =
+        measure_outcome_agreement(corrupt_id, &vault).expect_err("corrupt context error");
+
     let after = raw_state(&vault);
     let report = json!({
         "schema_version": 1,
@@ -92,7 +111,16 @@ fn issue387_oracle_self_consistency_fsv_writes_assay_report() {
                 "remediation": wrong_error.remediation
             },
             "insufficient_occurrences": insufficient_json(&insufficient),
-            "no_recurring_domain_score": no_recurring_score
+            "no_recurring_domain_score": no_recurring_score,
+            "missing_outcomes": {
+                "agreement": agreement_json(&missing_agreement),
+                "domain_score": missing_domain_score
+            },
+            "corrupt_context_error": {
+                "code": corrupt_error.code,
+                "message": corrupt_error.message,
+                "remediation": corrupt_error.remediation
+            }
         },
         "source_of_truth_bytes": {
             "vault_dir": vault_dir.display().to_string(),
@@ -150,6 +178,33 @@ fn append_wrong_anchor(vault: &AsterVault, cx_id: CxId) {
         )
         .expect("append wrong anchor");
     }
+}
+
+fn append_missing_contexts(vault: &AsterVault, cx_id: CxId) {
+    for index in 0..3 {
+        append_occurrence(
+            vault,
+            cx_id,
+            EpochSecs(3_000 + index),
+            OccurrenceContext::new(Vec::new()).expect("context"),
+            EpochSecs(3_000 + index),
+            RetentionPolicy::default(),
+        )
+        .expect("append missing context");
+    }
+}
+
+fn append_corrupt_context(vault: &AsterVault, cx_id: CxId) {
+    append_occurrence(
+        vault,
+        cx_id,
+        EpochSecs(4_000),
+        OccurrenceContext::new(b"not-json".to_vec()).expect("context"),
+        EpochSecs(4_000),
+        RetentionPolicy::default(),
+    )
+    .expect("append corrupt context");
+    append_outcomes(vault, cx_id, &["agree", "agree"]);
 }
 
 fn raw_state(vault: &AsterVault) -> Value {

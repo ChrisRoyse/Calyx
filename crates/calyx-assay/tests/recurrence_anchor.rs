@@ -122,14 +122,14 @@ fn explicit_agreement_rates_average_to_oracle_self_consistency() {
 }
 
 #[test]
-fn all_missing_outcome_contexts_have_no_disagreement() {
+fn all_missing_outcome_contexts_are_insufficient() {
     let vault = vault_with_base(cx_id(9));
     for index in 0..3 {
         append_occurrence(
             &vault,
             cx_id(9),
             EpochSecs(1_000 + index),
-            OccurrenceContext::new(b"legacy-context".to_vec()).expect("context"),
+            OccurrenceContext::new(Vec::new()).expect("context"),
             EpochSecs(1_000 + index),
             RetentionPolicy::default(),
         )
@@ -138,12 +138,61 @@ fn all_missing_outcome_contexts_have_no_disagreement() {
 
     let agreement = measure_outcome_agreement(cx_id(9), &vault).expect("agreement");
 
-    assert_eq!(
-        agreement,
-        OutcomeAgreement::Consistent {
-            agreement_rate: 1.0
-        }
-    );
+    assert_eq!(agreement, OutcomeAgreement::Insufficient { n: 0 });
+}
+
+#[test]
+fn missing_observations_are_skipped_not_counted_as_agreement() {
+    let agreement = outcome_agreement_from_observations(&[
+        None,
+        Some(AnchorValue::Text("pass".into())),
+        None,
+        Some(AnchorValue::Text("pass".into())),
+        Some(AnchorValue::Text("fail".into())),
+    ]);
+
+    assert_rate(&agreement, 1.0 / 3.0);
+    assert!(matches!(agreement, OutcomeAgreement::Flaky { .. }));
+}
+
+#[test]
+fn corrupt_outcome_context_fails_closed() {
+    let vault = vault_with_base(cx_id(11));
+    append_occurrence(
+        &vault,
+        cx_id(11),
+        EpochSecs(1_000),
+        OccurrenceContext::new(b"not-json".to_vec()).expect("context"),
+        EpochSecs(1_000),
+        RetentionPolicy::default(),
+    )
+    .expect("append occurrence");
+    append_outcomes(&vault, cx_id(11), &["pass", "pass"]);
+
+    let error = measure_outcome_agreement(cx_id(11), &vault).expect_err("corrupt context");
+
+    assert_eq!(error.code, CALYX_ASSAY_MISSING_OUTCOME_SLOT);
+}
+
+#[test]
+fn recurring_domain_with_no_measurable_outcomes_scores_zero() {
+    let vault = vault_with_base(cx_id(12));
+    for index in 0..3 {
+        append_occurrence(
+            &vault,
+            cx_id(12),
+            EpochSecs(1_000 + index),
+            OccurrenceContext::new(Vec::new()).expect("context"),
+            EpochSecs(1_000 + index),
+            RetentionPolicy::default(),
+        )
+        .expect("append occurrence");
+    }
+    let domain = Domain::new("missing-outcomes", vec![cx_id(12)]);
+
+    let score = oracle_self_consistency(&domain, &vault).expect("self consistency");
+
+    assert_eq!(score, 0.0);
 }
 
 #[test]
@@ -184,9 +233,11 @@ proptest! {
             .collect::<Vec<_>>();
 
         let agreement = outcome_agreement_from_observations(&observations);
-        let rate = agreement.agreement_rate().expect("sufficient observations");
-
-        prop_assert!((0.0..=1.0).contains(&rate));
+        if let Some(rate) = agreement.agreement_rate() {
+            prop_assert!((0.0..=1.0).contains(&rate));
+        } else {
+            prop_assert!(observations.iter().flatten().count() < 3);
+        }
     }
 }
 
