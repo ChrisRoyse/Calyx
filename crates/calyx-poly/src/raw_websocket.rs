@@ -4,6 +4,7 @@ use std::net::TcpStream;
 use std::path::PathBuf;
 use std::time::Duration;
 
+use calyx_core::Clock;
 use serde_json::{Value, json};
 use tungstenite::stream::MaybeTlsStream;
 use tungstenite::{Message, WebSocket};
@@ -98,6 +99,7 @@ pub(crate) fn market_websocket_probes(join: &RawJoinMap) -> Vec<WebSocketProbe> 
 pub(crate) fn capture_market_websocket(
     request: &RawSourceSamplingRequest,
     probe: &WebSocketProbe,
+    clock: &dyn Clock,
 ) -> Result<RawEndpointSample> {
     let sample_dir = request
         .output_root
@@ -118,7 +120,7 @@ pub(crate) fn capture_market_websocket(
     })?;
 
     let wait = Duration::from_secs(request.timeout_secs.clamp(1, MAX_WS_WAIT_SECS));
-    let capture = run_capture(probe, wait);
+    let capture = run_capture(probe, wait, clock);
     let sample = websocket_sample(probe, before, body_path, metadata_path, capture)?;
     Ok(sample)
 }
@@ -139,7 +141,7 @@ struct CaptureOutput {
     error_message: Option<String>,
 }
 
-fn run_capture(probe: &WebSocketProbe, wait: Duration) -> CaptureOutput {
+fn run_capture(probe: &WebSocketProbe, wait: Duration, clock: &dyn Clock) -> CaptureOutput {
     let mut output = CaptureOutput::failed("POLY_RAW_SOURCE_WS_CONNECT_FAILED", None);
     let connected = connect_with_timeout(MARKET_WS_URL, wait);
     let (mut socket, response) = match connected {
@@ -191,6 +193,7 @@ fn run_capture(probe: &WebSocketProbe, wait: Duration) -> CaptureOutput {
             &mut output,
             &mut fields,
             &mut event_types,
+            clock,
         ) {
             output.error_code = Some(err.code().to_string());
             output.error_message = Some(err.message());
@@ -290,6 +293,7 @@ fn record_message(
     output: &mut CaptureOutput,
     fields: &mut BTreeSet<String>,
     event_types: &mut BTreeSet<String>,
+    clock: &dyn Clock,
 ) -> Result<()> {
     match message {
         Message::Text(text) => {
@@ -317,11 +321,12 @@ fn record_message(
                 parsed.is_ok(),
                 event_type,
                 parse_error_code(&text, parsed.is_err()),
+                clock,
             )?;
         }
         Message::Pong(payload) => {
             output.pong_received = true;
-            push_frame(output, "pong", payload.as_ref(), false, None, None)?;
+            push_frame(output, "pong", payload.as_ref(), false, None, None, clock)?;
         }
         Message::Ping(payload) => {
             socket.send(Message::Pong(payload.clone())).map_err(|err| {
@@ -330,7 +335,7 @@ fn record_message(
                     format!("respond to server ping: {err}"),
                 )
             })?;
-            push_frame(output, "ping", payload.as_ref(), false, None, None)?;
+            push_frame(output, "ping", payload.as_ref(), false, None, None, clock)?;
         }
         Message::Binary(payload) => {
             push_frame(
@@ -340,10 +345,11 @@ fn record_message(
                 false,
                 None,
                 Some("POLY_RAW_SOURCE_WS_BINARY_FRAME".to_string()),
+                clock,
             )?;
         }
         Message::Close(_) => {
-            push_frame(output, "close", &[], false, None, None)?;
+            push_frame(output, "close", &[], false, None, None, clock)?;
         }
         Message::Frame(_) => {
             push_frame(
@@ -353,6 +359,7 @@ fn record_message(
                 false,
                 None,
                 Some("POLY_RAW_SOURCE_WS_UNEXPECTED_RAW_FRAME".to_string()),
+                clock,
             )?;
         }
     }
@@ -366,8 +373,9 @@ fn push_frame(
     json_parse_ok: bool,
     event_type: Option<String>,
     error_code: Option<String>,
+    clock: &dyn Clock,
 ) -> Result<()> {
-    let received_at_unix_ms = now_unix_ms()?;
+    let received_at_unix_ms = now_unix_ms(clock);
     if !output.raw_body.is_empty() {
         output.raw_body.push(b'\n');
     }

@@ -206,9 +206,20 @@ pub fn parse_gamma_markets_value(value: &Value) -> Result<Vec<GammaMarketRecord>
         Value::Object(map) => map
             .get("data")
             .or_else(|| map.get("markets"))
-            .and_then(Value::as_array)
+            .ok_or_else(|| {
+                gamma_error(
+                    ERR_GAMMA_JSON,
+                    "Gamma markets object is missing the required data/markets rows array",
+                )
+            })?
+            .as_array()
             .map(Vec::as_slice)
-            .unwrap_or(&[]),
+            .ok_or_else(|| {
+                gamma_error(
+                    ERR_GAMMA_JSON,
+                    "Gamma markets data/markets field must be an array",
+                )
+            })?,
         _ => {
             return Err(gamma_error(
                 ERR_GAMMA_JSON,

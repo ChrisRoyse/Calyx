@@ -4,8 +4,8 @@ use std::collections::BTreeMap;
 use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::time::{SystemTime, UNIX_EPOCH};
 
+use calyx_core::Clock;
 use serde::{Deserialize, Serialize};
 
 use crate::{PolyError, Result};
@@ -43,6 +43,7 @@ pub struct PolyLogEvent {
 
 impl PolyLogEvent {
     pub fn new(
+        clock: &dyn Clock,
         level: PolyLogLevel,
         component: impl Into<String>,
         action: impl Into<String>,
@@ -52,7 +53,7 @@ impl PolyLogEvent {
     ) -> Result<Self> {
         Ok(Self {
             schema_version: POLY_STRUCTURED_LOG_SCHEMA_VERSION.to_string(),
-            timestamp_unix_ms: now_unix_ms()?,
+            timestamp_unix_ms: now_unix_ms(clock),
             level,
             component: component.into(),
             action: action.into(),
@@ -66,6 +67,7 @@ impl PolyLogEvent {
     }
 
     pub fn info(
+        clock: &dyn Clock,
         component: impl Into<String>,
         action: impl Into<String>,
         code: impl Into<String>,
@@ -73,6 +75,7 @@ impl PolyLogEvent {
         context: BTreeMap<String, String>,
     ) -> Result<Self> {
         Self::new(
+            clock,
             PolyLogLevel::Info,
             component,
             action,
@@ -83,6 +86,7 @@ impl PolyLogEvent {
     }
 
     pub fn error(
+        clock: &dyn Clock,
         component: impl Into<String>,
         action: impl Into<String>,
         error: &PolyError,
@@ -91,7 +95,7 @@ impl PolyLogEvent {
         let diagnostic = error.diagnostic();
         Ok(Self {
             schema_version: POLY_STRUCTURED_LOG_SCHEMA_VERSION.to_string(),
-            timestamp_unix_ms: now_unix_ms()?,
+            timestamp_unix_ms: now_unix_ms(clock),
             level: PolyLogLevel::Error,
             component: component.into(),
             action: action.into(),
@@ -229,12 +233,13 @@ impl StructuredLogSink {
 
     pub fn append_error(
         &self,
+        clock: &dyn Clock,
         component: impl Into<String>,
         action: impl Into<String>,
         error: &PolyError,
         context: BTreeMap<String, String>,
     ) -> Result<()> {
-        let event = PolyLogEvent::error(component, action, error, context)?;
+        let event = PolyLogEvent::error(clock, component, action, error, context)?;
         self.append_event(&event)
     }
 
@@ -283,6 +288,7 @@ pub fn read_structured_log_events(path: &Path) -> Result<Vec<PolyLogEvent>> {
 pub trait PolyResultLogExt<T> {
     fn log_error_context(
         self,
+        clock: &dyn Clock,
         sink: &StructuredLogSink,
         component: &str,
         action: &str,
@@ -293,6 +299,7 @@ pub trait PolyResultLogExt<T> {
 impl<T> PolyResultLogExt<T> for Result<T> {
     fn log_error_context(
         self,
+        clock: &dyn Clock,
         sink: &StructuredLogSink,
         component: &str,
         action: &str,
@@ -301,7 +308,7 @@ impl<T> PolyResultLogExt<T> for Result<T> {
         match self {
             Ok(value) => Ok(value),
             Err(error) => {
-                sink.append_error(component, action, &error, context)?;
+                sink.append_error(clock, component, action, &error, context)?;
                 Err(error)
             }
         }
@@ -372,14 +379,6 @@ fn require_non_empty(field: &str, value: &str) -> Result<()> {
     }
 }
 
-fn now_unix_ms() -> Result<u128> {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|duration| duration.as_millis())
-        .map_err(|err| {
-            PolyError::structured_log(
-                "POLY_LOG_CLOCK_INVALID",
-                format!("system clock is before UNIX_EPOCH: {err}"),
-            )
-        })
+fn now_unix_ms(clock: &dyn Clock) -> u128 {
+    u128::from(clock.now())
 }

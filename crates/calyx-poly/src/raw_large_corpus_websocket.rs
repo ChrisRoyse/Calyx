@@ -3,6 +3,7 @@ use std::net::TcpStream;
 use std::path::Path;
 use std::time::{Duration, Instant};
 
+use calyx_core::Clock;
 use serde_json::Value;
 use tungstenite::stream::MaybeTlsStream;
 use tungstenite::{Message, WebSocket};
@@ -30,9 +31,10 @@ pub(crate) fn capture_websocket_market_data(
     targets: &[ClobTarget],
     pages: &mut Vec<LargeCorpusPage>,
     records: &mut Vec<CorpusRecord>,
+    clock: &dyn Clock,
 ) -> Result<()> {
     for plan in websocket_plans(targets)? {
-        let page = capture_websocket_page(request, &plan)?;
+        let page = capture_websocket_page(request, &plan, clock)?;
         collect_records(
             &page.dataset,
             &page.source,
@@ -47,16 +49,18 @@ pub(crate) fn capture_websocket_market_data(
 pub(crate) fn capture_websocket_edge_cases(
     request: &LargeCorpusRequest,
     targets: &[ClobTarget],
+    clock: &dyn Clock,
 ) -> Result<Vec<LargeCorpusEdgeCase>> {
     websocket_edge_plans(targets)?
         .iter()
-        .map(|plan| capture_websocket_edge(request, plan))
+        .map(|plan| capture_websocket_edge(request, plan, clock))
         .collect()
 }
 
 fn capture_websocket_page(
     request: &LargeCorpusRequest,
     plan: &WebSocketCapturePlan,
+    clock: &dyn Clock,
 ) -> Result<LargeCorpusPage> {
     let dir = request.output_root.join("raw").join(&plan.dataset);
     let body_path = dir.join("page-000000.json");
@@ -70,7 +74,7 @@ fn capture_websocket_page(
         )
     })?;
     let request_bytes = persist_websocket_request(&request_path, plan)?;
-    let capture = run_websocket_capture(plan, request)?;
+    let capture = run_websocket_capture(plan, request, clock)?;
     let body_bytes = write_websocket_body(&body_path, plan, &capture)?;
     let body_value = serde_json::from_slice::<Value>(&body_bytes).map_err(|err| {
         PolyError::raw_source(
@@ -125,6 +129,7 @@ fn capture_websocket_page(
 fn capture_websocket_edge(
     request: &LargeCorpusRequest,
     plan: &WebSocketCapturePlan,
+    clock: &dyn Clock,
 ) -> Result<LargeCorpusEdgeCase> {
     let dir = request.output_root.join("edge").join(&plan.dataset);
     let body_path = dir.join("body.json");
@@ -138,7 +143,7 @@ fn capture_websocket_edge(
         )
     })?;
     let request_bytes = persist_websocket_request(&request_path, plan)?;
-    let capture = run_websocket_capture(plan, request)?;
+    let capture = run_websocket_capture(plan, request, clock)?;
     let body_bytes = write_websocket_body(&body_path, plan, &capture)?;
     let body_value = serde_json::from_slice::<Value>(&body_bytes).map_err(|err| {
         PolyError::raw_source(
@@ -186,6 +191,7 @@ fn capture_websocket_edge(
 fn run_websocket_capture(
     plan: &WebSocketCapturePlan,
     request: &LargeCorpusRequest,
+    clock: &dyn Clock,
 ) -> Result<WebSocketCaptureOutput> {
     let wait = Duration::from_secs(request.timeout_secs.clamp(1, plan.max_wait_secs));
     let mut output = WebSocketCaptureOutput::failed("POLY_LARGE_CORPUS_WS_CONNECT_FAILED", None);
@@ -227,7 +233,7 @@ fn run_websocket_capture(
                 break;
             }
         };
-        if let Err(err) = record_message(&mut socket, plan, message, &mut output, request) {
+        if let Err(err) = record_message(&mut socket, plan, message, &mut output, request, clock) {
             output.error_code = Some(err.code().to_string());
             output.error_message = Some(err.message());
             break;
@@ -264,6 +270,7 @@ fn record_message(
     message: Message,
     output: &mut WebSocketCaptureOutput,
     request: &LargeCorpusRequest,
+    clock: &dyn Clock,
 ) -> Result<()> {
     match message {
         Message::Text(text) => {
@@ -303,6 +310,7 @@ fn record_message(
                     error_code: parse_error_code(json_parse_ok),
                     max_body_bytes: request.max_body_bytes,
                 },
+                clock,
             )?;
         }
         Message::Ping(payload) => {
@@ -323,6 +331,7 @@ fn record_message(
                     error_code: None,
                     max_body_bytes: request.max_body_bytes,
                 },
+                clock,
             )?;
         }
         Message::Pong(payload) => push_frame(
@@ -336,6 +345,7 @@ fn record_message(
                 error_code: None,
                 max_body_bytes: request.max_body_bytes,
             },
+            clock,
         )?,
         Message::Binary(payload) => push_frame(
             output,
@@ -348,6 +358,7 @@ fn record_message(
                 error_code: Some("POLY_LARGE_CORPUS_WS_BINARY_FRAME".to_string()),
                 max_body_bytes: request.max_body_bytes,
             },
+            clock,
         )?,
         Message::Close(_) => push_frame(
             output,
@@ -360,6 +371,7 @@ fn record_message(
                 error_code: None,
                 max_body_bytes: request.max_body_bytes,
             },
+            clock,
         )?,
         Message::Frame(_) => push_frame(
             output,
@@ -372,12 +384,17 @@ fn record_message(
                 error_code: Some("POLY_LARGE_CORPUS_WS_UNEXPECTED_RAW_FRAME".to_string()),
                 max_body_bytes: request.max_body_bytes,
             },
+            clock,
         )?,
     }
     Ok(())
 }
 
-fn push_frame(output: &mut WebSocketCaptureOutput, input: FrameInput<'_>) -> Result<()> {
+fn push_frame(
+    output: &mut WebSocketCaptureOutput,
+    input: FrameInput<'_>,
+    clock: &dyn Clock,
+) -> Result<()> {
     let next_total = output.raw_frame_bytes + input.body.len();
     if next_total > input.max_body_bytes {
         return Err(PolyError::raw_source(
@@ -392,7 +409,7 @@ fn push_frame(output: &mut WebSocketCaptureOutput, input: FrameInput<'_>) -> Res
     output.frames.push(LargeWebSocketFrame {
         direction: "inbound".to_string(),
         opcode: input.opcode.to_string(),
-        received_at_unix_ms: now_unix_ms()?,
+        received_at_unix_ms: now_unix_ms(clock),
         body_bytes: input.body.len() as u64,
         body_sha256: (!input.body.is_empty()).then(|| sha256_hex(input.body)),
         raw_text: input.raw_text,

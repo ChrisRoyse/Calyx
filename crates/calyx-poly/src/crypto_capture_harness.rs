@@ -7,7 +7,7 @@
 
 use std::path::{Path, PathBuf};
 
-use calyx_core::{VaultId, VaultStore};
+use calyx_core::{SystemClock, VaultId, VaultStore};
 
 pub use crate::crypto_capture_harness_types::{
     CRYPTO_CAPTURE_HARNESS_SCHEMA_VERSION, CRYPTO_CAPTURE_REPORT_FILE, CRYPTO_CAPTURE_STATE_FILE,
@@ -69,6 +69,7 @@ where
             vault_salt,
             output_root,
             config,
+            &SystemClock,
         )?
         .run)
     }

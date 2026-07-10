@@ -1,9 +1,12 @@
+use calyx_core::Clock;
+
 use crate::rate_limit_governor::{
     RateLimitEndpoint, RateLimitedHttpOutcome, execute_rate_limited_request, parse_retry_after_ms,
 };
 use crate::{PolyError, Result};
 
 pub(crate) fn execute_post(
+    clock: &dyn Clock,
     agent: &ureq::Agent,
     url: &str,
     request_body: &[u8],
@@ -11,7 +14,7 @@ pub(crate) fn execute_post(
     dataset: &str,
 ) -> Result<(Option<u16>, Vec<u8>, Option<String>)> {
     let endpoint = RateLimitEndpoint::new("polygon-rpc", dataset, "POST");
-    execute_rate_limited_request(&endpoint, || {
+    execute_rate_limited_request(clock, &endpoint, || {
         let result = agent
             .post(url)
             .header("Accept", "application/json")

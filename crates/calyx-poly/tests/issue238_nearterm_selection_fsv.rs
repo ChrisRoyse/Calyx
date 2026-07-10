@@ -32,6 +32,7 @@ fn issue238_nearterm_crypto_selection_known_truth_fsv() {
         market("near-eligible", CAPTURE_TS + 600, true, true),
         market("non-binary", CAPTURE_TS + 120, false, true),
         market("no-book", CAPTURE_TS + 90, true, false),
+        market_without_order_book("missing-book", CAPTURE_TS + 75),
     ];
     let config = CryptoIngestorConfig {
         min_secs_to_resolution: 60,
@@ -69,9 +70,9 @@ fn issue238_nearterm_crypto_selection_known_truth_fsv() {
         "minimum_sufficient_proof_corpus": {
             "known_truth_candidate_count": candidates.len(),
             "selected_candidate_count": 1,
-            "edge_cases": 4,
-            "why_this_is_sufficient": "Five known-truth candidates are the smallest corpus that proves nearest-wins among two valid markets, exclusion promotes the next eligible market, plus too-soon, non-binary, and disabled-order-book rejection paths.",
-            "why_smaller_is_insufficient": "Fewer candidates would not simultaneously prove nearest-vs-far ordering, exclusion behavior, and the three skip/fail-closed edges.",
+            "edge_cases": 5,
+            "why_this_is_sufficient": "Six known-truth candidates prove nearest-wins among two valid markets, exclusion promotes the next eligible market, and too-soon, non-binary, disabled-order-book, and absent-order-book rejection paths.",
+            "why_smaller_is_insufficient": "Fewer candidates would not simultaneously prove nearest-vs-far ordering, exclusion behavior, and the four skip/fail-closed edges.",
             "why_larger_is_wasteful": "More markets repeat the same selector predicates without adding a #238 invariant."
         },
         "source_of_truth": "deterministic GammaMarketRecord candidates persisted into this report and read back from disk",
@@ -88,6 +89,7 @@ fn issue238_nearterm_crypto_selection_known_truth_fsv() {
             "too_soon_secs": 30,
             "non_binary_market_id": "non-binary",
             "disabled_order_book_market_id": "no-book",
+            "absent_order_book_market_id": "missing-book",
             "excluded_condition_id": "0xnear-eligible",
             "selected_after_exclusion": selected_after_exclusion.market_id,
             "over_tight_window_error": err.code()
@@ -155,6 +157,12 @@ fn market(id: &str, end_ts: u64, binary: bool, enable_order_book: bool) -> Gamma
             event_id: Some(format!("{id}-event")),
         },
     }
+}
+
+fn market_without_order_book(id: &str, end_ts: u64) -> GammaMarketRecord {
+    let mut market = market(id, end_ts, true, true);
+    market.enable_order_book = None;
+    market
 }
 
 fn assert_c_drive(path: &Path) {

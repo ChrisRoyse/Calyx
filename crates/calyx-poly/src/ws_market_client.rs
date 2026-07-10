@@ -2,6 +2,7 @@ use std::collections::BTreeSet;
 use std::net::TcpStream;
 use std::time::{Duration, Instant};
 
+use calyx_core::Clock;
 use serde::{Deserialize, Serialize};
 use tungstenite::stream::MaybeTlsStream;
 use tungstenite::{Message, WebSocket};
@@ -38,6 +39,7 @@ impl MarketWsClient {
         &self,
         subscription: &MarketWsSubscription,
         session_index: usize,
+        clock: &dyn Clock,
     ) -> Result<MarketWsCaptureSession> {
         validate_subscription(subscription)?;
         let wait = Duration::from_secs(self.config.timeout_secs);
@@ -80,7 +82,7 @@ impl MarketWsClient {
                     break;
                 }
             };
-            self.record_message(&mut socket, &mut session, message)?;
+            self.record_message(&mut socket, &mut session, message, clock)?;
             if self.session_complete(&session) || session.error_code.is_some() {
                 break;
             }
@@ -93,6 +95,7 @@ impl MarketWsClient {
         &self,
         subscription: &MarketWsSubscription,
         session_count: usize,
+        clock: &dyn Clock,
     ) -> Result<Vec<MarketWsCaptureSession>> {
         if session_count == 0 {
             return Err(ws_market_error(
@@ -102,7 +105,7 @@ impl MarketWsClient {
         }
         let mut sessions = Vec::with_capacity(session_count);
         for session_index in 0..session_count {
-            let session = self.capture_window(subscription, session_index)?;
+            let session = self.capture_window(subscription, session_index, clock)?;
             require_market_ws_session_data(&session, &self.config)?;
             sessions.push(session);
         }
@@ -148,9 +151,10 @@ impl MarketWsClient {
         socket: &mut WebSocket<MaybeTlsStream<TcpStream>>,
         session: &mut MarketWsCaptureSession,
         message: Message,
+        clock: &dyn Clock,
     ) -> Result<()> {
         match message {
-            Message::Text(text) => self.record_text(session, text.to_string()),
+            Message::Text(text) => self.record_text(session, text.to_string(), clock),
             Message::Ping(payload) => {
                 socket.send(Message::Pong(payload.clone())).map_err(|err| {
                     ws_market_error(
@@ -170,6 +174,7 @@ impl MarketWsClient {
                         error_code: None,
                         max_body_bytes: self.config.max_body_bytes,
                     },
+                    clock,
                 )
             }
             Message::Pong(payload) => {
@@ -186,6 +191,7 @@ impl MarketWsClient {
                         error_code: None,
                         max_body_bytes: self.config.max_body_bytes,
                     },
+                    clock,
                 )
             }
             Message::Binary(payload) => {
@@ -204,6 +210,7 @@ impl MarketWsClient {
                         error_code: Some(code),
                         max_body_bytes: self.config.max_body_bytes,
                     },
+                    clock,
                 )
             }
             Message::Close(_) => push_frame(
@@ -218,6 +225,7 @@ impl MarketWsClient {
                     error_code: None,
                     max_body_bytes: self.config.max_body_bytes,
                 },
+                clock,
             ),
             Message::Frame(_) => {
                 let code = ERR_WS_MARKET_EVENT_INVALID.to_string();
@@ -236,12 +244,18 @@ impl MarketWsClient {
                         error_code: Some(code),
                         max_body_bytes: self.config.max_body_bytes,
                     },
+                    clock,
                 )
             }
         }
     }
 
-    fn record_text(&self, session: &mut MarketWsCaptureSession, text: String) -> Result<()> {
+    fn record_text(
+        &self,
+        session: &mut MarketWsCaptureSession,
+        text: String,
+        clock: &dyn Clock,
+    ) -> Result<()> {
         match parse_market_ws_text(&text) {
             Ok(envelope) => {
                 let body = text.as_bytes().to_vec();
@@ -269,6 +283,7 @@ impl MarketWsClient {
                         error_code: None,
                         max_body_bytes: self.config.max_body_bytes,
                     },
+                    clock,
                 )
             }
             Err(err) => {
@@ -288,6 +303,7 @@ impl MarketWsClient {
                         error_code: Some(code),
                         max_body_bytes: self.config.max_body_bytes,
                     },
+                    clock,
                 )
             }
         }
@@ -389,7 +405,11 @@ pub fn require_market_ws_session_data(
     Ok(())
 }
 
-fn push_frame(session: &mut MarketWsCaptureSession, input: FrameInput<'_>) -> Result<()> {
+fn push_frame(
+    session: &mut MarketWsCaptureSession,
+    input: FrameInput<'_>,
+    clock: &dyn Clock,
+) -> Result<()> {
     let next_payload = session.payload_bytes + input.body.len() as u64;
     if next_payload > input.max_body_bytes as u64 {
         return Err(ws_market_error(
@@ -409,7 +429,7 @@ fn push_frame(session: &mut MarketWsCaptureSession, input: FrameInput<'_>) -> Re
     session.frames.push(MarketWsFrameRecord {
         direction: "inbound".to_string(),
         opcode: input.opcode.to_string(),
-        received_at_unix_ms: now_unix_ms()?,
+        received_at_unix_ms: now_unix_ms(clock),
         body_bytes: input.body.len() as u64,
         body_sha256: (!input.body.is_empty()).then(|| sha256_hex(input.body)),
         raw_text: input.raw_text,

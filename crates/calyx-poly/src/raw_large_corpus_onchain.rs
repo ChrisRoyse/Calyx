@@ -1,6 +1,7 @@
 use std::fs;
 use std::path::Path;
 
+use calyx_core::Clock;
 use serde_json::Value;
 
 use crate::rate_limit_governor::{
@@ -26,20 +27,21 @@ pub(crate) fn capture_onchain_market_data(
     agent: &ureq::Agent,
     pages: &mut Vec<LargeCorpusPage>,
     records: &mut Vec<CorpusRecord>,
+    clock: &dyn Clock,
 ) -> Result<u64> {
     let block_plan = polygon_block_number_plan();
-    let block_page = capture_post_page(request, agent, &block_plan)?;
+    let block_page = capture_post_page(request, agent, &block_plan, clock)?;
     let latest_block = latest_block_number(Path::new(&block_page.body_path), &block_page.dataset)?;
     collect_json_records(&block_page, records)?;
     pages.push(block_page);
 
     for plan in onchain_plans(latest_block) {
-        let page = capture_post_page(request, agent, &plan)?;
+        let page = capture_post_page(request, agent, &plan, clock)?;
         collect_json_records(&page, records)?;
         pages.push(page);
     }
     for spec in chunk_source_specs() {
-        for page in capture_polygon_chunked_log_pages(request, agent, latest_block, spec)? {
+        for page in capture_polygon_chunked_log_pages(request, agent, latest_block, spec, clock)? {
             collect_polygon_chunk_records(&page, records)?;
             pages.push(page);
         }
@@ -51,16 +53,18 @@ pub(crate) fn capture_onchain_edge_cases(
     request: &LargeCorpusRequest,
     agent: &ureq::Agent,
     latest_block: u64,
+    clock: &dyn Clock,
 ) -> Result<Vec<LargeCorpusEdgeCase>> {
     let mut edges = onchain_edge_plans()
         .iter()
-        .map(|plan| capture_post_edge(request, agent, plan))
+        .map(|plan| capture_post_edge(request, agent, plan, clock))
         .collect::<Result<Vec<_>>>()?;
     edges.extend(capture_polygon_chunk_edge_cases(
         request,
         agent,
         latest_block,
         ctf_chunk_spec(),
+        clock,
     )?);
     Ok(edges)
 }
@@ -69,6 +73,7 @@ fn capture_post_page(
     request: &LargeCorpusRequest,
     agent: &ureq::Agent,
     plan: &PostPlan,
+    clock: &dyn Clock,
 ) -> Result<LargeCorpusPage> {
     let dir = request.output_root.join("raw").join(&plan.dataset);
     let body_path = dir.join("page-000000.json");
@@ -83,7 +88,7 @@ fn capture_post_page(
     })?;
     let request_bytes = persist_request(&request_path, &plan.request_body)?;
     let (status_code, bytes, transport_error) =
-        execute_post(agent, plan, &request_bytes, request.max_body_bytes)?;
+        execute_post(agent, plan, &request_bytes, request.max_body_bytes, clock)?;
     fs::write(&body_path, &bytes).map_err(|err| {
         PolyError::raw_source(
             "POLY_LARGE_CORPUS_ONCHAIN_BODY_WRITE_FAILED",
@@ -141,6 +146,7 @@ fn capture_post_edge(
     request: &LargeCorpusRequest,
     agent: &ureq::Agent,
     plan: &PostPlan,
+    clock: &dyn Clock,
 ) -> Result<LargeCorpusEdgeCase> {
     let dir = request.output_root.join("edge").join(&plan.dataset);
     let body_path = dir.join("body.json");
@@ -155,7 +161,7 @@ fn capture_post_edge(
     })?;
     let request_bytes = persist_request(&request_path, &plan.request_body)?;
     let (status_code, bytes, transport_error) =
-        execute_post(agent, plan, &request_bytes, request.max_body_bytes)?;
+        execute_post(agent, plan, &request_bytes, request.max_body_bytes, clock)?;
     fs::write(&body_path, &bytes).map_err(|err| {
         PolyError::raw_source(
             "POLY_LARGE_CORPUS_ONCHAIN_EDGE_BODY_WRITE_FAILED",
@@ -236,9 +242,10 @@ fn execute_post(
     plan: &PostPlan,
     request_body: &[u8],
     max_body_bytes: usize,
+    clock: &dyn Clock,
 ) -> Result<(Option<u16>, Vec<u8>, Option<String>)> {
     let endpoint = RateLimitEndpoint::new(&plan.source, &plan.endpoint, "POST");
-    execute_rate_limited_request(&endpoint, || {
+    execute_rate_limited_request(clock, &endpoint, || {
         let result = agent
             .post(&plan.url)
             .header("Accept", "application/json")

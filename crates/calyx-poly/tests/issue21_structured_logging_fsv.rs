@@ -1,6 +1,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use calyx_core::FixedClock;
 use calyx_poly::edge_audit::{EdgeCaseDriver, EdgeCaseSpec, EdgeInputClass, drive_edge_case};
 use calyx_poly::{
     POLY_LOG_EVENT_RECORDED, POLY_LOG_MAX_CONTEXT_FIELDS, PolyError, PolyLogEvent, PolyLogLevel,
@@ -144,10 +145,12 @@ fn run_case(
 }
 
 fn execute_case(fixture: &Fixture) -> calyx_poly::Result<Value> {
+    let clock = FixedClock::new(1_785_600_021_000);
     match fixture.scenario {
         Scenario::Happy => {
             let sink = StructuredLogSink::new(&fixture.log_path)?;
             let started = PolyLogEvent::info(
+                &clock,
                 "forecast_agent",
                 "write_known_truth_prediction",
                 "POLY_SYNTHETIC_FORECAST_STARTED",
@@ -163,6 +166,7 @@ fn execute_case(fixture: &Fixture) -> calyx_poly::Result<Value> {
                 "synthetic config edge proves what_failed and how_to_fix are logged",
             );
             sink.append_error(
+                &clock,
                 "config",
                 "load_known_truth_fixture",
                 &error,
@@ -170,6 +174,11 @@ fn execute_case(fixture: &Fixture) -> calyx_poly::Result<Value> {
             )?;
             let events = read_structured_log_events(&fixture.log_path)?;
             assert_eq!(events.len(), 2);
+            assert!(
+                events
+                    .iter()
+                    .all(|event| event.timestamp_unix_ms == 1_785_600_021_000)
+            );
             assert_eq!(events[1].level, PolyLogLevel::Error);
             assert!(
                 events[1]
@@ -196,6 +205,7 @@ fn execute_case(fixture: &Fixture) -> calyx_poly::Result<Value> {
         Scenario::EmptyComponent => {
             let sink = StructuredLogSink::new(&fixture.log_path)?;
             let event = PolyLogEvent::info(
+                &clock,
                 "",
                 "validate",
                 "POLY_SYNTHETIC_EMPTY_COMPONENT",
@@ -212,6 +222,7 @@ fn execute_case(fixture: &Fixture) -> calyx_poly::Result<Value> {
                 context.insert(format!("field_{index:02}"), "x".to_string());
             }
             let event = PolyLogEvent::info(
+                &clock,
                 "forecast_agent",
                 "validate_context_limit",
                 "POLY_SYNTHETIC_CONTEXT_LIMIT",

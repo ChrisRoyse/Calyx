@@ -2,6 +2,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use calyx_core::FixedClock;
 use calyx_poly::{
     SCHEMA_DERIVATION_PASSED, SchemaContract, SchemaDerivationRequest,
     read_schema_derivation_report, require_schema_derivation_passed, run_schema_derivation,
@@ -11,6 +12,7 @@ use sha2::{Digest, Sha256};
 
 #[test]
 fn issue174_derives_schema_from_physical_corpus_and_fails_closed_on_edges() {
+    let clock = FixedClock::new(1_785_600_174_000);
     let corpus = write_known_truth_corpus();
 
     let ok_output = corpus.join("schema-ok");
@@ -18,7 +20,9 @@ fn issue174_derives_schema_from_physical_corpus_and_fails_closed_on_edges() {
     ok_request.required_sources = vec!["clob".to_string(), "gamma".to_string()];
     ok_request.required_join_keys =
         vec!["condition_id".to_string(), "token_or_asset_id".to_string()];
-    let ok_report = run_schema_derivation(&ok_request).expect("schema derivation should run");
+    let ok_report =
+        run_schema_derivation(&ok_request, &clock).expect("schema derivation should run");
+    assert_eq!(ok_report.generated_at_unix_ms, 1_785_600_174_000);
     require_schema_derivation_passed(&ok_report).expect("known-truth schema derivation passes");
     assert_eq!(ok_report.status_code, SCHEMA_DERIVATION_PASSED);
     assert!(ok_report.after_files.iter().all(|file| file.exists));
@@ -50,8 +54,8 @@ fn issue174_derives_schema_from_physical_corpus_and_fails_closed_on_edges() {
     ];
     missing_source_request.required_join_keys =
         vec!["condition_id".to_string(), "token_or_asset_id".to_string()];
-    let missing_source_report =
-        run_schema_derivation(&missing_source_request).expect("missing-source report is written");
+    let missing_source_report = run_schema_derivation(&missing_source_request, &clock)
+        .expect("missing-source report is written");
     assert!(!missing_source_report.passed);
     assert_eq!(
         missing_source_report.status_code,
@@ -72,8 +76,8 @@ fn issue174_derives_schema_from_physical_corpus_and_fails_closed_on_edges() {
         "token_or_asset_id".to_string(),
         "transaction_hash".to_string(),
     ];
-    let missing_join_report =
-        run_schema_derivation(&missing_join_request).expect("missing-join report is written");
+    let missing_join_report = run_schema_derivation(&missing_join_request, &clock)
+        .expect("missing-join report is written");
     assert!(!missing_join_report.passed);
     assert_eq!(
         missing_join_report.status_code,

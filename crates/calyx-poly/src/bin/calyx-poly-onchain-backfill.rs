@@ -4,6 +4,7 @@ use std::panic;
 use std::path::PathBuf;
 use std::process;
 
+use calyx_core::SystemClock;
 use calyx_poly::onchain_backfill_lease::{
     DEFAULT_HEARTBEAT_INTERVAL_SECS, DEFAULT_MAX_RUNTIME_SECS, acquire, lease_path_for_output_root,
 };
@@ -78,7 +79,9 @@ fn run() -> calyx_poly::Result<i32> {
     };
     cli.request = cli.request.normalized()?;
     let sink = StructuredLogSink::new(cli.log_path.clone())?;
+    let clock = SystemClock;
     sink.append_event(&PolyLogEvent::info(
+        &clock,
         "onchain_backfill",
         "run",
         "POLY_ONCHAIN_BACKFILL_RUN_STARTED",
@@ -114,23 +117,29 @@ fn run() -> calyx_poly::Result<i32> {
         cli.heartbeat_secs,
         cli.takeover,
         &sink,
+        clock,
     )?;
     let report = if !cli.readback_only {
-        run_onchain_backfill_once_with_readback_scope(cli.request.clone(), cli.readback_scope)
-            .log_error_context(
-                &sink,
-                "onchain_backfill",
-                "capture",
-                log_context(&[
-                    ("state_path", cli.request.state_path.display().to_string()),
-                    ("output_root", cli.request.output_root.display().to_string()),
-                    (
-                        "max_blocks_per_chunk",
-                        cli.request.max_blocks_per_chunk.to_string(),
-                    ),
-                ]),
-            )?
-            .readback
+        run_onchain_backfill_once_with_readback_scope(
+            cli.request.clone(),
+            cli.readback_scope,
+            &clock,
+        )
+        .log_error_context(
+            &clock,
+            &sink,
+            "onchain_backfill",
+            "capture",
+            log_context(&[
+                ("state_path", cli.request.state_path.display().to_string()),
+                ("output_root", cli.request.output_root.display().to_string()),
+                (
+                    "max_blocks_per_chunk",
+                    cli.request.max_blocks_per_chunk.to_string(),
+                ),
+            ]),
+        )?
+        .readback
     } else {
         readback_onchain_backfill_run_scoped(
             &cli.request.output_root,
@@ -138,6 +147,7 @@ fn run() -> calyx_poly::Result<i32> {
             cli.readback_scope,
         )
         .log_error_context(
+            &clock,
             &sink,
             "onchain_backfill",
             "readback",
@@ -147,6 +157,7 @@ fn run() -> calyx_poly::Result<i32> {
     let result = require_onchain_backfill_readback_passed(&report);
     if let Err(error) = &result {
         sink.append_error(
+            &clock,
             "onchain_backfill",
             "require_passed",
             error,
@@ -197,6 +208,7 @@ fn run() -> calyx_poly::Result<i32> {
     );
     result?;
     sink.append_event(&PolyLogEvent::info(
+        &clock,
         "onchain_backfill",
         "require_passed",
         "POLY_ONCHAIN_BACKFILL_READBACK_PASSED",

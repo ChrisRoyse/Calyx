@@ -1,6 +1,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use calyx_core::Clock;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
@@ -88,6 +89,7 @@ pub(crate) fn write_onchain_backfill_state(
     agent: &ureq::Agent,
     latest_block: u64,
     pages: &[LargeCorpusPage],
+    clock: &dyn Clock,
 ) -> Result<(PathBuf, OnchainBackfillState)> {
     if latest_block <= POLYGON_CONFIRMATION_DEPTH_BLOCKS {
         return Err(PolyError::raw_source(
@@ -107,6 +109,7 @@ pub(crate) fn write_onchain_backfill_state(
             latest_safe_block,
             pages,
             spec,
+            clock,
         )?);
     }
     let complete = contracts.iter().all(|contract| contract.coverage_complete);
@@ -141,8 +144,9 @@ fn contract_state(
     latest_safe_block: u64,
     pages: &[LargeCorpusPage],
     spec: ChunkSourceSpec<'_>,
+    clock: &dyn Clock,
 ) -> Result<ContractBackfillState> {
-    let proof = find_first_code_block(request, agent, latest_block, &spec)?;
+    let proof = find_first_code_block(request, agent, latest_block, &spec, clock)?;
     let captured_ranges = captured_ranges(pages, spec.dataset);
     let captured_record_count = captured_ranges.iter().map(|range| range.record_count).sum();
     let planned_block_count = latest_safe_block - proof.first_code_block + 1;
@@ -198,9 +202,10 @@ fn find_first_code_block(
     agent: &ureq::Agent,
     latest_block: u64,
     spec: &ChunkSourceSpec<'_>,
+    clock: &dyn Clock,
 ) -> Result<DeploymentProof> {
     let mut probes = Vec::new();
-    let head_probe = capture_code_probe(request, agent, spec, latest_block, &mut probes)?;
+    let head_probe = capture_code_probe(request, agent, spec, latest_block, &mut probes, clock)?;
     if !head_probe.code_non_empty || head_probe.json_rpc_error.is_some() {
         return Err(PolyError::raw_source(
             "POLY_LARGE_CORPUS_ONCHAIN_BACKFILL_NO_CODE_AT_HEAD",
@@ -214,7 +219,7 @@ fn find_first_code_block(
     let mut high = latest_block;
     while low < high {
         let mid = low + (high - low) / 2;
-        let probe = capture_code_probe(request, agent, spec, mid, &mut probes)?;
+        let probe = capture_code_probe(request, agent, spec, mid, &mut probes, clock)?;
         if probe.json_rpc_error.is_some() {
             return Err(PolyError::raw_source(
                 "POLY_LARGE_CORPUS_ONCHAIN_BACKFILL_CODE_PROBE_ERROR",
@@ -230,9 +235,9 @@ fn find_first_code_block(
             low = mid + 1;
         }
     }
-    let first_probe = capture_code_probe(request, agent, spec, low, &mut probes)?;
+    let first_probe = capture_code_probe(request, agent, spec, low, &mut probes, clock)?;
     let before_probe = (low > 0)
-        .then(|| capture_code_probe(request, agent, spec, low - 1, &mut probes))
+        .then(|| capture_code_probe(request, agent, spec, low - 1, &mut probes, clock))
         .transpose()?;
     let before_has_code = before_probe.as_ref().map(|probe| probe.code_non_empty);
     let verified = first_probe.code_non_empty && before_has_code != Some(true);
@@ -257,6 +262,7 @@ fn capture_code_probe(
     spec: &ChunkSourceSpec<'_>,
     block: u64,
     probes: &mut Vec<CodeProbeSummary>,
+    clock: &dyn Clock,
 ) -> Result<CodeProbeSummary> {
     let index = probes.len();
     let dir = request
@@ -274,6 +280,7 @@ fn capture_code_probe(
     let request_value = json_rpc("eth_getCode", json!([spec.address, hex_block(block)]));
     let request_bytes = persist_json(&request_path, &request_value)?;
     let (status_code, response_bytes, transport_error) = execute_post(
+        clock,
         agent,
         spec.rpc_url,
         &request_bytes,

@@ -1,6 +1,7 @@
 use std::collections::BTreeMap;
 use std::fs;
 
+use calyx_core::Clock;
 use serde::{Deserialize, Serialize};
 
 use crate::rate_limit_governor::{
@@ -65,8 +66,9 @@ pub(crate) fn build_docs_index_coverage(
     agent: &ureq::Agent,
     samples: &[RawEndpointSample],
     coverage: &RawSourceCoverage,
+    clock: &dyn Clock,
 ) -> Result<RawDocsIndexCoverage> {
-    let snapshot = capture_docs_index(request, agent)?;
+    let snapshot = capture_docs_index(request, agent, clock)?;
     let text = fs::read_to_string(&snapshot.body_path).map_err(|err| {
         PolyError::raw_source(
             "POLY_RAW_SOURCE_DOCS_INDEX_READBACK_FAILED",
@@ -107,7 +109,7 @@ pub(crate) fn build_docs_index_coverage(
     let passed = failure.is_none();
     Ok(RawDocsIndexCoverage {
         schema_version: DOCS_COVERAGE_SCHEMA_VERSION.to_string(),
-        captured_at_unix_ms: now_unix_ms()?,
+        captured_at_unix_ms: now_unix_ms(clock),
         docs_index: snapshot,
         row_count: rows.len(),
         classification_counts,
@@ -136,6 +138,7 @@ pub(crate) fn docs_coverage_failure(coverage: &RawDocsIndexCoverage) -> Option<R
 fn capture_docs_index(
     request: &RawSourceSamplingRequest,
     agent: &ureq::Agent,
+    clock: &dyn Clock,
 ) -> Result<RawDocsIndexSnapshot> {
     let sample_dir = request.output_root.join("raw").join("docs-index");
     let body_path = sample_dir.join("llms.txt");
@@ -160,7 +163,7 @@ fn capture_docs_index(
         )
     })?;
     let endpoint = RateLimitEndpoint::new("docs-index", "llms.txt", "GET");
-    let (status_code, bytes) = execute_rate_limited_request(&endpoint, || {
+    let (status_code, bytes) = execute_rate_limited_request(clock, &endpoint, || {
         let mut response = agent
             .get(DOCS_INDEX_URL)
             .header("Accept", "text/plain")

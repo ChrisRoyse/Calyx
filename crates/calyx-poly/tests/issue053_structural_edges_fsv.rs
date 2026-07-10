@@ -36,8 +36,8 @@ fn issue053_structural_edges_fsv() {
         persist_structural_edges_to_graph(&vault, COLLECTION, &inputs)
             .expect("persist structural graph")
     };
-    assert_eq!(run.computed.input_count, 6);
-    assert_eq!(edge_count(&run, EDGE_YES_NO_COMPLEMENT), 2);
+    assert_eq!(run.computed.input_count, 9);
+    assert_eq!(edge_count(&run, EDGE_YES_NO_COMPLEMENT), 8);
     assert_eq!(edge_count(&run, EDGE_NEGRISK_SIBLING), 6);
     assert_eq!(edge_count(&run, EDGE_EVENT_SIBLING), 12);
     assert_eq!(edge_count(&run, EDGE_NESTED_DATE_CONTAINS), 1);
@@ -145,6 +145,87 @@ fn edge_cases_fail_closed(root: &Path) -> Vec<Value> {
     assert!(has_absence(&incomplete, "incomplete_negrisk_set"));
     assert_eq!(edge_count_set(&incomplete, EDGE_NEGRISK_SIBLING), 0);
 
+    let deduplicated = compute_structural_edges(&[
+        market(
+            31,
+            "nr-a",
+            0,
+            Some("nr-dedup"),
+            true,
+            Some(3),
+            Some(0.20),
+            None,
+        ),
+        market(
+            32,
+            "nr-a",
+            0,
+            Some("nr-dedup"),
+            true,
+            Some(3),
+            Some(0.99),
+            None,
+        ),
+        market(
+            33,
+            "nr-a",
+            1,
+            Some("nr-dedup"),
+            true,
+            Some(3),
+            Some(0.80),
+            None,
+        ),
+        market(
+            34,
+            "nr-b",
+            0,
+            Some("nr-dedup"),
+            true,
+            Some(3),
+            Some(0.30),
+            None,
+        ),
+        market(
+            35,
+            "nr-b",
+            1,
+            Some("nr-dedup"),
+            true,
+            Some(3),
+            Some(0.70),
+            None,
+        ),
+        market(
+            36,
+            "nr-c",
+            0,
+            Some("nr-dedup"),
+            true,
+            Some(3),
+            Some(0.50),
+            None,
+        ),
+        market(
+            37,
+            "nr-c",
+            1,
+            Some("nr-dedup"),
+            true,
+            Some(3),
+            Some(0.50),
+            None,
+        ),
+    ])
+    .expect("negRisk uses one YES token per condition");
+    let neg_edges = deduplicated
+        .edges
+        .iter()
+        .filter(|edge| edge.edge_type == EDGE_NEGRISK_SIBLING)
+        .collect::<Vec<_>>();
+    assert_eq!(neg_edges.len(), 6);
+    assert!(neg_edges.iter().all(|edge| edge.residual == Some(0.0)));
+
     let lonely = compute_structural_edges(&[market(
         23,
         "lonely-event",
@@ -174,6 +255,7 @@ fn edge_cases_fail_closed(root: &Path) -> Vec<Value> {
     let edge_report = json!({
         "single_outcome_market": single,
         "incomplete_negrisk_set": incomplete,
+        "negrisk_yes_only_deduplicated": deduplicated,
         "missing_sibling": lonely,
         "non_finite_price": bad.diagnostic()
     });
@@ -181,6 +263,7 @@ fn edge_cases_fail_closed(root: &Path) -> Vec<Value> {
     vec![
         json!({"case": "single_outcome_market", "after": edge_report["single_outcome_market"]}),
         json!({"case": "incomplete_negrisk_set", "after": edge_report["incomplete_negrisk_set"]}),
+        json!({"case": "negrisk_yes_only_deduplicated", "after": edge_report["negrisk_yes_only_deduplicated"]}),
         json!({"case": "missing_sibling", "after": edge_report["missing_sibling"]}),
         json!({"case": "non_finite_price", "after": edge_report["non_finite_price"]}),
     ]
@@ -202,8 +285,18 @@ fn happy_inputs() -> Vec<StructuralMarketInput> {
         ),
         market(
             4,
-            "election-b",
+            "election-a",
             1,
+            Some("event-election"),
+            true,
+            Some(3),
+            Some(0.80),
+            None,
+        ),
+        market(
+            5,
+            "election-b",
+            0,
             Some("event-election"),
             true,
             Some(3),
@@ -211,9 +304,19 @@ fn happy_inputs() -> Vec<StructuralMarketInput> {
             None,
         ),
         market(
-            5,
+            6,
+            "election-b",
+            1,
+            Some("event-election"),
+            true,
+            Some(3),
+            Some(0.70),
+            None,
+        ),
+        market(
+            7,
             "election-c",
-            2,
+            0,
             Some("event-election"),
             true,
             Some(3),
@@ -221,7 +324,17 @@ fn happy_inputs() -> Vec<StructuralMarketInput> {
             None,
         ),
         market(
-            6,
+            8,
+            "election-c",
+            1,
+            Some("event-election"),
+            true,
+            Some(3),
+            Some(0.55),
+            None,
+        ),
+        market(
+            9,
             "election-parent-month",
             0,
             Some("event-election"),

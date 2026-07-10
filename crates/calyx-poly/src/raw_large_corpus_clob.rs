@@ -1,6 +1,7 @@
 use std::fs;
 use std::path::Path;
 
+use calyx_core::Clock;
 use serde_json::Value;
 
 use crate::rate_limit_governor::{
@@ -22,6 +23,7 @@ pub(crate) fn capture_clob_market_data(
     targets: &[ClobTarget],
     pages: &mut Vec<LargeCorpusPage>,
     records: &mut Vec<CorpusRecord>,
+    clock: &dyn Clock,
 ) -> Result<()> {
     if targets.is_empty() {
         return Err(PolyError::raw_source(
@@ -31,11 +33,11 @@ pub(crate) fn capture_clob_market_data(
     }
     for (index, target) in targets.iter().enumerate() {
         for plan in get_plans(target) {
-            capture_clob_page(request, agent, &plan, index, pages, records)?;
+            capture_clob_page(request, agent, &plan, index, pages, records, clock)?;
         }
     }
     for plan in post_plans(targets) {
-        capture_clob_page(request, agent, &plan, 0, pages, records)?;
+        capture_clob_page(request, agent, &plan, 0, pages, records, clock)?;
     }
     Ok(())
 }
@@ -44,6 +46,7 @@ pub(crate) fn capture_clob_edge_cases(
     request: &LargeCorpusRequest,
     agent: &ureq::Agent,
     targets: &[ClobTarget],
+    clock: &dyn Clock,
 ) -> Result<Vec<LargeCorpusEdgeCase>> {
     let target = targets.first().ok_or_else(|| {
         PolyError::raw_source(
@@ -86,7 +89,7 @@ pub(crate) fn capture_clob_edge_cases(
     ];
     edges
         .iter()
-        .map(|plan| capture_clob_edge(request, agent, plan))
+        .map(|plan| capture_clob_edge(request, agent, plan, clock))
         .collect()
 }
 
@@ -97,6 +100,7 @@ fn capture_clob_page(
     page_index: usize,
     pages: &mut Vec<LargeCorpusPage>,
     records: &mut Vec<CorpusRecord>,
+    clock: &dyn Clock,
 ) -> Result<()> {
     let dir = request.output_root.join("raw").join(plan.dataset);
     let body_path = dir.join(format!("page-{page_index:06}.json"));
@@ -117,6 +121,7 @@ fn capture_clob_page(
         &plan.url,
         request_bytes.as_deref(),
         request.max_body_bytes,
+        clock,
     )?;
     fs::write(&body_path, &bytes).map_err(|err| {
         PolyError::raw_source(
@@ -184,6 +189,7 @@ fn capture_clob_edge(
     request: &LargeCorpusRequest,
     agent: &ureq::Agent,
     plan: &ClobCapturePlan,
+    clock: &dyn Clock,
 ) -> Result<LargeCorpusEdgeCase> {
     let dir = request.output_root.join("edge").join(plan.dataset);
     let body_path = dir.join("body.json");
@@ -204,6 +210,7 @@ fn capture_clob_edge(
         &plan.url,
         request_bytes.as_deref(),
         request.max_body_bytes,
+        clock,
     )?;
     fs::write(&body_path, &bytes).map_err(|err| {
         PolyError::raw_source(
@@ -307,9 +314,10 @@ fn execute_clob_request(
     url: &str,
     request_body: Option<&[u8]>,
     limit: usize,
+    clock: &dyn Clock,
 ) -> Result<(Option<u16>, Vec<u8>)> {
     let endpoint = RateLimitEndpoint::new("clob", endpoint_name, method);
-    execute_rate_limited_request(&endpoint, || {
+    execute_rate_limited_request(clock, &endpoint, || {
         let result = match method {
             "GET" => agent.get(url).header("Accept", "application/json").call(),
             "POST" => {

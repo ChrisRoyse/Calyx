@@ -213,14 +213,20 @@ fn compute_negrisk_edges(
     edges: &mut Vec<StructuralEdge>,
     absent: &mut Vec<StructuralAbsence>,
 ) -> Result<()> {
-    let neg = group
-        .iter()
-        .copied()
-        .filter(|m| m.neg_risk)
-        .collect::<Vec<_>>();
-    if neg.is_empty() {
+    if !group.iter().any(|market| market.neg_risk) {
         return Ok(());
     }
+    let mut by_condition = BTreeMap::new();
+    for market in group
+        .iter()
+        .copied()
+        .filter(|market| market.neg_risk && market.outcome_index == 0)
+    {
+        by_condition
+            .entry(market.condition_id.as_str())
+            .or_insert(market);
+    }
+    let neg = by_condition.values().copied().collect::<Vec<_>>();
     let expected = neg
         .iter()
         .filter_map(|m| m.expected_neg_risk_outcomes)

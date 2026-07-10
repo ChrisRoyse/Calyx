@@ -1,6 +1,7 @@
 use std::fs;
 use std::path::Path;
 
+use calyx_core::Clock;
 use serde_json::Value;
 
 use crate::rate_limit_governor::{
@@ -12,6 +13,7 @@ use crate::{PolyError, Result};
 const HF_TREE_MAX_PAGES: usize = 100;
 
 pub(crate) fn execute_get(
+    clock: &dyn Clock,
     agent: &ureq::Agent,
     name: &str,
     url: &str,
@@ -19,10 +21,10 @@ pub(crate) fn execute_get(
     max_body_bytes: u64,
 ) -> Result<(Option<u16>, Vec<u8>, Option<String>)> {
     if matches!(format, HistoricalFormat::HfTreeJson) {
-        return execute_hf_tree_get(agent, name, url, max_body_bytes);
+        return execute_hf_tree_get(clock, agent, name, url, max_body_bytes);
     }
     let endpoint = RateLimitEndpoint::new("historical-dump", name, "GET");
-    execute_rate_limited_request(&endpoint, || {
+    execute_rate_limited_request(clock, &endpoint, || {
         let result = agent.get(url).header("Accept", "*/*").call();
         let mut status_code = None;
         let mut retry_after_ms = None;
@@ -60,6 +62,7 @@ pub(crate) fn execute_get(
 }
 
 fn execute_hf_tree_get(
+    clock: &dyn Clock,
     agent: &ureq::Agent,
     name: &str,
     url: &str,
@@ -80,7 +83,7 @@ fn execute_hf_tree_get(
             ));
         }
         let (page_status, page_bytes, next_from_header, transport_error) =
-            execute_rate_limited_request(&endpoint, || {
+            execute_rate_limited_request(clock, &endpoint, || {
                 let result = agent
                     .get(&page_url)
                     .header("Accept", "application/json")

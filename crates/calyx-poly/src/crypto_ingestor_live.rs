@@ -1,8 +1,7 @@
 use std::collections::BTreeSet;
 use std::path::Path;
-use std::time::{SystemTime, UNIX_EPOCH};
 
-use calyx_core::{CxId, VaultId, VaultStore};
+use calyx_core::{Clock, CxId, VaultId, VaultStore};
 
 use crate::clob_client::{ClobClient, ClobClientConfig};
 use crate::crypto_forecast_registration::{
@@ -45,13 +44,14 @@ pub fn run_live_crypto_ingestion_cycle<S>(
     vault_salt: &[u8],
     output_root: &Path,
     config: CryptoIngestorConfig,
+    clock: &dyn Clock,
 ) -> Result<CryptoLiveCaptureRun>
 where
     S: VaultStore + PendingForecastLedgerStore,
 {
     reject_forbidden_drive(output_root)?;
     validate_config(&config)?;
-    let captured_ts = capture_ts(config.captured_ts)?;
+    let captured_ts = capture_ts(config.captured_ts, clock)?;
     let gamma = GammaClient::new(GammaClientConfig::default())?;
     let gamma_page =
         gamma.fetch_markets(&GammaMarketsRequest::crypto_active(config.market_limit))?;
@@ -70,7 +70,12 @@ where
     let holders = data.fetch_holders(&market.condition_id, config.holder_limit)?;
     let trades = data.fetch_trades_by_market(&market.condition_id, config.trade_limit, 0)?;
     let ws_report = if config.capture_ws {
-        Some(capture_ws_report(output_root, &tokens, &config.ws_config)?)
+        Some(capture_ws_report(
+            output_root,
+            &tokens,
+            &config.ws_config,
+            clock,
+        )?)
     } else {
         None
     };
@@ -172,10 +177,11 @@ fn capture_ws_report(
     output_root: &Path,
     tokens: &[String],
     config: &MarketWsClientConfig,
+    clock: &dyn Clock,
 ) -> Result<MarketWsCaptureReport> {
     let subscription = MarketWsSubscription::new(tokens.to_vec());
     let client = MarketWsClient::new(config.clone())?;
-    let session = client.capture_window(&subscription, 0)?;
+    let session = client.capture_window(&subscription, 0, clock)?;
     require_market_ws_session_data(&session, config)?;
     write_market_ws_capture_report(
         &output_root.join("market-ws"),
@@ -205,7 +211,7 @@ pub fn select_crypto_capture_market<'a>(
     markets
         .iter()
         .filter(|market| {
-            market.enable_order_book.unwrap_or(true)
+            market.enable_order_book == Some(true)
                 && !excluded_condition_ids.contains(&market.condition_id.to_ascii_lowercase())
                 && market.outcome_shape == GammaOutcomeShape::Binary
                 && market.clob_token_ids.len() >= 2
@@ -306,12 +312,23 @@ fn validate_config(config: &CryptoIngestorConfig) -> Result<()> {
     Ok(())
 }
 
-fn capture_ts(value: u64) -> Result<u64> {
+fn capture_ts(value: u64, clock: &dyn Clock) -> Result<u64> {
     if value != 0 {
         return Ok(value);
     }
-    Ok(SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_err(|err| ingestor_error(ERR_CRYPTO_INGESTOR_INVALID_CONFIG, err.to_string()))?
-        .as_secs())
+    Ok(clock.now() / 1_000)
+}
+
+#[cfg(test)]
+mod tests {
+    use calyx_core::FixedClock;
+
+    use super::capture_ts;
+
+    #[test]
+    fn issue1394_default_capture_timestamp_uses_injected_clock() {
+        let clock = FixedClock::new(1_785_600_123_999);
+        assert_eq!(capture_ts(0, &clock).unwrap(), 1_785_600_123);
+        assert_eq!(capture_ts(42, &clock).unwrap(), 42);
+    }
 }

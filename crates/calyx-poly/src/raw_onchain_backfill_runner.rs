@@ -3,6 +3,8 @@ use std::fs;
 use std::path::Path;
 use std::time::Duration;
 
+use calyx_core::Clock;
+
 use crate::raw_large_corpus::LargeCorpusPage;
 use crate::raw_large_corpus_onchain_backfill::{
     CapturedRangeState, ContractBackfillState, ONCHAIN_BACKFILL_SCHEMA_VERSION,
@@ -34,19 +36,26 @@ pub struct OnchainBackfillRunOutcome {
 
 pub fn run_onchain_backfill_once(
     request: OnchainBackfillRunRequest,
+    clock: &dyn Clock,
 ) -> Result<OnchainBackfillRunReport> {
-    Ok(run_onchain_backfill_once_with_readback(request)?.report)
+    Ok(run_onchain_backfill_once_with_readback(request, clock)?.report)
 }
 
 pub fn run_onchain_backfill_once_with_readback(
     request: OnchainBackfillRunRequest,
+    clock: &dyn Clock,
 ) -> Result<OnchainBackfillRunOutcome> {
-    run_onchain_backfill_once_with_readback_scope(request, OnchainBackfillReadbackScope::Full)
+    run_onchain_backfill_once_with_readback_scope(
+        request,
+        OnchainBackfillReadbackScope::Full,
+        clock,
+    )
 }
 
 pub fn run_onchain_backfill_once_with_readback_scope(
     request: OnchainBackfillRunRequest,
     readback_scope: OnchainBackfillReadbackScope,
+    clock: &dyn Clock,
 ) -> Result<OnchainBackfillRunOutcome> {
     let request = request.normalized()?;
     let chunk_blocks = request.max_blocks_per_chunk;
@@ -103,7 +112,7 @@ pub fn run_onchain_backfill_once_with_readback_scope(
             })?;
             let plan =
                 ChunkPlan::within_limit(spec, from_block, to_block, chunk_index, chunk_count);
-            let page = capture_chunk_page(&capture_request, &agent, &spec, &plan)?;
+            let page = capture_chunk_page(&capture_request, &agent, &spec, &plan, clock)?;
             if !page.expectation_met {
                 return Err(PolyError::raw_source(
                     "POLY_ONCHAIN_BACKFILL_CHUNK_EXPECTATION_FAILED",

@@ -1,5 +1,7 @@
 use crate::raw_clob_post_probes::{add_clob_batch_probes, clob_batch_edge_probes};
+pub(crate) use crate::raw_source_probe_docs::docs;
 use crate::raw_sources::RawJoinMap;
+use crate::raw_url::encode_component;
 use serde_json::Value;
 
 #[derive(Debug, Clone)]
@@ -150,11 +152,12 @@ pub(crate) fn initial_probes() -> Vec<Probe> {
 pub(crate) fn dynamic_probes(join: &RawJoinMap) -> Vec<Probe> {
     let mut probes = Vec::new();
     if let Some(token) = &join.token_id {
+        let encoded_token = encode_component(token);
         probes.push(probe(
             "clob_book_by_token",
             "clob",
             "book",
-            format!("https://clob.polymarket.com/book?token_id={token}"),
+            format!("https://clob.polymarket.com/book?token_id={encoded_token}"),
             "https://docs.polymarket.com/api-reference/market-data/get-order-book",
             true,
             false,
@@ -163,7 +166,7 @@ pub(crate) fn dynamic_probes(join: &RawJoinMap) -> Vec<Probe> {
             "clob_price_buy_by_token",
             "clob",
             "price",
-            format!("https://clob.polymarket.com/price?token_id={token}&side=BUY"),
+            format!("https://clob.polymarket.com/price?token_id={encoded_token}&side=BUY"),
             "https://docs.polymarket.com/api-reference/market-data/get-market-price",
             true,
             false,
@@ -172,7 +175,7 @@ pub(crate) fn dynamic_probes(join: &RawJoinMap) -> Vec<Probe> {
             "clob_price_sell_by_token",
             "clob",
             "price",
-            format!("https://clob.polymarket.com/price?token_id={token}&side=SELL"),
+            format!("https://clob.polymarket.com/price?token_id={encoded_token}&side=SELL"),
             "https://docs.polymarket.com/api-reference/market-data/get-market-price",
             true,
             false,
@@ -181,7 +184,7 @@ pub(crate) fn dynamic_probes(join: &RawJoinMap) -> Vec<Probe> {
             "clob_midpoint_by_token",
             "clob",
             "midpoint",
-            format!("https://clob.polymarket.com/midpoint?token_id={token}"),
+            format!("https://clob.polymarket.com/midpoint?token_id={encoded_token}"),
             "https://docs.polymarket.com/api-reference/data/get-midpoint-price",
             true,
             false,
@@ -190,7 +193,7 @@ pub(crate) fn dynamic_probes(join: &RawJoinMap) -> Vec<Probe> {
             "clob_spread_by_token",
             "clob",
             "spread",
-            format!("https://clob.polymarket.com/spread?token_id={token}"),
+            format!("https://clob.polymarket.com/spread?token_id={encoded_token}"),
             "https://docs.polymarket.com/api-reference/market-data/get-spread",
             true,
             false,
@@ -199,7 +202,7 @@ pub(crate) fn dynamic_probes(join: &RawJoinMap) -> Vec<Probe> {
             "clob_last_trade_by_token",
             "clob",
             "last-trade-price",
-            format!("https://clob.polymarket.com/last-trade-price?token_id={token}"),
+            format!("https://clob.polymarket.com/last-trade-price?token_id={encoded_token}"),
             "https://docs.polymarket.com/api-reference/market-data/get-last-trade-price",
             true,
             false,
@@ -208,12 +211,12 @@ pub(crate) fn dynamic_probes(join: &RawJoinMap) -> Vec<Probe> {
             "clob_tick_size_by_token",
             "clob",
             "tick-size",
-            format!("https://clob.polymarket.com/tick-size?token_id={token}"),
+            format!("https://clob.polymarket.com/tick-size?token_id={encoded_token}"),
             "https://docs.polymarket.com/api-reference/market-data/get-tick-size",
             true,
             false,
         ));
-        probes.push(probe("clob_prices_history_by_token", "clob", "prices-history", format!("https://clob.polymarket.com/prices-history?market={token}&interval=1d&fidelity=1440"), "https://docs.polymarket.com/api-reference/markets/get-prices-history", true, false));
+        probes.push(probe("clob_prices_history_by_token", "clob", "prices-history", format!("https://clob.polymarket.com/prices-history?market={encoded_token}&interval=1d&fidelity=1440"), "https://docs.polymarket.com/api-reference/markets/get-prices-history", true, false));
         let mut tokens = vec![token.clone()];
         if let Some(opposite) = &join.opposite_token_id {
             tokens.push(opposite.clone());
@@ -221,6 +224,7 @@ pub(crate) fn dynamic_probes(join: &RawJoinMap) -> Vec<Probe> {
         add_clob_batch_probes(&mut probes, &tokens);
     }
     if let Some(condition) = &join.condition_id {
+        let condition = encode_component(condition);
         probes.push(probe(
             "clob_market_info_by_condition",
             "clob",
@@ -259,6 +263,7 @@ pub(crate) fn dynamic_probes(join: &RawJoinMap) -> Vec<Probe> {
         ));
     }
     if let Some(user) = &join.trade_user_address {
+        let user = encode_component(user);
         probes.push(probe(
             "data_positions_by_user",
             "data-api",
@@ -297,6 +302,7 @@ pub(crate) fn dynamic_probes(join: &RawJoinMap) -> Vec<Probe> {
         ));
     }
     if let Some(event_id) = &join.event_id {
+        let event_id = encode_component(event_id);
         probes.push(probe("gamma_comments_by_event", "gamma", "comments", format!("https://gamma-api.polymarket.com/comments?limit=25&parent_entity_type=Event&parent_entity_id={event_id}"), "https://docs.polymarket.com/api-reference/comments/list-comments", true, false));
         probes.push(probe(
             "data_live_volume_by_event",
@@ -396,6 +402,7 @@ pub(crate) fn edge_probes(join: &RawJoinMap) -> Vec<Probe> {
         ),
     ];
     if let Some(condition) = &join.condition_id {
+        let condition = encode_component(condition);
         probes.push(probe(
             "edge_data_holders_zero_limit",
             "data-api",
@@ -410,43 +417,6 @@ pub(crate) fn edge_probes(join: &RawJoinMap) -> Vec<Probe> {
         probes.extend(clob_batch_edge_probes(token));
     }
     probes
-}
-
-pub(crate) fn docs() -> Vec<String> {
-    vec![
-        "https://docs.polymarket.com/llms.txt".to_string(),
-        "https://docs.polymarket.com/api-reference/introduction".to_string(),
-        "https://docs.polymarket.com/api-reference/markets/list-markets".to_string(),
-        "https://docs.polymarket.com/api-reference/search/search-markets-events-and-profiles"
-            .to_string(),
-        "https://docs.polymarket.com/api-reference/market-data/get-order-book".to_string(),
-        "https://docs.polymarket.com/trading/orderbook".to_string(),
-        "https://docs.polymarket.com/api-reference/market-data/get-order-books-request-body"
-            .to_string(),
-        "https://docs.polymarket.com/api-reference/market-data/get-market-prices-request-body"
-            .to_string(),
-        "https://docs.polymarket.com/api-reference/market-data/get-midpoint-prices-request-body"
-            .to_string(),
-        "https://docs.polymarket.com/api-reference/market-data/get-spreads".to_string(),
-        "https://docs.polymarket.com/api-reference/market-data/get-last-trade-prices-request-body"
-            .to_string(),
-        "https://docs.polymarket.com/api-reference/markets/get-batch-prices-history".to_string(),
-        "https://docs.polymarket.com/api-reference/core/get-user-activity".to_string(),
-        "https://docs.polymarket.com/market-data/websocket/overview".to_string(),
-        "https://docs.polymarket.com/market-data/websocket/market-channel".to_string(),
-        "https://docs.polymarket.com/api-reference/wss/market".to_string(),
-        "https://docs.polymarket.com/market-data/websocket/sports".to_string(),
-        "https://docs.polymarket.com/api-reference/wss/sports".to_string(),
-        "https://docs.polymarket.com/market-data/websocket/rtds".to_string(),
-        "https://docs.polymarket.com/resources/contracts".to_string(),
-        "https://docs.polymarket.com/v2-migration".to_string(),
-        "https://docs.goldsky.com/chains/polymarket".to_string(),
-        "https://thegraph.com/docs/en/subgraphs/guides/polymarket/".to_string(),
-        "https://huggingface.co/datasets/SimpleFunctions/settled-markets".to_string(),
-        "https://huggingface.co/datasets/cognocracy-agent/polymarket-gamma-dataset".to_string(),
-        "https://huggingface.co/datasets/TimeSeventeen/Polymarket-v1".to_string(),
-        "https://huggingface.co/docs/hub/api".to_string(),
-    ]
 }
 
 fn probe(

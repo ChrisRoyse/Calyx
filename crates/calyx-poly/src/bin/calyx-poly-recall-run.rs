@@ -27,6 +27,7 @@ use std::fs;
 use std::path::PathBuf;
 use std::process;
 
+use calyx_core::SystemClock;
 use calyx_lodestar::{KernelGraphParams, KernelParams, RecallTestParams};
 use calyx_poly::resolved_market_corpus::{LocalRecallRunParams, run_local_computed_kernel_recall};
 use calyx_poly::resolved_market_gamma_loader::load_admissible_markets;
@@ -77,7 +78,9 @@ fn run() -> calyx_poly::Result<i32> {
         return Ok(0);
     };
     let sink = StructuredLogSink::new(cli.log_path.clone())?;
+    let clock = SystemClock;
     sink.append_event(&PolyLogEvent::info(
+        &clock,
         "recall_run",
         "start",
         "POLY_RECALL_RUN_STARTED",
@@ -130,7 +133,7 @@ fn run() -> calyx_poly::Result<i32> {
                 census.rejected_lookahead,
             ),
         );
-        sink.append_error("recall_run", "admit", &err, census_ctx)?;
+        sink.append_error(&clock, "recall_run", "admit", &err, census_ctx)?;
         println!(
             "{}",
             serde_json::to_string_pretty(
@@ -142,6 +145,7 @@ fn run() -> calyx_poly::Result<i32> {
     }
 
     sink.append_event(&PolyLogEvent::info(
+        &clock,
         "recall_run",
         "admit",
         "POLY_RECALL_RUN_CORPUS_ADMITTED",
@@ -196,6 +200,7 @@ fn run() -> calyx_poly::Result<i32> {
     println!("{stdout}");
 
     sink.append_event(&PolyLogEvent::info(
+        &clock,
         "recall_run",
         "measured",
         if recall.gate_passed {

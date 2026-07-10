@@ -10,7 +10,7 @@ use std::path::Path;
 
 use calyx_aster::cf::{ColumnFamily, ledger_key};
 use calyx_aster::vault::{AsterVault, VaultOptions};
-use calyx_core::{CxId, SlotId, SlotVector, VaultId, VaultStore};
+use calyx_core::{CxId, FixedClock, SlotId, SlotVector, VaultId, VaultStore};
 use calyx_ledger::{EntryKind, decode as decode_ledger};
 use calyx_poly::crypto_ingestor::{
     CRYPTO_INGESTOR_SCHEMA_VERSION, CryptoIngestorConfig, CryptoMarketInputs,
@@ -215,9 +215,16 @@ fn issue038_live_crypto_capture_cycle_fsv() {
         },
         ..CryptoIngestorConfig::default()
     };
-    let run =
-        run_live_crypto_ingestion_cycle(&vault, &mut register, vault_id, VAULT_SALT, &root, config)
-            .expect("live crypto ingestion");
+    let run = run_live_crypto_ingestion_cycle(
+        &vault,
+        &mut register,
+        vault_id,
+        VAULT_SALT,
+        &root,
+        config,
+        &FixedClock::new(1_785_600_038_000),
+    )
+    .expect("live crypto ingestion");
     vault.flush().unwrap();
     assert!(run.run.token_count >= 1);
     persist_live_sources(&root, &run);

@@ -1,5 +1,6 @@
 use std::fs;
 
+use calyx_core::Clock;
 use serde_json::Value;
 
 use crate::rate_limit_governor::{
@@ -16,6 +17,7 @@ pub(crate) fn capture_http_probe(
     request: &RawSourceSamplingRequest,
     agent: &ureq::Agent,
     probe: &Probe,
+    clock: &dyn Clock,
 ) -> Result<(RawEndpointSample, serde_json::Result<Value>)> {
     let sample_dir = request
         .output_root
@@ -48,8 +50,13 @@ pub(crate) fn capture_http_probe(
     })?;
     let request_body_bytes = persist_request_body(probe, &request_path)?;
     verify_request_body_readback(probe, &request_path, request_body_bytes.as_deref())?;
-    let (status_code, bytes, transport_error) =
-        execute_http_probe(agent, probe, request_body_bytes.as_deref(), max_body_bytes)?;
+    let (status_code, bytes, transport_error) = execute_http_probe(
+        agent,
+        probe,
+        request_body_bytes.as_deref(),
+        max_body_bytes,
+        clock,
+    )?;
     persist_response_body(&body_path, &bytes)?;
 
     let parsed = serde_json::from_slice::<Value>(&bytes);
@@ -163,9 +170,10 @@ fn execute_http_probe(
     probe: &Probe,
     request_body_bytes: Option<&[u8]>,
     max_body_bytes: u64,
+    clock: &dyn Clock,
 ) -> Result<(Option<u16>, Vec<u8>, Option<String>)> {
     let endpoint = RateLimitEndpoint::new(&probe.source, &probe.endpoint, &probe.method);
-    execute_rate_limited_request(&endpoint, || {
+    execute_rate_limited_request(clock, &endpoint, || {
         let result = match probe.method.as_str() {
             "GET" => agent
                 .get(&probe.url)

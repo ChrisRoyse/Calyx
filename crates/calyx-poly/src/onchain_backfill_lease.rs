@@ -24,6 +24,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
+use calyx_core::Clock;
 use serde::{Deserialize, Serialize};
 
 use crate::raw_source_support::now_unix_ms;
@@ -176,21 +177,26 @@ impl Drop for LeaseGuard {
 /// Acquire the lease for the current process, reaping a stale prior lease or
 /// refusing a live one. On success spawns the heartbeat + max-runtime watchdog
 /// and returns a guard that releases the lease on drop.
-pub fn acquire(
+pub fn acquire<C>(
     lease_path: &Path,
     command: String,
     max_runtime_secs: u64,
     heartbeat_interval_secs: u64,
     takeover: bool,
     sink: &StructuredLogSink,
-) -> Result<LeaseGuard> {
-    let now = now_unix_ms()?;
+    clock: C,
+) -> Result<LeaseGuard>
+where
+    C: Clock + Clone + 'static,
+{
+    let now = now_unix_ms(&clock);
     let existing = read_lease(lease_path)?;
     match acquire_decision(existing.as_ref(), now, takeover) {
         AcquireDecision::Proceed => {}
         AcquireDecision::Reap(reason) => {
             let prior = existing.as_ref();
             sink.append_event(&PolyLogEvent::new(
+                &clock,
                 crate::PolyLogLevel::Warn,
                 "onchain_backfill",
                 "lease_reap",
@@ -230,6 +236,7 @@ pub fn acquire(
     let lease = BackfillLease::new(command, now, heartbeat_interval_secs, max_runtime_secs);
     write_lease_atomic(lease_path, &lease)?;
     sink.append_event(&PolyLogEvent::info(
+        &clock,
         "onchain_backfill",
         "lease_acquire",
         CODE_LEASE_ACQUIRED,
@@ -245,12 +252,18 @@ pub fn acquire(
 
     let stop = Arc::new(AtomicBool::new(false));
     let handles = vec![
-        spawn_heartbeat(lease_path.to_path_buf(), lease.clone(), Arc::clone(&stop)),
+        spawn_heartbeat(
+            lease_path.to_path_buf(),
+            lease.clone(),
+            Arc::clone(&stop),
+            clock.clone(),
+        ),
         spawn_watchdog(
             lease_path.to_path_buf(),
             lease.clone(),
             Arc::clone(&stop),
             sink.clone(),
+            clock,
         ),
     ];
 
@@ -261,37 +274,40 @@ pub fn acquire(
     })
 }
 
-fn spawn_heartbeat(
+fn spawn_heartbeat<C>(
     path: PathBuf,
     mut lease: BackfillLease,
     stop: Arc<AtomicBool>,
-) -> JoinHandle<()> {
+    clock: C,
+) -> JoinHandle<()>
+where
+    C: Clock + 'static,
+{
     let tick = Duration::from_secs(lease.heartbeat_interval_secs.max(1));
     thread::spawn(move || {
         loop {
             if sleep_until_stop(&stop, tick) {
                 return;
             }
-            match now_unix_ms() {
-                Ok(now) => {
-                    lease.heartbeat_at_unix_ms = now;
-                    // A failed heartbeat write is non-fatal for this tick; the
-                    // next tick retries. Persistent failure simply makes the
-                    // lease look stale, which is the safe direction.
-                    let _ = write_lease_atomic(&path, &lease);
-                }
-                Err(_) => return,
-            }
+            lease.heartbeat_at_unix_ms = now_unix_ms(&clock);
+            // A failed heartbeat write is non-fatal for this tick; the
+            // next tick retries. Persistent failure simply makes the
+            // lease look stale, which is the safe direction.
+            let _ = write_lease_atomic(&path, &lease);
         }
     })
 }
 
-fn spawn_watchdog(
+fn spawn_watchdog<C>(
     path: PathBuf,
     lease: BackfillLease,
     stop: Arc<AtomicBool>,
     sink: StructuredLogSink,
-) -> JoinHandle<()> {
+    clock: C,
+) -> JoinHandle<()>
+where
+    C: Clock + 'static,
+{
     // Poll frequently so a clean finish stops the watchdog promptly rather than
     // sleeping until the full deadline.
     let poll = Duration::from_millis(250);
@@ -300,9 +316,7 @@ fn spawn_watchdog(
             if sleep_until_stop(&stop, poll) {
                 return;
             }
-            let Ok(now) = now_unix_ms() else {
-                return;
-            };
+            let now = now_unix_ms(&clock);
             if now >= lease.deadline_unix_ms {
                 let elapsed_ms = now.saturating_sub(lease.started_at_unix_ms);
                 let error = PolyError::raw_source(
@@ -314,6 +328,7 @@ fn spawn_watchdog(
                     ),
                 );
                 let _ = sink.append_error(
+                    &clock,
                     "onchain_backfill",
                     "max_runtime_watchdog",
                     &error,

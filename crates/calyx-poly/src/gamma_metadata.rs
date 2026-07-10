@@ -205,14 +205,25 @@ fn parse_tag(value: &Value) -> Result<GammaTagRecord> {
 fn rows(value: &Value) -> Result<Vec<Value>> {
     match value {
         Value::Array(rows) => Ok(rows.clone()),
-        Value::Object(map) => Ok(map
+        Value::Object(map) => map
             .get("data")
             .or_else(|| map.get("events"))
             .or_else(|| map.get("series"))
             .or_else(|| map.get("tags"))
-            .and_then(Value::as_array)
+            .ok_or_else(|| {
+                metadata_error(
+                    ERR_GAMMA_METADATA_INVALID,
+                    "Gamma metadata object is missing a required rows array",
+                )
+            })?
+            .as_array()
             .cloned()
-            .unwrap_or_default()),
+            .ok_or_else(|| {
+                metadata_error(
+                    ERR_GAMMA_METADATA_INVALID,
+                    "Gamma metadata rows field must be an array",
+                )
+            }),
         _ => Err(metadata_error(
             ERR_GAMMA_METADATA_INVALID,
             "Gamma metadata response must be an array or object containing rows",

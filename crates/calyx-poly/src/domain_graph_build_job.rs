@@ -14,6 +14,7 @@ use calyx_mincut::{AgreementEdge as MincutAgreementEdge, FrequencyEntry};
 use crate::domain::Domain;
 pub use crate::domain_graph_build_job_types::*;
 use crate::error::{PolyError, Result};
+use crate::graph_weight::canonical_positive_weight;
 use crate::kernel_recall_admission::{ComputedKernelRecallRequest, measure_computed_kernel_recall};
 use crate::loom_shape_weave::run_shape_aware_loom_weave_for_cx_ids;
 use crate::pair_gain_gate::{
@@ -66,7 +67,7 @@ pub fn run_domain_graph_build_job<C: Clock>(
         request.output_dir,
         request.loom_cache_capacity,
     )?;
-    let loom_edges = loom_edges_from_xterms(&loom.report.xterm_rows);
+    let loom_edges = loom_edges_from_xterms(&loom.report.xterm_rows)?;
     let mut all_edges = request.supplied_edges.to_vec();
     all_edges.extend(loom_edges);
     if all_edges.is_empty() {
@@ -182,40 +183,35 @@ fn validate_edge(edge: &DomainGraphEdgeInput) -> Result<()> {
     {
         return invalid("edge_type, relation_key, and source are required");
     }
-    if !edge.weight.is_finite() || edge.weight <= 0.0 {
-        return invalid(format!(
-            "edge {} -> {} has invalid weight {}",
-            edge.src, edge.dst, edge.weight
-        ));
-    }
+    positive_weight(edge.weight)?;
     Ok(())
 }
 
 fn loom_edges_from_xterms(
     rows: &[calyx_loom::agreement_graph::XtermRow],
-) -> Vec<DomainGraphEdgeInput> {
-    rows.iter()
-        .filter_map(|row| {
-            let CrossTermValue::Scalar(value) = row.value else {
-                return None;
-            };
-            Some(DomainGraphEdgeInput {
-                src: loom_slot_node_id(row.key.cx_id, row.key.a),
-                dst: loom_slot_node_id(row.key.cx_id, row.key.b),
-                edge_type: EDGE_LOOM_AGREEMENT.to_string(),
-                relation_key: format!(
-                    "loom:{}:{}:{}:{:?}",
-                    row.key.cx_id,
-                    row.key.a.get(),
-                    row.key.b.get(),
-                    row.key.kind
-                ),
-                source: "shape_aware_loom_weave".to_string(),
-                weight: positive_weight(value.abs()),
-                include_in_kernel: false,
-            })
-        })
-        .collect()
+) -> Result<Vec<DomainGraphEdgeInput>> {
+    let mut edges = Vec::new();
+    for row in rows {
+        let CrossTermValue::Scalar(value) = row.value else {
+            continue;
+        };
+        edges.push(DomainGraphEdgeInput {
+            src: loom_slot_node_id(row.key.cx_id, row.key.a),
+            dst: loom_slot_node_id(row.key.cx_id, row.key.b),
+            edge_type: EDGE_LOOM_AGREEMENT.to_string(),
+            relation_key: format!(
+                "loom:{}:{}:{}:{:?}",
+                row.key.cx_id,
+                row.key.a.get(),
+                row.key.b.get(),
+                row.key.kind
+            ),
+            source: "shape_aware_loom_weave".to_string(),
+            weight: positive_weight(value.abs())?,
+            include_in_kernel: false,
+        });
+    }
+    Ok(edges)
 }
 
 fn readback_graph_edges<C: Clock>(
@@ -342,18 +338,18 @@ fn pair_gain_summary(
 }
 
 fn edge_bytes(edge: &DomainGraphEdgeInput) -> Result<Vec<u8>> {
-    serde_json::to_vec(&edge_value(edge)).map_err(|err| readback_error(err.to_string()))
+    serde_json::to_vec(&edge_value(edge)?).map_err(|err| readback_error(err.to_string()))
 }
 
-fn edge_value(edge: &DomainGraphEdgeInput) -> DomainGraphEdgeValue {
-    DomainGraphEdgeValue {
+fn edge_value(edge: &DomainGraphEdgeInput) -> Result<DomainGraphEdgeValue> {
+    Ok(DomainGraphEdgeValue {
         schema_version: DOMAIN_GRAPH_BUILD_SCHEMA_VERSION.to_string(),
         edge_type: edge.edge_type.clone(),
         relation_key: edge.relation_key.clone(),
         source: edge.source.clone(),
-        weight: positive_weight(edge.weight),
+        weight: positive_weight(edge.weight)?,
         include_in_kernel: edge.include_in_kernel,
-    }
+    })
 }
 
 fn node_value(domain: Domain, node: CxId) -> Result<Vec<u8>> {
@@ -365,12 +361,13 @@ fn node_value(domain: Domain, node: CxId) -> Result<Vec<u8>> {
     .map_err(|err| readback_error(err.to_string()))
 }
 
-fn positive_weight(value: f32) -> f32 {
-    if value.is_finite() && value > 0.0 {
-        (value * 1_000_000.0).round() / 1_000_000.0
-    } else {
-        0.000001
-    }
+fn positive_weight(value: f32) -> Result<f32> {
+    canonical_positive_weight(value).ok_or_else(|| {
+        PolyError::diagnostics(
+            ERR_DOMAIN_GRAPH_INVALID_INPUT,
+            format!("graph edge weight {value} must remain positive after canonicalization"),
+        )
+    })
 }
 
 fn edge_id(edge: &DomainGraphEdgeInput) -> String {

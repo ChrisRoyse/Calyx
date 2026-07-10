@@ -3,8 +3,9 @@
 use std::collections::BTreeMap;
 use std::sync::{Mutex, OnceLock};
 use std::thread;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::Duration;
 
+use calyx_core::Clock;
 use serde::{Deserialize, Serialize};
 
 use crate::{PolyError, Result};
@@ -256,16 +257,18 @@ pub(crate) struct RateLimitedHttpOutcome<T> {
 }
 
 pub(crate) fn execute_rate_limited_request<T>(
+    clock: &dyn Clock,
     endpoint: &RateLimitEndpoint,
     mut attempt: impl FnMut() -> Result<RateLimitedHttpOutcome<T>>,
 ) -> Result<T> {
     loop {
-        let decision = reserve_global(endpoint)?;
+        let decision = reserve_global(endpoint, clock)?;
         if decision.wait_ms > 0 {
             thread::sleep(Duration::from_millis(decision.wait_ms));
         }
         let outcome = attempt()?;
-        let response = observe_global(endpoint, outcome.status_code, outcome.retry_after_ms)?;
+        let response =
+            observe_global(endpoint, outcome.status_code, outcome.retry_after_ms, clock)?;
         if response.fail_loud {
             return Err(PolyError::raw_source(
                 RATE_LIMIT_SUSTAINED_429,
@@ -287,8 +290,8 @@ pub(crate) fn parse_retry_after_ms(value: Option<&str>) -> Option<u64> {
         .map(|seconds| seconds.saturating_mul(1_000))
 }
 
-fn reserve_global(endpoint: &RateLimitEndpoint) -> Result<RateLimitDecision> {
-    let now = now_unix_ms()?;
+fn reserve_global(endpoint: &RateLimitEndpoint, clock: &dyn Clock) -> Result<RateLimitDecision> {
+    let now = now_unix_ms(clock);
     let mut governor = global_governor().lock().map_err(|_| {
         PolyError::raw_source(
             "POLY_RATE_LIMIT_LOCK_POISONED",
@@ -302,8 +305,9 @@ fn observe_global(
     endpoint: &RateLimitEndpoint,
     status_code: Option<u16>,
     retry_after_ms: Option<u64>,
+    clock: &dyn Clock,
 ) -> Result<RateLimitResponseDecision> {
-    let now = now_unix_ms()?;
+    let now = now_unix_ms(clock);
     let mut governor = global_governor().lock().map_err(|_| {
         PolyError::raw_source(
             "POLY_RATE_LIMIT_LOCK_POISONED",
@@ -354,24 +358,22 @@ fn backoff_ms(policy: &EndpointRateLimitPolicy, consecutive_429s: u32) -> u64 {
     value
 }
 
-fn now_unix_ms() -> Result<u64> {
-    let millis = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_err(|err| {
-            PolyError::raw_source(
-                "POLY_RATE_LIMIT_CLOCK_INVALID",
-                format!("system clock is before UNIX_EPOCH: {err}"),
-            )
-        })?
-        .as_millis();
-    u64::try_from(millis).map_err(|err| {
-        PolyError::raw_source(
-            "POLY_RATE_LIMIT_CLOCK_OVERFLOW",
-            format!("current UNIX millis does not fit u64: {err}"),
-        )
-    })
+fn now_unix_ms(clock: &dyn Clock) -> u64 {
+    clock.now()
 }
 
 fn policy_error(message: impl Into<String>) -> PolyError {
     PolyError::raw_source("POLY_RATE_LIMIT_POLICY_INVALID", message.into())
+}
+
+#[cfg(test)]
+mod tests {
+    use calyx_core::FixedClock;
+
+    use super::now_unix_ms;
+
+    #[test]
+    fn issue1394_rate_limit_clock_is_injected() {
+        assert_eq!(now_unix_ms(&FixedClock::new(1_234_567)), 1_234_567);
+    }
 }

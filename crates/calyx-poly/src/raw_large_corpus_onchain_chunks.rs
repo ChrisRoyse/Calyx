@@ -1,6 +1,7 @@
 use std::fs;
 use std::path::Path;
 
+use calyx_core::Clock;
 use serde_json::{Value, json};
 
 use crate::raw_large_corpus::{
@@ -24,6 +25,7 @@ pub(crate) fn capture_polygon_chunked_log_pages(
     agent: &ureq::Agent,
     latest_block: u64,
     spec: ChunkSourceSpec<'_>,
+    clock: &dyn Clock,
 ) -> Result<Vec<LargeCorpusPage>> {
     let windows = recent_windows(
         latest_block,
@@ -36,7 +38,7 @@ pub(crate) fn capture_polygon_chunked_log_pages(
     let mut pages = Vec::new();
     for (chunk_index, (from_block, to_block)) in windows.into_iter().enumerate() {
         let plan = ChunkPlan::within_limit(spec, from_block, to_block, chunk_index, chunk_count);
-        pages.push(capture_chunk_page(request, agent, &spec, &plan)?);
+        pages.push(capture_chunk_page(request, agent, &spec, &plan, clock)?);
     }
     Ok(pages)
 }
@@ -72,6 +74,7 @@ pub(crate) fn capture_polygon_chunk_edge_cases(
     agent: &ureq::Agent,
     latest_block: u64,
     spec: ChunkSourceSpec<'_>,
+    clock: &dyn Clock,
 ) -> Result<Vec<LargeCorpusEdgeCase>> {
     let safe_from = latest_block.saturating_sub(POLYGON_RPC_SAFE_LOG_CHUNK_BLOCKS - 1);
     let plans = [
@@ -114,7 +117,7 @@ pub(crate) fn capture_polygon_chunk_edge_cases(
     ];
     plans
         .iter()
-        .map(|plan| capture_chunk_edge(request, agent, &spec, plan))
+        .map(|plan| capture_chunk_edge(request, agent, &spec, plan, clock))
         .collect()
 }
 
@@ -123,6 +126,7 @@ pub(crate) fn capture_chunk_page(
     agent: &ureq::Agent,
     spec: &ChunkSourceSpec<'_>,
     plan: &ChunkPlan,
+    clock: &dyn Clock,
 ) -> Result<LargeCorpusPage> {
     let dir = request.output_root.join("raw").join(&plan.dataset);
     let page_name = format!("page-{:06}", plan.chunk_index);
@@ -139,6 +143,7 @@ pub(crate) fn capture_chunk_page(
     let request_body = chunk_request(plan);
     let request_bytes = persist_request(&request_path, &request_body)?;
     let (status_code, bytes, transport_error) = execute_post(
+        clock,
         agent,
         spec.rpc_url,
         &request_bytes,
@@ -203,6 +208,7 @@ fn capture_chunk_edge(
     agent: &ureq::Agent,
     spec: &ChunkSourceSpec<'_>,
     plan: &ChunkPlan,
+    clock: &dyn Clock,
 ) -> Result<LargeCorpusEdgeCase> {
     let dir = request.output_root.join("edge").join(&plan.dataset);
     let body_path = dir.join("body.json");
@@ -218,6 +224,7 @@ fn capture_chunk_edge(
     let request_body = chunk_request(plan);
     let request_bytes = persist_request(&request_path, &request_body)?;
     let (status_code, bytes, transport_error) = execute_post(
+        clock,
         agent,
         spec.rpc_url,
         &request_bytes,

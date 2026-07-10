@@ -5,6 +5,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
+use calyx_core::Clock;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -207,6 +208,7 @@ struct RawSampler {
 
 pub fn run_polymarket_raw_source_sampling(
     request: RawSourceSamplingRequest,
+    clock: &dyn Clock,
 ) -> Result<RawSourceInventory> {
     let request = request.normalized()?;
     validate_request(&request)?;
@@ -214,29 +216,29 @@ pub fn run_polymarket_raw_source_sampling(
     let mut samples = Vec::new();
 
     for probe in initial_probes() {
-        samples.push(sampler.capture(&probe)?);
+        samples.push(sampler.capture(&probe, clock)?);
     }
     let join_map = sampler.derive_join_map();
     for probe in dynamic_probes(&join_map) {
-        samples.push(sampler.capture(&probe)?);
+        samples.push(sampler.capture(&probe, clock)?);
     }
     for probe in edge_probes(&join_map) {
-        samples.push(sampler.capture(&probe)?);
+        samples.push(sampler.capture(&probe, clock)?);
     }
     if let Some(token) = &join_map.token_id {
         let unique_tokens = sampler.derive_unique_clob_tokens(21)?;
         for probe in clob_post_runtime_semantics_probes(token, &unique_tokens) {
-            samples.push(sampler.capture(&probe)?);
+            samples.push(sampler.capture(&probe, clock)?);
         }
     }
     for probe in market_websocket_probes(&join_map) {
-        samples.push(capture_market_websocket(&request, &probe)?);
+        samples.push(capture_market_websocket(&request, &probe, clock)?);
     }
     for probe in public_websocket_probes() {
-        samples.push(capture_public_websocket(&request, &probe)?);
+        samples.push(capture_public_websocket(&request, &probe, clock)?);
     }
-    samples.extend(capture_onchain_samples(&request, &sampler.agent)?);
-    samples.extend(capture_historical_samples(&request, &sampler.agent)?);
+    samples.extend(capture_onchain_samples(&request, &sampler.agent, clock)?);
+    samples.extend(capture_historical_samples(&request, &sampler.agent, clock)?);
 
     let mut schema_observations = sampler.schema_observations(&samples);
     schema_observations.extend(
@@ -248,14 +250,14 @@ pub fn run_polymarket_raw_source_sampling(
     let runtime_semantics = clob_post_runtime_semantics(&samples, &sampler.parsed_bodies);
     let coverage = coverage(&samples);
     let docs_index_coverage =
-        build_docs_index_coverage(&request, &sampler.agent, &samples, &coverage)?;
+        build_docs_index_coverage(&request, &sampler.agent, &samples, &coverage, clock)?;
     let failure = runtime_semantics_failure(&runtime_semantics)
         .or_else(|| inventory_failure(&samples, &join_map, coverage.readback_sha_mismatches))
         .or_else(|| docs_coverage_failure(&docs_index_coverage));
     let passed = failure.is_none();
     let inventory = RawSourceInventory {
         schema_version: RAW_SOURCE_INVENTORY_SCHEMA_VERSION.to_string(),
-        captured_at_unix_ms: now_unix_ms()?,
+        captured_at_unix_ms: now_unix_ms(clock),
         source_of_truth:
             "live public/read-only Polymarket HTTP/WebSocket responses plus physical raw corpus files"
                 .to_string(),
@@ -327,8 +329,8 @@ impl RawSampler {
         }
     }
 
-    fn capture(&mut self, probe: &Probe) -> Result<RawEndpointSample> {
-        let (sample, parsed) = capture_http_probe(&self.request, &self.agent, probe)?;
+    fn capture(&mut self, probe: &Probe, clock: &dyn Clock) -> Result<RawEndpointSample> {
+        let (sample, parsed) = capture_http_probe(&self.request, &self.agent, probe, clock)?;
         if let Ok(value) = &parsed {
             self.parsed_bodies.insert(probe.name.clone(), value.clone());
         }

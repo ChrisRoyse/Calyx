@@ -2,6 +2,7 @@ use std::env;
 use std::path::PathBuf;
 use std::process;
 
+use calyx_core::SystemClock;
 use calyx_poly::{
     DEFAULT_FILE_SIZE_LINE_LIMIT, FileSizeLintRequest, PolyError, PolyLogEvent, PolyResultLogExt,
     StructuredLogSink, evaluate_file_size_lint, log_context, require_file_size_lint_passed,
@@ -48,6 +49,7 @@ fn run() -> calyx_poly::Result<i32> {
         return Ok(0);
     };
     let sink = StructuredLogSink::new(cli.log_path.clone())?;
+    let clock = SystemClock;
     let request = if cli.roots.is_empty() {
         let mut request = FileSizeLintRequest::calyx_poly_crate(&cli.crate_root);
         request.line_limit = cli.line_limit;
@@ -60,6 +62,7 @@ fn run() -> calyx_poly::Result<i32> {
     };
 
     let start_event = PolyLogEvent::info(
+        &clock,
         "file_size_lint",
         "evaluate",
         "POLY_FILE_SIZE_LINT_STARTED",
@@ -75,6 +78,7 @@ fn run() -> calyx_poly::Result<i32> {
 
     let report = evaluate_file_size_lint(&request);
     write_file_size_lint_report(&cli.report_path, &report).log_error_context(
+        &clock,
         &sink,
         "file_size_lint",
         "write_report",
@@ -91,6 +95,7 @@ fn run() -> calyx_poly::Result<i32> {
     match require_file_size_lint_passed(&report) {
         Ok(()) => {
             let passed_event = PolyLogEvent::info(
+                &clock,
                 "file_size_lint",
                 "require_passed",
                 report.status_code.clone(),
@@ -106,6 +111,7 @@ fn run() -> calyx_poly::Result<i32> {
         }
         Err(error) => {
             sink.append_error(
+                &clock,
                 "file_size_lint",
                 "require_passed",
                 &error,

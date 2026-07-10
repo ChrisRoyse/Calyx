@@ -4,11 +4,9 @@ use std::fs;
 use std::path::Path;
 use std::time::Duration;
 
+use calyx_core::Clock;
 use serde_json::Value;
 
-use crate::rate_limit_governor::{
-    RateLimitEndpoint, RateLimitedHttpOutcome, execute_rate_limited_request, parse_retry_after_ms,
-};
 use crate::raw_large_corpus_clob::{capture_clob_edge_cases, capture_clob_market_data};
 use crate::raw_large_corpus_clob_plan::derive_clob_targets;
 pub use crate::raw_large_corpus_failure::LargeCorpusFailure;
@@ -18,6 +16,7 @@ use crate::raw_large_corpus_get_request::{
 use crate::raw_large_corpus_historical::{
     capture_historical_edge_cases, capture_historical_market_data,
 };
+use crate::raw_large_corpus_http::get_bytes;
 use crate::raw_large_corpus_onchain::{capture_onchain_edge_cases, capture_onchain_market_data};
 use crate::raw_large_corpus_onchain_backfill::write_onchain_backfill_state;
 use crate::raw_large_corpus_profile::{
@@ -51,7 +50,10 @@ use crate::{PolyError, Result};
 pub const LARGE_CORPUS_SCHEMA_VERSION: &str = "poly.large_corpus.v1";
 pub const LARGE_CORPUS_CAPTURE_PASSED: &str = "POLY_LARGE_CORPUS_CAPTURE_PASSED";
 
-pub fn run_large_corpus_capture(request: LargeCorpusRequest) -> Result<LargeCorpusManifest> {
+pub fn run_large_corpus_capture(
+    request: LargeCorpusRequest,
+    clock: &dyn Clock,
+) -> Result<LargeCorpusManifest> {
     let request = request.normalized()?;
     let agent: ureq::Agent = ureq::Agent::config_builder()
         .timeout_global(Some(Duration::from_secs(request.timeout_secs)))
@@ -61,22 +63,39 @@ pub fn run_large_corpus_capture(request: LargeCorpusRequest) -> Result<LargeCorp
     let mut pages = Vec::new();
     let mut records = Vec::new();
     for plan in dataset_plans() {
-        capture_dataset(&request, &agent, &plan, &mut pages, &mut records)?;
+        capture_dataset(&request, &agent, &plan, &mut pages, &mut records, clock)?;
     }
     let clob_targets = derive_clob_targets(&records, request.max_pages_per_dataset * 2);
-    capture_clob_market_data(&request, &agent, &clob_targets, &mut pages, &mut records)?;
-    capture_websocket_market_data(&request, &clob_targets, &mut pages, &mut records)?;
-    capture_historical_market_data(&request, &agent, &mut pages, &mut records)?;
+    capture_clob_market_data(
+        &request,
+        &agent,
+        &clob_targets,
+        &mut pages,
+        &mut records,
+        clock,
+    )?;
+    capture_websocket_market_data(&request, &clob_targets, &mut pages, &mut records, clock)?;
+    capture_historical_market_data(&request, &agent, &mut pages, &mut records, clock)?;
     let latest_onchain_block =
-        capture_onchain_market_data(&request, &agent, &mut pages, &mut records)?;
-    let mut edge_cases = capture_edge_cases(&request, &agent)?;
-    edge_cases.extend(capture_clob_edge_cases(&request, &agent, &clob_targets)?);
-    edge_cases.extend(capture_websocket_edge_cases(&request, &clob_targets)?);
-    edge_cases.extend(capture_historical_edge_cases(&request, &agent)?);
+        capture_onchain_market_data(&request, &agent, &mut pages, &mut records, clock)?;
+    let mut edge_cases = capture_edge_cases(&request, &agent, clock)?;
+    edge_cases.extend(capture_clob_edge_cases(
+        &request,
+        &agent,
+        &clob_targets,
+        clock,
+    )?);
+    edge_cases.extend(capture_websocket_edge_cases(
+        &request,
+        &clob_targets,
+        clock,
+    )?);
+    edge_cases.extend(capture_historical_edge_cases(&request, &agent, clock)?);
     edge_cases.extend(capture_onchain_edge_cases(
         &request,
         &agent,
         latest_onchain_block,
+        clock,
     )?);
     let field_profiles = build_field_profiles(&records);
     let field_profile_paths = write_field_profiles(&request.output_root, &field_profiles)?;
@@ -88,7 +107,7 @@ pub fn run_large_corpus_capture(request: LargeCorpusRequest) -> Result<LargeCorp
     let (trade_history_state_path, trade_history_state) =
         write_trade_history_source_state(&request.output_root, &pages, &edge_cases)?;
     let (onchain_backfill_state_path, onchain_backfill_state) =
-        write_onchain_backfill_state(&request, &agent, latest_onchain_block, &pages)?;
+        write_onchain_backfill_state(&request, &agent, latest_onchain_block, &pages, clock)?;
     let bounded_incomplete_datasets =
         bounded_incomplete_datasets(&pages, request.page_size, request.max_pages_per_dataset);
     let schema_decision_input_path = write_schema_decision_input(
@@ -115,7 +134,7 @@ pub fn run_large_corpus_capture(request: LargeCorpusRequest) -> Result<LargeCorp
     let passed = failure.is_none();
     let manifest = LargeCorpusManifest {
         schema_version: LARGE_CORPUS_SCHEMA_VERSION.to_string(),
-        captured_at_unix_ms: now_unix_ms()?,
+        captured_at_unix_ms: now_unix_ms(clock),
         source_of_truth:
             "live public/read-only Polymarket API responses plus physical raw corpus files"
                 .to_string(),
@@ -158,6 +177,7 @@ fn capture_dataset(
     plan: &DatasetPlan,
     pages: &mut Vec<LargeCorpusPage>,
     records: &mut Vec<CorpusRecord>,
+    clock: &dyn Clock,
 ) -> Result<()> {
     let mut after_cursor: Option<String> = None;
     for page_index in 0..request.max_pages_per_dataset {
@@ -175,10 +195,13 @@ fn capture_dataset(
             request,
             agent,
             plan,
-            page_index,
-            &url,
-            offset,
-            after_cursor.as_deref(),
+            CapturePageInput {
+                page_index,
+                url: &url,
+                requested_offset: offset,
+                request_after_cursor: after_cursor.as_deref(),
+            },
+            clock,
         )?;
         collect_records(
             &page.dataset,
@@ -205,15 +228,26 @@ fn capture_dataset(
     Ok(())
 }
 
+struct CapturePageInput<'a> {
+    page_index: usize,
+    url: &'a str,
+    requested_offset: Option<usize>,
+    request_after_cursor: Option<&'a str>,
+}
+
 fn capture_page(
     request: &LargeCorpusRequest,
     agent: &ureq::Agent,
     plan: &DatasetPlan,
-    page_index: usize,
-    url: &str,
-    requested_offset: Option<usize>,
-    request_after_cursor: Option<&str>,
+    input: CapturePageInput<'_>,
+    clock: &dyn Clock,
 ) -> Result<LargeCorpusPage> {
+    let CapturePageInput {
+        page_index,
+        url,
+        requested_offset,
+        request_after_cursor,
+    } = input;
     let dir = request.output_root.join("raw").join(plan.name);
     let body_path = dir.join(format!("page-{page_index:06}.json"));
     let metadata_path = dir.join(format!("page-{page_index:06}.metadata.json"));
@@ -239,6 +273,7 @@ fn capture_page(
         plan.endpoint,
         url,
         request.max_body_bytes,
+        clock,
     )?;
     fs::write(&body_path, &bytes).map_err(|err| {
         PolyError::raw_source(
@@ -337,6 +372,7 @@ fn capture_page(
 fn capture_edge_cases(
     request: &LargeCorpusRequest,
     agent: &ureq::Agent,
+    clock: &dyn Clock,
 ) -> Result<Vec<LargeCorpusEdgeCase>> {
     let edges = [
         (
@@ -362,7 +398,9 @@ fn capture_edge_cases(
     ];
     edges
         .iter()
-        .map(|(name, url, semantics)| capture_edge_case(request, agent, name, url, semantics))
+        .map(|(name, url, semantics)| {
+            capture_edge_case(request, agent, name, url, semantics, clock)
+        })
         .collect()
 }
 
@@ -372,6 +410,7 @@ fn capture_edge_case(
     name: &str,
     url: &str,
     semantics: &str,
+    clock: &dyn Clock,
 ) -> Result<LargeCorpusEdgeCase> {
     let dir = request.output_root.join("edge").join(name);
     let body_path = dir.join("body.json");
@@ -383,6 +422,7 @@ fn capture_edge_case(
         name,
         url,
         request.max_body_bytes,
+        clock,
     )?;
     fs::create_dir_all(&dir).map_err(|err| {
         PolyError::raw_source(
@@ -436,51 +476,6 @@ fn capture_edge_case(
     }
     write_json(&metadata_path, &edge)?;
     Ok(edge)
-}
-
-fn get_bytes(
-    agent: &ureq::Agent,
-    source: &str,
-    endpoint_name: &str,
-    url: &str,
-    limit: usize,
-) -> Result<(Option<u16>, Vec<u8>)> {
-    let endpoint = RateLimitEndpoint::new(source, endpoint_name, "GET");
-    execute_rate_limited_request(&endpoint, || {
-        let mut response = agent
-            .get(url)
-            .header("Accept", "application/json")
-            .call()
-            .map_err(|err| {
-                PolyError::raw_source(
-                    "POLY_LARGE_CORPUS_HTTP_TRANSPORT_FAILED",
-                    format!("fetch {url}: {err}"),
-                )
-            })?;
-        let status_code = Some(response.status().as_u16());
-        let retry_after_ms = parse_retry_after_ms(
-            response
-                .headers()
-                .get("retry-after")
-                .and_then(|value| value.to_str().ok()),
-        );
-        let bytes = response
-            .body_mut()
-            .with_config()
-            .limit(limit as u64)
-            .read_to_vec()
-            .map_err(|err| {
-                PolyError::raw_source(
-                    "POLY_LARGE_CORPUS_BODY_READ_FAILED",
-                    format!("read body from {url}: {err}"),
-                )
-            })?;
-        Ok(RateLimitedHttpOutcome {
-            status_code,
-            retry_after_ms,
-            value: (status_code, bytes),
-        })
-    })
 }
 
 fn empty_state() -> RawFileState {

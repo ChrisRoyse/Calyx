@@ -7,12 +7,13 @@ use std::time::Duration;
 
 use super::*;
 use crate::StructuredLogSink;
+use calyx_core::{FixedClock, SystemClock};
 
 fn unique_dir(name: &str) -> PathBuf {
     let dir = std::env::temp_dir().join(format!(
         "calyx-poly-lease-{name}-{}-{}",
         std::process::id(),
-        now_unix_ms().unwrap()
+        now_unix_ms(&SystemClock)
     ));
     fs::create_dir_all(&dir).unwrap();
     dir
@@ -110,6 +111,7 @@ fn acquire_writes_pid_and_started_at_then_releases_on_drop() {
     let dir = unique_dir("acquire");
     let path = lease_path_for_output_root(&dir);
     let sink = StructuredLogSink::new(dir.join("lease.log.jsonl")).unwrap();
+    let clock = FixedClock::new(1_785_600_217_000);
     {
         let guard = acquire(
             &path,
@@ -118,6 +120,7 @@ fn acquire_writes_pid_and_started_at_then_releases_on_drop() {
             DEFAULT_HEARTBEAT_INTERVAL_SECS,
             false,
             &sink,
+            clock,
         )
         .unwrap();
         assert_eq!(guard.lease_path(), path.as_path());
@@ -125,7 +128,7 @@ fn acquire_writes_pid_and_started_at_then_releases_on_drop() {
         // carries THIS process's pid + a started_at timestamp.
         let lease = read_lease(&path).unwrap().expect("lease written to disk");
         assert_eq!(lease.pid, std::process::id());
-        assert!(lease.started_at_unix_ms > 0);
+        assert_eq!(lease.started_at_unix_ms, 1_785_600_217_000);
         assert_eq!(lease.max_runtime_secs, 3_600);
         assert_eq!(lease.deadline_unix_ms, lease.started_at_unix_ms + 3_600_000);
     }
@@ -143,7 +146,7 @@ fn acquire_refuses_when_a_live_lease_is_present() {
     let path = lease_path_for_output_root(&dir);
     let sink = StructuredLogSink::new(dir.join("lease.log.jsonl")).unwrap();
     // Plant a fresh, live lease held by a different pid.
-    let now = now_unix_ms().unwrap();
+    let now = now_unix_ms(&SystemClock);
     let live = lease_with(999_999, now - 1_000, now - 1_000, now + 600_000);
     write_lease_atomic(&path, &live).unwrap();
 
@@ -154,6 +157,7 @@ fn acquire_refuses_when_a_live_lease_is_present() {
         DEFAULT_HEARTBEAT_INTERVAL_SECS,
         false,
         &sink,
+        SystemClock,
     )
     .expect_err("must refuse to trample a live lease");
     assert_eq!(error.diagnostic().code, CODE_LEASE_HELD);
@@ -170,7 +174,7 @@ fn acquire_reaps_a_stale_lease_and_logs_the_reap() {
     let log_path = dir.join("lease.log.jsonl");
     let sink = StructuredLogSink::new(&log_path).unwrap();
     // Plant a stale lease: heartbeat far in the past.
-    let now = now_unix_ms().unwrap();
+    let now = now_unix_ms(&SystemClock);
     let stale = lease_with(888_888, now - 3_600_000, now - 3_600_000, now + 600_000);
     write_lease_atomic(&path, &stale).unwrap();
 
@@ -181,6 +185,7 @@ fn acquire_reaps_a_stale_lease_and_logs_the_reap() {
         DEFAULT_HEARTBEAT_INTERVAL_SECS,
         false,
         &sink,
+        SystemClock,
     )
     .expect("stale lease must be reaped, not blocking");
     // Fresh lease now belongs to us.
@@ -207,6 +212,7 @@ fn heartbeat_advances_the_lease_timestamp_on_disk() {
         1, // 1s heartbeat cadence
         false,
         &sink,
+        SystemClock,
     )
     .unwrap();
     let first = read_lease(&path).unwrap().unwrap().heartbeat_at_unix_ms;

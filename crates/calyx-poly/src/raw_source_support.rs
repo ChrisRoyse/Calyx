@@ -4,6 +4,7 @@ use crate::raw_sources::{
     RawSourceInventory, RawSourceSamplingRequest,
 };
 use crate::{PolyError, Result};
+use calyx_core::Clock;
 use serde::Serialize;
 use serde_json::Value;
 use sha2::{Digest, Sha256};
@@ -11,7 +12,6 @@ use std::collections::BTreeSet;
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::time::{SystemTime, UNIX_EPOCH};
 
 pub(crate) fn normalize_request(
     mut request: RawSourceSamplingRequest,
@@ -443,16 +443,8 @@ pub(crate) fn sanitize_segment(value: &str) -> String {
         .collect()
 }
 
-pub(crate) fn now_unix_ms() -> Result<u128> {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|duration| duration.as_millis())
-        .map_err(|err| {
-            PolyError::raw_source(
-                "POLY_RAW_SOURCE_CLOCK_INVALID",
-                format!("system clock is before UNIX_EPOCH: {err}"),
-            )
-        })
+pub(crate) fn now_unix_ms(clock: &dyn Clock) -> u128 {
+    u128::from(clock.now())
 }
 
 fn required_missing_join_fields(join: &RawJoinMap) -> Vec<&'static str> {

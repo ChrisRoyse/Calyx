@@ -2,6 +2,7 @@ use std::env;
 use std::path::PathBuf;
 use std::process;
 
+use calyx_core::SystemClock;
 use calyx_poly::{
     PolyError, PolyLogEvent, PolyResultLogExt, SchemaDerivationRequest, StructuredLogSink,
     log_context, read_schema_derivation_report, require_schema_derivation_passed,
@@ -45,7 +46,9 @@ fn run() -> calyx_poly::Result<i32> {
         return Ok(0);
     };
     let sink = StructuredLogSink::new(cli.log_path.clone())?;
+    let clock = SystemClock;
     sink.append_event(&PolyLogEvent::info(
+        &clock,
         "schema_derivation",
         "run",
         "POLY_SCHEMA_DERIVATION_STARTED",
@@ -56,7 +59,8 @@ fn run() -> calyx_poly::Result<i32> {
         ]),
     )?)?;
 
-    let report = run_schema_derivation(&cli.request).log_error_context(
+    let report = run_schema_derivation(&cli.request, &clock).log_error_context(
+        &clock,
         &sink,
         "schema_derivation",
         "derive",
@@ -67,6 +71,7 @@ fn run() -> calyx_poly::Result<i32> {
     )?;
     let report_path = PathBuf::from(&report.output_root).join("schema-derivation-report.json");
     let readback = read_schema_derivation_report(&report_path).log_error_context(
+        &clock,
         &sink,
         "schema_derivation",
         "readback_report",
@@ -75,6 +80,7 @@ fn run() -> calyx_poly::Result<i32> {
     let result = require_schema_derivation_passed(&readback);
     if let Err(error) = &result {
         sink.append_error(
+            &clock,
             "schema_derivation",
             "require_passed",
             error,
@@ -112,6 +118,7 @@ fn run() -> calyx_poly::Result<i32> {
     );
     result?;
     sink.append_event(&PolyLogEvent::info(
+        &clock,
         "schema_derivation",
         "require_passed",
         "POLY_SCHEMA_DERIVATION_PASSED",

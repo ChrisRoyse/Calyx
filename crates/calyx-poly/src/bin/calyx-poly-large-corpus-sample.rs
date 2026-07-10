@@ -2,6 +2,7 @@ use std::env;
 use std::path::PathBuf;
 use std::process;
 
+use calyx_core::SystemClock;
 use calyx_poly::{
     LargeCorpusRequest, PolyError, PolyLogEvent, PolyResultLogExt, StructuredLogSink, log_context,
     read_large_corpus_manifest, readback_large_corpus_with_exhaustive, require_large_corpus_passed,
@@ -46,7 +47,9 @@ fn run() -> calyx_poly::Result<i32> {
     };
     cli.request = cli.request.normalized()?;
     let sink = StructuredLogSink::new(cli.log_path.clone())?;
+    let clock = SystemClock;
     sink.append_event(&PolyLogEvent::info(
+        &clock,
         "large_corpus",
         "run",
         "POLY_LARGE_CORPUS_CAPTURE_STARTED",
@@ -69,13 +72,15 @@ fn run() -> calyx_poly::Result<i32> {
     let manifest = if cli.readback_only {
         read_large_corpus_manifest(&cli.request.output_root.join("large-corpus-manifest.json"))
             .log_error_context(
+                &clock,
                 &sink,
                 "large_corpus",
                 "read_manifest",
                 log_context(&[("output_root", cli.request.output_root.display().to_string())]),
             )?
     } else {
-        run_large_corpus_capture(cli.request.clone()).log_error_context(
+        run_large_corpus_capture(cli.request.clone(), &clock).log_error_context(
+            &clock,
             &sink,
             "large_corpus",
             "capture",
@@ -87,6 +92,7 @@ fn run() -> calyx_poly::Result<i32> {
         Some(cli.request.require_exhaustive),
     )
     .log_error_context(
+        &clock,
         &sink,
         "large_corpus",
         "readback",
@@ -95,6 +101,7 @@ fn run() -> calyx_poly::Result<i32> {
     let result = require_large_corpus_passed(&report);
     if let Err(error) = &result {
         sink.append_error(
+            &clock,
             "large_corpus",
             "require_passed",
             error,
@@ -139,6 +146,7 @@ fn run() -> calyx_poly::Result<i32> {
     );
     result?;
     sink.append_event(&PolyLogEvent::info(
+        &clock,
         "large_corpus",
         "require_passed",
         "POLY_LARGE_CORPUS_READBACK_PASSED",

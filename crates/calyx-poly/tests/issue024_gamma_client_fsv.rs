@@ -10,11 +10,12 @@ use std::fs;
 use std::path::Path;
 
 use calyx_poly::{
-    ERR_GAMMA_MARKET_INVALID, ERR_GAMMA_REQUEST_INVALID, GAMMA_CRYPTO_TAG_ID, GammaClient,
-    GammaClientConfig, GammaEventsPage, GammaEventsRequest, GammaMarketsPage, GammaMarketsRequest,
-    GammaOutcomeShape, GammaSeriesPage, GammaSeriesRequest, GammaTagsPage, GammaTagsRequest,
-    parse_gamma_events_value, parse_gamma_market, parse_gamma_markets_value,
-    parse_gamma_series_value, parse_gamma_tags_value,
+    ERR_GAMMA_JSON, ERR_GAMMA_MARKET_INVALID, ERR_GAMMA_METADATA_INVALID,
+    ERR_GAMMA_REQUEST_INVALID, GAMMA_CRYPTO_TAG_ID, GammaClient, GammaClientConfig,
+    GammaEventsPage, GammaEventsRequest, GammaMarketsPage, GammaMarketsRequest, GammaOutcomeShape,
+    GammaSeriesPage, GammaSeriesRequest, GammaTagsPage, GammaTagsRequest, parse_gamma_events_value,
+    parse_gamma_market, parse_gamma_markets_value, parse_gamma_series_value,
+    parse_gamma_tags_value,
 };
 use serde_json::{Value, json};
 
@@ -24,6 +25,19 @@ use support::{collect_files, named_fsv_root, reset_dir, write_blake3sums, write_
 fn issue024_gamma_parser_known_truth_edges() {
     let empty = parse_gamma_markets_value(&json!([])).expect("empty page parses");
     assert!(empty.is_empty(), "zero-limit/empty result is not an error");
+    assert!(
+        parse_gamma_markets_value(&json!({"data": []}))
+            .expect("explicit empty rows parse")
+            .is_empty()
+    );
+    for malformed in [json!({}), json!({"markets": {}})] {
+        let error = parse_gamma_markets_value(&malformed)
+            .expect_err("object without a rows array fails closed");
+        assert_eq!(error.code(), ERR_GAMMA_JSON);
+    }
+    let metadata_error = parse_gamma_events_value(&json!({"status": "ok"}))
+        .expect_err("metadata object without rows fails closed");
+    assert_eq!(metadata_error.code(), ERR_GAMMA_METADATA_INVALID);
 
     let binary = parse_gamma_market(&binary_market()).expect("binary market parses");
     assert_eq!(binary.outcome_shape, GammaOutcomeShape::Binary);

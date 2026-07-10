@@ -2,6 +2,7 @@ use std::env;
 use std::path::PathBuf;
 use std::process;
 
+use calyx_core::SystemClock;
 use calyx_poly::{
     PolyError, PolyLogEvent, PolyResultLogExt, RawSourceSamplingRequest, StructuredLogSink,
     log_context, read_raw_source_inventory, readback_raw_source_inventory,
@@ -46,7 +47,9 @@ fn run() -> calyx_poly::Result<i32> {
     };
     cli.request = cli.request.normalized()?;
     let sink = StructuredLogSink::new(cli.log_path.clone())?;
+    let clock = SystemClock;
     let start_event = PolyLogEvent::info(
+        &clock,
         "raw_source_sampling",
         "run",
         "POLY_RAW_SOURCE_SAMPLE_STARTED",
@@ -60,14 +63,17 @@ fn run() -> calyx_poly::Result<i32> {
     )?;
     sink.append_event(&start_event)?;
 
-    let inventory = run_polymarket_raw_source_sampling(cli.request.clone()).log_error_context(
-        &sink,
-        "raw_source_sampling",
-        "capture",
-        log_context(&[("output_root", cli.request.output_root.display().to_string())]),
-    )?;
+    let inventory = run_polymarket_raw_source_sampling(cli.request.clone(), &clock)
+        .log_error_context(
+            &clock,
+            &sink,
+            "raw_source_sampling",
+            "capture",
+            log_context(&[("output_root", cli.request.output_root.display().to_string())]),
+        )?;
     let inventory_path = cli.request.output_root.join("source-inventory.json");
     let readback = read_raw_source_inventory(&inventory_path).log_error_context(
+        &clock,
         &sink,
         "raw_source_sampling",
         "readback_inventory",
@@ -75,6 +81,7 @@ fn run() -> calyx_poly::Result<i32> {
     )?;
     let physical_readback = readback_raw_source_inventory(&cli.request.output_root)
         .log_error_context(
+            &clock,
             &sink,
             "raw_source_sampling",
             "readback_physical_files",
@@ -82,6 +89,7 @@ fn run() -> calyx_poly::Result<i32> {
         )?;
     if let Err(error) = require_raw_source_readback_passed(&physical_readback) {
         sink.append_error(
+            &clock,
             "raw_source_sampling",
             "readback_physical_files",
             &error,
@@ -95,6 +103,7 @@ fn run() -> calyx_poly::Result<i32> {
     let result = require_raw_source_sampling_passed(&readback);
     if let Err(error) = &result {
         sink.append_error(
+            &clock,
             "raw_source_sampling",
             "require_passed",
             error,
@@ -135,6 +144,7 @@ fn run() -> calyx_poly::Result<i32> {
     result?;
     let status_code = inventory.status_code.clone();
     let done_event = PolyLogEvent::info(
+        &clock,
         "raw_source_sampling",
         "require_passed",
         status_code,

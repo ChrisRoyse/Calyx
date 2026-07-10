@@ -2,6 +2,7 @@ use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use calyx_core::SystemClock;
 use calyx_poly::{
     ClobSide, ERR_WS_MARKET_JSON, ERR_WS_MARKET_NO_PAYLOAD_WINDOW, GammaClient, GammaClientConfig,
     GammaMarketsRequest, MARKET_WS_DOCS_URL, MARKET_WS_REPORT_FILE, MarketWsCaptureSession,
@@ -16,7 +17,7 @@ use sha2::{Digest, Sha256};
 #[test]
 fn issue029_ws_market_parser_and_readback_fsv() -> Result<()> {
     let root = fsv_root().join("deterministic");
-    assert_c_drive(&root)?;
+    assert_fsv_root(&root)?;
     let book_raw = json!([{
         "event_type": "book",
         "asset_id": "123",
@@ -116,7 +117,7 @@ fn issue029_ws_market_parser_and_readback_fsv() -> Result<()> {
 #[ignore = "requires live public Gamma and CLOB WebSocket APIs"]
 fn issue029_ws_market_live_reconnect_fsv() -> Result<()> {
     let root = fsv_root().join("live");
-    assert_c_drive(&root)?;
+    assert_fsv_root(&root)?;
     let gamma = GammaClient::new(GammaClientConfig {
         timeout_secs: 15,
         max_body_bytes: 2 * 1024 * 1024,
@@ -126,9 +127,7 @@ fn issue029_ws_market_live_reconnect_fsv() -> Result<()> {
     let market = page
         .markets
         .iter()
-        .find(|market| {
-            market.enable_order_book.unwrap_or(true) && !market.clob_token_ids.is_empty()
-        })
+        .find(|market| market.enable_order_book == Some(true) && !market.clob_token_ids.is_empty())
         .ok_or_else(|| {
             PolyError::raw_source(
                 "CALYX_POLY_WS_MARKET_LIVE_TARGET_MISSING",
@@ -144,7 +143,8 @@ fn issue029_ws_market_live_reconnect_fsv() -> Result<()> {
     let subscription = MarketWsSubscription::new(asset_ids);
     let config = small_config();
     let client = MarketWsClient::new(config.clone())?;
-    let mut sessions = client.capture_reconnect(&subscription, 2)?;
+    let clock = SystemClock;
+    let mut sessions = client.capture_reconnect(&subscription, 2, &clock)?;
     assert_eq!(sessions.len(), 2);
     assert!(sessions.iter().all(|session| session.data_event_count >= 1));
     assert!(sessions.iter().all(|session| session.pong_received));
@@ -158,7 +158,7 @@ fn issue029_ws_market_live_reconnect_fsv() -> Result<()> {
     };
     let edge_client = MarketWsClient::new(edge_config.clone())?;
     let edge_subscription = MarketWsSubscription::new(vec!["not-a-real-token".to_string()]);
-    let edge_session = edge_client.capture_window(&edge_subscription, 2)?;
+    let edge_session = edge_client.capture_window(&edge_subscription, 2, &clock)?;
     let edge_err = require_market_ws_session_data(&edge_session, &edge_config).unwrap_err();
     assert_eq!(edge_err.code(), ERR_WS_MARKET_NO_PAYLOAD_WINDOW);
     sessions.push(edge_session);
@@ -263,14 +263,35 @@ fn proof_context(
 }
 
 fn fsv_root() -> PathBuf {
-    env::var("POLY_ISSUE029_FSV_ROOT")
+    env::var_os("POLY_ISSUE029_FSV_ROOT")
         .map(PathBuf::from)
-        .unwrap_or_else(|_| {
-            PathBuf::from(r"C:\code\poly\target\fsv\issue029_ws_market_client_20260707")
-        })
+        .unwrap_or_else(|| cargo_target_root().join("fsv/issue029_ws_market_client_20260707"))
 }
 
-fn assert_c_drive(path: &Path) -> Result<()> {
+fn cargo_target_root() -> PathBuf {
+    env::var_os("CARGO_TARGET_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| Path::new(env!("CARGO_MANIFEST_DIR")).join("target"))
+}
+
+#[cfg(not(windows))]
+fn assert_fsv_root(path: &Path) -> Result<()> {
+    let target_root = cargo_target_root();
+    if !path.starts_with(&target_root) {
+        return Err(PolyError::raw_source(
+            "CALYX_POLY_WS_MARKET_TEST_ROOT_OUTSIDE_TARGET",
+            format!(
+                "FSV root must stay under {}, got {}",
+                target_root.display(),
+                path.display()
+            ),
+        ));
+    }
+    Ok(())
+}
+
+#[cfg(windows)]
+fn assert_fsv_root(path: &Path) -> Result<()> {
     let text = path.display().to_string().replace('/', "\\");
     if !text.to_ascii_lowercase().starts_with("c:\\") {
         return Err(PolyError::raw_source(

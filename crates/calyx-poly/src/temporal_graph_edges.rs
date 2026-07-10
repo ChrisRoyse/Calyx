@@ -14,6 +14,7 @@ use calyx_aster::vault::AsterVault;
 use calyx_core::{Clock, CxId};
 
 use crate::error::{PolyError, Result};
+use crate::graph_weight::canonical_positive_weight;
 pub use crate::temporal_graph_edges_types::*;
 
 const TEMPORAL_NODE_PANEL_VERSION: u32 = 51;
@@ -77,7 +78,7 @@ pub fn compute_temporal_graph_edges(
             relation_key(request, "lead_lag"),
             ccf.peak_abs_correlation,
             TemporalGraphEvidence::LeadLag { report: ccf },
-        ),
+        )?,
         edge(
             driver_node,
             market,
@@ -88,7 +89,7 @@ pub fn compute_temporal_graph_edges(
                 selected: selected_te.clone(),
                 sweep: te_sweep,
             },
-        ),
+        )?,
         edge(
             market,
             period_node,
@@ -96,7 +97,7 @@ pub fn compute_temporal_graph_edges(
             relation_key(request, "periodicity"),
             periodicity_weight(&acf),
             TemporalGraphEvidence::Periodicity { report: acf },
-        ),
+        )?,
         edge(
             hazard_node,
             market,
@@ -104,7 +105,7 @@ pub fn compute_temporal_graph_edges(
             relation_key(request, "hazard"),
             hazard_weight(&hazard),
             TemporalGraphEvidence::Hazard { report: hazard },
-        ),
+        )?,
     ];
     Ok(TemporalGraphEdgeSet {
         schema_version: TEMPORAL_GRAPH_SCHEMA_VERSION.to_string(),
@@ -358,15 +359,15 @@ fn edge(
     relation_key: String,
     weight: f32,
     evidence: TemporalGraphEvidence,
-) -> TemporalGraphEdge {
-    TemporalGraphEdge {
+) -> Result<TemporalGraphEdge> {
+    Ok(TemporalGraphEdge {
         src,
         dst,
         edge_type: edge_type.to_string(),
         relation_key,
-        weight: positive_weight(weight),
+        weight: positive_weight(weight)?,
         evidence,
-    }
+    })
 }
 
 fn edge_bytes(edge: &TemporalGraphEdge) -> Result<Vec<u8>> {
@@ -425,12 +426,13 @@ fn hazard_weight(report: &InterEventHazardReport) -> f32 {
     }
 }
 
-fn positive_weight(value: f32) -> f32 {
-    if value.is_finite() && value > 0.0 {
-        (value * 1_000_000.0).round() / 1_000_000.0
-    } else {
-        0.000001
-    }
+fn positive_weight(value: f32) -> Result<f32> {
+    canonical_positive_weight(value).ok_or_else(|| {
+        PolyError::diagnostics(
+            ERR_TEMPORAL_GRAPH_INVALID_INPUT,
+            format!("temporal edge weight {value} must remain positive after canonicalization"),
+        )
+    })
 }
 
 fn ensure_variance(name: &str, values: &[f32]) -> Result<()> {

@@ -1,6 +1,7 @@
 use std::fs;
 use std::path::Path;
 
+use calyx_core::Clock;
 use serde_json::{Value, json};
 
 use crate::raw_historical_support::{HistoricalFormat, execute_get, validate_body};
@@ -22,9 +23,10 @@ pub(crate) fn capture_historical_market_data(
     agent: &ureq::Agent,
     pages: &mut Vec<LargeCorpusPage>,
     records: &mut Vec<CorpusRecord>,
+    clock: &dyn Clock,
 ) -> Result<()> {
     for plan in historical_plans() {
-        let page = capture_historical_page(request, agent, &plan)?;
+        let page = capture_historical_page(request, agent, &plan, clock)?;
         collect_historical_records(&page, &plan, records)?;
         pages.push(page);
     }
@@ -34,10 +36,11 @@ pub(crate) fn capture_historical_market_data(
 pub(crate) fn capture_historical_edge_cases(
     request: &LargeCorpusRequest,
     agent: &ureq::Agent,
+    clock: &dyn Clock,
 ) -> Result<Vec<LargeCorpusEdgeCase>> {
     historical_edge_plans()
         .iter()
-        .map(|plan| capture_historical_edge(request, agent, plan))
+        .map(|plan| capture_historical_edge(request, agent, plan, clock))
         .collect()
 }
 
@@ -127,6 +130,7 @@ fn capture_historical_page(
     request: &LargeCorpusRequest,
     agent: &ureq::Agent,
     plan: &HistoricalPlan,
+    clock: &dyn Clock,
 ) -> Result<LargeCorpusPage> {
     let dir = request.output_root.join("raw").join(&plan.dataset);
     let body_path = dir.join(format!("page-000000.{}", body_extension(plan.format)));
@@ -138,7 +142,8 @@ fn capture_historical_page(
             format!("create historical corpus dir {}: {err}", dir.display()),
         )
     })?;
-    let (status_code, bytes, transport_error) = execute_historical_get(agent, request, plan)?;
+    let (status_code, bytes, transport_error) =
+        execute_historical_get(agent, request, plan, clock)?;
     fs::write(&body_path, &bytes).map_err(|err| {
         PolyError::raw_source(
             "POLY_LARGE_CORPUS_HISTORICAL_BODY_WRITE_FAILED",
@@ -194,6 +199,7 @@ fn capture_historical_edge(
     request: &LargeCorpusRequest,
     agent: &ureq::Agent,
     plan: &HistoricalPlan,
+    clock: &dyn Clock,
 ) -> Result<LargeCorpusEdgeCase> {
     let dir = request.output_root.join("edge").join(&plan.dataset);
     let body_path = dir.join(format!("body.{}", body_extension(plan.format)));
@@ -205,7 +211,8 @@ fn capture_historical_edge(
             format!("create historical edge dir {}: {err}", dir.display()),
         )
     })?;
-    let (status_code, bytes, transport_error) = execute_historical_get(agent, request, plan)?;
+    let (status_code, bytes, transport_error) =
+        execute_historical_get(agent, request, plan, clock)?;
     fs::write(&body_path, &bytes).map_err(|err| {
         PolyError::raw_source(
             "POLY_LARGE_CORPUS_HISTORICAL_EDGE_BODY_WRITE_FAILED",
@@ -256,8 +263,10 @@ fn execute_historical_get(
     agent: &ureq::Agent,
     request: &LargeCorpusRequest,
     plan: &HistoricalPlan,
+    clock: &dyn Clock,
 ) -> Result<(Option<u16>, Vec<u8>, Option<String>)> {
     execute_get(
+        clock,
         agent,
         &plan.dataset,
         &plan.url,

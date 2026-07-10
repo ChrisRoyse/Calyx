@@ -2,6 +2,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use calyx_core::Clock;
 use serde::Deserialize;
 
 use crate::raw_large_corpus::read_large_corpus_manifest;
@@ -59,7 +60,10 @@ impl SchemaDerivationRequest {
     }
 }
 
-pub fn run_schema_derivation(request: &SchemaDerivationRequest) -> Result<SchemaDerivationReport> {
+pub fn run_schema_derivation(
+    request: &SchemaDerivationRequest,
+    clock: &dyn Clock,
+) -> Result<SchemaDerivationReport> {
     fs::create_dir_all(&request.output_root).map_err(|err| {
         PolyError::raw_source(
             "POLY_SCHEMA_DERIVATION_OUTPUT_DIR_CREATE_FAILED",
@@ -135,7 +139,7 @@ pub fn run_schema_derivation(request: &SchemaDerivationRequest) -> Result<Schema
     let after_files = file_states(&artifact_paths)?;
     let report = SchemaDerivationReport {
         schema_version: SCHEMA_DERIVATION_SCHEMA_VERSION.to_string(),
-        generated_at_unix_ms: now_unix_ms()?,
+        generated_at_unix_ms: now_unix_ms(clock),
         source_of_truth: "physical large-corpus artifacts read back from disk".to_string(),
         corpus_root: corpus_root.display().to_string(),
         output_root: output_root.display().to_string(),

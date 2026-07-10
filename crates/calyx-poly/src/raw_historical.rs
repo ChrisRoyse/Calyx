@@ -7,6 +7,7 @@ use crate::raw_historical_support::{
 use crate::raw_source_support::{file_state, sanitize_segment, sha256_hex, write_json};
 use crate::raw_sources::{RawEndpointSample, RawFileState, RawSourceSamplingRequest};
 use crate::{PolyError, Result};
+use calyx_core::Clock;
 
 const SOURCE: &str = "historical-dump";
 const HF_SIMPLE_FUNCTIONS_DOCS: &str =
@@ -18,10 +19,11 @@ const HF_TIMESEVENTEEN_DOCS: &str = "https://huggingface.co/datasets/TimeSevente
 pub(crate) fn capture_historical_samples(
     request: &RawSourceSamplingRequest,
     agent: &ureq::Agent,
+    clock: &dyn Clock,
 ) -> Result<Vec<RawEndpointSample>> {
     historical_probes()
         .iter()
-        .map(|probe| capture_historical_probe(request, agent, probe))
+        .map(|probe| capture_historical_probe(request, agent, probe, clock))
         .collect()
 }
 
@@ -133,6 +135,7 @@ fn capture_historical_probe(
     request: &RawSourceSamplingRequest,
     agent: &ureq::Agent,
     probe: &HistoricalProbe,
+    clock: &dyn Clock,
 ) -> Result<RawEndpointSample> {
     let sample_dir = request
         .output_root
@@ -161,8 +164,14 @@ fn capture_historical_probe(
             ),
         )
     })?;
-    let (status_code, bytes, transport_error) =
-        execute_get(agent, &probe.name, &probe.url, probe.format, max_body_bytes)?;
+    let (status_code, bytes, transport_error) = execute_get(
+        clock,
+        agent,
+        &probe.name,
+        &probe.url,
+        probe.format,
+        max_body_bytes,
+    )?;
     persist_body(&body_path, &bytes)?;
 
     let validation = validate_body(probe.format, &bytes);

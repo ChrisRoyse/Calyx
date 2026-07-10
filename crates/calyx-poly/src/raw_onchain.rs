@@ -4,6 +4,7 @@ use crate::raw_http::capture_http_probe;
 use crate::raw_source_probes::Probe;
 use crate::raw_sources::{RawEndpointSample, RawSourceSamplingRequest};
 use crate::{PolyError, Result};
+use calyx_core::Clock;
 
 const POLYGON_DRPC_URL: &str = "https://polygon.drpc.org";
 const POLYGON_PUBLIC_RPC_URL: &str = "https://polygon-rpc.com";
@@ -20,10 +21,11 @@ const NEG_RISK_EXCHANGE_V2: &str = "0xe2222d279d744050d28e00520010520000310F59";
 pub(crate) fn capture_onchain_samples(
     request: &RawSourceSamplingRequest,
     agent: &ureq::Agent,
+    clock: &dyn Clock,
 ) -> Result<Vec<RawEndpointSample>> {
     let mut samples = Vec::new();
     let block_probe = polygon_block_number_probe();
-    let (block_sample, parsed_block) = capture_http_probe(request, agent, &block_probe)?;
+    let (block_sample, parsed_block) = capture_http_probe(request, agent, &block_probe, clock)?;
     let latest_block = latest_block_number(&parsed_block, &block_sample.name)?;
     samples.push(block_sample);
     samples.push(
@@ -31,6 +33,7 @@ pub(crate) fn capture_onchain_samples(
             request,
             agent,
             &polygon_v2_order_filled_logs_probe(latest_block),
+            clock,
         )?
         .0,
     );
@@ -39,14 +42,15 @@ pub(crate) fn capture_onchain_samples(
             request,
             agent,
             &polygon_empty_zero_address_logs_probe(latest_block),
+            clock,
         )?
         .0,
     );
     for probe in goldsky_subgraph_probes() {
-        samples.push(capture_http_probe(request, agent, &probe)?.0);
+        samples.push(capture_http_probe(request, agent, &probe, clock)?.0);
     }
     for probe in onchain_edge_probes() {
-        samples.push(capture_http_probe(request, agent, &probe)?.0);
+        samples.push(capture_http_probe(request, agent, &probe, clock)?.0);
     }
     Ok(samples)
 }
