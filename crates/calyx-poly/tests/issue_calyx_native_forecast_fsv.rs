@@ -198,6 +198,7 @@ fn happy_admissible_forecast(root: &Path, clock: &FixedClock) -> f64 {
         panel_bits: 1.0,
         anchor_entropy_bits: 1.0,
         superiority_tiers: strong_tiers(),
+        evidence: None,
     };
     let forecast = produce_calyx_native_forecast(&req, clock).expect("produce");
 
@@ -304,6 +305,7 @@ fn edge_failing_tier_refuses(root: &Path, clock: &FixedClock, _admitted_p: &f64)
         panel_bits: 1.0,
         anchor_entropy_bits: 1.0,
         superiority_tiers: tiers,
+        evidence: None,
     };
     let forecast = produce_calyx_native_forecast(&req, clock).unwrap();
     assert!(!forecast.admissible);
@@ -339,6 +341,7 @@ fn edge_provisional_evidence_refuses(root: &Path, clock: &FixedClock) {
         panel_bits: 1.0,
         anchor_entropy_bits: 1.0,
         superiority_tiers: strong_tiers(),
+        evidence: None,
     };
     let forecast = produce_calyx_native_forecast(&req, clock).unwrap();
     assert_eq!(forecast.trust, TrustTag::Provisional);

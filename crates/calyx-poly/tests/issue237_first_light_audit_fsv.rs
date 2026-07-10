@@ -180,6 +180,7 @@ fn forecast(root: &Path) -> calyx_poly::calyx_native::CalyxNativeForecast {
         panel_bits: 1.0,
         anchor_entropy_bits: 1.0,
         superiority_tiers: strong_tiers(),
+        evidence: None,
     };
     let forecast = produce_calyx_native_forecast(&req, &FixedClock::new(FORECAST_TS))
         .expect("produce CalyxNative forecast");

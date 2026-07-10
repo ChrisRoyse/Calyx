@@ -169,6 +169,7 @@ fn request(
             panel_sufficient: caller_panel_sufficient,
             ..strong_tiers()
         },
+        evidence: None,
     }
 }
 

@@ -7,3 +7,8 @@ pub use crate::crypto_forecast_registration::{
     produce_live_calyx_native_forecast, register_crypto_pending_for_mode,
     register_crypto_pending_from_calyx_native_artifact,
 };
+pub use crate::live_calyx_native_evidence::{
+    LiveCalyxNativeEvidence, LiveCalyxNativeEvidenceRequest, LiveCalyxNativeEvidenceStore,
+    StoredLiveCalyxNativeEvidence, read_latest_live_calyx_native_evidence,
+    record_live_calyx_native_evidence,
+};

@@ -154,6 +154,7 @@ fn base_request(domain: &str) -> CalyxNativeRequest {
         panel_bits: 1.0,
         anchor_entropy_bits: 1.0,
         superiority_tiers: strong_tiers(),
+        evidence: None,
     }
 }
 

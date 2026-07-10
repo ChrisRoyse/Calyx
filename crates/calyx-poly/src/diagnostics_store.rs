@@ -69,9 +69,40 @@ pub fn read_json<T: DeserializeOwned>(path: &Path) -> Result<T> {
 mod tests {
     use super::*;
 
+    struct TestDir(PathBuf);
+
+    impl TestDir {
+        fn new(name: &str) -> Self {
+            let path = std::env::temp_dir().join(format!("{name}-{}", std::process::id()));
+            let _ = std::fs::remove_dir_all(&path);
+            Self(path)
+        }
+    }
+
+    impl Drop for TestDir {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    #[derive(serde::Serialize, serde::Deserialize)]
+    struct FloatArtifact {
+        value: f64,
+    }
+
     #[test]
     fn read_missing_fails_closed() {
         let err = read_json::<u32>(Path::new("does-not-exist-xyz.json")).unwrap_err();
         assert_eq!(err.code(), ERR_READ);
+    }
+
+    #[test]
+    fn json_float_bits_round_trip_exactly() {
+        let dir = TestDir::new("calyx-poly-diagnostics-float-roundtrip");
+        let original = f64::from_bits(0x3fd9_803e_f746_8a5a);
+        let path = write_json(&dir.0, "float.json", &FloatArtifact { value: original }).unwrap();
+        let readback: FloatArtifact = read_json(&path).unwrap();
+
+        assert_eq!(readback.value.to_bits(), original.to_bits());
     }
 }

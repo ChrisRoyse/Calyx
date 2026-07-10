@@ -25,9 +25,18 @@ use crate::score::ForecastSource;
 use crate::superiority::{SuperiorityTiers, SuperiorityVerdict, evaluate_superiority};
 
 /// Schema tag persisted with every Calyx-native forecast.
-pub const CALYX_NATIVE_SCHEMA_VERSION: &str = "poly.calyx_native_forecast.v1";
+pub const CALYX_NATIVE_SCHEMA_VERSION: &str = "poly.calyx_native_forecast.v2";
 /// Artifact-kind tag.
 pub const CALYX_NATIVE_ARTIFACT_KIND: &str = "poly_calyx_native_forecast";
+pub const ERR_CALYX_NATIVE_PROVENANCE: &str = "CALYX_POLY_CALYX_NATIVE_PROVENANCE";
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CalyxNativeEvidenceRef {
+    pub ledger_seq: u64,
+    pub recorded_at_millis: u64,
+    pub panel_version: u32,
+    pub payload_blake3: String,
+}
 
 /// Everything the producer needs for one market's forecast.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -56,6 +65,9 @@ pub struct CalyxNativeRequest {
     pub anchor_entropy_bits: f64,
     /// The six superiority tiers for the market/domain.
     pub superiority_tiers: SuperiorityTiers,
+    /// Aster Ledger row that supplied measured live-admission evidence, when applicable.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub evidence: Option<CalyxNativeEvidenceRef>,
 }
 
 /// The persisted Calyx-native forecast — the FSV source of truth on disk.
@@ -91,6 +103,9 @@ pub struct CalyxNativeForecast {
     pub calibration: Option<CalibrationSlope>,
     /// The six-tier superiority verdict.
     pub superiority: SuperiorityVerdict,
+    /// Aster Ledger evidence row bound into this forecast's provenance.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub evidence: Option<CalyxNativeEvidenceRef>,
     /// Admissible iff superiority passes **and** the blend is Trusted.
     pub admissible: bool,
     /// Reason the forecast is non-admissible (empty if admissible).
@@ -140,7 +155,7 @@ pub fn produce_calyx_native_forecast(
     }
     let admissible = refusal.is_empty();
 
-    let provenance_hash = provenance_hash(req, p_raw, p_model, ceiling.confidence, admissible);
+    let provenance_hash = provenance_hash(req, p_raw, p_model, ceiling.confidence, admissible)?;
 
     Ok(CalyxNativeForecast {
         schema_version: CALYX_NATIVE_SCHEMA_VERSION.to_string(),
@@ -158,6 +173,7 @@ pub fn produce_calyx_native_forecast(
         blend,
         calibration: req.calibration.clone(),
         superiority,
+        evidence: req.evidence.clone(),
         admissible,
         refusal_reason: refusal,
         trust,
@@ -217,22 +233,20 @@ fn provenance_hash(
     p_model: f64,
     confidence: f64,
     admissible: bool,
-) -> String {
+) -> Result<String> {
     let mut hasher = blake3::Hasher::new();
-    hasher.update(req.domain.as_bytes());
-    hasher.update(req.condition_id.as_bytes());
-    hasher.update(req.token_id.as_bytes());
-    hasher.update(req.horizon_bucket.as_bytes());
-    for c in &req.components {
-        hasher.update(c.kind.slug().as_bytes());
-        hasher.update(&c.p.to_le_bytes());
-        hasher.update(&c.reliability.to_le_bytes());
-    }
+    let request_bytes = serde_json::to_vec(req).map_err(|error| {
+        PolyError::diagnostics(
+            ERR_CALYX_NATIVE_PROVENANCE,
+            format!("encode CalyxNative request for provenance: {error}"),
+        )
+    })?;
+    hasher.update(&request_bytes);
     hasher.update(&p_raw.to_le_bytes());
     hasher.update(&p_model.to_le_bytes());
     hasher.update(&confidence.to_le_bytes());
     hasher.update(&[u8::from(admissible)]);
-    hasher.finalize().to_hex().to_string()
+    Ok(hasher.finalize().to_hex().to_string())
 }
 
 #[cfg(test)]
@@ -275,6 +289,7 @@ mod tests {
             panel_bits: 1.0,
             anchor_entropy_bits: 1.0,
             superiority_tiers: strong_tiers(),
+            evidence: None,
         }
     }
 

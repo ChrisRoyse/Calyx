@@ -337,6 +337,7 @@ fn forecast_request(condition_id: String, token_id: String) -> CalyxNativeReques
             goodhart_defended: true,
             mistake_closed: true,
         },
+        evidence: None,
     }
 }
 

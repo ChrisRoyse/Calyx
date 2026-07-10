@@ -133,6 +133,7 @@ pub mod knn_base_rate;
 pub mod knn_graph_edges;
 pub mod lens_autobuild;
 pub mod lenses;
+pub mod live_calyx_native_evidence;
 pub mod logging;
 pub mod loom_shape_weave;
 mod loom_shape_weave_types;

@@ -3,6 +3,8 @@
 //! Source of truth: one persisted CalyxNative forecast artifact, one pending ledger row, and the
 //! crypto capture state JSON that carries the artifact hash forward for later first-light audit.
 
+#[path = "live_calyx_native_evidence_support.rs"]
+mod evidence_support;
 #[path = "fsv_support.rs"]
 mod support;
 
@@ -12,7 +14,7 @@ use std::path::Path;
 use calyx_assay::TrustTag;
 use calyx_aster::cf::{ColumnFamily, ledger_key};
 use calyx_aster::vault::{AsterVault, VaultOptions};
-use calyx_core::{CxId, VaultId, VaultStore};
+use calyx_core::{Clock, CxId, FixedClock, SystemClock, VaultId, VaultStore};
 use calyx_ledger::{EntryKind, decode as decode_ledger};
 use calyx_poly::calyx_native::{
     CalyxNativeForecast, CalyxNativeRequest, produce_calyx_native_forecast,
@@ -33,16 +35,19 @@ use calyx_poly::crypto_ingestor::{
 };
 use calyx_poly::forecast::{ComponentKind, ForecastComponent};
 use calyx_poly::lenses::default_panel;
+use calyx_poly::live_calyx_native_evidence::{
+    LiveCalyxNativeEvidenceStore, read_latest_live_calyx_native_evidence,
+};
 use calyx_poly::model::{Book, MarketSnapshot, OracleRiskEvidence};
 use calyx_poly::pending_forecast_register::{PendingForecastLedgerStore, PendingForecastRegister};
 use calyx_poly::score::ForecastSource;
 use calyx_poly::superiority::SuperiorityTiers;
+use evidence_support::record_strong_evidence;
 use serde_json::{Value, json};
 use support::{collect_files, named_fsv_root, reset_dir, write_blake3sums, write_json};
 
 const VAULT_ID: &str = "01ARZ3NDEKTSV4RRFFQ69G5FAV";
 const VAULT_SALT: &[u8] = b"poly-issue241-calyx-native-capture";
-const CAPTURE_TS: u64 = 1_785_500_241;
 const CONDITION_ID: &str = "0x0000000000000000000000000000000000000000000000000000000000000241";
 const TOKEN_ID: &str =
     "34747254630927017064599589941321309211596494400768268440049646273862919127907";
@@ -57,14 +62,18 @@ fn issue241_calyx_native_capture_seam_fsv() {
     );
     assert_c_drive(&root);
     reset_dir(&root);
+    let evidence_at_millis = SystemClock.now();
+    let capture_ts = (evidence_at_millis + 300_000).div_ceil(1_000);
     let vault_id: VaultId = VAULT_ID.parse().unwrap();
-    let vault = AsterVault::new_durable(
+    let vault = AsterVault::new_durable_with_clock(
         root.join("capture-vault"),
         vault_id,
         VAULT_SALT.to_vec(),
         VaultOptions::default(),
+        FixedClock::new(capture_ts * 1_000),
     )
     .unwrap();
+    record_strong_evidence(&vault, "crypto", "pre_resolution", 241, evidence_at_millis);
     let mut register = PendingForecastRegister::default();
     let config = CryptoCaptureHarnessConfig {
         interval_secs: 60,
@@ -84,7 +93,7 @@ fn issue241_calyx_native_capture_seam_fsv() {
             vault_salt: VAULT_SALT,
             output_root: &root,
             config,
-            now_ts: CAPTURE_TS,
+            now_ts: capture_ts,
         },
         &mut runner,
     )
@@ -114,7 +123,7 @@ fn issue241_calyx_native_capture_seam_fsv() {
     let missing = register_crypto_pending_from_calyx_native_artifact(
         &vault,
         &mut PendingForecastRegister::default(),
-        &snapshot(CAPTURE_TS),
+        &snapshot(capture_ts),
         CxId::from_bytes([7; 16]),
         "crypto",
         "pre_resolution",
@@ -126,13 +135,13 @@ fn issue241_calyx_native_capture_seam_fsv() {
     let mismatch_dir = root.join("mismatch");
     let mismatch_path = write_calyx_native_forecast(
         &mismatch_dir,
-        &forecast(&snapshot(CAPTURE_TS), Some("wrong-token")),
+        &forecast(&snapshot(capture_ts), Some("wrong-token")),
     )
     .expect("write mismatched forecast");
     let mismatch = register_crypto_pending_from_calyx_native_artifact(
         &vault,
         &mut PendingForecastRegister::default(),
-        &snapshot(CAPTURE_TS),
+        &snapshot(capture_ts),
         CxId::from_bytes([8; 16]),
         "crypto",
         "pre_resolution",
@@ -144,7 +153,7 @@ fn issue241_calyx_native_capture_seam_fsv() {
     let baseline = register_crypto_pending(
         &vault,
         &mut PendingForecastRegister::default(),
-        &snapshot(CAPTURE_TS),
+        &snapshot(capture_ts),
         CxId::from_bytes([9; 16]),
         "crypto",
         "pre_resolution",
@@ -264,7 +273,7 @@ struct KnownCalyxNativeRunner {
 
 impl<S> CryptoCaptureRunner<S> for KnownCalyxNativeRunner
 where
-    S: VaultStore + PendingForecastLedgerStore,
+    S: VaultStore + PendingForecastLedgerStore + LiveCalyxNativeEvidenceStore,
 {
     fn run_capture_cycle(
         &mut self,
@@ -276,6 +285,13 @@ where
         config: CryptoIngestorConfig,
     ) -> calyx_poly::Result<CryptoIngestionRun> {
         self.calls += 1;
+        let _ = read_latest_live_calyx_native_evidence(
+            store,
+            &config.domain,
+            &config.horizon_bucket,
+            config.panel_version,
+            config.captured_ts * 1_000,
+        )?;
         let panel = default_panel(config.panel_version, config.region_vocab.clone());
         let mut records = Vec::new();
         for snapshot in [
@@ -294,6 +310,7 @@ where
                     horizon_bucket: &config.horizon_bucket,
                     output_root,
                     mode: config.forecast_mode,
+                    panel_version: config.panel_version,
                 },
             )?;
             records.push(CryptoSnapshotIngestRecord { put, pending });
@@ -336,8 +353,9 @@ fn forecast(snapshot: &MarketSnapshot, token_override: Option<&str>) -> CalyxNat
             goodhart_defended: true,
             mistake_closed: true,
         },
+        evidence: None,
     };
-    produce_calyx_native_forecast(&req, &calyx_core::FixedClock::new(snapshot.snapshot_ts))
+    produce_calyx_native_forecast(&req, &FixedClock::new(snapshot.snapshot_ts * 1_000))
         .expect("produce forecast")
 }
 
@@ -427,7 +445,7 @@ fn assert_calyx_native_artifacts(snapshots: &[CryptoCapturedSnapshotRef]) -> Vec
         .collect()
 }
 
-fn ledger_payload(vault: &AsterVault, seq: u64) -> Value {
+fn ledger_payload<C: Clock>(vault: &AsterVault<C>, seq: u64) -> Value {
     let row = vault
         .read_cf_at(vault.snapshot(), ColumnFamily::Ledger, &ledger_key(seq))
         .unwrap()

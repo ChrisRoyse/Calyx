@@ -21,6 +21,7 @@ use crate::gamma_client::{
 };
 use crate::gamma_public_search::{GammaPublicSearchPage, GammaPublicSearchRequest};
 use crate::lenses::default_panel;
+use crate::live_calyx_native_evidence::LiveCalyxNativeEvidenceStore;
 use crate::pending_forecast_register::{PendingForecastLedgerStore, PendingForecastRegister};
 use crate::ws_market_client::{MarketWsClient, require_market_ws_session_data};
 use crate::ws_market_report::{
@@ -47,7 +48,7 @@ pub fn run_live_crypto_ingestion_cycle<S>(
     clock: &dyn Clock,
 ) -> Result<CryptoLiveCaptureRun>
 where
-    S: VaultStore + PendingForecastLedgerStore,
+    S: VaultStore + PendingForecastLedgerStore + LiveCalyxNativeEvidenceStore,
 {
     reject_forbidden_drive(output_root)?;
     validate_config(&config)?;
@@ -106,6 +107,7 @@ where
                 horizon_bucket: &config.horizon_bucket,
                 output_root,
                 mode: config.forecast_mode,
+                panel_version: config.panel_version,
             },
         )?;
         records.push(CryptoSnapshotIngestRecord { put, pending });
