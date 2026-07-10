@@ -317,7 +317,7 @@ mod tests {
         let report = load(Some(&path), &plan(10), false).unwrap().unwrap();
 
         assert_eq!(report["panel_lens_count"], 10);
-        assert_eq!(report["n_eff"], 8.5);
+        assert_eq!(report["n_eff"], serde_json::json!(card(10, 0).n_eff));
         assert_eq!(report["card_sha256"].as_str().unwrap().len(), 64);
         assert_eq!(report["lens_values"].as_array().unwrap().len(), 10);
         assert_eq!(report["pair_values"].as_array().unwrap().len(), 45);
