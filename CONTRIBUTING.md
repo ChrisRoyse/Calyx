@@ -18,7 +18,8 @@ Follow FIRST:
 Forbidden in committed tests:
 
 - `sleep()` as synchronization; use polling with a bounded timeout when waiting is unavoidable.
-- Lingering `#[ignore]`; fix it, delete it, or file a dated issue before merging.
+- Bare `#[ignore]`; ignored tests must carry a reason, for example `#[ignore = "manual FSV: ..."]` or `#[ignore = "requires live ..."]`.
+- Ignored tests without current manual/live FSV evidence; either run and attach the readback, fix the prerequisite, delete the fixture, or file a dated issue before merging.
 - Assertion roulette; every assertion should make the failed invariant obvious.
 - Wall-clock or locale dependence in logic tests.
 

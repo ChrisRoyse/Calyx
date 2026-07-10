@@ -113,7 +113,7 @@ fn issue029_ws_market_parser_and_readback_fsv() -> Result<()> {
 }
 
 #[test]
-#[ignore]
+#[ignore = "requires live public Gamma and CLOB WebSocket APIs"]
 fn issue029_ws_market_live_reconnect_fsv() -> Result<()> {
     let root = fsv_root().join("live");
     assert_c_drive(&root)?;
