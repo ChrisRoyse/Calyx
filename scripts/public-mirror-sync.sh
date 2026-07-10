@@ -72,6 +72,7 @@ fi
 
 allow_paths=(
   .cargo .config assets crates fuzz tools
+  docs/readme/README.md
   .gitattributes .gitignore .gitleaksignore
   Cargo.lock Cargo.toml LICENSE README.md rust-toolchain.toml
 )
@@ -105,8 +106,16 @@ if [[ ${#stage_paths[@]} -gt 0 ]]; then
   git -C "$public_root" add -A -- "${stage_paths[@]}"
 fi
 
+mapfile -t forbidden_docs < <(
+  git -C "$public_root" ls-files 'docs/*' |
+    grep -vx 'docs/readme/README.md' || true
+)
+if [[ ${#forbidden_docs[@]} -gt 0 ]]; then
+  git -C "$public_root" rm -r --ignore-unmatch -- "${forbidden_docs[@]}" >/dev/null
+fi
+
 git -C "$public_root" rm -r --ignore-unmatch -- \
-  docs docs2 scripts infra datasets env.sh .env ".env.*" \
+  docs2 scripts infra datasets env.sh .env ".env.*" \
   .pre-commit-config.yaml .githooks CONTRIBUTING.md >/dev/null
 
 bash "$dev_root/scripts/public-leak-scan.sh" --public-tree "$public_root"

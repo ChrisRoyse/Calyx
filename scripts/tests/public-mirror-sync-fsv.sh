@@ -31,10 +31,11 @@ bad()  { echo "  FAIL: $1" >&2; fail=1; }
 # scripts/, plus the caller-provided allowlist body written into crates/.
 make_dev() {
   local dev="$1" crate_body="$2"
-  mkdir -p "$dev/scripts" "$dev/crates/demo/src"
+  mkdir -p "$dev/scripts" "$dev/crates/demo/src" "$dev/docs/readme"
   cp "$sync_src" "$dev/scripts/public-mirror-sync.sh"
   cp "$leak_src" "$dev/scripts/public-leak-scan.sh"
   printf '%s\n' "$crate_body" > "$dev/crates/demo/src/lib.rs"
+  printf 'public README image contract\n' > "$dev/docs/readme/README.md"
   printf '[workspace]\nmembers=["crates/demo"]\n' > "$dev/Cargo.toml"
   printf 'target/\n' > "$dev/.gitignore"
   git -C "$dev" init -q
@@ -45,15 +46,17 @@ make_dev() {
 }
 
 # Builds a synthetic public checkout with a ChrisRoyse/Calyx origin, a stale
-# copy of the allowlist file, a forbidden tracked tree (docs/, scripts/), and a
-# tracked README the dev side does not have (to prove deletion staging).
+# copy of the allowlist file, a forbidden tracked tree (docs/ except the
+# README contract, scripts/), and a tracked README the dev side does not have
+# (to prove deletion staging).
 make_public() {
   local pub="$1" stale_body="$2"
-  mkdir -p "$pub/crates/demo/src" "$pub/docs" "$pub/scripts"
+  mkdir -p "$pub/crates/demo/src" "$pub/docs/readme" "$pub/scripts"
   printf '%s\n' "$stale_body" > "$pub/crates/demo/src/lib.rs"
   printf '[workspace]\nmembers=["crates/demo"]\n' > "$pub/Cargo.toml"
   printf 'target/\n' > "$pub/.gitignore"
   printf 'internal build host notes\n' > "$pub/docs/internal.md"
+  printf 'stale public README contract\n' > "$pub/docs/readme/README.md"
   printf 'echo secret\n' > "$pub/scripts/secret.sh"
   printf 'stale public readme\n' > "$pub/README.md"
   git -C "$pub" init -q
@@ -102,6 +105,13 @@ git -C "$pub1" diff --cached --name-only --diff-filter=D | grep -qx "docs/intern
 git -C "$pub1" diff --cached --name-only --diff-filter=D | grep -qx "scripts/secret.sh" \
   && pass "forbidden scripts/secret.sh staged as DELETION" \
   || bad "forbidden scripts/secret.sh deletion NOT staged"
+git -C "$pub1" ls-files | grep -qx "docs/readme/README.md" \
+  && pass "allowed docs/readme/README.md remains tracked" \
+  || bad "allowed docs/readme/README.md is not tracked"
+staged_contract="$(git -C "$pub1" show :docs/readme/README.md)"
+[[ "$staged_contract" == "public README image contract" ]] \
+  && pass "README contract content matches dev source of truth" \
+  || bad "README contract content wrong: [$staged_contract]"
 
 # README existed in public but not dev -> allowlist deletion must be staged.
 git -C "$pub1" diff --cached --name-only --diff-filter=D | grep -qx "README.md" \
@@ -116,9 +126,11 @@ leftover="$(git -C "$pub1" status --porcelain | grep -E '^( .|\?\?)' || true)"
   || bad "unstaged/untracked leftovers remain:"$'\n'"$leftover"
 
 # Forbidden paths must be gone from the tracked set (index).
-git -C "$pub1" ls-files | grep -qE '^(docs/|scripts/)' \
+git -C "$pub1" ls-files |
+  grep -E '^(docs/|scripts/)' |
+  grep -vx 'docs/readme/README.md' >/dev/null \
   && bad "forbidden paths still tracked in index" \
-  || pass "no forbidden paths tracked in index (leak gate satisfied)"
+  || pass "no forbidden paths tracked in index except README contract"
 
 # Simulate the operator's immediate commit and prove it is NOT deletion-only.
 git -C "$pub1" commit -qm "Sync public mirror"
