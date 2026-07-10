@@ -1,0 +1,1 @@
+[{"jsonrpc":"2.0","method":"tools/list","id":"a"},{"jsonrpc":"2.0","method":"tools/call","params":{"name":"calyx.search","arguments":{}},"id":2}]

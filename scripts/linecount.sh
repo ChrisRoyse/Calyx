@@ -5,7 +5,7 @@ usage() {
   cat >&2 <<'USAGE'
 Usage: bash scripts/linecount.sh [--repo-root <path>]
 
-Checks every Rust source file under <repo>/crates against the 500-line limit.
+Checks every Rust source file under <repo>/crates and <repo>/fuzz against the 500-line limit.
 USAGE
 }
 
@@ -45,7 +45,12 @@ else
 fi
 cd "$repo_root"
 
-find crates -type f -name '*.rs' -exec wc -l {} + |
+roots=(crates)
+if [[ -d fuzz ]]; then
+  roots+=(fuzz)
+fi
+
+find "${roots[@]}" -type f -name '*.rs' -exec wc -l {} + |
   awk -v max=500 '
     $1 > max && $2 != "total" {
       print "❌", $0

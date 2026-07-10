@@ -1,0 +1,1 @@
+{"text":"dense grounding kernel query","vector":{"dense":{"dim":2,"data":[0.25,0.75]}},"guard_vectors":{},"slots":[0,1],"k":5,"ef":32,"recall_k":3,"explain":true,"require_stored_provenance":true,"freshness":"fresh_derived","fusion":"rrf","filters":{},"guard":null}

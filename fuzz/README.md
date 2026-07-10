@@ -1,6 +1,8 @@
 # Calyx Fuzz Targets
 
-Run in a manual verification run from the repo root:
+The full dev gate and public mirror gate run `scripts/fuzz-gate.sh`, which
+formats, compiles, and lints this standalone fuzz workspace with `--locked`.
+Manual fuzz execution still runs from the repo root:
 
 ```bash
 cargo fuzz list
@@ -22,3 +24,5 @@ Targets map to PRD `28 §6c` untrusted-input boundaries:
 - `mcp_jsonrpc_decode`: MCP JSON-RPC request/batch wire decode.
 
 Seed corpora should include real persisted bytes copied from manual evidence vaults for Aster SST/WAL/MANIFEST cases. Fuzzer artifacts are evidence until triaged: every crash input gets a GitHub issue plus a regression test.
+The current manifest seeds `real-temporal-*.json` were copied from the physical
+manifest bytes generated during the #1400 gate-coverage FSV.

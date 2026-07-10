@@ -120,6 +120,7 @@ bash "$dev_root/scripts/cargo-fmt-workspace.sh" --check --repo-root "$public_roo
   cd "$public_root"
   cargo check --workspace --all-targets
   cargo clippy --workspace --all-targets -- -D warnings
+  bash "$dev_root/scripts/fuzz-gate.sh" --repo-root "$public_root"
   cargo nextest run --workspace
   cargo test --workspace --doc
 )

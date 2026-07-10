@@ -91,6 +91,7 @@ bash "$repo_root/scripts/secret-scan.sh"
 bash "$repo_root/scripts/cargo-fmt-workspace.sh" --check
 cargo check --workspace --all-targets
 cargo clippy --workspace --all-targets -- -D warnings
+bash "$repo_root/scripts/fuzz-gate.sh" --repo-root "$repo_root"
 
 # Test execution with nextest: it runs every test across every binary in a
 # single parallel pool sized to all logical CPUs, whereas `cargo test` runs each

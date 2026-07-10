@@ -1,0 +1,1 @@
+{"text":"sparse filtered query","vector":{"sparse":{"dim":8,"entries":[{"idx":0,"val":1.0},{"idx":7,"val":0.5}]}},"slots":[2],"k":1,"ef":null,"recall_k":null,"explain":false,"require_stored_provenance":true,"freshness":{"stale_ok":{"seq_lag":3}},"fusion":null,"filters":{"scalars":[{"name":"freshness_score","op":"gte","value":0.5}],"anchors":[],"metadata":[]},"guard":null}

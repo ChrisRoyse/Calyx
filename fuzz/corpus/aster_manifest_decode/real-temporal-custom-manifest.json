@@ -1,0 +1,59 @@
+{
+  "version": {
+    "major": 1,
+    "minor": 0
+  },
+  "manifest_seq": 1,
+  "durable_seq": 1,
+  "derived_content_seq": 1,
+  "panel_ref": {
+    "logical_path": "panel/generated-no-active-panel-97f4e80c5ff11fc1.json",
+    "blake3_hex": "97f4e80c5ff11fc10aeeabb622ffb93d0daeb224cec19bb090be172effcb3094"
+  },
+  "registry_ref": null,
+  "codebook_refs": [
+    {
+      "logical_path": "codebooks/generated-no-active-codebook-b1cbde4a43854c6b.json",
+      "blake3_hex": "b1cbde4a43854c6bb391e99c353f28632aab5475c2aaa26d795ed8f9a1d9195b"
+    }
+  ],
+  "temporal_policy": {
+    "enabled": true,
+    "decay": {
+      "linear": {
+        "max_age_secs": 7200
+      }
+    },
+    "periodic": {
+      "target_hour": 14,
+      "target_day_of_week": 1,
+      "use_now": false
+    },
+    "sequence": {
+      "direction": "forward",
+      "multi_anchor_mode": "first"
+    },
+    "fusion_weights": {
+      "recency": 0.5,
+      "sequence": 0.35,
+      "periodic": 0.15
+    },
+    "boost": {
+      "post_retrieval_alpha": 0.05,
+      "causal_high_mult": 1.1,
+      "causal_low_mult": 0.85
+    },
+    "recurrence_boost": {
+      "frequency_weight": 0.05,
+      "recency_weight": 0.05,
+      "max_recurrence_boost": 0.1
+    },
+    "never_dominant": true
+  },
+  "dedup_policy": "Off",
+  "retention_horizon": {
+    "kind": "None"
+  },
+  "degraded_rebuildable": false,
+  "quarantines": []
+}
