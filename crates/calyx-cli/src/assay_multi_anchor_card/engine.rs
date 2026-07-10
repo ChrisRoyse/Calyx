@@ -3,8 +3,8 @@ use std::fs;
 use std::path::Path;
 
 use calyx_assay::{
-    A37_DIVERSITY_DIAGNOSTIC_ONLY, A37_DIVERSITY_GATE_PASSED, AssayCacheKey, AssayStore,
-    AssaySubject, EnsembleCard, a37_association_family,
+    A37_DIVERSITY_DIAGNOSTIC_ONLY, A37_DIVERSITY_GATE_PASSED, A37_DIVERSITY_SCHEMA_VERSION,
+    AssayCacheKey, AssayStore, AssaySubject, EnsembleCard, a37_association_family,
 };
 use calyx_aster::cf::CfRouter;
 use calyx_core::{AnchorKind, VaultId};
@@ -31,7 +31,13 @@ pub(crate) fn evaluate(request: &Request) -> Result<MultiAnchorReport, String> {
     }
     validate_rosters(&loaded, request.min_lenses)?;
 
-    let lens_count = loaded[0].report.card.lenses.len();
+    let lens_count = loaded[0]
+        .report
+        .card
+        .lenses
+        .iter()
+        .filter(|lens| lens.role.is_content())
+        .count();
     let target_summaries = loaded
         .iter()
         .map(|input| target_summary(input, request.max_redundancy))
@@ -166,17 +172,18 @@ fn validate_card(source: &str, card: &EnsembleCard) -> Result<(), String> {
 
 fn validate_rosters(inputs: &[LoadedReport], min_lenses: usize) -> Result<(), String> {
     let first = &inputs[0].report.card.lenses;
-    if first.len() < min_lenses {
+    let content_lens_count = first.iter().filter(|lens| lens.role.is_content()).count();
+    if content_lens_count < min_lenses {
         return Err(format!(
             "{}: multi-anchor card requires at least {} lenses; got {}",
             calyx_assay::CALYX_ASSAY_PANEL_TOO_SMALL,
             min_lenses,
-            first.len()
+            content_lens_count
         ));
     }
     let expected = first
         .iter()
-        .map(|lens| (lens.slot.get(), lens.name.clone()))
+        .map(|lens| (lens.slot.get(), lens.name.clone(), lens.role))
         .collect::<Vec<_>>();
     for input in inputs.iter().skip(1) {
         let got = input
@@ -184,7 +191,7 @@ fn validate_rosters(inputs: &[LoadedReport], min_lenses: usize) -> Result<(), St
             .card
             .lenses
             .iter()
-            .map(|lens| (lens.slot.get(), lens.name.clone()))
+            .map(|lens| (lens.slot.get(), lens.name.clone(), lens.role))
             .collect::<Vec<_>>();
         if got != expected {
             return Err(format!(
@@ -198,15 +205,19 @@ fn validate_rosters(inputs: &[LoadedReport], min_lenses: usize) -> Result<(), St
 
 fn target_summary(input: &LoadedReport, max_redundancy: f32) -> Result<TargetSummary, String> {
     let card = &input.report.card;
+    let gate = &card.a37_diversity;
     let max_marginal_bits = card
         .lenses
         .iter()
+        .filter(|lens| lens.role.is_content())
         .map(|lens| lens.marginal_bits)
         .fold(f32::NEG_INFINITY, f32::max);
-    let n_eff_floor = card.lenses.len().max(10) as f32 * 0.6;
-    let redundancy_bound_pass = card.n_eff >= n_eff_floor
-        && card.a37_diversity.mean_pairwise_corr <= max_redundancy
-        && card.a37_diversity.mean_pairwise_nmi <= max_redundancy;
+    let n_eff_floor = gate.content_lens_count.max(10) as f32 * 0.6;
+    let redundancy_bound_pass = gate.schema_version == A37_DIVERSITY_SCHEMA_VERSION
+        && gate.pair_evidence_pass
+        && gate.n_eff >= n_eff_floor
+        && gate.mean_pairwise_corr <= max_redundancy
+        && gate.mean_pairwise_nmi <= max_redundancy;
     finite(&input.source, "target.max_marginal_bits", max_marginal_bits)?;
     Ok(TargetSummary {
         target_class: input.report.target_class,
@@ -216,7 +227,7 @@ fn target_summary(input: &LoadedReport, max_redundancy: f32) -> Result<TargetSum
         no_collapse_pass: card.a37_diversity.no_collapse_pass,
         family_span_pass: card.a37_diversity.family_span_pass,
         redundancy_bound_pass,
-        n_eff: card.n_eff,
+        n_eff: gate.n_eff,
         panel_bits: card.panel_bits,
         max_marginal_bits,
         keep_count: card.keep_count,
@@ -226,14 +237,12 @@ fn target_summary(input: &LoadedReport, max_redundancy: f32) -> Result<TargetSum
 
 fn association_families(card: &EnsembleCard) -> (BTreeMap<String, Vec<u16>>, bool) {
     let mut families = BTreeMap::<String, Vec<u16>>::new();
-    for lens in &card.lenses {
+    for lens in card.lenses.iter().filter(|lens| lens.role.is_content()) {
         let family = a37_association_family(&lens.name);
-        if family != "temporal_sidecar" {
-            families
-                .entry(family.to_string())
-                .or_default()
-                .push(lens.slot.get());
-        }
+        families
+            .entry(family.to_string())
+            .or_default()
+            .push(lens.slot.get());
     }
     let pass = families.len() >= 2;
     (families, pass)
@@ -244,7 +253,15 @@ fn lens_evidence(
     min_marginal_bits: f32,
 ) -> Result<Vec<LensEvidence>, String> {
     let mut out = Vec::new();
-    for lens_idx in 0..inputs[0].report.card.lenses.len() {
+    for lens_idx in inputs[0]
+        .report
+        .card
+        .lenses
+        .iter()
+        .enumerate()
+        .filter(|(_, lens)| lens.role.is_content())
+        .map(|(index, _)| index)
+    {
         let first = &inputs[0].report.card.lenses[lens_idx];
         let mut target_values = Vec::new();
         for input in inputs {

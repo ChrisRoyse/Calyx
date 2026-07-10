@@ -126,7 +126,8 @@ pub(crate) fn evaluate(request: &I8binEnsembleRequest) -> Result<I8binEnsembleRe
     )
     .map_err(calyx_error_detail)?;
     apply_full_matrix_redundancy(&mut card, &vectors.matrix);
-    card.a37_diversity = a37_diversity_gate(&card.lenses, &card.pairs, card.n_eff, &config);
+    card.a37_diversity = a37_diversity_gate(&card.lenses, &card.pairs, &config);
+    card.n_eff = card.a37_diversity.n_eff;
     let lens_roster = plan
         .slots
         .iter()
@@ -237,7 +238,6 @@ pub(crate) fn enforce_a37_mode(
 }
 
 fn apply_full_matrix_redundancy(card: &mut EnsembleCard, matrix: &MatrixReadout) {
-    card.n_eff = matrix.n_eff;
     for pair in &mut card.pairs {
         if let Some(readout) = matrix.pairs.iter().find(|readout| {
             (readout.slot_a == pair.slot_a.get() && readout.slot_b == pair.slot_b.get())

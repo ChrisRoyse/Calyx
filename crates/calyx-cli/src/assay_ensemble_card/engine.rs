@@ -86,11 +86,10 @@ fn ensemble_lenses(corpus: &AssayCorpus) -> Result<Vec<EnsembleLensInput>, Strin
                 u16::try_from(idx)
                     .map_err(|_| "CALYX_FSV_ASSAY_INVALID_CORPUS: too many lenses".to_string())?,
             );
-            Ok(EnsembleLensInput::new(
-                lens.name.clone(),
-                slot,
-                corpus.lens_vectors[idx].clone(),
-            ))
+            Ok(
+                EnsembleLensInput::new(lens.name.clone(), slot, corpus.lens_vectors[idx].clone())
+                    .with_role(lens.role),
+            )
         })
         .collect()
 }

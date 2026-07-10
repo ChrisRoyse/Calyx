@@ -7,7 +7,6 @@ use crate::estimate::TrustTag;
 use crate::formulas::marginal_value;
 use crate::ksg::MIN_ASSAY_SAMPLES;
 use crate::logistic::{logistic_probe_mi_multiseed, logistic_probe_mi_multiseed_calibrated};
-use crate::n_eff::stable_rank;
 use crate::nmi::partitioned_histogram_nmi;
 use crate::sufficiency::{PanelSufficiency, entropy_bits, panel_sufficiency_from_estimate};
 
@@ -40,8 +39,6 @@ pub fn ensemble_card(
     let max_corr = max_pairwise(lenses, &pairs, |pair| pair.corr);
     let max_nmi = max_pairwise(lenses, &pairs, |pair| pair.nmi);
     let max_synergy = max_pairwise(lenses, &pairs, |pair| pair.synergy_gain_bits);
-    let n_eff = stable_rank(&correlation_matrix(lenses, &pairs)).n_eff;
-
     let mut lens_values = Vec::with_capacity(lenses.len());
     for (idx, lens) in lenses.iter().enumerate() {
         let without = estimate_panel_without(lenses, labels, groups, idx)?;
@@ -65,6 +62,7 @@ pub fn ensemble_card(
         lens_values.push(EnsembleLensValue {
             name: lens.name.clone(),
             slot: lens.slot,
+            role: lens.role,
             solo_bits: solo[idx].estimate.bits,
             solo_ci: [solo[idx].estimate.ci_low, solo[idx].estimate.ci_high],
             panel_without_bits: without.estimate.bits,
@@ -82,7 +80,8 @@ pub fn ensemble_card(
         .iter()
         .map(|lens| (lens.slot, lens.marginal_bits))
         .collect::<Vec<_>>();
-    let a37_diversity = a37_diversity_gate(&lens_values, &pairs, n_eff, config);
+    let a37_diversity = a37_diversity_gate(&lens_values, &pairs, config);
+    let n_eff = a37_diversity.n_eff;
     let sufficiency = panel_sufficiency_from_estimate(
         &panel.estimate,
         entropy_bits(labels),
@@ -345,23 +344,6 @@ where
         }
     }
     out
-}
-
-fn correlation_matrix(lenses: &[EnsembleLensInput], pairs: &[EnsemblePairValue]) -> Vec<Vec<f32>> {
-    let mut matrix = vec![vec![0.0; lenses.len()]; lenses.len()];
-    for (idx, row) in matrix.iter_mut().enumerate() {
-        row[idx] = 1.0;
-    }
-    for pair in pairs {
-        if let (Some(a), Some(b)) = (
-            slot_position(lenses, pair.slot_a),
-            slot_position(lenses, pair.slot_b),
-        ) {
-            matrix[a][b] = pair.corr;
-            matrix[b][a] = pair.corr;
-        }
-    }
-    matrix
 }
 
 fn slot_position(lenses: &[EnsembleLensInput], slot: calyx_core::SlotId) -> Option<usize> {
