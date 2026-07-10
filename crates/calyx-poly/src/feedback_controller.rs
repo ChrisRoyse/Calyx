@@ -28,8 +28,8 @@ use crate::meta_learning_ledger::{
 };
 use crate::model::Resolution;
 use crate::pending_forecast_register::{
-    PendingForecastLedgerStore, PendingForecastRegister, ResolutionJoinResult,
-    join_resolution_to_pending_forecasts,
+    PendingForecastLedgerStore, PendingForecastRegister, PendingForecastWorkItem,
+    ResolutionJoinResult, join_resolution_to_pending_forecasts,
 };
 use crate::score::{
     FORECAST_SCORE_SCHEMA_VERSION, ForecastScoreManifest, ForecastScoreRequest,
@@ -188,7 +188,13 @@ where
                     format!("no score request supplied for {}", work.forecast_id),
                 )
             })?;
-        validate_score_matches_work(score_request, work.actual_win.expect("scored work"))?;
+        let forecast_ts = register
+            .entries
+            .iter()
+            .find(|entry| entry.forecast_id == work.forecast_id)
+            .map(|entry| entry.forecast_ts)
+            .ok_or_else(|| score_mismatch(score_request, "forecast_id"))?;
+        validate_score_matches_work(score_request, work, forecast_ts)?;
         if committed_scores.contains(&score_request.score_id) {
             skipped.push(score_request.score_id.clone());
         } else {
@@ -270,17 +276,37 @@ fn score_request_map(
     Ok(map)
 }
 
-fn validate_score_matches_work(request: &ForecastScoreRequest, actual_win: bool) -> Result<()> {
-    if request.outcome.actual_win != actual_win {
-        return Err(PolyError::diagnostics(
-            ERR_FEEDBACK_SCORE_MISMATCH,
-            format!(
-                "score request {} actual_win={} does not match joined outcome {actual_win}",
-                request.score_id, request.outcome.actual_win
-            ),
-        ));
-    }
-    Ok(())
+fn validate_score_matches_work(
+    request: &ForecastScoreRequest,
+    work: &PendingForecastWorkItem,
+    forecast_ts: u64,
+) -> Result<()> {
+    let mismatch = if request.probability.to_bits() != work.p_model.to_bits() {
+        Some("probability")
+    } else if request.confidence.to_bits() != work.confidence.to_bits() {
+        Some("confidence")
+    } else if request.forecast_ts != forecast_ts {
+        Some("forecast_ts")
+    } else if request.market_id != work.condition_id {
+        Some("market_id")
+    } else if request.outcome_id != work.token_id {
+        Some("outcome_id")
+    } else if Some(request.outcome.actual_win) != work.actual_win {
+        Some("actual_win")
+    } else {
+        None
+    };
+    mismatch.map_or(Ok(()), |field| Err(score_mismatch(request, field)))
+}
+
+fn score_mismatch(request: &ForecastScoreRequest, field: &str) -> PolyError {
+    PolyError::diagnostics(
+        ERR_FEEDBACK_SCORE_MISMATCH,
+        format!(
+            "score request {} field {field} does not match registered forecast {}",
+            request.score_id, request.forecast_id
+        ),
+    )
 }
 
 fn preflight_backfills(backfills: &[FeedbackBackfillInput]) -> Result<Vec<FeedbackBackfillResult>> {

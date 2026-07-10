@@ -216,7 +216,7 @@ pub fn score(
         forecast_version: 1,
         current_forecast_version: 1,
         market_id: condition.to_string(),
-        outcome_id: format!("{condition}-outcome"),
+        outcome_id: format!("{condition}-token-0"),
         source: ForecastSource::CalyxNative,
         provider: None,
         probability: 0.8,
@@ -228,7 +228,7 @@ pub fn score(
         previous_probability: Some(0.7),
         forecast_artifact_hash: HASH_B.to_string(),
         outcome: ResolvedOutcome {
-            outcome_id: format!("{condition}-outcome"),
+            outcome_id: format!("{condition}-token-0"),
             resolved: true,
             actual_win,
             resolved_ts: 200,
