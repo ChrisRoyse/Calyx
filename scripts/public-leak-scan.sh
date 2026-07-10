@@ -81,7 +81,7 @@ FORBIDDEN='aiwonder|croyse|mst\.com|Calyx-Dev'
 # Paths that must never be tracked in the public repository at all. This is a
 # separate gate from content scanning: these trees are allowed in Calyx-Dev but
 # forbidden in ChrisRoyse/Calyx even when their contents look harmless.
-PUBLIC_FORBIDDEN_PATH_RE='^(docs/|docs2/|scripts/|infra/|datasets/|env\.sh$|\.env|\.pre-commit-config\.yaml$|\.githooks/|CONTRIBUTING\.md$)'
+PUBLIC_FORBIDDEN_PATH_RE='^(docs/|docs2/|scripts/|infra/|datasets/|env\.sh$|\.env|\.pre-commit-config\.yaml$|\.githooks/|\.github/workflows/|CONTRIBUTING\.md$)'
 PUBLIC_ALLOWED_EXCEPTION_RE='^docs/readme/README\.md$'
 
 if [[ "$mode" == "public" ]]; then

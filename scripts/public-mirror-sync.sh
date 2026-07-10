@@ -116,7 +116,7 @@ fi
 
 git -C "$public_root" rm -r --ignore-unmatch -- \
   docs2 scripts infra datasets env.sh .env ".env.*" \
-  .pre-commit-config.yaml .githooks CONTRIBUTING.md >/dev/null
+  .github/workflows .pre-commit-config.yaml .githooks CONTRIBUTING.md >/dev/null
 
 bash "$dev_root/scripts/public-leak-scan.sh" --public-tree "$public_root"
 ( cd "$public_root" && bash "$dev_root/scripts/secret-scan.sh" --staged )

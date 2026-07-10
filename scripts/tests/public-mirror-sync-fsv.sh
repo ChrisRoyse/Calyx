@@ -85,17 +85,19 @@ make_dev() {
 
 # Builds a synthetic public checkout with a ChrisRoyse/Calyx origin, a stale
 # copy of the allowlist file, a forbidden tracked tree (docs/ except the
-# README contract, scripts/), and a tracked README the dev side does not have
-# (to prove deletion staging).
+# README contract, scripts/, hosted workflows), and a tracked README the dev
+# side does not have (to prove deletion staging).
 make_public() {
   local pub="$1" stale_body="$2"
-  mkdir -p "$pub/crates/demo/src" "$pub/docs/readme" "$pub/scripts"
+  mkdir -p "$pub/crates/demo/src" "$pub/docs/readme" "$pub/scripts" \
+    "$pub/.github/workflows"
   printf '%s\n' "$stale_body" > "$pub/crates/demo/src/lib.rs"
   printf '[workspace]\nmembers=["crates/demo"]\n' > "$pub/Cargo.toml"
   printf 'target/\n' > "$pub/.gitignore"
   printf 'internal build host notes\n' > "$pub/docs/internal.md"
   printf 'stale public README contract\n' > "$pub/docs/readme/README.md"
   printf 'echo secret\n' > "$pub/scripts/secret.sh"
+  printf 'name: stale-hosted-workflow\n' > "$pub/.github/workflows/stale.yml"
   printf 'stale public readme\n' > "$pub/README.md"
   git -C "$pub" init -q
   git -C "$pub" config user.email fsv@example.com
@@ -143,6 +145,9 @@ git -C "$pub1" diff --cached --name-only --diff-filter=D | grep -qx "docs/intern
 git -C "$pub1" diff --cached --name-only --diff-filter=D | grep -qx "scripts/secret.sh" \
   && pass "forbidden scripts/secret.sh staged as DELETION" \
   || bad "forbidden scripts/secret.sh deletion NOT staged"
+git -C "$pub1" diff --cached --name-only --diff-filter=D | grep -qx ".github/workflows/stale.yml" \
+  && pass "forbidden hosted workflow staged as DELETION" \
+  || bad "hosted workflow deletion NOT staged"
 git -C "$pub1" ls-files | grep -qx "docs/readme/README.md" \
   && pass "allowed docs/readme/README.md remains tracked" \
   || bad "allowed docs/readme/README.md is not tracked"
@@ -165,7 +170,7 @@ leftover="$(git -C "$pub1" status --porcelain | grep -E '^( .|\?\?)' || true)"
 
 # Forbidden paths must be gone from the tracked set (index).
 git -C "$pub1" ls-files |
-  grep -E '^(docs/|scripts/)' |
+  grep -E '^(docs/|scripts/|\.github/workflows/)' |
   grep -vx 'docs/readme/README.md' >/dev/null \
   && bad "forbidden paths still tracked in index" \
   || pass "no forbidden paths tracked in index except README contract"
@@ -224,6 +229,9 @@ leftover3="$(git -C "$pub3" status --porcelain | grep -E '^( .|\?\?)' || true)"
 git -C "$pub3" diff --cached --name-only --diff-filter=D | grep -qx "docs/internal.md" \
   && pass "forbidden removal staged even on no-op allowlist" \
   || bad "forbidden removal NOT staged on no-op allowlist"
+git -C "$pub3" diff --cached --name-only --diff-filter=D | grep -qx ".github/workflows/stale.yml" \
+  && pass "hosted workflow removal staged on no-op allowlist" \
+  || bad "hosted workflow removal NOT staged on no-op allowlist"
 
 echo
 echo "=================================================================="
@@ -247,6 +255,9 @@ echo "$out4" | sed 's/^/   /'
 echo "$out4" | grep -q "forbidden tracked path" \
   && pass "leak-scan reported forbidden tracked path reason" \
   || bad "leak-scan did not report forbidden tracked path reason"
+echo "$out4" | grep -q "\.github/workflows/stale.yml" \
+  && pass "leak-scan reported hosted workflow path" \
+  || bad "leak-scan did not report hosted workflow path"
 
 echo
 echo "=================================================================="
