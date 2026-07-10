@@ -9,7 +9,7 @@ use calyx_mincut::{betweenness, tarjan_scc};
 use calyx_paths::AssocGraph;
 use serde::{Deserialize, Serialize};
 
-use crate::kernel_graph::sort_node_scores;
+use crate::kernel_graph::{rebuild_kernel_graph, sort_node_scores};
 use crate::{
     KernelGraph, KernelGraphParams, LodestarError, NodeScore, Result, select_kernel_graph,
 };
@@ -86,6 +86,7 @@ pub fn frequency_kernel_bonus(frequency: u64) -> f32 {
 
 pub fn apply_frequency_bonuses<C>(
     kernel_graph: &mut KernelGraph,
+    source_graph: &AssocGraph,
     vault: &AsterVault<C>,
 ) -> Result<Vec<FrequencyRead>>
 where
@@ -103,12 +104,13 @@ where
     }
     sort_node_scores(&mut kernel_graph.scores);
     let take = kernel_graph.selected.len().min(kernel_graph.scores.len());
-    kernel_graph.selected = kernel_graph
+    let selected = kernel_graph
         .scores
         .iter()
         .take(take)
         .map(|score| score.id)
         .collect();
+    rebuild_kernel_graph(source_graph, kernel_graph, selected)?;
     extend_unique(&mut kernel_graph.warnings, warnings);
     Ok(reads)
 }
@@ -166,7 +168,7 @@ where
         });
     }
     let mut kernel_graph = full_score_graph(&scoped)?;
-    let reads = apply_frequency_bonuses(&mut kernel_graph, vault)?;
+    let reads = apply_frequency_bonuses(&mut kernel_graph, &scoped, vault)?;
     let nodes = kernel_weight_rows(&kernel_graph, &reads, k.min(kernel_graph.scores.len()));
     Ok(KernelResult {
         scope: KernelScope::TimeWindow { window: *window },

@@ -303,6 +303,19 @@ pub fn sort_node_scores(scores: &mut [NodeScore]) {
     });
 }
 
+pub(crate) fn rebuild_kernel_graph(
+    source: &AssocGraph,
+    kernel_graph: &mut KernelGraph,
+    selected: Vec<CxId>,
+) -> Result<()> {
+    let graph = selected_subgraph(source, &selected)?;
+    kernel_graph.graph = graph;
+    kernel_graph.selected = selected;
+    kernel_graph.source_fraction =
+        kernel_graph.selected.len() as f32 / source.node_count().max(1) as f32;
+    Ok(())
+}
+
 fn build_kernel_graph(
     source: &AssocGraph,
     selected: Vec<CxId>,
@@ -311,9 +324,23 @@ fn build_kernel_graph(
     lp_fraction: Option<f32>,
     warnings: Vec<String>,
 ) -> Result<KernelGraph> {
+    let graph = selected_subgraph(source, &selected)?;
+    let source_fraction = selected.len() as f32 / source.node_count().max(1) as f32;
+    Ok(KernelGraph {
+        graph,
+        selected,
+        source_fraction,
+        lp_fraction,
+        params,
+        scores,
+        warnings,
+    })
+}
+
+fn selected_subgraph(source: &AssocGraph, selected: &[CxId]) -> Result<AssocGraph> {
     let selected_set: BTreeSet<_> = selected.iter().copied().collect();
     let mut builder = AssocGraph::builder();
-    for id in &selected {
+    for id in selected {
         builder.add_node(*id, source.node_weight(*id)?)?;
     }
     for edge in source.edges() {
@@ -322,16 +349,7 @@ fn build_kernel_graph(
             builder.add_edge(src, dst, edge.weight)?;
         }
     }
-    let source_fraction = selected.len() as f32 / source.node_count().max(1) as f32;
-    Ok(KernelGraph {
-        graph: builder.build(),
-        selected,
-        source_fraction,
-        lp_fraction,
-        params,
-        scores,
-        warnings,
-    })
+    Ok(builder.build())
 }
 
 fn map_lp_solver_error(error: MincutError) -> LodestarError {

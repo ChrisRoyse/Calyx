@@ -116,7 +116,7 @@ where
     C: Clock,
 {
     build_kernel_pipeline_with_adjustment(graph, anchors, params, |heuristic| {
-        apply_frequency_bonuses(heuristic, vault).map(|_| ())
+        apply_frequency_bonuses(heuristic, graph, vault).map(|_| ())
     })
 }
 

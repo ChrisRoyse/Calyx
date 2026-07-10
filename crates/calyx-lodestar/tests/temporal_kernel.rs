@@ -44,7 +44,7 @@ fn apply_frequency_bonuses_reads_base_cf_and_preserves_rank_when_betweenness_win
     let graph = graph.build();
     let mut kernel_graph = scored_graph(&graph, &[(a, 0.8), (b, 0.9)]);
 
-    let reads = apply_frequency_bonuses(&mut kernel_graph, &vault).unwrap();
+    let reads = apply_frequency_bonuses(&mut kernel_graph, &graph, &vault).unwrap();
     let score_a = kernel_graph
         .scores
         .iter()
@@ -81,7 +81,7 @@ fn equal_betweenness_high_frequency_ranks_first() {
     let graph = graph_with_nodes(&[high, low]).build();
     let mut kernel_graph = scored_graph(&graph, &[(high, 0.8), (low, 0.8)]);
 
-    apply_frequency_bonuses(&mut kernel_graph, &vault).unwrap();
+    apply_frequency_bonuses(&mut kernel_graph, &graph, &vault).unwrap();
 
     assert_eq!(kernel_graph.scores[0].id, high);
     assert!(kernel_graph.scores[0].total_score > kernel_graph.scores[1].total_score);
@@ -94,14 +94,19 @@ fn build_kernel_pipeline_with_frequency_applies_bonus_before_selection() {
     let high = cx(9);
     put_base(&vault, low, Some(1.0));
     put_base(&vault, high, Some(10_000.0));
-    let graph = graph_with_nodes(&[high, low]).build();
+    let mut graph = graph_with_nodes(&[high, low]);
+    graph.add_edge(low, low, 1.0).unwrap();
+    graph.add_edge(high, high, 1.0).unwrap();
+    let graph = graph.build();
     let params = kernel_params();
 
     let plain = build_kernel_pipeline(&graph, &[], &params).unwrap();
     let weighted = build_kernel_pipeline_with_frequency(&graph, &[], &params, &vault).unwrap();
 
     assert_eq!(plain.kernel_graph, vec![low]);
+    assert_eq!(plain.members, vec![low]);
     assert_eq!(weighted.kernel_graph, vec![high]);
+    assert_eq!(weighted.members, vec![high]);
 }
 
 #[test]
@@ -157,7 +162,7 @@ fn missing_frequency_warns_and_uses_zero_bonus() {
     let graph = graph_with_nodes(&[id]).build();
     let mut kernel_graph = scored_graph(&graph, &[(id, 0.5)]);
 
-    apply_frequency_bonuses(&mut kernel_graph, &vault).unwrap();
+    apply_frequency_bonuses(&mut kernel_graph, &graph, &vault).unwrap();
 
     assert_eq!(kernel_graph.scores[0].frequency_bonus, 0.0);
     assert!(kernel_graph.warnings[0].starts_with(CALYX_LODESTAR_MISSING_FREQUENCY));
@@ -171,7 +176,7 @@ fn invalid_frequency_fails_closed_with_catalog_code() {
     let graph = graph_with_nodes(&[id]).build();
     let mut kernel_graph = scored_graph(&graph, &[(id, 0.5)]);
 
-    let error = apply_frequency_bonuses(&mut kernel_graph, &vault).unwrap_err();
+    let error = apply_frequency_bonuses(&mut kernel_graph, &graph, &vault).unwrap_err();
 
     assert_eq!(error.code(), CALYX_LODESTAR_INVALID_FREQUENCY);
 }
@@ -186,7 +191,7 @@ fn corrupt_base_row_propagates_instead_of_missing_frequency_warning() {
     let graph = graph_with_nodes(&[id]).build();
     let mut kernel_graph = scored_graph(&graph, &[(id, 0.5)]);
 
-    let error = apply_frequency_bonuses(&mut kernel_graph, &vault).unwrap_err();
+    let error = apply_frequency_bonuses(&mut kernel_graph, &graph, &vault).unwrap_err();
 
     assert_ne!(error.code(), CALYX_LODESTAR_MISSING_FREQUENCY);
     assert!(kernel_graph.warnings.is_empty());

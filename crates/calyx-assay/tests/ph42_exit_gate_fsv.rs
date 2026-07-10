@@ -167,7 +167,8 @@ fn kernel_weight_exit_gate(vault: &AsterVault) -> Value {
 
     println!("issue393_step=kernel_apply");
     let mut graph = kernel_graph(&[high, low], &[(high, 0.80), (low, 0.80)]);
-    let reads = apply_frequency_bonuses(&mut graph, vault).expect("apply frequency");
+    let source_graph = graph.graph.clone();
+    let reads = apply_frequency_bonuses(&mut graph, &source_graph, vault).expect("apply frequency");
     let weights = kernel_weight_rows(&graph, &reads, 2);
     assert_eq!(weights[0].cx_id, high);
     assert_eq!(weights[0].frequency, 50);
@@ -176,7 +177,9 @@ fn kernel_weight_exit_gate(vault: &AsterVault) -> Value {
 
     println!("issue393_step=kernel_zero_edge");
     let mut zero_graph = kernel_graph(&[zero_a, zero_b], &[(zero_a, 0.80), (zero_b, 0.70)]);
-    let zero_reads = apply_frequency_bonuses(&mut zero_graph, vault).expect("zero frequency");
+    let zero_source_graph = zero_graph.graph.clone();
+    let zero_reads = apply_frequency_bonuses(&mut zero_graph, &zero_source_graph, vault)
+        .expect("zero frequency");
     let zero_weights = kernel_weight_rows(&zero_graph, &zero_reads, 2);
     assert!(zero_weights.iter().all(|row| row.frequency_bonus == 0.0));
     assert_eq!(zero_weights.len(), 2);

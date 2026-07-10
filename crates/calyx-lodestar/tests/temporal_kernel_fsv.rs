@@ -53,7 +53,8 @@ fn issue389_lodestar_frequency_kernel_fsv_writes_artifacts() {
 
     let weights_graph = equal_score_graph(&[high, low]);
     let mut kernel_graph = scored_graph(&weights_graph, &[(high, 0.8), (low, 0.8)]);
-    let reads = apply_frequency_bonuses(&mut kernel_graph, &vault).expect("apply frequency");
+    let reads = apply_frequency_bonuses(&mut kernel_graph, &weights_graph, &vault)
+        .expect("apply frequency");
     let weights = kernel_weight_rows(&kernel_graph, &reads, 2);
     assert_eq!(weights[0].cx_id, high);
     assert_eq!(weights[0].frequency, 50);
@@ -172,7 +173,8 @@ fn edge_missing_frequency(vault: &AsterVault) -> Value {
     let before = raw_state(vault);
     let graph = equal_score_graph(&[missing]);
     let mut kernel_graph = scored_graph(&graph, &[(missing, 0.5)]);
-    apply_frequency_bonuses(&mut kernel_graph, vault).expect("missing frequency is warning");
+    apply_frequency_bonuses(&mut kernel_graph, &graph, vault)
+        .expect("missing frequency is warning");
     let after = raw_state(vault);
     assert_eq!(kernel_graph.scores[0].frequency_bonus, 0.0);
     assert!(
@@ -196,7 +198,8 @@ fn edge_invalid_frequency(vault: &AsterVault) -> Value {
     let before = raw_state(vault);
     let graph = equal_score_graph(&[bad]);
     let mut kernel_graph = scored_graph(&graph, &[(bad, 0.5)]);
-    let error = apply_frequency_bonuses(&mut kernel_graph, vault).expect_err("invalid frequency");
+    let error =
+        apply_frequency_bonuses(&mut kernel_graph, &graph, vault).expect_err("invalid frequency");
     let after = raw_state(vault);
     assert_eq!(error.code(), CALYX_LODESTAR_INVALID_FREQUENCY);
     json!({
