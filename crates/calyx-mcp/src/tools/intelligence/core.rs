@@ -140,12 +140,6 @@ pub(super) fn dense(cx: &Constellation, slot: SlotId) -> Option<&[f32]> {
     cx.slots.get(&slot).and_then(SlotVector::as_dense)
 }
 
-pub(super) fn dense_dim(cx: &Constellation, slots: &[SlotId]) -> Option<usize> {
-    slots
-        .iter()
-        .find_map(|slot| dense(cx, *slot).map(|values| values.len()))
-}
-
 pub(super) fn cosine(left: &[f32], right: &[f32]) -> Option<f32> {
     if left.len() != right.len() || left.is_empty() {
         return None;
@@ -157,22 +151,6 @@ pub(super) fn cosine(left: &[f32], right: &[f32]) -> Option<f32> {
         r2 += r * r;
     }
     (l2 > 0.0 && r2 > 0.0).then(|| dot / (l2.sqrt() * r2.sqrt()))
-}
-
-pub(super) fn text_vector(text: &str, dim: usize) -> Vec<f32> {
-    let dim = dim.max(1);
-    let mut out = Vec::with_capacity(dim);
-    for idx in 0..dim {
-        let mut hasher = blake3::Hasher::new();
-        hasher.update(text.as_bytes());
-        hasher.update(&idx.to_le_bytes());
-        let bytes = hasher.finalize();
-        let raw = u32::from_le_bytes(bytes.as_bytes()[0..4].try_into().expect("hash slice"));
-        let unit = raw as f32 / u32::MAX as f32;
-        out.push(unit * 2.0 - 1.0);
-    }
-    normalize(&mut out);
-    out
 }
 
 pub(super) fn write_json_row<T: Serialize>(
@@ -203,13 +181,4 @@ pub(super) fn read_json_row<T: serde::de::DeserializeOwned>(
 
 pub(super) fn row_exists(vault: &AsterVault, cf: ColumnFamily, key: &[u8]) -> ToolResult<bool> {
     Ok(vault.read_cf_at(vault.snapshot(), cf, key)?.is_some())
-}
-
-fn normalize(values: &mut [f32]) {
-    let norm = values.iter().map(|value| value * value).sum::<f32>().sqrt();
-    if norm > 0.0 {
-        for value in values {
-            *value /= norm;
-        }
-    }
 }

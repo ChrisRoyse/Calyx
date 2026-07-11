@@ -17,6 +17,7 @@ use crate::tools::test_support::ENV_LOCK;
 
 use super::{metrics, model};
 
+mod guard_measurement;
 mod propose_driver;
 
 struct TestEnv {

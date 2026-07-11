@@ -4,6 +4,8 @@ mod engine;
 #[cfg(test)]
 mod extension_freshness_tests;
 #[cfg(test)]
+mod extension_guard_measurement_tests;
+#[cfg(test)]
 mod extension_tests;
 mod extensions;
 mod ledger_provenance;

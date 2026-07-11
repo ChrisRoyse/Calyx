@@ -3,10 +3,11 @@ use std::collections::BTreeMap;
 use calyx_aster::cf::ColumnFamily;
 use calyx_aster::vault::AsterVault;
 use calyx_core::{CalyxError, Constellation, CxId, SlotVector, VaultStore};
-use calyx_ward::{GuardProfile, MatchedSlots, ProducedSlots, WardError, guard};
+use calyx_ward::{GuardProfile, MatchedSlots, WardError, guard};
 use serde_json::{Value, json};
 
 use crate::server::{ToolError, ToolResult};
+use crate::tools::guard_measure::required_dense_vectors;
 
 use super::runtime::{NavRuntime, parse_cx_id};
 
@@ -26,7 +27,7 @@ pub(super) fn run(
             })?,
         };
     let matched = required_vectors(&runtime.docs, identity, &profile)?;
-    let produced = generated_vectors(&runtime.docs, identity, candidate_text, &profile)?;
+    let produced = required_dense_vectors(&runtime.state, candidate_text, &profile.required_slots)?;
     let verdict = guard(&profile, &produced, &matched, true).map_err(ward_to_tool)?;
     let min_cos = verdict
         .per_slot
@@ -85,53 +86,6 @@ fn required_vectors(
         out.insert(*slot, values.to_vec());
     }
     Ok(out)
-}
-
-fn generated_vectors(
-    docs: &BTreeMap<CxId, Constellation>,
-    identity: CxId,
-    text: &str,
-    profile: &GuardProfile,
-) -> ToolResult<ProducedSlots> {
-    let cx = docs
-        .get(&identity)
-        .ok_or_else(|| CalyxError::vault_access_denied("identity constellation not found"))?;
-    let mut out = BTreeMap::new();
-    for slot in &profile.required_slots {
-        let dim = cx
-            .slots
-            .get(slot)
-            .and_then(SlotVector::as_dense)
-            .map(|values| values.len())
-            .ok_or_else(|| {
-                CalyxError::stale_derived(format!("identity lacks dense slot {slot}"))
-            })?;
-        out.insert(*slot, text_vector(text, dim));
-    }
-    Ok(out)
-}
-
-fn text_vector(text: &str, dim: usize) -> Vec<f32> {
-    let dim = dim.max(1);
-    let mut out = Vec::with_capacity(dim);
-    for idx in 0..dim {
-        let idx = idx.to_le_bytes();
-        let digest = calyx_core::content_address([text.as_bytes(), idx.as_slice()]);
-        let raw = u32::from_le_bytes(digest[0..4].try_into().expect("hash slice"));
-        let unit = raw as f32 / u32::MAX as f32;
-        out.push(unit * 2.0 - 1.0);
-    }
-    normalize(&mut out);
-    out
-}
-
-fn normalize(values: &mut [f32]) {
-    let norm = values.iter().map(|value| value * value).sum::<f32>().sqrt();
-    if norm > 0.0 {
-        for value in values {
-            *value /= norm;
-        }
-    }
 }
 
 fn ward_to_tool(error: WardError) -> ToolError {

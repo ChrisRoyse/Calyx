@@ -4,6 +4,7 @@ use calyx_core::CalyxError;
 
 use crate::server::McpServer;
 
+mod guard_measure;
 pub mod ingest;
 pub mod intelligence;
 pub mod provenance;

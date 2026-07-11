@@ -38,6 +38,10 @@ impl TestEnv {
             _guard: guard,
         }
     }
+
+    pub(super) fn path(&self, relative: &str) -> PathBuf {
+        self.home.join(relative)
+    }
 }
 
 impl Drop for TestEnv {
@@ -88,7 +92,7 @@ pub(super) fn call_ok(server: &McpServer, id: u64, name: &str, arguments: Value)
     serde_json::from_str(text).unwrap()
 }
 
-fn call_err(server: &McpServer, id: u64, name: &str, arguments: Value) -> JsonRpcError {
+pub(super) fn call_err(server: &McpServer, id: u64, name: &str, arguments: Value) -> JsonRpcError {
     let request = decode_jsonrpc_request(
         json!({
             "jsonrpc": "2.0",

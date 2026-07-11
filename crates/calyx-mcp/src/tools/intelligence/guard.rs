@@ -12,14 +12,12 @@ use calyx_ward::{
 use serde::Deserialize;
 use serde_json::{Value, json};
 
-use super::core::{
-    dense, dense_dim, load_context, load_docs, parse_cx_id, read_json_row, text_vector,
-    write_json_row,
-};
+use super::core::{dense, load_context, load_docs, parse_cx_id, read_json_row, write_json_row};
 use super::model::{
     GuardCheckOut, GuardProfileOut, SlotTauOut, default_guard_key, guard_profile_key,
 };
 use crate::server::{ToolError, ToolResult};
+use crate::tools::guard_measure::required_dense_vectors;
 
 const GUARD_UUID: &str = "018f48a4-9a79-74d2-8a5c-9ad7f6b8c101";
 
@@ -121,7 +119,7 @@ pub(super) fn check(
     let matched = required_vectors(&docs, identity, &profile)?;
     let produced = match (cx_id, text) {
         (Some(raw), None) => required_vectors(&docs, parse_cx_id(raw, "cx_id")?, &profile)?,
-        (None, Some(text)) => generated_vectors(text, docs.get(&identity), &profile)?,
+        (None, Some(text)) => required_dense_vectors(&ctx.state, text, &profile.required_slots)?,
         _ => unreachable!("validated guard.check shape"),
     };
     let verdict = guard(&profile, &produced, &matched, true).map_err(ward_to_tool)?;
@@ -204,23 +202,6 @@ fn required_vectors(
             CalyxError::stale_derived(format!("constellation {cx_id} lacks dense slot {slot}"))
         })?;
         out.insert(*slot, values.to_vec());
-    }
-    Ok(out)
-}
-
-fn generated_vectors(
-    text: &str,
-    identity: Option<&Constellation>,
-    profile: &GuardProfile,
-) -> ToolResult<BTreeMap<SlotId, Vec<f32>>> {
-    let identity = identity
-        .ok_or_else(|| CalyxError::vault_access_denied("identity constellation not found"))?;
-    let mut out = BTreeMap::new();
-    for slot in &profile.required_slots {
-        let dim = dense_dim(identity, &[*slot]).ok_or_else(|| {
-            CalyxError::stale_derived(format!("identity lacks dense slot {slot}"))
-        })?;
-        out.insert(*slot, text_vector(text, dim));
     }
     Ok(out)
 }
