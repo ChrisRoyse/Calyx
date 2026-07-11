@@ -1,5 +1,5 @@
 use super::*;
-use crate::drift::{CALYX_LENS_RUNTIME_DRIFT, DriftDecision};
+use crate::drift::{CALYX_LENS_RUNTIME_DRIFT, DriftDecision, PROCESS_RUNTIME_GOLDEN_TOLERANCE};
 use crate::lens::process_runtime_requires_golden;
 use crate::runtime::onnx;
 use crate::runtime_limit::runtime_uses_scoped_batch_limit;
@@ -247,6 +247,14 @@ fn verify_runtime_golden(
             "runtime golden probe modality {:?} does not match persisted {:?}",
             golden.probe.modality,
             snapshot.contract.modality()
+        )));
+    }
+    if !golden.tolerance.is_finite()
+        || !(0.0..=PROCESS_RUNTIME_GOLDEN_TOLERANCE).contains(&golden.tolerance)
+    {
+        return Err(runtime_drift_error(format!(
+            "runtime golden tolerance {} exceeds the process-runtime contract maximum {}",
+            golden.tolerance, PROCESS_RUNTIME_GOLDEN_TOLERANCE
         )));
     }
 

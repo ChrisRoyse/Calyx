@@ -10,6 +10,7 @@ use super::*;
 use crate::frozen::{LensDType, NormPolicy, sha256_digest};
 use crate::{
     AlgorithmicLens, DeterminismProof, ExternalCmdLens, FrozenLensContract, LensRuntime, LensSpec,
+    RuntimeGolden,
 };
 
 #[test]
@@ -113,6 +114,43 @@ fn process_runtime_snapshot_without_golden_fails_closed() {
 
     assert_eq!(error.code, "CALYX_LENS_RUNTIME_DRIFT");
     assert!(error.message.contains("no registration golden"));
+}
+
+#[test]
+fn process_runtime_snapshot_rejects_weakened_golden_tolerance() {
+    let contract = FrozenLensContract::tei_http(
+        "weak-process-golden",
+        "http://127.0.0.1:9/embed",
+        Modality::Text,
+        4,
+    );
+    let probe = Input::new(Modality::Text, b"runtime identity".to_vec());
+    let snapshot = RegistryLensSnapshot {
+        lens_id: contract.lens_id(),
+        contract: contract.clone(),
+        spec: Some(runtime_spec(
+            &contract,
+            LensRuntime::TeiHttp {
+                endpoint: "http://127.0.0.1:9/embed".to_string(),
+            },
+        )),
+        determinism: DeterminismProof::ProbeVerified,
+        runtime_golden: Some(RuntimeGolden {
+            lens_id: contract.lens_id(),
+            runtime_version: "tei-http-golden-v1".to_string(),
+            probe,
+            golden_output: vec![0.5; 4],
+            tolerance: 1.0,
+        }),
+    };
+
+    let error = match super::runtime::load_runtime_lens(&snapshot) {
+        Ok(_) => panic!("process runtime with weak tolerance unexpectedly loaded"),
+        Err(error) => error,
+    };
+
+    assert_eq!(error.code, "CALYX_LENS_RUNTIME_DRIFT");
+    assert!(error.message.contains("tolerance"));
 }
 
 #[cfg(unix)]

@@ -231,6 +231,8 @@ License gate: `ensure_license_allowed` rejects non-commercial licenses with
 `CALYX_ALLOW_NONCOMMERCIAL_LENSES` truthy via `allow_noncommercial_from_env`).
 `pack.rs` provides `default_multimodal_lens_specs`, `MultimodalLensPackEntry`,
 `register_multimodal_lens_pack`.
+Persisted adapter reconstruction re-hashes the resolved config/helper/model contract files and
+returns `CALYX_LENS_FROZEN_VIOLATION` before load when they differ from `weights_sha256`.
 
 ### 2.7 `ExternalCmdLens` — `runtime/external_cmd.rs`
 
@@ -239,6 +241,8 @@ Spawns an external process and exchanges length-prefixed JSON frames over stdin/
 `{vectors:[[f32]…]}`. Output `Dense(dim)`, NormPolicy `None`. Enforces a timeout
 (default 30s) using two worker threads + `try_wait`, killing the child on timeout/exit
 failure (`CALYX_LENS_UNREACHABLE`). `with_timeout` configurable.
+TEI and ExternalCmd registration persist probe/output goldens because endpoint or command text
+alone does not identify the served model.
 
 ### 2.8 Temporal lenses — `temporal/{e2_recency,e3_periodic,e4_positional}.rs`
 
@@ -335,10 +339,10 @@ Finite | Unit{tolerance}` (`None`/`Finite` = finite-only; `L2`/`Unit` = unit nor
 
 ### 3.4 Runtime drift (`drift.rs`)
 
-`RuntimeGolden { lens_id, runtime_version, golden_output, tolerance }`. `evaluate(observed)`
-→ `DriftDecision::Reuse{max_abs_delta}` if within tolerance, else `Drifted{old, new_lens_id,
-…, signal:"CALYX_LENS_RUNTIME_DRIFT"}` where the new id is derived from the observed
-output — drift becomes a *new* LensId, never silent reuse.
+`RuntimeGolden { lens_id, runtime_version, probe, golden_output, tolerance }` persists the
+identity input as well as its expected dense vector. `evaluate(observed)` treats length mismatch,
+NaN/Inf in either vector, or invalid tolerance as drift; a real drift emits
+`CALYX_LENS_RUNTIME_DRIFT` and derives a new LensId, never silent reuse.
 
 ---
 
@@ -346,7 +350,8 @@ output — drift becomes a *new* LensId, never silent reuse.
 
 `Registry` (`lens.rs`) wraps a `BTreeMap<LensId, RegistryEntry>` where
 `RegistryEntry = { lens: Arc<dyn Lens>, frozen: Option<FrozenLensContract>, spec:
-Option<LensSpec>, determinism: DeterminismProof }`. `DeterminismProof` is
+Option<LensSpec>, determinism: DeterminismProof, runtime_golden: Option<RuntimeGolden> }`.
+`DeterminismProof` is
 `ProbeVerified` or `ContractOnlyExemption`.
 
 ### 4.1 Registration (fail-closed)
@@ -355,7 +360,8 @@ Option<LensSpec>, determinism: DeterminismProof }`. `DeterminismProof` is
 |---|---|
 | `register` / `register_with_spec` | **Always error** `CALYX_LENS_FROZEN_VIOLATION` — a frozen contract is mandatory. |
 | `register_frozen(lens, contract)` | Verifies registration; inserts; exemption proof. Duplicate id → `CALYX_REGISTRY_DUPLICATE`. |
-| `register_frozen_with_spec(lens, contract, spec)` | As above + stores `LensSpec`. |
+| `register_frozen_with_spec(lens, contract, spec)` | As above + stores `LensSpec`; TEI/ExternalCmd also capture a default identity probe golden. |
+| `register_frozen_with_spec_and_probe(lens, contract, spec, probe)` | Captures caller-supplied process-runtime identity evidence. |
 | `register_frozen_with_probe(lens, contract, probe)` | Runs the determinism probe → `ProbeVerified`. |
 | `register_persisted_arc(...)` | crate-internal, re-hydrates a persisted `Arc<dyn Lens>`. |
 
@@ -529,8 +535,9 @@ thresholds, reason, card}`. `CapabilityGateDecision`: `Admit | Park | Retire`. L
 - else **Admit**.
 
 `CapabilityGateThresholds` defaults come from `calyx_assay::contract::{MIN_SIGNAL_BITS,
-MAX_PAIRWISE_CORR}`, overridable via env `CALYX_CAPABILITY_MIN_SIGNAL_BITS` /
-`CALYX_CAPABILITY_MAX_PAIRWISE_CORR`. `append_capability_gate_ledger` writes the decision
+MAX_PAIRWISE_CORR}`. Environment values `CALYX_CAPABILITY_MIN_SIGNAL_BITS` /
+`CALYX_CAPABILITY_MAX_PAIRWISE_CORR` may only tighten those defaults; weaker values fail closed.
+`append_capability_gate_ledger` writes the decision
 to the provenance ledger.
 
 ### 7.3 Placement (`placement.rs`)
@@ -558,8 +565,10 @@ vectors. Errors: `CALYX_VECTOR_COMPRESSION_EMPTY`, `CALYX_VECTOR_COMPRESSION_INV
 
 ### 7.6 Persistence & explain
 
-`persistence.rs`: `persist_vault_panel_state` / `load_vault_panel_state` (round-trips
-`VaultPanelState`, `VaultPanelWrite`, `VaultRegistrySnapshot`).
+`persistence.rs`: `persist_vault_panel_state` / `load_vault_panel_state` round-trip
+`VaultPanelState`, `VaultPanelWrite`, and `VaultRegistrySnapshot`. TEI/ExternalCmd snapshots
+require persisted goldens and are eagerly re-probed during vault open; missing, malformed, or
+drifted evidence fails with `CALYX_LENS_RUNTIME_DRIFT`. Other runtimes remain lazy.
 `explain.rs`: `explain_lens[_from_card]` → `LensExplanation{lens_id, corpus_hash(hex),
 axis, runtime, bits, redundancy, cost_ms_per_input, vram_bytes}` (bits/redundancy are
 `"provisional"` until an Assay report is attached).
@@ -584,7 +593,7 @@ Error codes raised by this crate (constructors in `calyx-core/src/error.rs`):
 | `CALYX_VECTOR_COMPRESSION_EMPTY` / `_INVALID` | compression preconditions. |
 | `CALYX_STALE_DERIVED` | backfill scheduler corruption / persist failure. |
 | `CALYX_ASSAY_INSUFFICIENT_SAMPLES` | profiling with no measurable probes. |
-| `CALYX_LENS_RUNTIME_DRIFT` (signal string) | golden drift beyond tolerance (drift.rs). |
+| `CALYX_LENS_RUNTIME_DRIFT` | missing, invalid, non-finite, shape-mismatched, or numerically drifted runtime golden. |
 
 **Cargo features** (`Cargo.toml`): `default = []`; `candle-cuda` enables CUDA in
 candle-core/-nn/-transformers. Dependencies: `blake3`, `candle-* 0.10.2`, `fastembed 5.16`,
