@@ -145,8 +145,9 @@ pub fn kendall_tau_b(x: &[f32], y: &[f32]) -> Result<KendallReport> {
     let v0 = nf * (nf - 1.0) * (2.0 * nf + 5.0);
     let vt: f64 = tx.iter().map(|&t| tie_var_term(t)).sum();
     let vu: f64 = ty.iter().map(|&t| tie_var_term(t)).sum();
-    let v1_num: f64 = tx.iter().map(|&t| tie_pairs(t)).sum::<f64>()
-        * ty.iter().map(|&t| tie_pairs(t)).sum::<f64>();
+    // The cross-tie term uses ordered tie pairs t(t-1), not C(t, 2).
+    let v1_num: f64 = tx.iter().map(|&t| tie_ordered_pairs(t)).sum::<f64>()
+        * ty.iter().map(|&t| tie_ordered_pairs(t)).sum::<f64>();
     let v2_num: f64 = tx.iter().map(|&t| tie_triples(t)).sum::<f64>()
         * ty.iter().map(|&t| tie_triples(t)).sum::<f64>();
     let variance = (v0 - vt - vu) / 18.0
@@ -249,6 +250,11 @@ fn tie_group_sizes(values: &[f64]) -> Vec<usize> {
 fn tie_pairs(t: usize) -> f64 {
     let t = t as f64;
     t * (t - 1.0) / 2.0
+}
+
+fn tie_ordered_pairs(t: usize) -> f64 {
+    let t = t as f64;
+    t * (t - 1.0)
 }
 
 fn tie_triples(t: usize) -> f64 {
@@ -355,6 +361,26 @@ mod tests {
         approx(k.tau_b, 0.948_683_3, 1e-5, "tie-corrected τ-b");
         approx(k.z_statistic, 2.273_79, 1e-3, "τ-b z");
         approx(k.p_value, 0.022_98, 5e-4, "τ-b p-value");
+    }
+
+    #[test]
+    fn kendall_matches_scipy_when_both_columns_have_ties() {
+        // scipy.stats.kendalltau(method="asymptotic", variant="b") gives
+        // tau-b=0.7161148740 and p=0.0509619370. Here C=10, D=0, and the
+        // tie groups are x=[1,1,6], y=[3,5], so Var(S)=26.25.
+        let x = [0.0f32, 1.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0];
+        let y = [0.0f32, 0.0, 0.0, 2.0, 2.0, 2.0, 2.0, 2.0];
+        let k = kendall_tau_b(&x, &y).unwrap();
+        assert_eq!(k.n_concordant, 10);
+        assert_eq!(k.n_discordant, 0);
+        assert_eq!(k.s_statistic, 10);
+        approx(k.tau_b, 0.716_114_9, 1e-6, "two-sided-tie tau-b");
+        approx(k.z_statistic, 1.951_800_1, 1e-6, "two-sided-tie z");
+        approx(k.p_value, 0.050_961_94, 1e-6, "two-sided-tie p-value");
+        assert!(
+            k.p_value > 0.05,
+            "correct tie variance must not create a false positive: {k:?}"
+        );
     }
 
     #[test]
