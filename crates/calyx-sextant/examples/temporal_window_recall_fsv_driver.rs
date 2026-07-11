@@ -1,9 +1,11 @@
-//! FSV driver for issue #633 — windowed multi-primary temporal recall.
+//! FSV driver for issues #633 and #1382: windowed multi-primary temporal
+//! recall, including pre-window filter and guard drops.
 //!
 //! Builds the hand-known two-slot fixture (slot 8 = seeds 1..=5, slot 9 =
-//! seeds 11..=15; only seed 15 in-window at fused position 10) and writes one
-//! readback JSON per scenario into `<out-dir>` so the persisted artifacts can
-//! be judged against hand-computed expectations:
+//! seeds 11..=15; only seed 15 in-window at fused position 10) in a durable
+//! Aster vault. Search is rebuilt from a reopened vault, and plan/truth/report
+//! evidence is written to Graph CF and verified after another reopen. JSON
+//! files in `<out-dir>` are diagnostic copies only.
 //!
 //! ```text
 //! cargo run -p calyx-sextant --example temporal_window_recall_fsv_driver -- <out-dir>
@@ -13,20 +15,19 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::path::Path;
 
-use calyx_core::{
-    Anchor, AnchorKind, AnchorValue, CxFlags, CxId, DecayFunction, InputRef, LedgerRef, Modality,
-    PeriodicOptions, SlotId, SlotVector, VaultId,
-};
+use calyx_core::{DecayFunction, PeriodicOptions};
 use calyx_sextant::{
-    HnswIndex, Query, SearchEngine, SlotIndexMap, TemporalFixedClock, TemporalPolicy, TimeWindow,
-    WindowRecallPolicy, temporal_search, temporal_search_with_recall,
+    MetadataPredicate, Query, QueryFilters, QueryGuard, TemporalFixedClock, TemporalPolicy,
+    TimeWindow, WindowRecallPolicy, temporal_search, temporal_search_with_recall,
 };
+use calyx_ward::{GuardPolicy, GuardProfile, NoveltyAction};
 use serde_json::json;
 
-const SLOT_A: SlotId = SlotId::new(8);
-const SLOT_B: SlotId = SlotId::new(9);
-const QUERY_TIME: i64 = 1_000_000;
-const IN_WINDOW_SEED: u8 = 15;
+mod temporal_window_recall_fsv_support;
+use temporal_window_recall_fsv_support::{
+    GUARD_SLOT, IN_WINDOW_SEED, QUERY_TIME, SLOT_A, SLOT_B, authoritative_evidence, cx, dense,
+    durable_fixture_engine, persist_and_reopen_graph_evidence,
+};
 
 fn main() {
     let out_dir = std::env::args()
@@ -35,7 +36,8 @@ fn main() {
     let out_dir = Path::new(&out_dir);
     fs::create_dir_all(out_dir).expect("create out dir");
 
-    let engine = two_slot_engine();
+    let vault_dir = out_dir.join("vault");
+    let (engine, physical_fixture) = durable_fixture_engine(&vault_dir);
     let clock = TemporalFixedClock::new(QUERY_TIME);
     let window = TimeWindow::last_hours(1, &clock).expect("window");
     let policy = policy();
@@ -63,6 +65,46 @@ fn main() {
     .expect("bounded windowed search");
     write_json(out_dir, "bounded-deepen.json", &json!(bounded));
 
+    let filter_deepen = temporal_search_with_recall(
+        &engine,
+        &filtered_query("/15"),
+        Some(window),
+        &policy,
+        &clock,
+        0,
+        WindowRecallPolicy::Bounded { max_candidates: 10 },
+    )
+    .expect("filter drops deepen to seed 15");
+    write_json(out_dir, "filter-deepen.json", &json!(&filter_deepen));
+
+    let guard_deepen = temporal_search_with_recall(
+        &engine,
+        &guarded_query(),
+        Some(window),
+        &policy,
+        &clock,
+        0,
+        WindowRecallPolicy::Bounded { max_candidates: 10 },
+    )
+    .expect("guard drops deepen to seed 15");
+    write_json(out_dir, "guard-deepen.json", &json!(&guard_deepen));
+
+    let true_exhaustion = temporal_search_with_recall(
+        &engine,
+        &filtered_query("/not-present"),
+        Some(window),
+        &policy,
+        &clock,
+        0,
+        WindowRecallPolicy::Bounded { max_candidates: 10 },
+    )
+    .expect("full fused corpus proves filter exhaustion");
+    write_json(
+        out_dir,
+        "filter-true-exhaustion.json",
+        &json!(&true_exhaustion),
+    );
+
     let exhausted = temporal_search_with_recall(
         &engine,
         &query(1, Some(2), Some(64)),
@@ -80,6 +122,26 @@ fn main() {
             "code": exhausted.code,
             "message": exhausted.message,
             "remediation": exhausted.remediation,
+        }),
+    );
+
+    let filter_cap = temporal_search_with_recall(
+        &engine,
+        &filtered_query("/15"),
+        Some(window),
+        &policy,
+        &clock,
+        0,
+        WindowRecallPolicy::Bounded { max_candidates: 4 },
+    )
+    .expect_err("filter cap 4 cannot reach seed 15");
+    write_json(
+        out_dir,
+        "filter-cap-error.json",
+        &json!({
+            "code": filter_cap.code,
+            "message": filter_cap.message.as_str(),
+            "remediation": filter_cap.remediation,
         }),
     );
 
@@ -105,45 +167,34 @@ fn main() {
     .expect("windowless search");
     write_json(out_dir, "windowless-bounded.json", &json!(windowless));
 
-    println!(
-        "FSV_DRIVER_DONE out_dir={} in_window_seed={IN_WINDOW_SEED}",
-        out_dir.display()
+    assert_eq!(filter_deepen.hits[0].cx_id, cx(IN_WINDOW_SEED));
+    assert_eq!(guard_deepen.hits[0].cx_id, cx(IN_WINDOW_SEED));
+    assert_eq!(filter_deepen.window_recall.rounds, 3);
+    assert_eq!(guard_deepen.window_recall.rounds, 3);
+    assert_eq!(filter_deepen.window_recall.candidates_fetched, 10);
+    assert_eq!(guard_deepen.window_recall.candidates_fetched, 10);
+    assert!(true_exhaustion.hits.is_empty());
+    assert_eq!(true_exhaustion.window_recall.candidates_fetched, 10);
+    assert!(true_exhaustion.window_recall.corpus_exhausted);
+    assert_eq!(filter_cap.code, "CALYX_TEMPORAL_WINDOW_BUDGET_EXHAUSTED");
+    assert!(filter_cap.message.contains("fetched 4"));
+
+    let evidence = authoritative_evidence(
+        physical_fixture,
+        &filter_deepen,
+        &guard_deepen,
+        &true_exhaustion,
+        &filter_cap,
     );
-}
+    let graph_readback = persist_and_reopen_graph_evidence(&vault_dir, evidence);
+    write_json(out_dir, "aster-graph-readback.json", &graph_readback);
 
-fn two_slot_engine() -> SearchEngine {
-    let map = SlotIndexMap::new();
-    map.register(HnswIndex::new(SLOT_A, 2, 42)).unwrap();
-    map.register(HnswIndex::new(SLOT_B, 2, 43)).unwrap();
-    let mut engine = SearchEngine::new(map);
-    for rank in 1..=5_u8 {
-        insert_doc(&mut engine, SLOT_A, rank, rank, out_of_window_created_at());
-        let b_seed = rank + 10;
-        let created_at = if b_seed == IN_WINDOW_SEED {
-            in_window_created_at()
-        } else {
-            out_of_window_created_at()
-        };
-        insert_doc(&mut engine, SLOT_B, b_seed, rank, created_at);
-    }
-    engine
-}
-
-fn insert_doc(engine: &mut SearchEngine, slot: SlotId, seed: u8, slot_rank: u8, created_at: u64) {
-    let vector = dense(vec![1.0, 0.2 * f32::from(slot_rank)]);
-    engine
-        .indexes
-        .insert(slot, cx(seed), vector, u64::from(seed))
-        .unwrap();
-    engine.put_constellation(row(seed, created_at));
-}
-
-fn in_window_created_at() -> u64 {
-    (QUERY_TIME - 600) as u64
-}
-
-fn out_of_window_created_at() -> u64 {
-    (QUERY_TIME - 100_000) as u64
+    println!(
+        "FSV_DRIVER_DONE out_dir={} vault={} graph_rows={} in_window_seed={IN_WINDOW_SEED}",
+        out_dir.display(),
+        vault_dir.display(),
+        graph_readback.as_array().map_or(0, Vec::len)
+    );
 }
 
 fn query(k: usize, recall_k: Option<usize>, ef: Option<usize>) -> Query {
@@ -155,6 +206,19 @@ fn query(k: usize, recall_k: Option<usize>, ef: Option<usize>) -> Query {
             .with_vector(dense(vec![1.0, 0.0]))
             .with_slots(vec![SLOT_A, SLOT_B])
     }
+}
+
+fn filtered_query(pointer_fragment: &str) -> Query {
+    query(1, Some(2), Some(64)).with_filters(QueryFilters {
+        metadata: vec![MetadataPredicate::InputPointerContains(
+            pointer_fragment.to_string(),
+        )],
+        ..QueryFilters::default()
+    })
+}
+
+fn guarded_query() -> Query {
+    query(1, Some(2), Some(64)).with_guard(QueryGuard::InRegionOnly(guard_profile()))
 }
 
 fn policy() -> TemporalPolicy {
@@ -170,45 +234,19 @@ fn policy() -> TemporalPolicy {
     .expect("policy")
 }
 
-fn row(seed: u8, created_at: u64) -> calyx_core::Constellation {
-    calyx_core::Constellation {
-        cx_id: cx(seed),
-        vault_id: "01ARZ3NDEKTSV4RRFFQ69G5FAV".parse::<VaultId>().unwrap(),
+fn guard_profile() -> GuardProfile {
+    GuardProfile {
+        guard_id: "018f48a4-9a79-74d2-8a5c-9ad7f6b8c101"
+            .parse()
+            .expect("guard id"),
         panel_version: 1,
-        created_at,
-        input_ref: InputRef {
-            hash: [seed; 32],
-            pointer: Some(format!("zfs://calyx/window-recall-fsv/{seed}")),
-            redacted: false,
-        },
-        modality: Modality::Text,
-        slots: BTreeMap::new(),
-        scalars: BTreeMap::new(),
-        metadata: BTreeMap::new(),
-        anchors: vec![Anchor {
-            kind: AnchorKind::Label("window-recall-fsv".to_string()),
-            value: AnchorValue::Text("synthetic".to_string()),
-            source: "issue-633".to_string(),
-            observed_at: created_at,
-            confidence: 1.0,
-        }],
-        provenance: LedgerRef {
-            seq: seed as u64,
-            hash: [seed; 32],
-        },
-        flags: CxFlags::default(),
+        domain: "issue-1382-window-recall".to_string(),
+        tau: BTreeMap::from([(GUARD_SLOT, 0.70)]),
+        required_slots: vec![GUARD_SLOT],
+        policy: GuardPolicy::AllRequired,
+        calibration: None,
+        novelty_action: NoveltyAction::Quarantine,
     }
-}
-
-fn dense(data: Vec<f32>) -> SlotVector {
-    SlotVector::Dense {
-        dim: data.len() as u32,
-        data,
-    }
-}
-
-fn cx(seed: u8) -> CxId {
-    CxId::from_bytes([seed; 16])
 }
 
 fn write_json(out_dir: &Path, name: &str, value: &serde_json::Value) {

@@ -1,5 +1,6 @@
-//! Issue #633 — multi-primary windowed temporal_search must be complete and
-//! bounded by an explicit recall policy.
+//! Issues #633 and #1382 — multi-primary windowed temporal_search must be
+//! complete and bounded by an explicit recall policy, including when search
+//! filters or guards remove candidates before the temporal window is applied.
 //!
 //! Fixture (hand-computed): two disjoint primary slots, five docs each.
 //! Slot A holds seeds 1..=5, slot B holds seeds 11..=15. Per-slot HNSW
@@ -20,11 +21,13 @@ use calyx_core::{
     PeriodicOptions, SlotId, VaultId,
 };
 use calyx_sextant::{
-    CALYX_SEXTANT_QUERY_SHAPE, CALYX_TEMPORAL_WINDOW_BUDGET_EXHAUSTED, Hit, HnswIndex, Query,
-    SearchEngine, SlotIndexMap, TemporalFixedClock, TemporalPolicy, TimeWindow, WindowRecallPolicy,
-    temporal_search, temporal_search_with_recall,
+    CALYX_SEXTANT_QUERY_SHAPE, CALYX_TEMPORAL_WINDOW_BUDGET_EXHAUSTED, Hit, HnswIndex,
+    MetadataPredicate, Query, QueryFilters, QueryGuard, SearchEngine, SlotIndexMap,
+    TemporalFixedClock, TemporalPolicy, TimeWindow, WindowRecallPolicy, temporal_search,
+    temporal_search_with_recall,
 };
-use sextant_support::{cx_u8_fill as cx, dense};
+use calyx_ward::{GuardPolicy, GuardProfile, NoveltyAction};
+use sextant_support::{cx_u8_fill as cx, dense, guarded_test_guard_id as guard_id};
 
 const SLOT_A: SlotId = SlotId::new(8);
 const SLOT_B: SlotId = SlotId::new(9);
@@ -84,6 +87,108 @@ fn bounded_policy_deepens_geometrically_until_in_window_found() {
     assert_eq!(report.candidates_fetched, 10);
     assert_eq!(report.in_window_count, 1);
     assert_eq!(report.requested_recall_k, Some(2));
+}
+
+#[test]
+fn bounded_policy_does_not_treat_filter_drops_as_corpus_exhaustion() {
+    let engine = two_slot_engine();
+    let filtered_query = query(1, Some(2), Some(64)).with_filters(QueryFilters {
+        metadata: vec![MetadataPredicate::InputPointerContains("/15".to_string())],
+        ..QueryFilters::default()
+    });
+    let result = temporal_search_with_recall(
+        &engine,
+        &filtered_query,
+        Some(last_hour()),
+        &policy(),
+        &TemporalFixedClock::new(QUERY_TIME),
+        0,
+        WindowRecallPolicy::Bounded { max_candidates: 10 },
+    )
+    .expect("filter drops must deepen to the eligible in-window row");
+
+    assert_eq!(ids(&result.hits), vec![IN_WINDOW_SEED]);
+    assert_eq!(result.window_recall.rounds, 3);
+    assert_eq!(result.window_recall.effective_budget, 10);
+    assert_eq!(result.window_recall.candidates_fetched, 10);
+    assert_eq!(result.window_recall.in_window_count, 1);
+    assert!(result.window_recall.corpus_exhausted);
+}
+
+#[test]
+fn bounded_policy_does_not_treat_guard_drops_as_corpus_exhaustion() {
+    let engine = two_slot_engine();
+    let guarded_query =
+        query(1, Some(2), Some(64)).with_guard(QueryGuard::InRegionOnly(guard_profile()));
+    let result = temporal_search_with_recall(
+        &engine,
+        &guarded_query,
+        Some(last_hour()),
+        &policy(),
+        &TemporalFixedClock::new(QUERY_TIME),
+        0,
+        WindowRecallPolicy::Bounded { max_candidates: 10 },
+    )
+    .expect("guard drops must deepen to the eligible in-window row");
+
+    assert_eq!(ids(&result.hits), vec![IN_WINDOW_SEED]);
+    assert_eq!(result.window_recall.rounds, 3);
+    assert_eq!(result.window_recall.effective_budget, 10);
+    assert_eq!(result.window_recall.candidates_fetched, 10);
+    assert_eq!(result.window_recall.in_window_count, 1);
+    assert!(result.window_recall.corpus_exhausted);
+}
+
+#[test]
+fn bounded_policy_proves_true_exhaustion_after_filter_drops() {
+    let engine = two_slot_engine();
+    let filtered_query = query(1, Some(2), Some(64)).with_filters(QueryFilters {
+        metadata: vec![MetadataPredicate::InputPointerContains(
+            "/not-present".to_string(),
+        )],
+        ..QueryFilters::default()
+    });
+    let result = temporal_search_with_recall(
+        &engine,
+        &filtered_query,
+        Some(last_hour()),
+        &policy(),
+        &TemporalFixedClock::new(QUERY_TIME),
+        0,
+        WindowRecallPolicy::Bounded { max_candidates: 10 },
+    )
+    .expect("full fused corpus proves no filtered row exists");
+
+    assert!(result.hits.is_empty());
+    assert_eq!(result.window_recall.rounds, 3);
+    assert_eq!(result.window_recall.effective_budget, 10);
+    assert_eq!(result.window_recall.candidates_fetched, 10);
+    assert_eq!(result.window_recall.in_window_count, 0);
+    assert!(result.window_recall.corpus_exhausted);
+}
+
+#[test]
+fn bounded_policy_filter_drops_fail_closed_at_cap() {
+    let engine = two_slot_engine();
+    let filtered_query = query(1, Some(2), Some(64)).with_filters(QueryFilters {
+        metadata: vec![MetadataPredicate::InputPointerContains("/15".to_string())],
+        ..QueryFilters::default()
+    });
+    let error = temporal_search_with_recall(
+        &engine,
+        &filtered_query,
+        Some(last_hour()),
+        &policy(),
+        &TemporalFixedClock::new(QUERY_TIME),
+        0,
+        WindowRecallPolicy::Bounded { max_candidates: 4 },
+    )
+    .expect_err("cap below the eligible fused rank must fail closed");
+
+    assert_eq!(error.code, CALYX_TEMPORAL_WINDOW_BUDGET_EXHAUSTED);
+    assert!(error.message.contains("max_candidates 4"));
+    assert!(error.message.contains("fetched 4"));
+    assert!(error.message.contains("found 0"));
 }
 
 #[test]
@@ -246,7 +351,25 @@ fn policy() -> TemporalPolicy {
     .expect("policy")
 }
 
+fn guard_profile() -> GuardProfile {
+    GuardProfile {
+        guard_id: guard_id(),
+        panel_version: 1,
+        domain: "issue-1382-window-recall".to_string(),
+        tau: BTreeMap::from([(SLOT_A, 0.70)]),
+        required_slots: vec![SLOT_A],
+        policy: GuardPolicy::AllRequired,
+        calibration: None,
+        novelty_action: NoveltyAction::Quarantine,
+    }
+}
+
 fn row(seed: u8, created_at: u64) -> calyx_core::Constellation {
+    let guard_vector = if seed == IN_WINDOW_SEED {
+        dense(vec![1.0, 0.0])
+    } else {
+        dense(vec![0.0, 1.0])
+    };
     calyx_core::Constellation {
         cx_id: cx(seed),
         vault_id: "01ARZ3NDEKTSV4RRFFQ69G5FAV".parse::<VaultId>().unwrap(),
@@ -258,7 +381,7 @@ fn row(seed: u8, created_at: u64) -> calyx_core::Constellation {
             redacted: false,
         },
         modality: Modality::Text,
-        slots: BTreeMap::new(),
+        slots: BTreeMap::from([(SLOT_A, guard_vector)]),
         scalars: BTreeMap::new(),
         metadata: BTreeMap::new(),
         anchors: vec![Anchor {

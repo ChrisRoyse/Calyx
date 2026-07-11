@@ -42,6 +42,7 @@ cuvs-sys = { workspace = true, optional = true }
 
 [dev-dependencies]
 calyx-fsv = { path = "../calyx-fsv" }
+calyx-ledger = { path = "../calyx-ledger" }
 calyx-loom = { path = "../calyx-loom" }
 calyx-oracle = { path = "../calyx-oracle" }
 calyx-testkit = { path = "../calyx-testkit" }

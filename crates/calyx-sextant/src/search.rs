@@ -25,6 +25,11 @@ use crate::util::{event_time_secs_from_ts, hex32};
 
 const DEFAULT_PIPELINE_RECALL_MULTIPLIER: usize = 10;
 
+struct SearchOutcome {
+    report: GuardedSearchReport,
+    pre_policy_candidates: usize,
+}
+
 #[derive(Clone, Default)]
 pub struct SearchEngine {
     pub indexes: SlotIndexMap,
@@ -78,7 +83,7 @@ impl SearchEngine {
     }
 
     pub fn search(&self, query: &Query) -> Result<Vec<Hit>> {
-        Ok(self.search_inner(query, None)?.hits)
+        Ok(self.search_inner(query, None, None)?.report.hits)
     }
 
     pub fn search_with_reranker(
@@ -86,11 +91,20 @@ impl SearchEngine {
         query: &Query,
         reranker: &RerankerClient,
     ) -> Result<Vec<Hit>> {
-        Ok(self.search_inner(query, Some(reranker))?.hits)
+        Ok(self.search_inner(query, Some(reranker), None)?.report.hits)
     }
 
     pub fn search_with_guard_report(&self, query: &Query) -> Result<GuardedSearchReport> {
-        self.search_inner(query, None)
+        Ok(self.search_inner(query, None, None)?.report)
+    }
+
+    pub(crate) fn search_with_candidate_count(
+        &self,
+        query: &Query,
+        candidate_limit: usize,
+    ) -> Result<(Vec<Hit>, usize)> {
+        let outcome = self.search_inner(query, None, Some(candidate_limit))?;
+        Ok((outcome.report.hits, outcome.pre_policy_candidates))
     }
 
     pub fn planned_search(&self, query: Query, planner: &QueryPlanner) -> Result<Vec<Hit>> {
@@ -115,7 +129,8 @@ impl SearchEngine {
         &self,
         query: &Query,
         reranker: Option<&RerankerClient>,
-    ) -> Result<GuardedSearchReport> {
+        candidate_limit: Option<usize>,
+    ) -> Result<SearchOutcome> {
         let _query_permit = self.query_admission.acquire()?;
         query.validate()?;
         let slots = if query.slots.is_empty() {
@@ -141,7 +156,8 @@ impl SearchEngine {
                 "reranker search requires Pipeline fusion",
             ));
         }
-        let search_k = self.candidate_window(&slots, query, &strategy);
+        let search_k =
+            candidate_limit.unwrap_or_else(|| self.candidate_window(&slots, query, &strategy));
         let mut per_slot = BTreeMap::new();
         for slot in &slots {
             let slot_stats = stats
@@ -174,6 +190,7 @@ impl SearchEngine {
             stage1_slots: stage1_slots.clone(),
         };
         let mut hits = fusion::fuse(&per_slot, &context);
+        let pre_policy_candidates = hits.len();
         self.apply_filters(&mut hits, &query.filters);
         if let Some(reranker) = reranker {
             self.rerank_pipeline_hits(query, &mut hits, &stage1_slots, reranker)?;
@@ -182,9 +199,12 @@ impl SearchEngine {
         hits.truncate(query.k);
         self.renumber_hits(&mut hits);
         self.attach_provenance_and_freshness(&mut hits, &slots, &query.freshness)?;
-        Ok(GuardedSearchReport {
-            hits,
-            dropped_guard_hits,
+        Ok(SearchOutcome {
+            report: GuardedSearchReport {
+                hits,
+                dropped_guard_hits,
+            },
+            pre_policy_candidates,
         })
     }
 

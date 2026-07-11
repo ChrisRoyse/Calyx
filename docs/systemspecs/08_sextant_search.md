@@ -458,6 +458,8 @@ Three signals (`TemporalScores { e2_recency, e3_periodic, e4_sequence }`, all `[
 
 **Window recall budget** (`temporal/recall_budget.rs`): `WindowRecallPolicy` is `Exhaustive` (one pass over the union bound of primary-slot lengths) or `Bounded { max_candidates }` (geometric ×4 deepening until k in-window rows found, corpus exhausted, or cap hit → `CALYX_TEMPORAL_WINDOW_BUDGET_EXHAUSTED`). `WindowRecallReport` records requested_k, in_window_count, candidates_fetched, rounds, effective_budget, corpus_exhausted.
 
+Bounded rounds pin the actual pre-policy fusion limit to `effective_budget`; ordinary filter expansion cannot exceed `max_candidates`. `candidates_fetched` is the fused count measured **before** scalar/anchor/metadata filters and Ward query guards, while `in_window_count` is measured from the eligible post-policy hits. Corpus exhaustion is true only when the pre-policy count is below the current budget or the budget reaches the primary-slot union bound. A filter/guard drop never proves exhaustion. Geometric deepening is silent library behavior; callers inspect `rounds` and the other report fields instead of relying on stderr.
+
 `recurrence_boost` (`temporal/recurrence_boost.rs`) adds a frequency+recency multiplier from `AsterVault` recurrence scalars; corrupt scalars error `CALYX_SEXTANT_RECURRENCE_READ_ERROR`.
 
 ---

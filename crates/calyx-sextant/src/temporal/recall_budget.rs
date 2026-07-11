@@ -56,6 +56,7 @@ pub struct WindowRecallReport {
     pub union_bound: usize,
     pub effective_budget: usize,
     pub effective_ef: Option<usize>,
+    /// Fused candidates observed before query filters and guards.
     pub candidates_fetched: usize,
     pub in_window_count: usize,
     pub corpus_exhausted: bool,
@@ -87,15 +88,16 @@ pub(crate) fn windowed_primary_search(
     };
 
     let Some(window) = window else {
-        // No window means no post-retrieval predicate: the caller's own
-        // budget is complete for its top-k contract.
-        let (hits, ef) = search_round(engine, primary_query, requested)?;
+        // Without a temporal window there is no iterative window-recall
+        // requirement, but the report still distinguishes policy drops from
+        // actual candidate exhaustion.
+        let (hits, ef, candidates_fetched) = search_round(engine, primary_query, requested)?;
         report.rounds = 1;
         report.effective_budget = requested;
         report.effective_ef = ef;
-        report.candidates_fetched = hits.len();
+        report.candidates_fetched = candidates_fetched;
         report.in_window_count = hits.len();
-        report.corpus_exhausted = hits.len() < requested;
+        report.corpus_exhausted = candidates_fetched < requested;
         return Ok((hits, report));
     };
 
@@ -122,14 +124,14 @@ pub(crate) fn windowed_primary_search(
 
     loop {
         report.rounds += 1;
-        let (hits, ef) = search_round(engine, primary_query, budget)?;
+        let (hits, ef, candidates_fetched) = search_round(engine, primary_query, budget)?;
         let in_window = count_hits_in_window(&hits, window);
-        // Fewer rows than the budget means every fused candidate was fetched;
-        // a budget at the union bound is complete by construction.
-        let corpus_exhausted = hits.len() < budget || budget >= union_bound;
+        // Only pre-policy fused candidates can prove exhaustion. Filters and
+        // guards may remove every returned hit while deeper candidates remain.
+        let corpus_exhausted = candidates_fetched < budget || budget >= union_bound;
         report.effective_budget = budget;
         report.effective_ef = ef;
-        report.candidates_fetched = hits.len();
+        report.candidates_fetched = candidates_fetched;
         report.in_window_count = in_window;
         report.corpus_exhausted = corpus_exhausted;
 
@@ -148,11 +150,6 @@ pub(crate) fn windowed_primary_search(
             ));
         }
         let next = budget.saturating_mul(DEEPEN_GROWTH_FACTOR).min(cap);
-        eprintln!(
-            "CALYX_TEMPORAL_WINDOW_DEEPEN round={} budget={budget} next_budget={next} \
-             fetched={} in_window={in_window} needed={final_k}",
-            report.rounds, report.candidates_fetched
-        );
         budget = next;
     }
 }
@@ -163,13 +160,13 @@ fn search_round(
     engine: &SearchEngine,
     primary_query: &Query,
     budget: usize,
-) -> Result<(Vec<Hit>, Option<usize>)> {
+) -> Result<(Vec<Hit>, Option<usize>, usize)> {
     let mut query = primary_query.clone();
     query.k = budget;
     query.recall_k = Some(budget);
     query.ef = primary_query.ef.map(|ef| ef.max(budget));
-    let hits = engine.search(&query)?;
-    Ok((hits, query.ef))
+    let (hits, candidates_fetched) = engine.search_with_candidate_count(&query, budget)?;
+    Ok((hits, query.ef, candidates_fetched))
 }
 
 fn primary_slot_lens(engine: &SearchEngine, slots: &[SlotId]) -> Vec<SlotLen> {
