@@ -1,6 +1,5 @@
 use std::collections::BTreeMap;
-use std::fs;
-use std::path::{Component, Path, PathBuf};
+use std::path::Path;
 
 use calyx_aster::cf::{ColumnFamily, base_key, slot_key};
 use calyx_aster::mvcc::tombstone_value;
@@ -10,8 +9,6 @@ use calyx_core::{
     VaultStore,
 };
 use serde::Serialize;
-
-const VAULT_POINTER_PREFIX: &str = "calyx-vault://";
 
 #[derive(Clone, Debug)]
 pub(super) struct CandidateBackfill {
@@ -40,28 +37,14 @@ pub(super) fn input_for_constellation(
     cx: &Constellation,
     modality: Modality,
 ) -> Result<Input> {
-    if cx.input_ref.redacted {
-        return Err(input_unavailable(format!(
-            "input bytes for {} are redacted",
-            cx.cx_id
-        )));
-    }
-    if let Some(value) = cx
-        .metadata
-        .get("calyx.input_utf8")
-        .or_else(|| cx.metadata.get("raw_input"))
-        .or_else(|| cx.metadata.get("input_text"))
-    {
-        return Ok(Input::new(modality, value.as_bytes().to_vec()));
-    }
-    let Some(pointer) = cx.input_ref.pointer.as_deref() else {
-        return Err(input_unavailable(format!(
-            "input bytes for {} have no retained pointer",
-            cx.cx_id
-        )));
-    };
-    let bytes = read_pointer(vault_dir, pointer)?;
-    Ok(Input::new(modality, bytes).with_pointer(pointer.to_string()))
+    calyx_aster::retained_input::input_from_ref(vault_dir, modality, &cx.input_ref).map_err(
+        |error| {
+            input_unavailable(format!(
+                "retained input for {} failed verification ({}): {}",
+                cx.cx_id, error.code, error.message
+            ))
+        },
+    )
 }
 
 pub(super) fn apply_slot_backfill<C: Clock>(
@@ -130,39 +113,6 @@ pub(super) fn restore_slot_backfill<C: Clock>(
     Ok(())
 }
 
-fn read_pointer(vault_dir: &Path, pointer: &str) -> Result<Vec<u8>> {
-    if let Some(relative) = pointer.strip_prefix(VAULT_POINTER_PREFIX) {
-        return fs::read(vault_relative_path(vault_dir, relative)?)
-            .map_err(|error| input_unavailable(format!("read vault input pointer: {error}")));
-    }
-    if let Some(path) = pointer.strip_prefix("file://") {
-        return fs::read(path)
-            .map_err(|error| input_unavailable(format!("read file input pointer: {error}")));
-    }
-    let path = Path::new(pointer);
-    let resolved = if path.is_absolute() {
-        path.to_path_buf()
-    } else {
-        vault_relative_path(vault_dir, pointer)?
-    };
-    fs::read(resolved).map_err(|error| input_unavailable(format!("read input pointer: {error}")))
-}
-
-fn vault_relative_path(vault_dir: &Path, relative: &str) -> Result<PathBuf> {
-    let path = Path::new(relative);
-    if path.components().any(|component| {
-        matches!(
-            component,
-            Component::ParentDir | Component::RootDir | Component::Prefix(_)
-        )
-    }) {
-        return Err(input_unavailable(format!(
-            "vault input pointer {relative:?} escapes the vault"
-        )));
-    }
-    Ok(vault_dir.join(path))
-}
-
 fn input_unavailable(message: impl Into<String>) -> CalyxError {
     CalyxError {
         code: "CALYX_PROPOSE_INPUT_UNAVAILABLE",
@@ -184,6 +134,10 @@ mod tests {
     use super::*;
     use calyx_aster::cf::full_content_hash;
     use calyx_core::{CxFlags, FixedClock, InputRef, LedgerRef, VaultId, VaultStore};
+    use std::fs;
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    static NEXT_INPUT_DIR: AtomicU64 = AtomicU64::new(0);
 
     #[test]
     fn restore_tombstones_backfilled_slot_rows() {
@@ -246,8 +200,51 @@ mod tests {
         );
     }
 
+    #[test]
+    fn metadata_text_is_not_accepted_as_replay_authority() {
+        let vault = AsterVault::with_clock(vault_id(), b"salt".to_vec(), FixedClock::new(99));
+        let mut cx = constellation(&vault, b"metadata-only");
+        cx.input_ref.pointer = None;
+        cx.metadata
+            .insert("raw_input".to_string(), "metadata-only".to_string());
+
+        let error = input_for_constellation(Path::new("."), &cx, Modality::Text)
+            .expect_err("metadata must not supply replay bytes");
+
+        assert_eq!(error.code, "CALYX_PROPOSE_INPUT_UNAVAILABLE");
+        assert!(error.message.contains("no retained pointer"));
+    }
+
+    #[test]
+    fn retained_pointer_hash_mismatch_is_rejected() {
+        let root = input_dir("hash-mismatch");
+        let vault = AsterVault::with_clock(vault_id(), b"salt".to_vec(), FixedClock::new(99));
+        let input = calyx_aster::retained_input::retain_text_input(&root, "exact source").unwrap();
+        let mut cx = constellation(&vault, b"exact source");
+        cx.input_ref.pointer = input.pointer;
+        cx.input_ref.hash = [4; 32];
+
+        let error = input_for_constellation(&root, &cx, Modality::Text)
+            .expect_err("hash mismatch must fail");
+
+        assert_eq!(error.code, "CALYX_PROPOSE_INPUT_UNAVAILABLE");
+        assert!(error.message.contains("CALYX_INPUT_BLOB_HASH_MISMATCH"));
+        fs::remove_dir_all(root).unwrap();
+    }
+
     fn vault_id() -> VaultId {
         "01ARZ3NDEKTSV4RRFFQ69G5FAV".parse().expect("valid ULID")
+    }
+
+    fn input_dir(name: &str) -> std::path::PathBuf {
+        let id = NEXT_INPUT_DIR.fetch_add(1, Ordering::Relaxed);
+        let root = std::env::temp_dir().join(format!(
+            "calyx-propose-input-{name}-{}-{id}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(&root).unwrap();
+        root
     }
 
     fn constellation(vault: &AsterVault<FixedClock>, input: &[u8]) -> calyx_core::Constellation {

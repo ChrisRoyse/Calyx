@@ -8,6 +8,7 @@ use super::*;
 pub(crate) fn preflight_batch_existing_identity(
     vault: &AsterVault,
     state: &VaultPanelState,
+    vault_path: &std::path::Path,
     path: &std::path::Path,
     validated_row_count: usize,
 ) -> CliResult<()> {
@@ -32,7 +33,7 @@ pub(crate) fn preflight_batch_existing_identity(
         if let Some(event) = &oracle {
             event.apply_metadata(&mut metadata)?;
         }
-        let input = text_input(text);
+        let input = retention::retained_text_input(vault_path, &text)?;
         let row = ExistingPlainReplayRow {
             cx_id: vault.cx_id_for_input(&input.bytes, state.panel.version),
             panel_version: state.panel.version,
@@ -45,7 +46,7 @@ pub(crate) fn preflight_batch_existing_identity(
             metadata,
             anchors,
         };
-        if verify_existing_base_replay_row(vault, snapshot, &row)? {
+        if verify_existing_base_replay_row(vault, snapshot, &row, true)? {
             checked_existing += 1;
         } else {
             not_existing_or_incomplete += 1;
@@ -57,6 +58,47 @@ pub(crate) fn preflight_batch_existing_identity(
         checked_existing,
         not_existing_or_incomplete,
         started.elapsed().as_millis()
+    ));
+    Ok(())
+}
+
+pub(crate) fn backfill_batch_existing_input_pointers(
+    vault: &AsterVault,
+    state: &VaultPanelState,
+    vault_path: &std::path::Path,
+    path: &std::path::Path,
+) -> CliResult<()> {
+    use std::io::BufRead;
+
+    let file = std::fs::File::open(path)
+        .map_err(|error| CliError::io(format!("open batch {}: {error}", path.display())))?;
+    let reader = std::io::BufReader::new(file);
+    let mut seen = BTreeSet::new();
+    let mut existing = 0_usize;
+    let mut changed = 0_usize;
+    for (index, line) in reader.lines().enumerate() {
+        let line =
+            line.map_err(|error| CliError::io(format!("read batch line {}: {error}", index + 1)))?;
+        let Some((text, _, _, _)) = parse_batch_line(index, &line)? else {
+            continue;
+        };
+        let input = retention::retained_text_input(vault_path, &text)?;
+        let cx_id = vault.cx_id_for_input(&input.bytes, state.panel.version);
+        if seen.insert(cx_id) && base_exists(vault, cx_id)? {
+            existing += 1;
+            let expected = InputRef {
+                hash: input_hash(&input.bytes),
+                pointer: input.pointer,
+                redacted: false,
+            };
+            if retention::apply_existing_input_pointer(vault, cx_id, &expected)? {
+                changed += 1;
+            }
+        }
+    }
+    ingest_runtime_log(format_args!(
+        "phase=batch_retained_input_pointer_readback distinct_existing={} changed={changed}",
+        existing
     ));
     Ok(())
 }
@@ -82,6 +124,7 @@ pub(crate) struct ExistingBatchReplayRow {
 pub(crate) fn existing_plain_batch_replay_rows(
     vault: &AsterVault,
     state: &VaultPanelState,
+    vault_path: &std::path::Path,
     rows: &[BatchRow],
 ) -> CliResult<Option<Vec<ExistingPlainReplayRow>>> {
     let mut out = Vec::with_capacity(rows.len());
@@ -89,7 +132,7 @@ pub(crate) fn existing_plain_batch_replay_rows(
     let mut all_materialized = true;
     let mut checked_existing = 0_usize;
     for (text, metadata, anchors, oracle) in rows {
-        let input = text_input(text.clone());
+        let input = retention::retained_text_input(vault_path, text)?;
         let cx_id = vault.cx_id_for_input(&input.bytes, state.panel.version);
         let input_ref = InputRef {
             hash: input_hash(&input.bytes),
@@ -108,7 +151,7 @@ pub(crate) fn existing_plain_batch_replay_rows(
             metadata,
             anchors: anchors.clone(),
         };
-        if !verify_existing_base_replay_row(vault, snapshot, &row)? {
+        if !verify_existing_base_replay_row(vault, snapshot, &row, false)? {
             all_materialized = false;
             continue;
         }
@@ -146,7 +189,7 @@ pub(crate) fn flush_plain_existing_batch_replay(
         calyx_aster::base_page_index::advance_base_page_index_head_if_base_unchanged(vault_path)?;
         let snapshot = vault.snapshot();
         for row in sub {
-            if !verify_existing_base_replay_row(vault, snapshot, row)? {
+            if !verify_existing_base_replay_row(vault, snapshot, row, false)? {
                 return Err(calyx_core::CalyxError::aster_corrupt_shard(format!(
                     "idempotent batch replay base readback missing for cx {} after ledger append",
                     row.cx_id
@@ -171,13 +214,17 @@ fn verify_existing_base_replay_row(
     vault: &AsterVault,
     snapshot: u64,
     row: &ExistingPlainReplayRow,
+    allow_pointerless: bool,
 ) -> CliResult<bool> {
     let Some(bytes) = vault.read_cf_at(snapshot, ColumnFamily::Base, &base_key(row.cx_id))? else {
         return Ok(false);
     };
     let existing = decode_constellation_base(&bytes)?;
+    let input_ref_matches = existing.input_ref == row.input_ref
+        || (allow_pointerless
+            && retention::input_ref_matches_or_backfillable(&existing.input_ref, &row.input_ref));
     if existing.panel_version != row.panel_version
-        || existing.input_ref != row.input_ref
+        || !input_ref_matches
         || existing.modality != row.modality
         || existing.metadata != row.metadata
     {
@@ -264,13 +311,14 @@ fn incoming_anchors_already_materialized(
 pub(crate) fn existing_batch_replay_rows(
     vault: &AsterVault,
     state: &VaultPanelState,
+    vault_path: &std::path::Path,
     rows: &[BatchRow],
 ) -> CliResult<Option<Vec<ExistingBatchReplayRow>>> {
     let mut out = Vec::with_capacity(rows.len());
     let mut all_exist = true;
     let mut checked_existing = 0_usize;
     for (text, metadata, anchors, oracle) in rows {
-        let input = text_input(text.clone());
+        let input = retention::retained_text_input(vault_path, text)?;
         let cx_id = vault.cx_id_for_input(&input.bytes, state.panel.version);
         if !base_exists(vault, cx_id)? {
             all_exist = false;

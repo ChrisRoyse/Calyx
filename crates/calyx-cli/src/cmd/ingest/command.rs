@@ -352,7 +352,7 @@ fn ingest_text_rows_with_resident(
         .map(|(text, metadata)| {
             super::parse::validate_text(&text)?;
             Ok(PreparedInput {
-                input: text_input(text),
+                input: retention::retained_text_input(&resolved.path, &text)?,
                 metadata,
             })
         })
@@ -363,6 +363,13 @@ fn ingest_text_rows_with_resident(
 struct PreparedInput {
     input: Input,
     metadata: BTreeMap<String, String>,
+}
+
+struct PreparedReport {
+    cx_id: CxId,
+    new: bool,
+    existed_before: bool,
+    input_ref: InputRef,
 }
 
 fn ingest_prepared_inputs(
@@ -399,11 +406,20 @@ fn ingest_prepared_inputs(
         )?;
         cx.metadata = prepared_input.metadata;
         ensure_content_panel_floor(&cx, &state)?;
-        let new = !base_exists(&vault, cx.cx_id)? && first_new.insert(cx.cx_id);
+        let existed_before = base_exists(&vault, cx.cx_id)?;
+        if existed_before {
+            retention::preflight_existing_text_identity(&vault, &state, &cx)?;
+        }
+        let new = !existed_before && first_new.insert(cx.cx_id);
         if new {
             staged.push(cx.clone());
         }
-        prepared.push((cx.cx_id, new));
+        prepared.push(PreparedReport {
+            cx_id: cx.cx_id,
+            new,
+            existed_before,
+            input_ref: cx.input_ref,
+        });
     }
     stake_rebuild_required_marker(
         &resolved.path,
@@ -416,6 +432,9 @@ fn ingest_prepared_inputs(
         None,
         None,
     )?;
+    for row in prepared.iter().filter(|row| row.existed_before) {
+        retention::apply_existing_input_pointer(&vault, row.cx_id, &row.input_ref)?;
+    }
     match staged.len() {
         0 => {}
         1 => {
@@ -429,16 +448,21 @@ fn ingest_prepared_inputs(
     rebuild_persistent_indexes(&resolved.path, &vault)?;
     let snapshot = vault.snapshot();
     let mut reports = Vec::with_capacity(prepared.len());
-    for (cx_id, new) in prepared {
-        let stored = vault.get(cx_id, snapshot)?;
-        let ledger_seq = if new {
+    for row in prepared {
+        let stored = vault.get(row.cx_id, snapshot)?;
+        let ledger_seq = if row.new {
             stored.provenance.seq
         } else {
-            append_cli_ledger(&vault, EntryKind::Ingest, cx_id, "cli-idempotent-ingest")?
+            append_cli_ledger(
+                &vault,
+                EntryKind::Ingest,
+                row.cx_id,
+                "cli-idempotent-ingest",
+            )?
         };
         reports.push(IngestReport {
-            cx_id: cx_id.to_string(),
-            new,
+            cx_id: row.cx_id.to_string(),
+            new: row.new,
             ledger_seq,
         });
     }
@@ -452,6 +476,7 @@ mod batch_stream;
 mod batch_support;
 mod media;
 mod replay;
+mod retention;
 
 #[cfg(test)]
 pub(super) use batch_stream::{
