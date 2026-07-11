@@ -1,9 +1,9 @@
 use std::fs;
 
 use calyx_assay::{
-    CALYX_ASSAY_DEGENERATE_TARGET_ENTROPY, CALYX_ASSAY_ESTIMATOR_UNDERPOWERED, EstimatorKind,
-    MiEstimate, PowerCalibration, PowerCalibrationStatus, TrustTag,
-    ensure_informative_binary_labels, panel_sufficiency_from_estimate,
+    CALYX_ASSAY_DEGENERATE_TARGET_ENTROPY, CALYX_ASSAY_ESTIMATOR_UNDERPOWERED, EstimateBound,
+    EstimatorKind, MiEstimate, PowerCalibration, PowerCalibrationStatus, TrustTag,
+    ensure_informative_binary_labels, panel_sufficiency, panel_sufficiency_from_estimate,
 };
 use serde_json::json;
 
@@ -37,6 +37,8 @@ fn power_gate_rejects_underpowered_and_degenerate_targets() {
     let sufficiency =
         panel_sufficiency_from_estimate(&passed_estimate, 1.0, &[], TrustTag::Trusted).unwrap();
     assert!(sufficiency.sufficient);
+    assert_eq!(sufficiency.estimate_bound, EstimateBound::LowerBound);
+    assert!(sufficiency.power_calibration.is_some());
 
     write_fsv_artifact(json!({
         "schema": "calyx-assay-power-gate-fsv-v1",
@@ -61,6 +63,19 @@ fn power_gate_rejects_underpowered_and_degenerate_targets() {
             "power_status": "passed",
         }
     }));
+}
+
+#[test]
+fn uncalibrated_sufficiency_is_explicitly_point_diagnostic() {
+    let diagnostic = panel_sufficiency(1.25, 1.0, &[], TrustTag::Trusted);
+
+    assert!(diagnostic.sufficient);
+    assert_eq!(diagnostic.estimate_bound, EstimateBound::Point);
+    assert!(diagnostic.power_calibration.is_none());
+    assert_eq!(
+        serde_json::to_value(&diagnostic).unwrap()["estimate_bound"],
+        "point"
+    );
 }
 
 fn estimate_without_calibration() -> MiEstimate {
