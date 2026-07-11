@@ -39,6 +39,56 @@ fn sparse_query_weights_control_ranking() {
     assert!(hits[0].score > hits[1].score);
 }
 
+#[test]
+fn invalid_sparse_weights_fail_before_mutation() {
+    let retained_id = cx(0x31);
+    let mut index = InvertedIndex::new(SlotId::new(1));
+    index
+        .insert(retained_id, sparse(&[(1, 1.0)]), 1)
+        .expect("insert retained document");
+
+    for (seed, weight) in [(0x32, 0.0), (0x33, -1.0)] {
+        let rejected_id = cx(seed);
+        let err = index
+            .insert(rejected_id, sparse(&[(2, weight)]), 2)
+            .unwrap_err();
+        assert_eq!(err.code, "CALYX_SEXTANT_VECTOR_SHAPE");
+        assert!(index.vector(rejected_id).is_none());
+        assert_eq!(index.total_docs(), 1);
+    }
+
+    let overflow_id = cx(0x34);
+    let err = index
+        .insert(
+            overflow_id,
+            sparse(&[(2, f32::MAX), (3, f32::MAX)]),
+            3,
+        )
+        .unwrap_err();
+    assert_eq!(err.code, "CALYX_SEXTANT_VECTOR_SHAPE");
+    assert!(index.vector(overflow_id).is_none());
+    assert_eq!(index.total_docs(), 1);
+}
+
+#[test]
+fn invalid_query_and_score_overflow_fail_closed() {
+    let mut index = InvertedIndex::new(SlotId::new(1));
+    index
+        .insert(cx(0x41), sparse(&[(7, 1.0)]), 1)
+        .expect("insert searchable document");
+
+    let err = index.search(&sparse(&[(7, 0.0)]), 1, None).unwrap_err();
+    assert_eq!(err.code, "CALYX_SEXTANT_VECTOR_SHAPE");
+
+    let extreme_id = cx(0x42);
+    index
+        .insert(extreme_id, sparse(&[(8, f32::MAX)]), 2)
+        .expect("finite extreme weight is structurally valid");
+    let err = index.search(&sparse(&[(8, 1.0)]), 1, None).unwrap_err();
+    assert_eq!(err.code, "CALYX_SEXTANT_VECTOR_SHAPE");
+    assert!(err.message.contains("score overflowed"));
+}
+
 fn assert_strong_document_wins(index: &InvertedIndex, strong_id: CxId) {
     let hits = index
         .search(&sparse(&[(7, 1.0)]), 2, None)

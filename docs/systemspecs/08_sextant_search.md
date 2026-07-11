@@ -158,7 +158,7 @@ Sibling DiskANN modules: `concat.rs` (`ConcatCrossTermDiskAnn` cross-term concat
 
 ## 3. Sparse inverted index (`index/inverted.rs`, `bm25.rs`, `tokenizer.rs`)
 
-`InvertedIndex` holds `docs: BTreeMap<CxId, String>`, `vectors`, `postings: BTreeMap<String, Vec<Posting>>` where `Posting { cx_id, tf: usize }`, and `doc_len: BTreeMap<CxId, usize>`. `shape()` is `Sparse(1_000_000)`.
+`InvertedIndex` holds `docs: BTreeMap<CxId, String>`, `vectors`, `postings: BTreeMap<String, Vec<Posting>>` where `Posting { cx_id, tf: f32 }`, and `doc_len: BTreeMap<CxId, f32>`. `shape()` is `Sparse(1_000_000)`.
 
 **Build steps** (`index_text`):
 1. `tokenize` the text (`tokenizer::tokenize`: Unicode-lowercase, split on non-alphanumeric, emit alphanumeric runs).
@@ -166,7 +166,7 @@ Sibling DiskANN modules: `concat.rs` (`ConcatCrossTermDiskAnn` cross-term concat
 3. Count term frequencies; append a `Posting { cx_id, tf }` to each term's postings vector.
 4. Update `built_at_seq`/`base_seq` to `max(seq)`.
 
-For sparse `SlotVector::Sparse` inserts, each `SparseEntry.idx` is encoded as a synthetic token `"t{idx}"` and indexed as text. `insert_text` indexes free text directly. `candidate_text(cx_id)` returns the stored doc string (used by the reranker).
+For sparse `SlotVector::Sparse` inserts, each positive finite `SparseEntry.val` is the posting `tf`, `doc_len` is the sum of entry values, and each query value boosts its term contribution. The synthetic `"t{idx}"` text is retained only for candidate text and posting removal; rebuilds restore weighted postings from `vectors`. Invalid, overflowing, zero, or negative sparse BM25 weights fail closed. `insert_text` continues to use integer token counts represented as `f32`. `candidate_text(cx_id)` returns the stored doc string (used by the reranker).
 
 **Search steps** (`search_text`):
 1. Tokenize query into a `BTreeSet` of unique terms.
@@ -183,7 +183,9 @@ denom = tf + k1 * (1.0 - b + b * len_norm)
 score = idf * (tf * (k1 + 1.0)) / denom
 ```
 
-`score_term` returns `0.0` when `tf == 0 || total_docs == 0 || doc_freq == 0`.
+`score_term` returns `0.0` for invalid/non-positive `tf`, invalid lengths, `total_docs == 0`, or `doc_freq == 0`. Sparse corpus and score overflow are surfaced as `CALYX_SEXTANT_VECTOR_SHAPE`.
+
+The persisted `calyx-search` sparse sidecar format is `calyx-search-sparse-index-v2`. It stores weighted `f32` postings and document lengths and strictly rejects the count-based v1 format until the indexes are rebuilt.
 
 **Postings codec** (`tokenizer.rs`): `encode_varint_deltas` / `decode_varint_deltas` store sorted doc ids as LEB128 varint deltas. Out-of-order ids error `CALYX_SEXTANT_POSTINGS_NOT_SORTED`; truncated/overflow blocks error `CALYX_SEXTANT_POSTINGS_CORRUPT`.
 
