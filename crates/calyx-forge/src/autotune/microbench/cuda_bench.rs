@@ -8,10 +8,18 @@ use crate::{
     },
 };
 
+#[cfg(test)]
+use std::sync::atomic::{AtomicUsize, Ordering};
+
 use super::{
     BenchCudaContext, BenchResult, CUDA_REQUIRED_REMEDIATION, cuda_required, ensure_nonzero,
     matrix_len, random_values, shape_error, time_op,
 };
+
+#[cfg(test)]
+static CUDA_COSINE_LAUNCH_CALLS: AtomicUsize = AtomicUsize::new(0);
+#[cfg(test)]
+static CUDA_SYNC_CALLS: AtomicUsize = AtomicUsize::new(0);
 
 #[allow(clippy::too_many_arguments)]
 pub(super) fn bench_cuda_gemm(
@@ -80,6 +88,8 @@ pub(super) fn bench_cuda_cosine(
         cuda_device_error(ctx, op, format!("allocate cosine output failed: {err}"))
     })?;
     let result = time_op(op, iters, flops, || {
+        #[cfg(test)]
+        CUDA_COSINE_LAUNCH_CALLS.fetch_add(1, Ordering::SeqCst);
         launch_cosine_batch_gpu(
             ctx,
             &query_dev,
@@ -87,7 +97,8 @@ pub(super) fn bench_cuda_cosine(
             dim,
             out.len(),
             &mut out_dev,
-        )
+        )?;
+        sync_cuda(ctx, op)
     })?;
     let values = read_checked_device_output(ctx, "cosine_batch_gpu", &out_dev, true)?;
     out.copy_from_slice(&values);
@@ -160,10 +171,28 @@ fn grouped_shape(shape: &[usize]) -> Result<(usize, usize, usize, usize)> {
 }
 
 fn sync_cuda(ctx: &BenchCudaContext, op: &str) -> Result<()> {
+    #[cfg(test)]
+    CUDA_SYNC_CALLS.fetch_add(1, Ordering::SeqCst);
     ctx.inner()
         .default_stream()
         .synchronize()
         .map_err(|err| cuda_device_error(ctx, op, format!("microbench sync failed: {err}")))
+}
+
+#[cfg(test)]
+pub(in crate::autotune) fn reset_cuda_sync_count() {
+    CUDA_COSINE_LAUNCH_CALLS.store(0, Ordering::SeqCst);
+    CUDA_SYNC_CALLS.store(0, Ordering::SeqCst);
+}
+
+#[cfg(test)]
+pub(in crate::autotune) fn cuda_cosine_launch_count() -> usize {
+    CUDA_COSINE_LAUNCH_CALLS.load(Ordering::SeqCst)
+}
+
+#[cfg(test)]
+pub(in crate::autotune) fn cuda_sync_count() -> usize {
+    CUDA_SYNC_CALLS.load(Ordering::SeqCst)
 }
 
 fn cuda_device_error(ctx: &BenchCudaContext, op: &str, detail: String) -> ForgeError {

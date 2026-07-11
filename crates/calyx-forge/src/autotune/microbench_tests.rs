@@ -2,6 +2,8 @@ use std::collections::HashMap;
 
 use proptest::prelude::*;
 
+#[cfg(feature = "cuda")]
+use super::microbench::{cuda_cosine_launch_count, cuda_sync_count, reset_cuda_sync_count};
 use super::{BenchResult, microbench};
 use crate::{BackendKind, BestConfig, ForgeError, Result};
 
@@ -132,6 +134,7 @@ fn microbench_gemm_returns_positive_gflops() -> Result<()> {
 fn microbench_cosine_returns_positive() -> Result<()> {
     let _guard = crate::cuda::test_lock();
     let ctx = crate::init_cuda(0, false)?;
+    reset_cuda_sync_count();
     let result = microbench(
         "cosine",
         &config(BackendKind::Cuda),
@@ -139,12 +142,19 @@ fn microbench_cosine_returns_positive() -> Result<()> {
         Some(&ctx),
         5,
     )?;
+    let launch_calls = cuda_cosine_launch_count();
+    let sync_calls = cuda_sync_count();
 
     assert_positive(result);
+    assert!(launch_calls > 0, "CUDA cosine microbench must launch work");
+    assert_eq!(
+        sync_calls, launch_calls,
+        "CUDA cosine microbench must synchronize every timed launch"
+    );
     assert!(result.elapsed_ms < 10_000.0);
     println!(
-        "microbench_cosine_returns_positive PASSED gflops={:.3} elapsed_ms={:.3} cv_pct={:.3}",
-        result.gflops, result.elapsed_ms, result.cv_pct
+        "microbench_cosine_returns_positive PASSED gflops={:.3} elapsed_ms={:.3} cv_pct={:.3} launch_calls={launch_calls} sync_calls={sync_calls}",
+        result.gflops, result.elapsed_ms, result.cv_pct,
     );
     Ok(())
 }

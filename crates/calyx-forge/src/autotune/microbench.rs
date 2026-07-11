@@ -13,6 +13,10 @@ use crate::{
 mod cuda_bench;
 #[cfg(feature = "cuda")]
 use self::cuda_bench::{bench_cuda_cosine, bench_cuda_gemm, bench_grouped_gemm};
+#[cfg(all(feature = "cuda", test))]
+pub(super) use self::cuda_bench::{
+    cuda_cosine_launch_count, cuda_sync_count, reset_cuda_sync_count,
+};
 #[cfg(feature = "cuda")]
 use crate::CudaContext;
 
