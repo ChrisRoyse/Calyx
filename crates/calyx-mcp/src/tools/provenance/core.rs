@@ -187,7 +187,7 @@ pub(super) fn verify_chain_for_store(
     to_seq: Option<u64>,
 ) -> ToolResult<VerifyChainOut> {
     let from = from_seq.unwrap_or(0);
-    let to = to_seq.unwrap_or_else(|| chain_end(store).unwrap_or(from));
+    let to = to_seq.map_or_else(|| chain_end(store), Ok)?;
     if from > to {
         return Err(ToolError::invalid_params(format!(
             "verify_chain from_seq {from} must be <= to_seq {to}"
