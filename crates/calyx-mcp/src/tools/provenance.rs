@@ -6,6 +6,8 @@ mod quarantine;
 mod status;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod verify_chain_tests;
 
 use calyx_core::CalyxError;
 use serde::Deserialize;
