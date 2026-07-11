@@ -175,6 +175,11 @@ pub fn repair_vault_registry_slot_from_spec(
         contract: runtime_contract.clone(),
         spec: Some(repaired_spec),
         determinism: original_lens.determinism,
+        runtime_golden: if new_lens_id == old_lens_id {
+            original_lens.runtime_golden.clone()
+        } else {
+            None
+        },
     };
     let mut changes = Vec::new();
     for slot in &mut panel.slots {

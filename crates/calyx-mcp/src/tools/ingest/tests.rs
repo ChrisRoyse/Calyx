@@ -1,7 +1,10 @@
 use std::ffi::OsString;
 use std::fs;
+use std::io::{Read, Write};
+use std::net::{TcpListener, TcpStream};
 use std::path::PathBuf;
 use std::sync::MutexGuard;
+use std::thread::{self, JoinHandle};
 
 use calyx_core::AuthN;
 use serde_json::{Value, json};
@@ -116,6 +119,7 @@ fn vault_with_algorithmic(server: &McpServer, name: &str) {
 }
 
 fn vault_with_only_unreachable_tei(server: &McpServer, name: &str) {
+    let (endpoint, tei_server) = tei_registration_server(2);
     call_ok(server, 13, "calyx.create_vault", json!({"name": name}));
     call_ok(
         server,
@@ -131,11 +135,12 @@ fn vault_with_only_unreachable_tei(server: &McpServer, name: &str) {
             "vault": name,
             "name": "dead_tei",
             "runtime": "tei-http",
-            "endpoint": "http://127.0.0.1:9/embed",
-            "shape": "Dense(768)",
+            "endpoint": endpoint,
+            "shape": "Dense(4)",
             "modality": "text"
         }),
     );
+    tei_server.join().unwrap();
 }
 
 #[test]
@@ -340,7 +345,7 @@ fn anchor_unknown_cx_is_vault_access_denied() {
 }
 
 #[test]
-fn ingest_with_all_applicable_lenses_unavailable_fails_closed() {
+fn ingest_fails_when_tei_golden_cannot_be_reverified_on_vault_open() {
     let _env = TestEnv::new("unavailable");
     let server = server();
     vault_with_only_unreachable_tei(&server, "v");
@@ -354,6 +359,55 @@ fn ingest_with_all_applicable_lenses_unavailable_fails_closed() {
 
     assert_eq!(error.code, -32000);
     let data = error.data.unwrap();
-    assert_eq!(data["calyx_code"], "CALYX_LENS_UNREACHABLE");
-    assert_eq!(data["remediation"], "restore lens service");
+    assert_eq!(data["calyx_code"], "CALYX_LENS_RUNTIME_DRIFT");
+    assert_eq!(
+        data["remediation"],
+        "re-register the process-boundary lens and persist its new runtime golden"
+    );
+}
+
+fn tei_registration_server(request_count: usize) -> (String, JoinHandle<()>) {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let endpoint = format!("http://{}/embed", listener.local_addr().unwrap());
+    let server = thread::spawn(move || {
+        let body = serde_json::to_vec(&vec![vec![0.5_f32; 4]]).unwrap();
+        for _ in 0..request_count {
+            let (mut stream, _) = listener.accept().unwrap();
+            read_http_request(&mut stream);
+            write!(
+                stream,
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                body.len()
+            )
+            .unwrap();
+            stream.write_all(&body).unwrap();
+        }
+    });
+    (endpoint, server)
+}
+
+fn read_http_request(stream: &mut TcpStream) {
+    let mut request = Vec::new();
+    let mut chunk = [0_u8; 1024];
+    loop {
+        let read = stream.read(&mut chunk).unwrap();
+        assert!(read > 0, "TEI fixture request ended before its body");
+        request.extend_from_slice(&chunk[..read]);
+        let Some(header_end) = request.windows(4).position(|window| window == b"\r\n\r\n") else {
+            continue;
+        };
+        let headers = String::from_utf8_lossy(&request[..header_end]);
+        let content_len = headers
+            .lines()
+            .find_map(|line| {
+                let (name, value) = line.split_once(':')?;
+                name.eq_ignore_ascii_case("content-length")
+                    .then_some(value.trim())
+                    .and_then(|value| value.parse::<usize>().ok())
+            })
+            .unwrap();
+        if request.len() >= header_end + 4 + content_len {
+            return;
+        }
+    }
 }

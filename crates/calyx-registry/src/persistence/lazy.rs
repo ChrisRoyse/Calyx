@@ -1,5 +1,6 @@
 use super::runtime::load_runtime_lens;
 use super::*;
+use crate::lens::process_runtime_requires_golden;
 
 pub(crate) fn rebuild_registry(snapshot: &VaultRegistrySnapshot) -> Result<Registry> {
     let mut registry = Registry::new();
@@ -11,12 +12,21 @@ pub(crate) fn rebuild_registry(snapshot: &VaultRegistrySnapshot) -> Result<Regis
                 lens.contract.lens_id()
             )));
         }
-        let runtime = Arc::new(LazyPersistedLens::new(lens.clone()));
+        let runtime: Arc<dyn Lens> = if lens
+            .spec
+            .as_ref()
+            .is_some_and(process_runtime_requires_golden)
+        {
+            load_runtime_lens(lens)?
+        } else {
+            Arc::new(LazyPersistedLens::new(lens.clone()))
+        };
         registry.register_persisted_arc(
             runtime,
             lens.contract.clone(),
             lens.spec.clone(),
             lens.determinism,
+            lens.runtime_golden.clone(),
         )?;
     }
     Ok(registry)

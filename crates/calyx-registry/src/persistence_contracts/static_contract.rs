@@ -14,7 +14,7 @@ use fastembed_contract::{
 use crate::frozen::{FrozenLensContract, LensDType, NormPolicy, sha256_digest};
 use crate::runtime::candle::{CandlePoolingPolicy, CandlePrecision};
 use crate::runtime::common::DEFAULT_MAX_TOKENS;
-use crate::{AlgorithmicEncoder, LensRuntime, LensSpec, Qwen3ModelFiles};
+use crate::{AlgorithmicEncoder, LensRuntime, LensSpec, MultimodalAdapterLens, Qwen3ModelFiles};
 
 const DEFAULT_COLBERT_ONNX: &str = "onnx/model_fp16.onnx";
 const DEFAULT_QWEN3_MODEL: &str = "Qwen/Qwen3-Embedding-0.6B";
@@ -57,7 +57,9 @@ pub(crate) fn derive_runtime_contract_from_spec(spec: &LensSpec) -> Result<Froze
             tokenizer,
             dim,
         } => static_lookup_contract(spec, embeddings_file, tokenizer, *dim),
-        LensRuntime::MultimodalAdapter { .. } => Ok(spec.declared_contract()),
+        LensRuntime::MultimodalAdapter { .. } => {
+            Ok(MultimodalAdapterLens::from_lens_spec(spec)?.contract())
+        }
     }
 }
 

@@ -9,6 +9,8 @@ use calyx_core::{
 use super::*;
 use crate::{AlgorithmicLens, DeterminismProof, LensRuntime, LensSpec};
 
+mod runtime_golden;
+
 #[test]
 fn snapshot_measurement_chunks_by_runtime_limit_and_reports_stats() {
     let snapshot = algorithmic_snapshot(Some(3));
@@ -276,6 +278,7 @@ fn algorithmic_snapshot(max_batch: Option<usize>) -> RegistryLensSnapshot {
         contract,
         spec: Some(spec),
         determinism: DeterminismProof::ContractOnlyExemption,
+        runtime_golden: None,
     }
 }
 
@@ -334,19 +337,23 @@ fn test_vault_with_batch_lens(
 }
 
 fn panel_with_lens(lens_id: calyx_core::LensId) -> Panel {
+    panel_with_runtime_lens(lens_id, 16, "batch-limit-lens")
+}
+
+fn panel_with_runtime_lens(lens_id: calyx_core::LensId, dim: u32, name: &str) -> Panel {
     let slot = SlotId::new(0);
     Panel {
         version: 1,
         slots: vec![Slot {
             slot_id: slot,
-            slot_key: SlotKey::new(slot, "batch-limit-lens"),
+            slot_key: SlotKey::new(slot, name),
             lens_id,
-            shape: SlotShape::Dense(16),
+            shape: SlotShape::Dense(dim),
             modality: Modality::Text,
             asymmetry: Asymmetry::None,
             quant: QuantPolicy::None,
             resource: Default::default(),
-            axis: Some("batch-limit-lens".to_string()),
+            axis: Some(name.to_string()),
             retrieval_only: false,
             excluded_from_dedup: false,
             bits_about: BTreeMap::new(),

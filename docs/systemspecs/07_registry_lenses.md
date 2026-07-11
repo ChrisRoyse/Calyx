@@ -97,19 +97,20 @@ Defined in `calyx-core` at `crates/calyx-core/src/traits.rs:38`. Every registry 
 - `ensure_license_allowed(license, non_commercial, allow_non_commercial)` errors `CALYX_LICENSE_DENIED` when the lens is non-commercial and not explicitly allowed.
 - `default_multimodal_lens_specs()` returns the commissioned priority media specs when `CALYX_HOME` points at the LensForge bundle paths: `image-siglip2-b16-adapter` (SigLIP2 vision, 768D, apache-2.0) and `audio-clap-htsat-adapter` (LAION-CLAP audio, 512D, apache-2.0). Protein/DNA/molecule adapters are not advertised until real runtimes are commissioned.
 - `register_multimodal_lens_pack(registry, specs)` builds and registers each, returning `MultimodalLensPackEntry` records.
+- `MultimodalAdapterLens::from_lens_spec` reconstructs the registration contract path set, re-hashes every file, and returns `CALYX_LENS_FROZEN_VIOLATION` when the observed digest differs from `LensSpec.weights_sha256`; static contract audits use the same reconstruction path.
 
 ### 1.5 The `Registry`
 
-`src/lens.rs:15` — `Registry` is a `BTreeMap<LensId, RegistryEntry>` (entry = `Arc<dyn Lens>` + optional `FrozenLensContract` + optional `LensSpec` + `DeterminismProof`).
+`src/lens.rs` — `Registry` is a `BTreeMap<LensId, RegistryEntry>` (entry = `Arc<dyn Lens>` + optional `FrozenLensContract` + optional `LensSpec` + `DeterminismProof` + optional `RuntimeGolden`).
 
 Key behavior:
 - **Fails closed.** `register` and `register_with_spec` always return a `lens_frozen_violation` error — a `FrozenLensContract` is mandatory (`lens.rs:57`, `:67`).
-- Registration paths: `register_frozen`, `register_frozen_with_spec`, `register_frozen_with_probe`. All call `register_frozen_inner` which (1) `contract.verify_registration(&lens)`, (2) optionally `verify_determinism_probe`, (3) records `DeterminismProof::ProbeVerified` (probe) or `ContractOnlyExemption` (no probe), (4) rejects duplicate ids with `registry_duplicate`.
+- Registration paths: `register_frozen`, `register_frozen_with_spec`, `register_frozen_with_probe`, and `register_frozen_with_spec_and_probe`. All verify the contract before insertion. TEI and ExternalCmd specs always run a two-pass identity probe (a deterministic default unless the caller supplies one), persist its dense output as `RuntimeGolden`, and record `ProbeVerified`; other no-probe registrations retain `ContractOnlyExemption`.
 - `measure` / `measure_batch`: enforce input modality, run the lens, then `validate_entry` (contract `verify_registration` + `verify_vector`, or bare `ensure_vector_shape`). `measure_batch` also asserts vector count equals input count.
 - `measure_dual`: requires `Asymmetry::Dual`, measures input and its byte-reversed form, and rejects identical outputs.
 - `measure_ingest_microbatch`: drives bounded admission (§4.4) per lens.
 - Accessors: `contains`, `find_lens_by_name`, `frozen_contract`, `frozen_lens_snapshots`, `lens_spec`, `lens_snapshots`, `determinism_proof`, `health`.
-- `register_persisted_arc` (crate-internal): re-registers a persisted `Arc<dyn Lens>` after `verify_registration` (used by §8 vault load).
+- `register_persisted_arc` (crate-internal): re-registers a persisted `Arc<dyn Lens>` after contract and golden-identity validation (used by §8 vault load).
 
 Shape validation (`ensure_vector_shape`, `lens.rs:365`) requires the emitted `SlotVector` variant and dimensions to exactly match the declared `SlotShape`, rejects `Absent`, and asserts all values finite (`lens_numerical_invariant` on NaN/Inf).
 
@@ -160,7 +161,7 @@ Contract field hashes (`sha256_digest`, `frozen.rs:268`) are length-delimited SH
 2. `lens.shape()` must equal `self.shape` → else `lens_dim_mismatch`.
 3. `lens.modality()` must equal `self.modality` → else `lens_dim_mismatch`.
 
-`verify_determinism_probe(&dyn Lens, &Input)` (`frozen.rs:221`): measure the probe twice, validate each via `verify_vector`, JSON-serialize both, require byte-identical output → else `lens_frozen_violation`.
+`verify_determinism_probe(&dyn Lens, &Input)` measures the probe twice, validates each via `verify_vector`, JSON-serializes both, and requires byte-identical output. `measure_determinism_probe` enforces the same checks and returns the verified first output for golden persistence.
 
 `verify_vector(lens_id, &SlotVector)` (`frozen.rs:243`): `ensure_vector_shape` then apply the norm policy — `None`/`Finite` accept any finite vector; `L2`/`Unit` require unit norm within tolerance; `DeclaredByModel` requires the declared norm. Sparse norms use entry values; Multi checks each token; `Absent` is unreachable after shape validation.
 
@@ -215,9 +216,11 @@ Contract field hashes (`sha256_digest`, `frozen.rs:268`) are length-delimited SH
 
 `CapabilityGateDecision { Admit, Park, Retire }`. Output `CapabilityGateEvaluation { lens_id, decision, signal_bits, signal_grounded, max_pairwise_corr, thresholds, reason, card }`.
 
-`CapabilityGateThresholds` default to `MIN_SIGNAL_BITS` / `MAX_PAIRWISE_CORR` from `calyx_assay::contract`, overridable via env:
+`CapabilityGateThresholds` default to `MIN_SIGNAL_BITS` / `MAX_PAIRWISE_CORR` from `calyx_assay::contract`, with environment overrides that may only tighten those limits:
 - `CAPABILITY_MIN_SIGNAL_BITS_ENV = "CALYX_CAPABILITY_MIN_SIGNAL_BITS"`
 - `CAPABILITY_MAX_PAIRWISE_CORR_ENV = "CALYX_CAPABILITY_MAX_PAIRWISE_CORR"`
+
+Validation rejects `min_signal_bits < MIN_SIGNAL_BITS` and `max_pairwise_corr > MAX_PAIRWISE_CORR`, including finite values such as `0` and `1.0` that would neutralize the gate.
 
 `max_panel_pairwise_correlation(registry, panel, candidate, exclude_slot, probes)` (`gating.rs:139`) computes the max absolute Pearson correlation between the candidate's probe-distance signature and each active panel lens' signature (needs ≥3 probes). `capability_gate_json` and `append_capability_gate_ledger` serialize/append the decision.
 
@@ -269,7 +272,7 @@ Persistence is atomic: write `.{file}.tmp-{pid}`, fsync, rename, fsync parent di
 
 `CpuLensPool` is a FIFO=LRU `VecDeque`; `admit` evicts the front while over the resident-limit or RAM cap, returning `CpuPoolAdmission { evicted_lenses, resident_lenses, resident_ram_bytes }`.
 
-`RuntimeGolden { lens_id, runtime_version, golden_output, tolerance }` (`src/drift.rs`): `evaluate(observed)` computes max-abs-delta vs golden (dimension mismatch → `f32::INFINITY`). Within tolerance → `DriftDecision::Reuse`; otherwise → `DriftDecision::Drifted` with a **new** `LensId` derived from `(lens_id:runtime_version, lens bytes, runtime_version, observed bytes)` and signal `"CALYX_LENS_RUNTIME_DRIFT"`.
+`RuntimeGolden { lens_id, runtime_version, probe, golden_output, tolerance }` (`src/drift.rs`): `evaluate(observed)` computes max-abs-delta vs golden. Length mismatch, NaN/Inf in either vector, or an invalid tolerance forces `DriftDecision::Drifted`; otherwise values within tolerance return `Reuse`. Drift derives a **new** `LensId` from `(lens_id:runtime_version, lens bytes, runtime_version, observed bytes)` and emits `CALYX_LENS_RUNTIME_DRIFT`. Persisted process runtimes cap tolerance at `1.0e-6`.
 
 ### 4.4 Ingest microbatch admission (`src/ingest_microbatch.rs`)
 
@@ -404,15 +407,15 @@ Re-exported from `src/lib.rs`. Highlights:
 
 Returns `VaultPanelWrite { manifest_seq, durable_seq, panel_ref, registry_ref }`. Format is JSON throughout.
 
-`load_vault_panel_state(vault_dir)` loads the manifest, deserializes the panel, optionally loads + validates the `VaultRegistrySnapshot` (version + `panel_ref` must match the manifest), and rebuilds the registry: for each `RegistryLensSnapshot` it checks `lens_id == contract.lens_id()`, reconstructs the runtime lens (or substitutes a `PersistedUnavailableLens` stub that errors `lens_unreachable` on measure), and calls `register_persisted_arc` preserving the `DeterminismProof`. Returns `VaultPanelState { panel, registry, registry_snapshot }`.
+`load_vault_panel_state(vault_dir)` loads the manifest, deserializes the panel, validates the optional `VaultRegistrySnapshot` (version + `panel_ref` must match the manifest), and rebuilds the registry. File-backed and algorithmic runtimes remain lazy. TEI and ExternalCmd snapshots require persisted `RuntimeGolden` evidence, are reconstructed eagerly, re-measure the persisted probe during vault open, and fail with `CALYX_LENS_RUNTIME_DRIFT` on missing evidence, invalid tolerance, non-finite/shape output, or numeric drift. The verified process runtime instance is retained in the registry.
 
 ### 8.2 Configuration knobs
 
 | Knob | Default | Where |
 |------|---------|-------|
 | `CALYX_ALLOW_NONCOMMERCIAL_LENSES` (env) | unset (deny) | `runtime/adapters` license gate |
-| `CALYX_CAPABILITY_MIN_SIGNAL_BITS` (env) | `calyx_assay` `MIN_SIGNAL_BITS` | capability gate threshold override |
-| `CALYX_CAPABILITY_MAX_PAIRWISE_CORR` (env) | `calyx_assay` `MAX_PAIRWISE_CORR` | capability gate threshold override |
+| `CALYX_CAPABILITY_MIN_SIGNAL_BITS` (env) | `calyx_assay` `MIN_SIGNAL_BITS` | capability gate override; may only increase strictness |
+| `CALYX_CAPABILITY_MAX_PAIRWISE_CORR` (env) | `calyx_assay` `MAX_PAIRWISE_CORR` | capability gate override; may only decrease strictness |
 | `HF_HOME` / `CALYX_HOME` (env) | `.hf-cache` fallback | `runtime/common.rs::default_hf_cache_root` |
 | TEI timeout / max_batch | 30 s / 64 | `TeiHttpLens` |
 | `DEFAULT_TEI_ENDPOINT` | `http://127.0.0.1:18190/embed` | `tei_http.rs` |

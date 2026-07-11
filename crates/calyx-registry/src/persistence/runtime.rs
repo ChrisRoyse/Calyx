@@ -1,4 +1,6 @@
 use super::*;
+use crate::drift::{CALYX_LENS_RUNTIME_DRIFT, DriftDecision, PROCESS_RUNTIME_GOLDEN_TOLERANCE};
+use crate::lens::process_runtime_requires_golden;
 use crate::runtime::onnx;
 use crate::runtime_limit::runtime_uses_scoped_batch_limit;
 
@@ -212,7 +214,95 @@ pub(super) fn load_runtime_lens(snapshot: &RegistryLensSnapshot) -> Result<Arc<d
         )));
     }
     snapshot.contract.verify_registration(lens.as_ref())?;
+    verify_runtime_golden(
+        snapshot,
+        lens.as_ref(),
+        process_runtime_requires_golden(spec),
+    )?;
     Ok(lens)
+}
+
+fn verify_runtime_golden(
+    snapshot: &RegistryLensSnapshot,
+    lens: &dyn Lens,
+    required: bool,
+) -> Result<()> {
+    let Some(golden) = snapshot.runtime_golden.as_ref() else {
+        if required {
+            return Err(runtime_drift_error(format!(
+                "persisted process runtime lens {} has no registration golden",
+                snapshot.lens_id
+            )));
+        }
+        return Ok(());
+    };
+    if golden.lens_id != snapshot.lens_id {
+        return Err(runtime_drift_error(format!(
+            "runtime golden lens {} does not match persisted lens {}",
+            golden.lens_id, snapshot.lens_id
+        )));
+    }
+    if golden.probe.modality != snapshot.contract.modality() {
+        return Err(runtime_drift_error(format!(
+            "runtime golden probe modality {:?} does not match persisted {:?}",
+            golden.probe.modality,
+            snapshot.contract.modality()
+        )));
+    }
+    if !golden.tolerance.is_finite()
+        || !(0.0..=PROCESS_RUNTIME_GOLDEN_TOLERANCE).contains(&golden.tolerance)
+    {
+        return Err(runtime_drift_error(format!(
+            "runtime golden tolerance {} exceeds the process-runtime contract maximum {}",
+            golden.tolerance, PROCESS_RUNTIME_GOLDEN_TOLERANCE
+        )));
+    }
+
+    let observed = lens.measure(&golden.probe).map_err(|error| {
+        runtime_drift_error(format!(
+            "runtime golden probe for lens {} failed with {}: {}",
+            snapshot.lens_id, error.code, error.message
+        ))
+    })?;
+    snapshot
+        .contract
+        .verify_vector(snapshot.lens_id, &observed)
+        .map_err(|error| {
+            runtime_drift_error(format!(
+                "runtime golden probe for lens {} violated its contract with {}: {}",
+                snapshot.lens_id, error.code, error.message
+            ))
+        })?;
+    let observed = observed.as_dense().ok_or_else(|| {
+        runtime_drift_error(format!(
+            "runtime golden probe for lens {} did not return dense output",
+            snapshot.lens_id
+        ))
+    })?;
+
+    match golden.evaluate(observed) {
+        DriftDecision::Reuse { lens_id, .. } if lens_id == snapshot.lens_id => Ok(()),
+        DriftDecision::Reuse { lens_id, .. } => Err(runtime_drift_error(format!(
+            "runtime golden reused lens {lens_id} instead of persisted lens {}",
+            snapshot.lens_id
+        ))),
+        DriftDecision::Drifted {
+            new_lens_id,
+            max_abs_delta,
+            ..
+        } => Err(runtime_drift_error(format!(
+            "runtime behavior for lens {} drifted to {new_lens_id}; max_abs_delta={max_abs_delta}",
+            snapshot.lens_id
+        ))),
+    }
+}
+
+fn runtime_drift_error(message: impl Into<String>) -> CalyxError {
+    CalyxError {
+        code: CALYX_LENS_RUNTIME_DRIFT,
+        message: message.into(),
+        remediation: "re-register the process-boundary lens and persist its new runtime golden",
+    }
 }
 
 fn lens_config_invalid(message: impl Into<String>) -> CalyxError {

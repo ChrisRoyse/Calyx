@@ -136,14 +136,28 @@ impl MultimodalAdapterLens {
             .as_deref()
             .ok_or_else(|| config_invalid("multimodal adapter config is required"))?;
         let adapter_config = load_adapter_config(adapter_config_path, axis, model_id, Some(dim))?;
+        let contract_paths = if files.is_empty() {
+            adapter_config.contract_paths()
+        } else {
+            files.clone()
+        };
+        let weights_sha256 = hash_files(&contract_paths).map_err(|err| {
+            config_invalid(format!("hash multimodal adapter files failed: {err}"))
+        })?;
+        if weights_sha256 != spec.weights_sha256 {
+            return Err(CalyxError::lens_frozen_violation(format!(
+                "multimodal adapter {} files no longer match persisted weights_sha256",
+                spec.name
+            )));
+        }
         Self::from_parts(AdapterParts {
             name: spec.name.clone(),
             axis,
             model_id: model_id.clone(),
             dim,
             adapter_config,
-            files: files.clone(),
-            weights_sha256: spec.weights_sha256,
+            files: contract_paths,
+            weights_sha256,
             corpus_hash: spec.corpus_hash,
         })
     }

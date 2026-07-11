@@ -79,6 +79,7 @@ fn registry_contract_audit_uses_spec_hashes_without_rehashing_model_artifacts() 
                 contract,
                 spec: Some(spec),
                 determinism: DeterminismProof::ContractOnlyExemption,
+                runtime_golden: None,
             }],
         },
     );

@@ -3,6 +3,7 @@ use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use calyx_core::{LensCost, Placement};
+use calyx_registry::frozen::sha256_digest;
 use calyx_registry::{LensHealth, LensRuntime, LensSpec, PlacementBudget};
 
 use super::*;
@@ -102,6 +103,13 @@ fn multimodal_fixture(root: &Path, provider: &str) -> (PathBuf, PathBuf, Vec<Pat
 }
 
 fn multimodal_spec(adapter: &Path, files: Vec<PathBuf>) -> LensSpec {
+    let file_bytes = files
+        .iter()
+        .map(fs::read)
+        .collect::<std::io::Result<Vec<_>>>()
+        .unwrap();
+    let file_parts = file_bytes.iter().map(Vec::as_slice).collect::<Vec<_>>();
+    let weights_sha256 = sha256_digest(&file_parts);
     LensSpec {
         name: "fixture-image-adapter".to_string(),
         runtime: LensRuntime::MultimodalAdapter {
@@ -112,7 +120,7 @@ fn multimodal_spec(adapter: &Path, files: Vec<PathBuf>) -> LensSpec {
         },
         output: calyx_core::SlotShape::Dense(16),
         modality: calyx_core::Modality::Image,
-        weights_sha256: [1_u8; 32],
+        weights_sha256,
         corpus_hash: [2_u8; 32],
         norm_policy: calyx_registry::NormPolicy::unit(),
         max_batch: None,

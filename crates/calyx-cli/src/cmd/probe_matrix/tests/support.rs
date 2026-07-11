@@ -146,7 +146,7 @@ fn seed_home_with_anchors(name: &str, anchored: bool) -> (PathBuf, PathBuf) {
     rebuild_persistent_indexes(&vault_dir, &vault).unwrap();
     let mut panel = state.panel.clone();
     let mut registry = state.registry.clone();
-    let failing = register_failing_external_lens(&mut registry);
+    let failing = register_failing_external_lens(&mut registry, &vault_dir);
     panel.slots.push(slot(
         SlotId::new(99),
         "issue879-unrelated-failing-external",
@@ -190,10 +190,31 @@ fn register_lens(
     lens_id
 }
 
-fn register_failing_external_lens(registry: &mut Registry) -> calyx_core::LensId {
+fn register_failing_external_lens(registry: &mut Registry, root: &Path) -> calyx_core::LensId {
     let name = "issue879-unrelated-failing-external".to_string();
-    let cmd = "calyx-definitely-missing-external-lens".to_string();
-    let args = Vec::<String>::new();
+    let script = root.join("issue879-failing-external.py");
+    fs::write(
+        &script,
+        r#"import json, struct, sys
+golden = list(b"calyx frozen process runtime identity probe v1")
+while True:
+    header = sys.stdin.buffer.read(4)
+    if not header:
+        break
+    size = struct.unpack(">I", header)[0]
+    payload = json.loads(sys.stdin.buffer.read(size))
+    if any(item != golden for item in payload["inputs"]):
+        sys.stderr.write("intentional non-golden measurement failure\n")
+        sys.exit(17)
+    body = json.dumps({"vectors": [[0.25, 0.5, 0.75, 1.0] for _ in payload["inputs"]]}).encode()
+    sys.stdout.buffer.write(struct.pack(">I", len(body)))
+    sys.stdout.buffer.write(body)
+    sys.stdout.buffer.flush()
+"#,
+    )
+    .unwrap();
+    let cmd = "python3".to_string();
+    let args = vec![script.display().to_string()];
     let args_text = args.join("\0");
     let weights = sha256_digest(&[cmd.as_bytes(), args_text.as_bytes()]);
     let corpus = sha256_digest(&[b"external-cmd-runtime-v1"]);
@@ -207,7 +228,7 @@ fn register_failing_external_lens(registry: &mut Registry) -> calyx_core::LensId
         NormPolicy::None,
     );
     let lens = ExternalCmdLens::new(&name, &cmd, args.clone(), Modality::Text, 4)
-        .with_timeout(Duration::from_millis(100));
+        .with_timeout(Duration::from_secs(5));
     let lens_id = contract.lens_id();
     let spec = LensSpec {
         name,

@@ -38,15 +38,17 @@ impl CapabilityGateThresholds {
     }
 
     pub fn validate(&self) -> Result<()> {
-        if !self.min_signal_bits.is_finite() || self.min_signal_bits < 0.0 {
-            return Err(CalyxError::assay_low_signal(
-                "capability min_signal_bits must be finite and non-negative",
-            ));
+        if !self.min_signal_bits.is_finite() || self.min_signal_bits < MIN_SIGNAL_BITS {
+            return Err(CalyxError::assay_low_signal(format!(
+                "capability min_signal_bits must be finite and at least the contract floor {MIN_SIGNAL_BITS}"
+            )));
         }
-        if !self.max_pairwise_corr.is_finite() || !(0.0..=1.0).contains(&self.max_pairwise_corr) {
-            return Err(CalyxError::assay_redundant(
-                "capability max_pairwise_corr must be finite in [0, 1]",
-            ));
+        if !self.max_pairwise_corr.is_finite()
+            || !(0.0..=MAX_PAIRWISE_CORR).contains(&self.max_pairwise_corr)
+        {
+            return Err(CalyxError::assay_redundant(format!(
+                "capability max_pairwise_corr must be finite in [0, {MAX_PAIRWISE_CORR}]"
+            )));
         }
         Ok(())
     }
@@ -291,6 +293,9 @@ fn env_f32(name: &str, default: f32) -> Result<f32> {
         ))),
     }
 }
+
+#[cfg(test)]
+mod threshold_tests;
 
 #[cfg(test)]
 mod tests {
