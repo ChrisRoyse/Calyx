@@ -1,5 +1,7 @@
 //! RoBERTa style lens adapter for PH39 identity slots.
 
+mod tokenization;
+
 use std::fmt;
 use std::fs::File;
 use std::io::Read;
@@ -44,6 +46,8 @@ impl StyleProviderPolicy {
 
 /// Backend seam used by tests while production uses the pinned ONNX session.
 pub trait StyleEmbeddingBackend: Send + Sync {
+    /// Embeds the complete input or returns an error when full coverage is unavailable.
+    /// Implementations must not silently truncate input.
     fn embed(&self, text: &str) -> Result<Vec<f32>, WardError>;
     fn output_dim(&self) -> usize;
 
@@ -276,25 +280,7 @@ impl OnnxStyleBackend {
 
     fn tokenize(&self, text: &str) -> Result<(Vec<i64>, Vec<i64>), WardError> {
         let encoding = self.tokenizer.encode(text, true).map_err(runtime_error)?;
-        let len = encoding.get_ids().len().min(STYLE_MAX_TOKENS);
-        if len == 0 {
-            return Err(WardError::InvalidInput {
-                reason: "style tokenizer emitted no tokens".to_string(),
-            });
-        }
-        let ids = encoding
-            .get_ids()
-            .iter()
-            .take(len)
-            .map(|value| i64::from(*value))
-            .collect::<Vec<_>>();
-        let attention = encoding
-            .get_attention_mask()
-            .iter()
-            .take(len)
-            .map(|value| i64::from(*value))
-            .collect::<Vec<_>>();
-        Ok((ids, attention))
+        tokenization::model_inputs(encoding.get_ids(), encoding.get_attention_mask())
     }
 }
 
