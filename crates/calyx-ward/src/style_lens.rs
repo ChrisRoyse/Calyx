@@ -1,5 +1,7 @@
 //! RoBERTa style lens adapter for PH39 identity slots.
 
+mod tokenization;
+
 use std::fmt;
 use std::fs::File;
 use std::io::Read;
@@ -276,25 +278,7 @@ impl OnnxStyleBackend {
 
     fn tokenize(&self, text: &str) -> Result<(Vec<i64>, Vec<i64>), WardError> {
         let encoding = self.tokenizer.encode(text, true).map_err(runtime_error)?;
-        let len = encoding.get_ids().len().min(STYLE_MAX_TOKENS);
-        if len == 0 {
-            return Err(WardError::InvalidInput {
-                reason: "style tokenizer emitted no tokens".to_string(),
-            });
-        }
-        let ids = encoding
-            .get_ids()
-            .iter()
-            .take(len)
-            .map(|value| i64::from(*value))
-            .collect::<Vec<_>>();
-        let attention = encoding
-            .get_attention_mask()
-            .iter()
-            .take(len)
-            .map(|value| i64::from(*value))
-            .collect::<Vec<_>>();
-        Ok((ids, attention))
+        tokenization::model_inputs(encoding.get_ids(), encoding.get_attention_mask())
     }
 }
 
