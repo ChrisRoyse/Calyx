@@ -16,8 +16,10 @@ Implement `SoakHarness` and its corresponding FSV test: drive 1e6 synthetic
 queries through the autotune loop on aiwonder and prove the FSV gate — `p99 ↓
 ≥20%` from baseline, `recall@10 ≥ recall@10_baseline` (no regression), and no
 oscillation (p99 series is monotone-improving in the last 10k-query window).
-The soak harness can run in both deterministic-seeded mode (for CI-like
-validation) and live-traffic mode (for real aiwonder FSV).
+The soak harness runs only in deterministic-seeded mode for explicit simulation.
+`LiveTraffic` is reserved for a future independently measured vault-backed replay
+provider and fails closed with `CALYX_ANNEAL_SOAK_LIVE_TRAFFIC_UNAVAILABLE` before
+any tuner, metric, report, ledger, promotion, or storage mutation.
 
 ## Build (checklist of concrete, code-level steps)
 
@@ -36,12 +38,14 @@ validation) and live-traffic mode (for real aiwonder FSV).
 - [ ] proptest: for any `SoakConfig` with `n_queries ≥ 100` and a clearly-better arm B, `p99_reduction ≥ 0.0` (autotuning never makes things worse than baseline on a seeded corpus).
 - [ ] edge: `n_queries=0` → `SoakReport` with all zeros, `oscillation_detected=false`; all arms have same latency → `p99_reduction=0.0` (no regression, soak passes vacuously).
 - [ ] fail-closed: vault unavailable mid-soak → `CALYX_ASTER_CF_UNAVAILABLE`; partial `SoakReport` emitted with `total_queries` = number completed; no silent data loss.
+- [ ] fail-closed: `LiveTraffic` without a vault-backed replay provider → `CALYX_ANNEAL_SOAK_LIVE_TRAFFIC_UNAVAILABLE`; no report, gate, metrics, promotions, ledger events, or soak rows.
 
 ## FSV (read the bytes on aiwonder — the truth gate)
 
 - **SoT:** `SoakReport` + Ledger A/B promotions + p99 metric series persisted to `anneal_soak` CF.
 - **Readback:** `calyx anneal soak-report --last 1` — prints `baseline_p99_ns`, `final_p99_ns`, `p99_reduction`, `recall_final`, `oscillation_detected`, `promotions`.
-- **Prove:** run `cargo test --release fsv_soak` on aiwonder (or `calyx anneal soak --queries 1000000`); `soak-report` shows `p99_reduction ≥ 0.20`, `recall_final ≥ recall_baseline`, `oscillation_detected=false`; Ledger shows ≥1 `AutotunePromote` entry. Attach the `soak-report` output and the Ledger snippet to the PH46 GitHub issue.
+- **Prove seeded simulation:** run the ignored seeded FSV on aiwonder and read back the persisted report and ledger bytes.
+- **Prove LiveTraffic boundary:** use a durable Aster vault containing an unrelated fixture, attempt `LiveTraffic`, reopen the vault, and verify the fixture bytes and sequence are unchanged while `AnnealSoak` and Ledger remain empty.
 
 ## Done when
 

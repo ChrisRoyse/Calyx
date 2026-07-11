@@ -397,11 +397,11 @@ Paired trials of incumbent vs candidate over live queries. `ABTrial` lifecycle: 
 
 ### 13.15.3 Soak harness (`src/tune/soak_harness.rs`)
 
-Long-running (default `DEFAULT_SOAK_QUERIES = 1_000_000`, seed `0xABCDEF`) stress loop in `Seeded` or `LiveTraffic` mode. Runs the four scope tuners + an A/B trial per query, samples metrics every `DEFAULT_SOAK_SAMPLE_INTERVAL = 1_000`, and enforces a wall-clock budget (default 2 h → `CALYX_ANNEAL_SOAK_TIME_BUDGET_EXHAUSTED`).
+Long-running (default `DEFAULT_SOAK_QUERIES = 1_000_000`, seed `0xABCDEF`) synthetic stress loop in `Seeded` mode. Runs the four scope tuners + an A/B trial per query, samples metrics every `DEFAULT_SOAK_SAMPLE_INTERVAL = 1_000`, and enforces a wall-clock budget (default 2 h → `CALYX_ANNEAL_SOAK_TIME_BUDGET_EXHAUSTED`). `LiveTraffic` is reserved and fails before mutation with `CALYX_ANNEAL_SOAK_LIVE_TRAFFIC_UNAVAILABLE` until an independently measured vault-backed replay provider is installed.
 
 **Gate** (`gate_passed`): `p99_reduction ≥ DEFAULT_SOAK_P99_TARGET_REDUCTION (0.20)` **and** `recall_final ≥ max(min_recall, recall_baseline)` **and** `!oscillation_detected`.
 
-**Oscillation check** (`check_oscillation`, window `DEFAULT_SOAK_OSCILLATION_WINDOW = 10_000`): true if any in-window sample's `p99_ns > prev.p99_ns · 1.05` (>5% jump). CF `AnnealSoak`, tag `anneal_soak_v1`. Errors: `CALYX_ANNEAL_SOAK_{INVALID_CONFIG,INVALID_ROW,TIME_BUDGET_EXHAUSTED}`.
+**Oscillation check** (`check_oscillation`, window `DEFAULT_SOAK_OSCILLATION_WINDOW = 10_000`): true if any in-window sample's `p99_ns > prev.p99_ns · 1.05` (>5% jump). CF `AnnealSoak`, tag `anneal_soak_v1`. Errors: `CALYX_ANNEAL_SOAK_INVALID_CONFIG`, `CALYX_ANNEAL_SOAK_INVALID_ROW`, `CALYX_ANNEAL_SOAK_LIVE_TRAFFIC_UNAVAILABLE`, `CALYX_ANNEAL_SOAK_TIME_BUDGET_EXHAUSTED`.
 
 ### 13.15.4 Per-scope tuners
 

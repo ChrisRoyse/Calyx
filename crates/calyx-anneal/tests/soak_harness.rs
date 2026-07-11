@@ -4,10 +4,10 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use calyx_anneal::{
     ABLedgerEvent, ABLedgerWriter, ABRunner, AnnealLedgerAction,
-    CALYX_ANNEAL_SOAK_TIME_BUDGET_EXHAUSTED, CALYX_ASTER_CF_UNAVAILABLE, ForgeScopeTuner,
-    IndexScopeTuner, LoomScopeTuner, MatPlanConfig, MetricSample, NoopABBudget, NoopSoakStorage,
-    SeededSoakProfile, SoakConfig, SoakHarness, SoakMode, SoakReport, SoakStorage,
-    TripwireRegistry, check_oscillation,
+    CALYX_ANNEAL_SOAK_LIVE_TRAFFIC_UNAVAILABLE, CALYX_ANNEAL_SOAK_TIME_BUDGET_EXHAUSTED,
+    CALYX_ASTER_CF_UNAVAILABLE, ForgeScopeTuner, IndexScopeTuner, LoomScopeTuner, MatPlanConfig,
+    MetricSample, NoopABBudget, NoopSoakStorage, SeededSoakProfile, SoakConfig, SoakHarness,
+    SoakMode, SoakReport, SoakStorage, TripwireRegistry, check_oscillation,
 };
 use calyx_aster::vault::AsterVault;
 use calyx_core::{CalyxError, FixedClock, Result};
@@ -94,7 +94,7 @@ fn equal_latency_profile_reports_no_regression_and_no_oscillation() {
 }
 
 #[test]
-fn live_traffic_constructor_accepts_real_tuner_parts() {
+fn live_traffic_fails_before_mutating_without_replay_provider() {
     let vault = vault();
     let cfg = SoakConfig {
         n_queries: 100,
@@ -103,19 +103,33 @@ fn live_traffic_constructor_accepts_real_tuner_parts() {
         ..SoakConfig::default()
     };
     let cache = AutotuneCache::load(&temp_cache()).unwrap();
+    let storage = RecordingStorage::default();
     let mut harness = SoakHarness::live_traffic(
         cfg,
         ForgeScopeTuner::new(cache.clone()),
         IndexScopeTuner::new(cache.clone()),
         LoomScopeTuner::new(cache, MatPlanConfig::default()),
         runner(),
-        NoopSoakStorage,
+        storage,
     );
 
-    let report = harness.run(&vault).unwrap();
+    let error = harness.run(&vault).unwrap_err();
 
     assert_eq!(harness.config.mode, SoakMode::LiveTraffic);
-    assert!(report.gate_passed);
+    assert_eq!(error.code, CALYX_ANNEAL_SOAK_LIVE_TRAFFIC_UNAVAILABLE);
+    assert_eq!(
+        error.message,
+        "live-traffic soak has no vault-backed replay measurement provider"
+    );
+    assert_eq!(
+        error.remediation,
+        "install an independently measured vault-backed replay provider before selecting SoakMode::LiveTraffic; use SoakMode::Seeded only for explicit simulation"
+    );
+    assert!(harness.metrics.samples.is_empty());
+    assert!(harness.last_report().is_none());
+    assert!(harness.storage.samples.is_empty());
+    assert!(harness.storage.reports.is_empty());
+    assert!(harness.ab_runner.writer.events.is_empty());
 }
 
 #[test]
@@ -195,6 +209,28 @@ impl ABLedgerWriter for RecordingWriter {
     fn write_ab_event(&mut self, event: &ABLedgerEvent) -> Result<()> {
         self.events.push(event.clone());
         Ok(())
+    }
+}
+
+#[derive(Default)]
+struct RecordingStorage {
+    samples: Vec<MetricSample>,
+    reports: Vec<SoakReport>,
+}
+
+impl SoakStorage for RecordingStorage {
+    fn save_sample(&mut self, _run_id: [u8; 32], sample: &MetricSample) -> Result<()> {
+        self.samples.push(*sample);
+        Ok(())
+    }
+
+    fn save_report(&mut self, _run_id: [u8; 32], report: &SoakReport) -> Result<()> {
+        self.reports.push(report.clone());
+        Ok(())
+    }
+
+    fn scan_rows(&self) -> Result<Vec<(Vec<u8>, Vec<u8>)>> {
+        Ok(Vec::new())
     }
 }
 
