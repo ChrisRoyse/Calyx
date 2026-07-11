@@ -86,6 +86,11 @@ impl IdentityProfile {
             }
             if let Some(tau) = config.tau_override {
                 validate_identity_tau(tau)?;
+                // Slot provenance does not bind its calibrated tau. Any explicit
+                // override invalidates that claim, including persisted equal values.
+                if let Some(calibration) = guard_profile.calibration.as_mut() {
+                    calibration.per_slot.remove(&config.slot_id);
+                }
                 guard_profile.tau.insert(config.slot_id, tau);
             } else if let Some(tau) = guard_profile.tau_for(&config.slot_id) {
                 validate_identity_tau(tau)?;
@@ -117,7 +122,11 @@ impl IdentityProfile {
     }
 
     pub fn is_calibrated(&self) -> bool {
-        self.guard_profile.is_calibrated()
+        self.guard_profile.calibration.as_ref().is_some_and(|meta| {
+            self.identity_slots
+                .iter()
+                .all(|config| meta.per_slot.contains_key(&config.slot_id))
+        })
     }
 
     pub fn required_identity_slots(&self) -> Vec<SlotId> {
