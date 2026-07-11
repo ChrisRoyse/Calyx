@@ -2,8 +2,14 @@ use std::collections::{BTreeMap, HashMap};
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use calyx_core::{CalyxError, Result};
+use calyx_core::Result;
 use serde::{Deserialize, Serialize};
+
+mod errors;
+mod persistence;
+
+use errors::{invalid_config, invalid_metric};
+use persistence::atomic_write_text;
 
 pub const CALYX_TRIPWIRE_INVALID_METRIC: &str = "CALYX_TRIPWIRE_INVALID_METRIC";
 pub const CALYX_TRIPWIRE_INVALID_CONFIG: &str = "CALYX_TRIPWIRE_INVALID_CONFIG";
@@ -95,14 +101,19 @@ pub struct TripwireRegistry {
 impl TripwireRegistry {
     pub fn load_from_vault(vault: impl AsRef<Path>) -> Result<Self> {
         let config_path = tripwire_config_path(vault.as_ref());
-        let thresholds = if config_path.exists() {
-            read_thresholds(&config_path)?
+        let (thresholds, state) = if config_path.exists() {
+            read_registry(&config_path)?
         } else {
-            let defaults = default_thresholds();
-            persist_thresholds(&config_path, &defaults)?;
-            defaults
+            let thresholds = default_thresholds();
+            let state = initial_states(&thresholds);
+            persist_registry(&config_path, &thresholds, &state)?;
+            (thresholds, state)
         };
-        Ok(Self::from_thresholds(config_path, thresholds))
+        Ok(Self {
+            config_path,
+            thresholds,
+            state,
+        })
     }
 
     pub fn check(&mut self, metric: TripwireMetric, value: f64) -> Result<TripwireResult> {
@@ -113,13 +124,18 @@ impl TripwireRegistry {
             .thresholds
             .get(&metric)
             .ok_or_else(|| invalid_config(format!("missing threshold for {}", metric.key())))?;
-        let state = self
+        let mut next = self
             .state
-            .entry(metric)
-            .or_insert_with(|| initial_state(threshold));
-        state.last_value = value;
-        state.crossed = threshold_crossed(threshold, state.crossed, value);
-        Ok(if state.crossed {
+            .get(&metric)
+            .copied()
+            .unwrap_or_else(|| initial_state(threshold));
+        next.last_value = value;
+        next.crossed = threshold_crossed(threshold, next.crossed, value);
+        let mut candidate_state = self.state.clone();
+        candidate_state.insert(metric, next);
+        persist_registry(&self.config_path, &self.thresholds, &candidate_state)?;
+        self.state = candidate_state;
+        Ok(if next.crossed {
             TripwireResult::Crossed {
                 metric,
                 threshold: threshold.bound,
@@ -145,11 +161,21 @@ impl TripwireRegistry {
         let mut candidate = self.thresholds.clone();
         candidate.insert(metric, threshold);
         ensure_all_metrics_present(&candidate)?;
-        persist_thresholds(&self.config_path, &candidate)?;
+        let mut candidate_state = self.state.clone();
+        let prior = candidate_state
+            .get(&metric)
+            .copied()
+            .unwrap_or_else(|| initial_state(threshold));
+        candidate_state.insert(
+            metric,
+            ThresholdState {
+                last_value: prior.last_value,
+                crossed: threshold_crossed(threshold, prior.crossed, prior.last_value),
+            },
+        );
+        persist_registry(&self.config_path, &candidate, &candidate_state)?;
         self.thresholds = candidate;
-        self.state
-            .entry(metric)
-            .or_insert_with(|| initial_state(threshold));
+        self.state = candidate_state;
         Ok(())
     }
 
@@ -172,21 +198,6 @@ impl TripwireRegistry {
     pub fn config_path(&self) -> &Path {
         &self.config_path
     }
-
-    fn from_thresholds(
-        config_path: PathBuf,
-        thresholds: HashMap<TripwireMetric, TripwireThreshold>,
-    ) -> Self {
-        let state = thresholds
-            .iter()
-            .map(|(metric, threshold)| (*metric, initial_state(*threshold)))
-            .collect();
-        Self {
-            config_path,
-            thresholds,
-            state,
-        }
-    }
 }
 
 pub fn tripwire_config_path(vault: &Path) -> PathBuf {
@@ -195,7 +206,7 @@ pub fn tripwire_config_path(vault: &Path) -> PathBuf {
 
 pub fn read_tripwire_config_from_vault(vault: impl AsRef<Path>) -> Result<TripwireConfigReadback> {
     let config_path = tripwire_config_path(vault.as_ref());
-    let thresholds = read_thresholds(&config_path)?;
+    let (thresholds, _) = read_registry(&config_path)?;
     Ok(TripwireConfigReadback {
         config_path,
         thresholds: threshold_entries(&thresholds),
@@ -220,21 +231,27 @@ fn default_thresholds() -> HashMap<TripwireMetric, TripwireThreshold> {
         .collect()
 }
 
-fn read_thresholds(path: &Path) -> Result<HashMap<TripwireMetric, TripwireThreshold>> {
+fn read_registry(
+    path: &Path,
+) -> Result<(
+    HashMap<TripwireMetric, TripwireThreshold>,
+    HashMap<TripwireMetric, ThresholdState>,
+)> {
     let bytes = fs::read(path)
         .map_err(|error| invalid_config(format!("read {}: {error}", path.display())))?;
     let text = std::str::from_utf8(&bytes)
         .map_err(|error| invalid_config(format!("{} is not UTF-8: {error}", path.display())))?;
     let file: TripwireFile = toml::from_str(text)
         .map_err(|error| invalid_config(format!("parse {}: {error}", path.display())))?;
-    file.into_thresholds(path)
+    file.into_registry(path)
 }
 
-fn persist_thresholds(
+fn persist_registry(
     path: &Path,
     thresholds: &HashMap<TripwireMetric, TripwireThreshold>,
+    state: &HashMap<TripwireMetric, ThresholdState>,
 ) -> Result<()> {
-    let file = TripwireFile::from_thresholds(thresholds)?;
+    let file = TripwireFile::from_registry(thresholds, state)?;
     let text = toml::to_string_pretty(&file)
         .map_err(|error| invalid_config(format!("serialize tripwire config: {error}")))?;
     if let Some(parent) = path.parent() {
@@ -244,51 +261,47 @@ fn persist_thresholds(
     atomic_write_text(path, &text)
 }
 
-fn atomic_write_text(path: &Path, text: &str) -> Result<()> {
-    let tmp = temp_path(path)?;
-    fs::write(&tmp, text)
-        .map_err(|error| invalid_config(format!("write {}: {error}", tmp.display())))?;
-    fs::rename(&tmp, path).map_err(|error| {
-        let _ = fs::remove_file(&tmp);
-        invalid_config(format!(
-            "rename {} -> {}: {error}",
-            tmp.display(),
-            path.display()
-        ))
-    })
-}
-
-fn temp_path(path: &Path) -> Result<PathBuf> {
-    let file_name = path
-        .file_name()
-        .ok_or_else(|| invalid_config("tripwire config path must include a file name"))?;
-    let mut tmp_name = file_name.to_os_string();
-    tmp_name.push(format!(".tmp-{}", std::process::id()));
-    Ok(path.with_file_name(tmp_name))
-}
-
 #[derive(Clone, Debug, Serialize, Deserialize)]
 struct TripwireFile {
     thresholds: BTreeMap<String, TripwireThreshold>,
+    #[serde(default)]
+    state: BTreeMap<String, ThresholdState>,
 }
 
 impl TripwireFile {
-    fn from_thresholds(thresholds: &HashMap<TripwireMetric, TripwireThreshold>) -> Result<Self> {
+    fn from_registry(
+        thresholds: &HashMap<TripwireMetric, TripwireThreshold>,
+        state: &HashMap<TripwireMetric, ThresholdState>,
+    ) -> Result<Self> {
         ensure_all_metrics_present(thresholds)?;
-        let mut persisted = BTreeMap::new();
+        let mut persisted_thresholds = BTreeMap::new();
+        let mut persisted_state = BTreeMap::new();
         for metric in METRICS {
             let threshold = *thresholds
                 .get(&metric)
                 .ok_or_else(|| invalid_config(format!("missing threshold for {}", metric.key())))?;
             validate_threshold(metric, threshold)?;
-            persisted.insert(metric.key().to_string(), threshold);
+            let state = state
+                .get(&metric)
+                .copied()
+                .unwrap_or_else(|| initial_state(threshold));
+            validate_state(metric, threshold, state)?;
+            persisted_thresholds.insert(metric.key().to_string(), threshold);
+            persisted_state.insert(metric.key().to_string(), state);
         }
         Ok(Self {
-            thresholds: persisted,
+            thresholds: persisted_thresholds,
+            state: persisted_state,
         })
     }
 
-    fn into_thresholds(self, path: &Path) -> Result<HashMap<TripwireMetric, TripwireThreshold>> {
+    fn into_registry(
+        self,
+        path: &Path,
+    ) -> Result<(
+        HashMap<TripwireMetric, TripwireThreshold>,
+        HashMap<TripwireMetric, ThresholdState>,
+    )> {
         let mut thresholds = HashMap::new();
         for (key, threshold) in self.thresholds {
             let metric = TripwireMetric::from_key(&key).ok_or_else(|| {
@@ -298,7 +311,21 @@ impl TripwireFile {
             thresholds.insert(metric, threshold);
         }
         ensure_all_metrics_present(&thresholds)?;
-        Ok(thresholds)
+        let mut state = initial_states(&thresholds);
+        for (key, persisted) in self.state {
+            let metric = TripwireMetric::from_key(&key).ok_or_else(|| {
+                invalid_config(format!(
+                    "{} contains unknown state metric {key}",
+                    path.display()
+                ))
+            })?;
+            let threshold = *thresholds
+                .get(&metric)
+                .ok_or_else(|| invalid_config(format!("missing threshold for {key}")))?;
+            validate_state(metric, threshold, persisted)?;
+            state.insert(metric, persisted);
+        }
+        Ok((thresholds, state))
     }
 }
 
@@ -382,6 +409,35 @@ fn initial_state(threshold: TripwireThreshold) -> ThresholdState {
     }
 }
 
+fn initial_states(
+    thresholds: &HashMap<TripwireMetric, TripwireThreshold>,
+) -> HashMap<TripwireMetric, ThresholdState> {
+    thresholds
+        .iter()
+        .map(|(metric, threshold)| (*metric, initial_state(*threshold)))
+        .collect()
+}
+
+fn validate_state(
+    metric: TripwireMetric,
+    threshold: TripwireThreshold,
+    state: ThresholdState,
+) -> Result<()> {
+    if !state.last_value.is_finite() {
+        return Err(invalid_config(format!(
+            "{} state last_value must be finite",
+            metric.key()
+        )));
+    }
+    if threshold_crossed(threshold, state.crossed, state.last_value) != state.crossed {
+        return Err(invalid_config(format!(
+            "{} persisted hysteresis state contradicts last_value",
+            metric.key()
+        )));
+    }
+    Ok(())
+}
+
 fn default_bound(metric: TripwireMetric) -> f64 {
     match metric {
         TripwireMetric::RecallAtK => 0.90,
@@ -399,22 +455,6 @@ fn default_direction(metric: TripwireMetric) -> ThresholdDir {
         | TripwireMetric::GuardFRR
         | TripwireMetric::SearchP99
         | TripwireMetric::IngestP95 => ThresholdDir::Above,
-    }
-}
-
-fn invalid_metric(metric: TripwireMetric, value: f64) -> CalyxError {
-    CalyxError {
-        code: CALYX_TRIPWIRE_INVALID_METRIC,
-        message: format!("{} metric value must be finite, got {value}", metric.key()),
-        remediation: "drop the Anneal candidate and re-measure the guarded metric",
-    }
-}
-
-fn invalid_config(message: impl Into<String>) -> CalyxError {
-    CalyxError {
-        code: CALYX_TRIPWIRE_INVALID_CONFIG,
-        message: message.into(),
-        remediation: "fix vault .anneal/tripwire.toml before running Anneal",
     }
 }
 
