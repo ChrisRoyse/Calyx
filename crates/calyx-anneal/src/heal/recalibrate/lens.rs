@@ -76,7 +76,7 @@ where
         return Ok(LensParkOutcome::AlreadyOk { lens_id });
     }
     let ts = clock.now();
-    registry.set_health(kind, ComponentHealth::Ok, ledger)?;
+    registry.confirm_healed(kind, ledger)?;
     write_lens_event(
         ledger,
         AnnealLedgerAction::LensUnpark,

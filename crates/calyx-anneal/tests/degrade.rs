@@ -11,7 +11,7 @@ use calyx_anneal::{
 use calyx_aster::cf::ColumnFamily;
 use calyx_aster::vault::{AsterVault, VaultOptions};
 use calyx_core::{CalyxError, Clock, FixedClock, LensId, Result, Seq, SlotId};
-use calyx_ledger::{ActorId, LedgerAppender, MemoryLedgerStore};
+use calyx_ledger::{ActorId, LedgerAppender, LedgerCfStore, LedgerRow, MemoryLedgerStore};
 use proptest::prelude::*;
 use serde_json::json;
 
@@ -19,6 +19,7 @@ mod fsv_support;
 use fsv_support::vault_id;
 
 const TEST_TS: u64 = 1_785_600_400;
+const TEST_LEDGER_WRITE_FAIL: &str = "CALYX_TEST_LEDGER_WRITE_FAIL";
 
 #[test]
 fn failing_lens_is_excluded_from_active_lenses() {
@@ -40,30 +41,31 @@ fn failing_lens_is_excluded_from_active_lenses() {
 }
 
 #[test]
-fn degraded_ann_requires_explicit_heal_confirmation() {
+fn every_non_ok_state_requires_explicit_heal_confirmation() {
     let store = MemoryHealthStore::default();
     let mut registry = memory_registry(store);
     let mut ledger = memory_ledger();
-    let ann = ComponentKind::ann_index(SlotId::new(0));
+    let states = [
+        ComponentHealth::degraded(TEST_TS, "checksum mismatch"),
+        ComponentHealth::failing(TEST_TS, "endpoint unavailable"),
+        ComponentHealth::parked(TEST_TS, "signal below floor"),
+    ];
 
-    registry
-        .set_health(
-            ann.clone(),
-            ComponentHealth::degraded(TEST_TS, "checksum mismatch"),
-            &mut ledger,
-        )
-        .unwrap();
-    let error = registry
-        .set_health(ann.clone(), ComponentHealth::Ok, &mut ledger)
-        .unwrap_err();
-    assert_eq!(error.code, CALYX_ANNEAL_HEAL_CONFIRMATION_REQUIRED);
-    assert!(matches!(
-        registry.health(&ann),
-        ComponentHealth::Degraded { .. }
-    ));
+    for (slot, state) in states.into_iter().enumerate() {
+        let ann = ComponentKind::ann_index(SlotId::new(slot as u16));
+        registry
+            .set_health(ann.clone(), state.clone(), &mut ledger)
+            .unwrap();
 
-    registry.confirm_healed(ann.clone(), &mut ledger).unwrap();
-    assert_eq!(registry.health(&ann), &ComponentHealth::Ok);
+        let error = registry
+            .set_health(ann.clone(), ComponentHealth::Ok, &mut ledger)
+            .unwrap_err();
+
+        assert_eq!(error.code, CALYX_ANNEAL_HEAL_CONFIRMATION_REQUIRED);
+        assert_eq!(registry.health(&ann), &state);
+        registry.confirm_healed(ann.clone(), &mut ledger).unwrap();
+        assert_eq!(registry.health(&ann), &ComponentHealth::Ok);
+    }
 }
 
 #[test]
@@ -132,7 +134,7 @@ fn reload_from_health_store_restores_snapshot() {
 }
 
 #[test]
-fn cf_failure_surfaces_error_and_memory_state_survives() {
+fn cf_failure_does_not_publish_unpersisted_health() {
     let store = MemoryHealthStore::default();
     store.fail_next(CALYX_ASTER_CF_UNAVAILABLE);
     let mut registry = memory_registry(store.clone());
@@ -148,10 +150,30 @@ fn cf_failure_surfaces_error_and_memory_state_survives() {
         .unwrap_err();
 
     assert_eq!(error.code, CALYX_ASTER_CF_UNAVAILABLE);
-    assert_eq!(
-        registry.health(&ann),
-        &ComponentHealth::degraded(TEST_TS, "persist outage")
-    );
+    assert_eq!(registry.health(&ann), &ComponentHealth::Ok);
+    assert!(store.rows().is_empty());
+}
+
+#[test]
+fn ledger_failure_does_not_publish_or_persist_health() {
+    let store = MemoryHealthStore::default();
+    let mut registry = memory_registry(store.clone());
+    let mut ledger = failing_memory_ledger();
+    let lens_id = lens(9);
+    let kind = ComponentKind::lens_endpoint(lens_id);
+    ledger.appender_mut().store_mut().fail_next();
+
+    let error = registry
+        .set_health(
+            kind.clone(),
+            ComponentHealth::failing(TEST_TS, "ledger outage"),
+            &mut ledger,
+        )
+        .unwrap_err();
+
+    assert_eq!(error.code, TEST_LEDGER_WRITE_FAIL);
+    assert_eq!(registry.health(&kind), &ComponentHealth::Ok);
+    assert_eq!(registry.active_lenses(&[lens_id]), vec![lens_id]);
     assert!(store.rows().is_empty());
 }
 
@@ -365,6 +387,46 @@ fn memory_ledger() -> calyx_anneal::AnnealLedger<MemoryLedgerStore, FixedClock> 
         ActorId::Service("calyx-anneal-degrade-test".to_string()),
     )
     .unwrap()
+}
+
+fn failing_memory_ledger() -> calyx_anneal::AnnealLedger<FailingLedgerStore, FixedClock> {
+    let appender =
+        LedgerAppender::open(FailingLedgerStore::default(), FixedClock::new(TEST_TS)).unwrap();
+    calyx_anneal::AnnealLedger::new(
+        appender,
+        ActorId::Service("calyx-anneal-degrade-failing-ledger-test".to_string()),
+    )
+    .unwrap()
+}
+
+#[derive(Clone, Debug, Default)]
+struct FailingLedgerStore {
+    inner: MemoryLedgerStore,
+    fail_next: bool,
+}
+
+impl FailingLedgerStore {
+    fn fail_next(&mut self) {
+        self.fail_next = true;
+    }
+}
+
+impl LedgerCfStore for FailingLedgerStore {
+    fn scan(&self) -> Result<Vec<LedgerRow>> {
+        self.inner.scan()
+    }
+
+    fn put_new(&mut self, seq: u64, bytes: &[u8]) -> Result<()> {
+        if self.fail_next {
+            self.fail_next = false;
+            return Err(CalyxError {
+                code: TEST_LEDGER_WRITE_FAIL,
+                message: "injected ledger write failure".to_string(),
+                remediation: "restore ledger writes",
+            });
+        }
+        self.inner.put_new(seq, bytes)
+    }
 }
 
 fn aster_ledger<C: Clock>(

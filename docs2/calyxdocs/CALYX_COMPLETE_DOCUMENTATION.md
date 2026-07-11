@@ -1935,8 +1935,10 @@ constant is `.anneal` (`CONFIG_DIR`) in both modules.
 (`tripwire_config_path`). Loaded by `TripwireRegistry::load_from_vault`.
 
 On-disk shape: a `[thresholds]` table keyed by metric name, each value a
-`{ bound, hysteresis, direction }` record. All five metrics must be present (an unknown metric
-key, or a missing one, → `CALYX_TRIPWIRE_INVALID_CONFIG`).
+`{ bound, hysteresis, direction }` record, plus a `[state]` table with each metric's
+`{ last_value, crossed }` hysteresis state. All five thresholds must be present (an unknown
+metric key, or a missing one, → `CALYX_TRIPWIRE_INVALID_CONFIG`). A legacy threshold-only
+file is accepted and receives safe, non-crossed initial states.
 
 Default thresholds (`default_bound` / `default_direction`; default hysteresis =
 `bound * DEFAULT_HYSTERESIS_FRACTION`, `DEFAULT_HYSTERESIS_FRACTION = 0.05`):
@@ -1949,7 +1951,9 @@ Default thresholds (`default_bound` / `default_direction`; default hysteresis =
 | `search_p99` | 200.0 | 10.0 | `above` |
 | `ingest_p95` | 500.0 | 25.0 | `above` |
 
-`direction` serializes snake_case (`below` / `above`). A non-finite measured metric value →
+`direction` serializes snake_case (`below` / `above`). Persisted `last_value` must be finite
+and `crossed` must agree with the threshold's hysteresis band; invalid persisted state yields
+`CALYX_TRIPWIRE_INVALID_CONFIG`. A non-finite measured metric value →
 `CALYX_TRIPWIRE_INVALID_METRIC`.
 
 ### 4.2 `.anneal/budget.toml`
@@ -7859,6 +7863,11 @@ Updated by EWC/Fisher-regularized SGD; **frozen lens weights are never touched**
 0.05` (`heal/recalibrate/types.rs`): a lens whose Assay signal decays below 0.05 bits is
 auto-**parked** (kept, search stopped). See [13_ward_guard.md](13_ward_guard.md).
 
+`DegradeRegistry` requires `confirm_healed` for every `Degraded`, `Failing`, or `Parked`
+transition back to `Ok`; direct `set_health(..., Ok)` is rejected. It appends the health
+ledger entry and persists the `anneal_health` CF row before changing the served in-memory
+map, so either persistence failure leaves the prior routing health active.
+
 ---
 
 ## 2. The optimization loop (propose → shadow-test → gate → commit-or-revert)
@@ -7907,9 +7916,9 @@ Vec<TripwireStatus>, budget: BudgetStatus, recent_changes: Vec<AnnealLedgerEntry
 
 ## 3. Safety tripwires (exact metrics & thresholds)
 
-Defined in `tripwire.rs`. Five guarded metrics, persisted to vault
-`.anneal/tripwire.toml` (`tripwire_config_path`). On first load, defaults are written if
-the file is absent.
+Defined in `tripwire.rs`. Five guarded metrics and their hysteresis states are persisted to
+vault `.anneal/tripwire.toml` (`tripwire_config_path`). On first load, defaults are written
+if the file is absent; legacy threshold-only files receive safe initial states.
 
 ### 3.1 The metrics, directions, and default bounds
 
@@ -7942,14 +7951,18 @@ crossed, the metric must recover **past the hysteresis band** to clear:
 
 `TripwireResult` enum (serde tag `result`): `Ok` | `Crossed{ metric, threshold,
 hysteresis }`. `TripwireRegistry::check(metric, value)` updates state and returns the
-result; a non-finite value yields `CALYX_TRIPWIRE_INVALID_METRIC`.
+result; a non-finite value yields `CALYX_TRIPWIRE_INVALID_METRIC`. Each candidate state is
+atomically persisted before it replaces the in-memory state, so restart inside a hysteresis
+band retains the prior crossed/un-crossed decision and a write failure leaves memory unchanged.
 
 ### 3.3 Config validation (`validate_threshold`)
 
 `bound` and `hysteresis` must be finite & ≥ 0; `direction` must equal the metric's fixed
 `default_direction` (you cannot flip a metric's sense); for `Below` metrics, hysteresis
 must not exceed the bound. `set_tripwire(metric, bound, hysteresis)` re-validates,
-requires all five metrics present, persists the TOML, and resets state. Errors:
+requires all five metrics present, carries the prior `last_value`, recomputes `crossed`, and
+persists the candidate threshold/state registry before publishing it. Persisted states must
+have a finite `last_value` consistent with their hysteresis decision. Errors:
 `CALYX_TRIPWIRE_INVALID_CONFIG`.
 
 ### 3.4 Public tripwire types
@@ -8194,12 +8207,14 @@ transitions (`RollbackStore`):
 | `prepare` / `prepare_with_description` | a live ptr exists for `key` | snapshot written (`promoted=reverted=committed=false`) | **Prepared** |
 | `promote(id)` | not `committed`, not `reverted` | live ptr ← `candidate_ptr`; `promoted=true` | **Promoted** (revertible) |
 | `rollback(id)` | not `committed` | live ptr ← `prior_ptr`; `reverted=true` | **Reverted** |
-| `commit(id)` | — | `committed=true` | **Committed** (frozen) |
+| `commit(id)` | `promoted`, not `reverted`, not `committed` | `committed=true` | **Committed** (frozen) |
 
 Transition guards / errors:
 - Promote a committed change → `CALYX_ANNEAL_CHANGE_COMMITTED`.
 - Promote a reverted change → `CALYX_ANNEAL_INVALID_ROLLBACK_STATE`.
 - Rollback a committed change → `CALYX_ANNEAL_CHANGE_COMMITTED`.
+- Commit a prepared or reverted change → `CALYX_ANNEAL_INVALID_ROLLBACK_STATE`.
+- Commit an already committed change → `CALYX_ANNEAL_CHANGE_COMMITTED`.
 - Unknown id → `CALYX_ANNEAL_UNKNOWN_CHANGE_ID`.
 
 `commit` is the terminal "lock in" — once committed, the change can no longer be reverted

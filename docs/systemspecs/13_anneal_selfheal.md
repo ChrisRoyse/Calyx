@@ -53,22 +53,22 @@ Tripwires are hysteretic threshold guards over exactly five metrics (`METRICS`, 
 | `SearchP99` | `search_p99` | 200.0 | `Above` |
 | `IngestP95` | `ingest_p95` | 500.0 | `Above` |
 
-A `TripwireThreshold { bound, hysteresis, direction }` carries a default hysteresis of `bound * DEFAULT_HYSTERESIS_FRACTION` where `DEFAULT_HYSTERESIS_FRACTION = 0.05` (`src/tripwire.rs:13`, `:215`). Config is persisted to `<vault>/.anneal/tripwire.toml` (`CONFIG_DIR=".anneal"`, `CONFIG_FILE="tripwire.toml"`, `tripwire_config_path`, `:192`). `load_from_vault` writes defaults if the file is absent (`:96-106`).
+A `TripwireThreshold { bound, hysteresis, direction }` carries a default hysteresis of `bound * DEFAULT_HYSTERESIS_FRACTION`, where `DEFAULT_HYSTERESIS_FRACTION = 0.05`. `<vault>/.anneal/tripwire.toml` persists both the threshold map and each metric's `ThresholdState { last_value, crossed }`. `load_from_vault` writes defaults if the file is absent; threshold-only files from older releases load with safe, non-crossed initial states.
 
-### Tripwire detection algorithm — `TripwireRegistry::check` (`src/tripwire.rs:108`)
+### Tripwire detection algorithm — `TripwireRegistry::check` (`src/tripwire.rs:119`)
 
-1. Reject non-finite `value` with `CALYX_TRIPWIRE_INVALID_METRIC` (`:109`).
-2. Fetch the metric's threshold; missing → `CALYX_TRIPWIRE_INVALID_CONFIG` (`:112-115`).
-3. Update per-metric `ThresholdState { last_value, crossed }` (`:116-121`).
-4. Recompute `crossed` with hysteresis via `threshold_crossed` (`:344`):
+1. Reject non-finite `value` with `CALYX_TRIPWIRE_INVALID_METRIC`.
+2. Fetch the metric's threshold and prior state; missing threshold → `CALYX_TRIPWIRE_INVALID_CONFIG`.
+3. Compute a candidate `ThresholdState { last_value, crossed }` with hysteresis via `threshold_crossed`:
    - `Below`, not yet crossed: `value < bound − ε`
    - `Below`, already crossed: `value < bound + hysteresis − ε`
    - `Above`, not yet crossed: `value > bound + ε`
    - `Above`, already crossed: `value > bound − hysteresis + ε`
-   - `TRIPWIRE_EPSILON = 1e-12` (`src/tripwire.rs:14`).
-5. Return `TripwireResult::Crossed { metric, threshold, hysteresis }` or `TripwireResult::Ok`.
+   - `TRIPWIRE_EPSILON = 1e-12` (`src/tripwire.rs:20`).
+4. Atomically persist the full threshold and candidate-state registry.
+5. Publish the candidate state in memory only after persistence succeeds, then return `TripwireResult::Crossed { metric, threshold, hysteresis }` or `TripwireResult::Ok`.
 
-`set_tripwire` validates a candidate threshold (`validate_threshold`, `:315`): bound and hysteresis must be finite and ≥ 0; the direction must match `default_direction(metric)`; for `Below` metrics, hysteresis must not exceed bound. All five metrics must be present (`ensure_all_metrics_present`, `:301`).
+`set_tripwire` validates a candidate threshold (`validate_threshold`, `:363`): bound and hysteresis must be finite and ≥ 0; the direction must match `default_direction(metric)`; for `Below` metrics, hysteresis must not exceed bound. All five metrics must be present (`ensure_all_metrics_present`, `:349`).
 
 **Error codes:** `CALYX_TRIPWIRE_INVALID_METRIC`, `CALYX_TRIPWIRE_INVALID_CONFIG`.
 
@@ -118,14 +118,15 @@ States are encoded by the `(promoted, reverted, committed)` flags on a snapshot.
 |---|---|---|---|
 | Prepared | all false | `prepare` / `prepare_with_description` (`:156-187`) | unchanged (prior_ptr) |
 | Promoted | `promoted=true` | `promote` (`:189`) | live ← candidate_ptr |
-| Reverted | `reverted=true` | `rollback` (`:214`) | live ← prior_ptr |
-| Committed | `committed=true` | `commit` (`:236`) | frozen; no further promote/rollback |
+| Reverted | `reverted=true` | `rollback` (`:234`) | live ← prior_ptr |
+| Committed | `promoted=true`, `reverted=false`, `committed=true` | `commit` from Promoted | frozen; no further promote/rollback |
 
 Transition guards:
 - `promote` errors `CALYX_ANNEAL_CHANGE_COMMITTED` if committed, and `CALYX_ANNEAL_INVALID_ROLLBACK_STATE` if already reverted (`:192-197`).
-- `rollback` errors `CALYX_ANNEAL_CHANGE_COMMITTED` if committed (`:217`).
+- `rollback` errors `CALYX_ANNEAL_CHANGE_COMMITTED` if committed (`:237`).
+- `commit` errors `CALYX_ANNEAL_CHANGE_COMMITTED` if already committed, and `CALYX_ANNEAL_INVALID_ROLLBACK_STATE` unless the snapshot is promoted and unreverted.
 - `prepare` requires an existing live pointer (`install_live_ptr` first), else `CALYX_ANNEAL_INVALID_ROLLBACK_STATE` (`:167-171`).
-- Unknown id → `CALYX_ANNEAL_UNKNOWN_CHANGE_ID` (`:325`).
+- Unknown id → `CALYX_ANNEAL_UNKNOWN_CHANGE_ID` (`:368`).
 
 **Change-id allocation** (`allocate_id`, `:300`): `next = max(ts*ID_BUCKET + seed%ID_BUCKET + counter, last_id+1)` with `ID_BUCKET = 1_000_000` (`:20`); monotonic, saturating.
 
@@ -277,10 +278,10 @@ Self-heal is a five-stage fault-recovery framework: **degrade** (health state), 
 | Transition | Trigger | Method | Guard |
 |---|---|---|---|
 | Ok → Degraded/Failing/Parked | fault detected | `set_health` (`:236`) | — |
-| Degraded → Ok | rebuild/recalibration confirmed | `confirm_healed` (`:249`) | bypasses confirm gate |
-| Degraded → Ok (direct `set_health`) | — | `set_health` | **blocked** → `CALYX_ANNEAL_HEAL_CONFIRMATION_REQUIRED` (`:311`) |
+| Degraded/Failing/Parked → Ok | rebuild/recalibration/unpark confirmed | `confirm_healed` (`:249`) | explicit confirmation required |
+| Any non-Ok → Ok (direct `set_health`) | — | `set_health` | **blocked** → `CALYX_ANNEAL_HEAL_CONFIRMATION_REQUIRED` (`:311`) |
 
-`DegradeRegistry` persists rows to `ColumnFamily::AnnealHealth`, tag `ANNEAL_HEALTH_TAG = "anneal_health_v1"`. `route_lens_panel(panel)` returns a `LensRoute { requested, active, degraded }` excluding Failing/Parked lenses (`:275`). Errors: `CALYX_ANNEAL_HEAL_CONFIRMATION_REQUIRED`, `CALYX_ANNEAL_HEALTH_INVALID_ROW`, `CALYX_ASTER_CF_UNAVAILABLE`.
+`DegradeRegistry` persists rows to `ColumnFamily::AnnealHealth`, tag `ANNEAL_HEALTH_TAG = "anneal_health_v1"`. Every transition is serialized, appended to the Anneal ledger, and written to the health CF before the served in-memory map is changed. A ledger or CF failure therefore leaves the prior health active; in particular, a failing persistence path cannot silently re-enable a Failing/Parked lens. `route_lens_panel(panel)` returns a `LensRoute { requested, active, degraded }` excluding Failing/Parked lenses (`:275`). Errors: `CALYX_ANNEAL_HEAL_CONFIRMATION_REQUIRED`, `CALYX_ANNEAL_HEALTH_INVALID_ROW`, `CALYX_ASTER_CF_UNAVAILABLE`.
 
 ### 13.13.2 Fault detection — `src/heal/triggers.rs`
 

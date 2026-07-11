@@ -88,6 +88,33 @@ fn recall_hysteresis_band_prevents_oscillation() {
 }
 
 #[test]
+fn crossed_state_survives_reload_inside_hysteresis_band() {
+    let root = TestRoot::new("reload-hysteresis");
+    let mut registry = TripwireRegistry::load_from_vault(root.path()).expect("load defaults");
+    registry
+        .set_tripwire(TripwireMetric::RecallAtK, 0.90, 0.05)
+        .expect("persist recall threshold");
+    assert!(matches!(
+        registry.check(TripwireMetric::RecallAtK, 0.85).unwrap(),
+        TripwireResult::Crossed { .. }
+    ));
+    drop(registry);
+
+    let mut reopened = TripwireRegistry::load_from_vault(root.path()).expect("reload state");
+    assert!(matches!(
+        reopened.check(TripwireMetric::RecallAtK, 0.91).unwrap(),
+        TripwireResult::Crossed { .. }
+    ));
+    let recall = reopened
+        .status()
+        .into_iter()
+        .find(|status| status.metric == TripwireMetric::RecallAtK)
+        .expect("recall status");
+    assert_eq!(recall.state.last_value, 0.91);
+    assert!(recall.state.crossed);
+}
+
+#[test]
 fn edge_cases_fail_closed_or_reduce_to_simple_threshold() {
     let root = TestRoot::new("edges");
     let mut registry = TripwireRegistry::load_from_vault(root.path()).expect("load defaults");
@@ -138,6 +165,7 @@ fn set_tripwire_persists_toml_source_of_truth() {
     let config_path = tripwire_config_path(root.path());
     let toml = fs::read_to_string(&config_path).expect("read tripwire.toml");
     assert!(toml.contains("[thresholds.recall_at_k]"));
+    assert!(toml.contains("[state.recall_at_k]"));
     assert!(toml.contains("bound = 0.9"));
     assert!(toml.contains("hysteresis = 0.05"));
 

@@ -270,6 +270,17 @@ where
     pub fn commit(&self, change_id: ChangeId) -> Result<()> {
         let mut state = self.write_state()?;
         let mut snapshot = state.snapshot(change_id)?.clone();
+        if snapshot.committed {
+            return Err(change_committed(change_id));
+        }
+        if !snapshot.promoted {
+            return Err(invalid_state(
+                "cannot commit an unpromoted rollback snapshot",
+            ));
+        }
+        if snapshot.reverted {
+            return Err(invalid_state("cannot commit a reverted rollback snapshot"));
+        }
         snapshot.committed = true;
         self.storage.put_many(vec![snapshot_row(&snapshot)?])?;
         state.snapshots.insert(change_id, snapshot);
