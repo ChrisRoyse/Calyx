@@ -10813,8 +10813,8 @@ Each group has a `run(topic/mode, rest)` dispatcher. Defaults shown where the ha
 | `search-skill` | `--spec --skill --slot --k --vec <a,b>` | `--text`("navigate-search-skill") `--min-cluster-size`(2) `--min-samples`(1) `--out` |
 
 #### `sextant <topic>` (`sextant_commands.rs`)
-- `recall-validate --corpus-jsonl --queries-jsonl --qrels --metrics-dir --vault [--query-limit 50] [--k 10] [--min-delta 0.15] [--vault-id] [--salt calyx-ph70-sextant-recall]`.
-- `diskann-validate --root [--mode happy|empty|dim-mismatch|truncated|missing-raw] [--nodes 1000] [--dim 64] [--queries 128] [--k 10] [--beamwidth 32] [--ef-search 128] [--rescore-k 64]` — writes graph/raw/metrics under `--root`.
+- `recall-validate --corpus-jsonl --queries-jsonl --qrels --metrics-dir --vault [--query-limit 50] [--k 10] [--min-delta 0.15] [--packed-panel-json --min-fusion-gain <positive>] [--lens-catalog] [--vault-id] [--salt calyx-ph70-sextant-recall]`; real-panel mode requires the positive fusion gain.
+- `diskann-validate --root [--mode happy|empty|dim-mismatch|truncated|missing-raw|corrupt-pq] [--recall-floor <0<f<=1>] [--nodes 1000] [--dim 64] [--queries 128] [--k 10] [--beamwidth 32] [--ef-search 128] [--rescore-k 64]` — happy mode requires the floor and at least 8 nodes; writes graph/raw/metrics under `--root`.
 
 #### `media <topic>` (`media_commands.rs`)
 - `image-validate --samples --metrics-dir --vault [--min-image-bits 0.05] [--min-cross-modal-bits 0.05] [--k 3] [--vault-id] [--salt calyx-ph70-media-image]`.

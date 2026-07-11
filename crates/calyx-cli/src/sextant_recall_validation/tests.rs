@@ -12,6 +12,41 @@ use super::engine::{build_engine, cx_for_doc_id, ensure_ledger_refs, evaluate_re
 use super::request::{DEFAULT_VAULT_ID, RecallRequest};
 
 #[test]
+fn real_panel_requires_positive_fusion_gain() {
+    let required = [
+        "--corpus-jsonl",
+        "corpus.jsonl",
+        "--queries-jsonl",
+        "queries.jsonl",
+        "--qrels",
+        "qrels.tsv",
+        "--metrics-dir",
+        "metrics",
+        "--vault",
+        "vault",
+        "--packed-panel-json",
+        "panel.json",
+    ];
+
+    let missing = RecallRequest::parse(&strings(&required)).expect_err("missing fusion gain");
+    assert!(missing.contains("--min-fusion-gain must be explicitly positive"));
+
+    let mut zero = required.to_vec();
+    zero.extend(["--min-fusion-gain", "0"]);
+    let zero = RecallRequest::parse(&strings(&zero)).expect_err("zero fusion gain");
+    assert!(zero.contains("--min-fusion-gain must be explicitly positive"));
+
+    let mut positive = required.to_vec();
+    positive.extend(["--min-fusion-gain", "0.01"]);
+    assert_eq!(
+        RecallRequest::parse(&strings(&positive))
+            .expect("positive fusion gain")
+            .min_fusion_gain,
+        0.01
+    );
+}
+
+#[test]
 fn synthetic_recall_delta_uses_known_query_hits() {
     let root = temp_root("sextant-recall-known");
     let request = request_for(&root, 2, 0.15);
@@ -213,6 +248,10 @@ fn request_for(root: &std::path::Path, query_limit: usize, min_delta: f64) -> Re
 
 fn temp_root(name: &str) -> std::path::PathBuf {
     std::env::temp_dir().join(format!("{name}-{}", std::process::id()))
+}
+
+fn strings(args: &[&str]) -> Vec<String> {
+    args.iter().map(|arg| (*arg).to_string()).collect()
 }
 
 fn stub_hit() -> Hit {

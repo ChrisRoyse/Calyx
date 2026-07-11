@@ -80,6 +80,19 @@ impl Request {
         let dim = number(args, "--dim", 64)?;
         let queries = number(args, "--queries", 128)?;
         let k = number(args, "--k", 10)?;
+        let recall_floor = recall_floor(args)?;
+        if mode == Mode::Happy && recall_floor.is_none() {
+            return Err(
+                "CALYX_FSV_DISKANN_INVALID_CONFIG: happy mode requires --recall-floor in (0, 1]"
+                    .to_string(),
+            );
+        }
+        if mode == Mode::Happy && nodes < 8 {
+            return Err(
+                "CALYX_FSV_DISKANN_INVALID_CONFIG: --nodes must be at least 8 in happy mode"
+                    .to_string(),
+            );
+        }
         Ok(Self {
             root,
             mode,
@@ -90,7 +103,7 @@ impl Request {
             beamwidth: number(args, "--beamwidth", 32)?,
             ef_search: number(args, "--ef-search", 128)?.max(k),
             rescore_k: number(args, "--rescore-k", 64)?.max(k),
-            recall_floor: recall_floor(args)?,
+            recall_floor,
             pq: pq_params(args)?,
             build_backend: build_backend(args)?,
         })
@@ -247,8 +260,8 @@ fn recall_floor(args: &[String]) -> Result<Option<f64>, String> {
     let floor: f64 = raw
         .parse()
         .map_err(|error| format!("--recall-floor: {error}"))?;
-    if !floor.is_finite() || !(0.0..=1.0).contains(&floor) {
-        return Err("--recall-floor must be finite in [0, 1]".to_string());
+    if !(floor.is_finite() && 0.0 < floor && floor <= 1.0) {
+        return Err("--recall-floor must be finite in (0, 1]".to_string());
     }
     Ok(Some(floor))
 }
@@ -293,10 +306,60 @@ mod tests {
     }
 
     #[test]
+    fn happy_mode_requires_positive_recall_floor() {
+        let missing = Request::parse(&strings(&["--root", "vault"]))
+            .expect_err("happy mode without recall floor");
+        assert!(missing.contains("happy mode requires --recall-floor"));
+
+        let zero = Request::parse(&strings(&["--root", "vault", "--recall-floor", "0"]))
+            .expect_err("zero recall floor");
+        assert!(zero.contains("--recall-floor must be finite in (0, 1]"));
+    }
+
+    #[test]
+    fn happy_mode_requires_node_seven_for_durable_probe() {
+        let too_few = Request::parse(&strings(&[
+            "--root",
+            "vault",
+            "--nodes",
+            "7",
+            "--recall-floor",
+            "0.9",
+        ]))
+        .expect_err("node 7 probe requires at least eight nodes");
+        assert!(too_few.contains("--nodes must be at least 8 in happy mode"));
+
+        let enough = Request::parse(&strings(&[
+            "--root",
+            "vault",
+            "--nodes",
+            "8",
+            "--recall-floor",
+            "0.9",
+        ]))
+        .expect("eight nodes include node 7");
+        assert_eq!(enough.nodes, 8);
+    }
+
+    #[test]
+    fn rejects_zero_nodes_before_happy_mode_execution() {
+        let error = Request::parse(&strings(&[
+            "--root",
+            "vault",
+            "--nodes",
+            "0",
+            "--recall-floor",
+            "0.9",
+        ]))
+        .expect_err("zero nodes");
+        assert!(error.contains("--nodes must be positive"));
+    }
+
+    #[test]
     fn rejects_invalid_recall_floor() {
         let args = strings(&["--root", "vault", "--recall-floor", "1.1"]);
         let error = Request::parse(&args).expect_err("recall floor > 1");
-        assert!(error.contains("--recall-floor must be finite in [0, 1]"));
+        assert!(error.contains("--recall-floor must be finite in (0, 1]"));
     }
 
     #[test]
@@ -304,6 +367,8 @@ mod tests {
         let args = strings(&[
             "--root",
             "vault",
+            "--recall-floor",
+            "0.9",
             "--pq-subvectors",
             "4",
             "--pq-centroids",
@@ -324,7 +389,14 @@ mod tests {
 
     #[test]
     fn parses_build_backend() {
-        let args = strings(&["--root", "vault", "--build-backend", "cuvs-cagra"]);
+        let args = strings(&[
+            "--root",
+            "vault",
+            "--recall-floor",
+            "0.9",
+            "--build-backend",
+            "cuvs-cagra",
+        ]);
         let request = Request::parse(&args).expect("parse");
         assert_eq!(request.build_backend, DiskAnnBuildBackend::CuvsCagra);
     }

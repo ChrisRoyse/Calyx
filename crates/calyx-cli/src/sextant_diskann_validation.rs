@@ -183,7 +183,9 @@ fn enforce_recall_floor(
     hits_path: &Path,
 ) -> crate::error::CliResult {
     let Some(floor) = floor else {
-        return Ok(());
+        return Err(CliError::usage(
+            "CALYX_FSV_DISKANN_INVALID_CONFIG: happy mode requires --recall-floor in (0, 1]",
+        ));
     };
     if summary.recall_at_10_min + f64::EPSILON < floor {
         return Err(CliError::runtime(format!(
@@ -463,6 +465,22 @@ mod tests {
             error
                 .to_string()
                 .contains("CALYX_FSV_DISKANN_RECALL_BELOW_FLOOR")
+        );
+    }
+
+    #[test]
+    fn recall_floor_rejects_missing_happy_floor() {
+        let error = enforce_recall_floor(
+            &summary_with_recall(1.0),
+            None,
+            Path::new("summary.json"),
+            Path::new("hits.tsv"),
+        )
+        .expect_err("missing happy recall floor");
+        assert!(
+            error
+                .to_string()
+                .contains("happy mode requires --recall-floor")
         );
     }
 

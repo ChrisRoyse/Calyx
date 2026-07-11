@@ -405,15 +405,19 @@ durable vaults with default `--vault-id`/`--salt` unless overridden.
 
 `--corpus-jsonl --queries-jsonl --qrels --metrics-dir --vault` (all required);
 optional `--query-limit` (50), `--k` (10), `--min-delta` (0.15),
-`--vault-id` (default ULID), `--salt` (`calyx-ph70-sextant-recall`). Creates the
-metrics dir; writes metric outputs; prints evidence.
+`--vault-id` (default ULID), `--salt` (`calyx-ph70-sextant-recall`). Real-panel
+validation adds `--packed-panel-json` and requires an explicitly positive
+`--min-fusion-gain`; `--lens-catalog` is optional. Creates the metrics dir;
+writes metric outputs; prints evidence.
 
 ### `sextant diskann-validate` (`sextant_diskann_validation`)
 
 `--root` (required); optional `--mode` (`happy`; also
-`empty|dim-mismatch|truncated|missing-raw`), `--nodes` (1000), `--dim` (64),
-`--queries` (128), `--k` (10), `--beamwidth` (32), `--ef-search` (128),
-`--rescore-k` (64). Builds a DiskANN index under `<root>/idx/...` and writes
+`empty|dim-mismatch|truncated|missing-raw|corrupt-pq`), `--nodes` (1000),
+`--dim` (64), `--queries` (128), `--k` (10), `--beamwidth` (32),
+`--ef-search` (128), `--rescore-k` (64). Happy mode requires
+`--recall-floor` in `(0, 1]` and at least 8 nodes; edge modes do not require a
+floor. Builds a DiskANN index under `<root>/idx/...` and writes
 `<root>/metrics/diskann_*.json`.
 
 ### `media image-validate` (`media_image_validation`)

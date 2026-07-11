@@ -152,6 +152,12 @@ impl RecallRequest {
                     .into(),
             );
         }
+        if self.real_panel_enabled() && self.min_fusion_gain <= 0.0 {
+            return Err(
+                "CALYX_FSV_SEXTANT_INVALID_CONFIG: real-panel --min-fusion-gain must be explicitly positive"
+                    .into(),
+            );
+        }
         if !self.reranker_endpoint.starts_with("http://") {
             return Err(
                 "CALYX_FSV_SEXTANT_INVALID_CONFIG: --reranker-endpoint must be http://".into(),

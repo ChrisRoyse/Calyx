@@ -150,7 +150,9 @@ pub(crate) fn usage() -> &'static str {
        calyx intelligence abundance --vault <dir>
        calyx anneal growth-curve --vault <dir> [--last <n>]
        calyx anneal goodhart-check --fixture <json> --vault <dir> --vault-id <id> --salt <s>
-       calyx sextant recall-validate --corpus-jsonl <jsonl> --queries-jsonl <jsonl> --qrels <tsv> --metrics-dir <dir> --vault <dir> [--query-limit <n>] [--min-delta <f>]
+       calyx sextant recall-validate --corpus-jsonl <jsonl> --queries-jsonl <jsonl> --qrels <tsv> --metrics-dir <dir> --vault <dir> [--query-limit <n>] [--min-delta <f>] [--packed-panel-json <json> --min-fusion-gain <positive> [--lens-catalog <dir>]]
+       calyx sextant diskann-validate --root <dir> [--mode happy] --recall-floor <0<f<=1> [--nodes <n>=8] [--dim <n>] [--queries <n>] [--k <n>]
+       calyx sextant diskann-validate --root <dir> --mode <empty|dim-mismatch|truncated|missing-raw|corrupt-pq> [validation options]
        calyx lodestar kernel-validate --corpora-dir <dir> --metrics-dir <dir> [--query-limit <n>] [--top-k <n>] [--min-ratio <f>]
        calyx summarize --vault <dir> --scope <json|@file> --out <json> [--graph <id>] [--as-of <ms>] [--anchor-label <label>] [--max-kernel-size <n>] [--require-grounded]
        calyx media image-validate --samples <jsonl> --metrics-dir <dir> --vault <dir> [--min-image-bits <f>] [--min-cross-modal-bits <f>] [--k <n>]
