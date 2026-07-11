@@ -31,7 +31,8 @@ live path.
 - [x] `ShadowExecutor { registry, replay, budget, clock }` receives a
   `BudgetHandle` and injected `&dyn Clock`; `shadow.rs` does not call
   `SystemTime::now()`.
-- [x] `run_shadow` runs candidate and incumbent over replay, averages metric
+- [x] `run_shadow` accepts distinct candidate and incumbent action types, runs
+  both over replay, averages metric
   pairs, checks the candidate through `TripwireRegistry`, and promotes only when
   every metric passes and dominates the incumbent (`RecallAtK` higher is better;
   FAR/FRR/search p99/ingest p95 lower is better).
@@ -40,11 +41,24 @@ live path.
 - [x] Empty replay returns `ShadowRevertReason::InsufficientReplay`.
 - [x] Missing or non-finite metrics fail closed with explicit
   `MissingMetric`/`InvalidMetric` reasons and no partial query-count advance.
+- [x] Action measurement errors fail closed with
+  `MeasurementFailed { side, code }`; no failed query contributes partial
+  metrics.
 
-`AnnealAction::apply_shadow` returns an `ActionMetricSnapshot`, the single-sided
-metric vector for one action on one query. `MetricSnapshot` is reserved for the
-shadow verdict's paired candidate/incumbent comparisons. This keeps the public
-types honest: action output is one-sided; verdict output is paired and auditable.
+`AnnealAction::apply_shadow` returns `Result<ActionMetricSnapshot>`, the
+single-sided metric vector for one action on one query. `MetricSnapshot` is
+reserved for the shadow verdict's paired candidate/incumbent comparisons. This
+keeps the public types honest: action output is one-sided; verdict output is
+paired and auditable.
+
+Artifact-backed live changes use `ArtifactReplayMeasurer::measure(key,
+artifact, query)`. `AnnealSubstrate` prepares the rollback snapshot first, then
+measures the candidate pointer and the exact `prior_ptr` captured by that
+snapshot independently. A missing measurer returns
+`CALYX_ANNEAL_SHADOW_MEASUREMENT_MISSING` through a candidate-side
+`MeasurementFailed` verdict and rejects the prepared change. This is a safety
+boundary, not synthetic promotion evidence: a production path can promote only
+after it installs a real artifact-specific measurer for all five metrics.
 
 ## Tests
 
@@ -54,10 +68,13 @@ types honest: action output is one-sided; verdict output is paired and auditable
 - [x] Proptest checks dominance always promotes for threshold-safe values.
 - [x] Empty replay, single-query equality, and budget-zero edges are covered.
 - [x] Missing and invalid metric edges fail closed.
+- [x] Artifact tests prove distinct candidate/incumbent pointer invocation,
+  exact rollback-snapshot prior binding, measurement-error side attribution,
+  and missing-measurer rejection with the incumbent pointer unchanged.
 
 ## FSV
 
-T05 Ledger logging is not implemented yet, so T02's source of truth is a durable
+The original T02 run predated the Ledger integration and recorded a durable
 shadow verdict artifact plus a synthetic live config pointer:
 
 - Evidence root:
@@ -69,8 +86,10 @@ shadow verdict artifact plus a synthetic live config pointer:
 - `vault/.anneal/tripwire.toml` is the physical tripwire config used by the run.
 - `BLAKE3SUMS.txt` seals the artifacts for byte readback.
 
-When T05 lands, the durable JSON artifact should be replaced or supplemented by
-the Anneal Ledger CF row with `kind=Anneal`.
+That historical evidence is retained for provenance but does not verify a live
+artifact measurer. Current verification must use real Calyx/Aster state and the
+Anneal Ledger CF before/action/after readback; test fixtures and persisted JSON
+are not production measurement evidence.
 
 ## Done when
 

@@ -5,8 +5,8 @@ use calyx_core::{Constellation, Result};
 use super::codec::{encode_head_rows, head_state_artifact_key, heads_hash};
 use super::update::{update_reverted, validate_update};
 use super::{
-    HeadKind, HeadPromotionGate, HeadShadowProposal, HeadStorage, HeadUpdateOutcome, OnlineHead,
-    OnlineHeadState, dot, summaries_from_maps,
+    HeadKind, HeadPromotionGate, HeadStorage, HeadUpdateOutcome, OnlineHead, OnlineHeadState, dot,
+    summaries_from_maps,
 };
 use crate::{
     AnnealLedgerAction, AnnealSubstrate, ArtifactPtr, BudgetProbe, ChangeId, ChangeOutcome,
@@ -117,14 +117,10 @@ where
             "online_head_update batch={} lr={lr:.6} fisher_weight={fisher_weight:.6} regression_rate={rate:.6}",
             batch.len()
         );
-        let proposal = HeadShadowProposal::stable();
-        match self.substrate.propose_head_change(
-            key,
-            candidate_ptr,
-            &proposal,
-            &proposal,
-            &description,
-        )? {
+        match self
+            .substrate
+            .propose_head_change(key, candidate_ptr, &description)?
+        {
             ChangeOutcome::Promoted(change_id) => {
                 if config.exceeds(&report)? {
                     self.substrate

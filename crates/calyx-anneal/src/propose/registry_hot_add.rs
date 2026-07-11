@@ -10,7 +10,7 @@ use calyx_registry::{
 
 use super::{
     CALYX_REGISTRY_HOT_ADD_FAIL, CandidateLens, CommissionSpec, ConversionTarget,
-    ExpectedTargetCost, HotAddAction, HotAddPlan, HotAddReceipt, LensHotAdder,
+    ExpectedTargetCost, HotAddPlan, HotAddReceipt, LensHotAdder,
 };
 use crate::{ArtifactKey, ArtifactPtr};
 
@@ -49,8 +49,6 @@ impl LensHotAdder for RegistryHotAdder<'_> {
                 &candidate_hash,
                 &panel_hash,
             ])),
-            candidate_action: HotAddAction::stable(),
-            incumbent_action: HotAddAction::stable(),
             description: format!(
                 "lens_proposal hot_add candidate={}",
                 hex_prefix(candidate_hash, 12)

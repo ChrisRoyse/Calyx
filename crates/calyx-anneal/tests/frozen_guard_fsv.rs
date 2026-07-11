@@ -5,8 +5,8 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
 use calyx_anneal::{
-    ChangeOutcome, FrozenLensGuard, FrozenLensSource, HeadKind, HeadPromotionGate,
-    HeadShadowProposal, HeadStorage, MistakeRef, OnlineHead, OnlineHeadState, ReplayEntry,
+    ChangeOutcome, FrozenLensGuard, FrozenLensSource, HeadKind, HeadPromotionGate, HeadStorage,
+    MistakeRef, OnlineHead, OnlineHeadState, ReplayEntry,
 };
 use calyx_core::{CalyxError, CxId, FixedClock, LensId, Modality, Result};
 use calyx_registry::{AlgorithmicLens, FrozenLensSnapshot, Registry};
@@ -172,8 +172,6 @@ impl HeadPromotionGate for ScriptedGate {
         &mut self,
         _key: calyx_anneal::ArtifactKey,
         _candidate_ptr: calyx_anneal::ArtifactPtr,
-        _candidate: &HeadShadowProposal,
-        _incumbent: &HeadShadowProposal,
         _description: &str,
     ) -> Result<ChangeOutcome> {
         Ok(ChangeOutcome::Promoted(calyx_anneal::ChangeId(

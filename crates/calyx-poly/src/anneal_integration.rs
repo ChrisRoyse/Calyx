@@ -200,13 +200,14 @@ impl StaticMetricAction {
 }
 
 impl AnnealAction for StaticMetricAction {
-    fn apply_shadow(&self, query: &ReplayQuery) -> ActionMetricSnapshot {
-        self.by_query
+    fn apply_shadow(&self, query: &ReplayQuery) -> calyx_core::Result<ActionMetricSnapshot> {
+        Ok(self
+            .by_query
             .get(&query.query_id)
             .cloned()
             .unwrap_or_else(|| {
                 ActionMetricSnapshot::from_values(std::iter::empty::<(TripwireMetric, f64)>())
-            })
+            }))
     }
 }
 

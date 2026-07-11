@@ -4,15 +4,9 @@ use calyx_ledger::LedgerCfStore;
 use super::{HeadKind, OnlineHead, dot, invalid_row, validate_head};
 use crate::CALYX_ANNEAL_HEAD_UPDATE_REVERTED;
 use crate::{
-    ActionMetricSnapshot, AnnealAction, AnnealLedgerAction, AnnealLedgerActionPair,
-    AnnealSubstrate, ArtifactKey, ArtifactPtr, BudgetProbe, ChangeId, ChangeOutcome, ReplayEntry,
-    RollbackStorage, ShadowRevertReason, TripwireMetric,
+    AnnealLedgerAction, AnnealLedgerActionPair, AnnealSubstrate, ArtifactKey, ArtifactPtr,
+    BudgetProbe, ChangeId, ChangeOutcome, ReplayEntry, RollbackStorage, ShadowRevertReason,
 };
-
-#[derive(Clone, Debug)]
-pub struct HeadShadowProposal {
-    metrics: ActionMetricSnapshot,
-}
 
 pub trait HeadPromotionGate {
     fn ensure_head_prior(&mut self, key: ArtifactKey, ptr: ArtifactPtr) -> Result<()>;
@@ -20,8 +14,6 @@ pub trait HeadPromotionGate {
         &mut self,
         key: ArtifactKey,
         candidate_ptr: ArtifactPtr,
-        candidate: &HeadShadowProposal,
-        incumbent: &HeadShadowProposal,
         description: &str,
     ) -> Result<ChangeOutcome>;
     fn rollback_head_change(&mut self, _change_id: ChangeId, _description: String) -> Result<()> {
@@ -46,26 +38,6 @@ pub trait HeadPromotionGate {
     }
 }
 
-impl HeadShadowProposal {
-    pub(crate) fn stable() -> Self {
-        Self {
-            metrics: ActionMetricSnapshot::from_values([
-                (TripwireMetric::RecallAtK, 0.95),
-                (TripwireMetric::GuardFAR, 0.001),
-                (TripwireMetric::GuardFRR, 0.001),
-                (TripwireMetric::SearchP99, 50.0),
-                (TripwireMetric::IngestP95, 80.0),
-            ]),
-        }
-    }
-}
-
-impl AnnealAction for HeadShadowProposal {
-    fn apply_shadow(&self, _query: &crate::ReplayQuery) -> ActionMetricSnapshot {
-        self.metrics.clone()
-    }
-}
-
 impl<'a, R, L, C, P> HeadPromotionGate for AnnealSubstrate<'a, R, L, C, P>
 where
     R: RollbackStorage,
@@ -84,15 +56,11 @@ where
         &mut self,
         key: ArtifactKey,
         candidate_ptr: ArtifactPtr,
-        candidate: &HeadShadowProposal,
-        incumbent: &HeadShadowProposal,
         description: &str,
     ) -> Result<ChangeOutcome> {
-        self.propose_change_with_actions(
+        self.propose_artifact_change_with_actions(
             key,
             candidate_ptr,
-            candidate,
-            incumbent,
             AnnealLedgerActionPair::new(
                 AnnealLedgerAction::HeadUpdate,
                 AnnealLedgerAction::HeadUpdateReverted,

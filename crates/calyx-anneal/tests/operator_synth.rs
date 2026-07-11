@@ -4,9 +4,9 @@ use std::sync::{Arc, Mutex};
 
 use calyx_anneal::{
     AnchorGap, CALYX_ANNEAL_OPERATOR_NO_GAIN, CALYX_ASSAY_INVALID_METRIC, ChangeId, ChangeOutcome,
-    DeficitMap, HeadKind, OperatorPromotionGate, OperatorProposalStorage, OperatorShadowProposal,
-    OperatorTerminalState, ProposeOperator, ProposeOperatorRequest, ProposedOperator,
-    ShadowRevertReason, decode_operator_proposal_rows,
+    DeficitMap, HeadKind, OperatorPromotionGate, OperatorProposalStorage, OperatorTerminalState,
+    ProposeOperator, ProposeOperatorRequest, ProposedOperator, ShadowRevertReason,
+    decode_operator_proposal_rows,
 };
 use calyx_core::{FixedClock, Modality, Result};
 
@@ -266,8 +266,7 @@ impl OperatorPromotionGate for ScriptedGate {
         &mut self,
         _key: calyx_anneal::ArtifactKey,
         _candidate_ptr: calyx_anneal::ArtifactPtr,
-        _candidate: &OperatorShadowProposal,
-        _incumbent: &OperatorShadowProposal,
+        _details: serde_json::Value,
         _description: &str,
     ) -> Result<ChangeOutcome> {
         self.proposed.fetch_add(1, Ordering::SeqCst);

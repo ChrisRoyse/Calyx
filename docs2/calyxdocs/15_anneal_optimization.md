@@ -254,16 +254,23 @@ requires all five metrics present, persists the TOML, and resets state. Errors:
 
 ### 4.2 Candidate interface
 
-`trait AnnealAction { fn apply_shadow(&self, query: &ReplayQuery) -> ActionMetricSnapshot; }`
-(`Send + Sync`). Both the candidate and the incumbent implement it; the executor runs
-both on each replay query and compares.
+`trait AnnealAction { fn apply_shadow(&self, query: &ReplayQuery) ->
+Result<ActionMetricSnapshot>; }` (`Send + Sync`). Candidate and incumbent can be
+different action types; the executor runs both on each replay query and compares.
+
+Live artifact changes use `ArtifactReplayMeasurer::measure(key, artifact, query)`.
+The substrate prepares the rollback snapshot before constructing the actions, so
+the incumbent measurement is bound to the snapshot's exact `prior_ptr`. Missing
+providers fail closed with `CALYX_ANNEAL_SHADOW_MEASUREMENT_MISSING`; they never
+synthesize a passing snapshot.
 
 ### 4.3 `ShadowExecutor::run_shadow(candidate, incumbent)` steps
 
 1. If the replay is empty → `Revert{ InsufficientReplay }`.
 2. For each replay query: `budget.try_consume()` first — if the cooperative budget tick
    is exhausted → `Revert{ BudgetExhausted }` with the metrics gathered so far. Then call
-   `candidate.apply_shadow(query)` and `incumbent.apply_shadow(query)`.
+   `candidate.apply_shadow(query)` and `incumbent.apply_shadow(query)`. An action error
+   returns `Revert{ MeasurementFailed{ side, code } }` without counting that query.
 3. The `MetricAccumulator` validates that **every** of the five metrics is present and
    finite on both sides (`MissingMetric{metric, side}` / `InvalidMetric{metric, side}`
    → revert) and accumulates per-metric sums.
@@ -293,7 +300,8 @@ ShadowRevertReason, metrics }`.
 
 `ShadowRevertReason` (serde tag `reason`, content `details`): `TripwireCrossed(metric)`,
 `MetricRegression(metric)`, `BudgetExhausted`, `InsufficientReplay`, `MissingMetric{
-metric, side }`, `InvalidMetric{ metric, side }`, `TripwireError{ metric, code: String }`.
+metric, side }`, `InvalidMetric{ metric, side }`, `MeasurementFailed{ side, code: String }`,
+`TripwireError{ metric, code: String }`.
 `MetricSide`: `Candidate` | `Incumbent`.
 
 ### 4.6 Soak harness (extended shadow run)

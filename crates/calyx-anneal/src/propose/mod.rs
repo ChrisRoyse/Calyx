@@ -34,14 +34,13 @@ pub use operator_synth::{
     ANNEAL_OPERATOR_PROPOSAL_TAG, AsterOperatorProposalStorage,
     CALYX_ANNEAL_OPERATOR_INVALID_RECORD, CALYX_ANNEAL_OPERATOR_NO_GAIN, OperatorPromotionGate,
     OperatorProposalConfig, OperatorProposalOutcome, OperatorProposalReadback,
-    OperatorProposalRecord, OperatorProposalStorage, OperatorShadowProposal, OperatorTerminalState,
-    ProposeOperator, ProposeOperatorRequest, ProposedOperator, decode_operator_proposal,
+    OperatorProposalRecord, OperatorProposalStorage, OperatorTerminalState, ProposeOperator,
+    ProposeOperatorRequest, ProposedOperator, decode_operator_proposal,
     decode_operator_proposal_rows, encode_operator_proposal, operator_proposal_key,
     propose_operator,
 };
 pub use propose_lens::{
-    CALYX_REGISTRY_HOT_ADD_FAIL, HotAddAction, HotAddPlan, HotAddReceipt, LensHotAdder,
-    ProposalOutcome, ProposalSubstrate, ProposalTerminalState, ProposeLens, ProposeLensRequest,
-    propose_lens,
+    CALYX_REGISTRY_HOT_ADD_FAIL, HotAddPlan, HotAddReceipt, LensHotAdder, ProposalOutcome,
+    ProposalSubstrate, ProposalTerminalState, ProposeLens, ProposeLensRequest, propose_lens,
 };
 pub use registry_hot_add::RegistryHotAdder;

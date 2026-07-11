@@ -80,13 +80,15 @@ Shadow execution replays held-out queries against a candidate and incumbent acti
 
 Key types: `ReplayQuery { query_id, query_vector, expected_top_k }`, `HeldOutReplay { queries, seed }`, `ReplayAnchor { cx_id, similarity }`. `HeldOutReplay::sample(queries, n, seed)` deterministically shuffles with `ChaCha8Rng::seed_from_u64(seed)` and truncates to `n` (`src/shadow.rs:41`). `build_replay` constructs from a `ReplaySource` (`:53`).
 
-Actions implement `AnnealAction::apply_shadow(query) -> ActionMetricSnapshot` (`:113`). The same `SHADOW_METRICS` set of 5 is used (`:11`).
+Actions implement `AnnealAction::apply_shadow(query) -> Result<ActionMetricSnapshot>`. Candidate and incumbent may use different action types. The same `SHADOW_METRICS` set of 5 is used.
+
+Artifact-backed changes implement measurement through `ArtifactReplayMeasurer::measure(key, artifact, query)`. The action is bound to an exact `ArtifactKey` and `ArtifactPtr`; a missing provider fails closed with `CALYX_ANNEAL_SHADOW_MEASUREMENT_MISSING`.
 
 ### Shadow rollback algorithm — `ShadowExecutor::run_shadow` (`src/shadow.rs:139`)
 
 1. `evaluated_at = clock.now()`. If replay empty → `Revert { InsufficientReplay }` (`:144`).
 2. For each query: consume one budget tick (`budget.try_consume()`); if exhausted → `Revert { BudgetExhausted }` with partial metrics (`:153`).
-3. Apply candidate and incumbent; accumulate via `MetricAccumulator::add_query`. Missing metric → `Revert { MissingMetric { metric, side } }`; non-finite → `Revert { InvalidMetric { metric, side } }` (`:251-288`).
+3. Apply candidate and incumbent independently. An action error becomes `Revert { MeasurementFailed { side, code } }`. Otherwise accumulate via `MetricAccumulator::add_query`; a missing metric becomes `MissingMetric { metric, side }` and a non-finite value becomes `InvalidMetric { metric, side }`.
 4. Build per-metric mean comparison (`candidate_total/count`, `incumbent_total/count`, `:290`).
 5. For each comparison: run `registry.check(metric, candidate_value)`:
    - `Crossed` → `Revert { TripwireCrossed(metric) }`
@@ -96,7 +98,7 @@ Actions implement `AnnealAction::apply_shadow(query) -> ActionMetricSnapshot` (`
 
 `regressed` (`:333`): for `RecallAtK`, candidate worse if `candidate + ε < incumbent`; for the four `Above` metrics, worse if `candidate > incumbent + ε`. `COMPARE_EPSILON = 1e-12` (`:19`).
 
-`ShadowVerdict` = `Promote { metrics } | Revert { reason, metrics }`. `ShadowRevertReason` variants: `TripwireCrossed`, `MetricRegression`, `BudgetExhausted`, `InsufficientReplay`, `MissingMetric`, `InvalidMetric`, `TripwireError` (`:218-235`).
+`ShadowVerdict` = `Promote { metrics } | Revert { reason, metrics }`. `ShadowRevertReason` variants: `TripwireCrossed`, `MetricRegression`, `BudgetExhausted`, `InsufficientReplay`, `MissingMetric`, `InvalidMetric`, `MeasurementFailed`, `TripwireError`.
 
 ---
 
@@ -133,15 +135,16 @@ Transition guards:
 
 ## 13.5 Substrate orchestration (`src/integration_fsv.rs`)
 
-`AnnealSubstrate<'a, R, L, C, P>` bundles `tripwires`, `replay`, `rollback`, `ledger`, `budget`, and clock (`src/integration_fsv.rs:68`). Default shadow budget request: `DEFAULT_SHADOW_CPU_WEIGHT = 0.01`, `DEFAULT_SHADOW_VRAM_BYTES = 0` (`:17-18`), overridable via `with_budget_request`.
+`AnnealSubstrate<'a, R, L, C, P>` bundles `tripwires`, `replay`, `rollback`, `ledger`, `budget`, an optional artifact replay measurer, and the clock. Default shadow budget request: `DEFAULT_SHADOW_CPU_WEIGHT = 0.01`, `DEFAULT_SHADOW_VRAM_BYTES = 0`, overridable via `with_budget_request`.
 
 ### Propose-change pipeline — `propose_change_with_actions_and_details` (`:180`)
 
-1. `rollback.prepare_with_description(key, candidate_ptr, description)` → `change_id` (`:193`).
-2. `rollback.readback(change_id)` for ledger hashing (`:196`).
-3. `shadow_verdict(candidate, incumbent)` (`:326`): acquire shadow budget; if `CALYX_ANNEAL_BUDGET_EXHAUSTED` → `Revert { BudgetExhausted }`; else run `ShadowExecutor::run_shadow`.
-4. On `Promote`: write the promote ledger entry (with metrics + optional details), `rollback.promote(change_id)`, return `ChangeOutcome::Promoted(change_id)` (`:199-211`).
-5. On `Revert`: `rollback.rollback(change_id)`, write the revert ledger entry, return `ChangeOutcome::Reverted { reason, change_id }` (`:212-224`).
+1. `prepare_change` reserves the rollback snapshot and reads it back for ledger hashing.
+2. Generic callers pass explicit candidate/incumbent actions to `shadow_verdict`.
+3. Artifact callers use `propose_artifact_change_*`: construct the candidate action from the requested pointer and the incumbent action from the snapshot's exact `prior_ptr`, then run both through the configured `ArtifactReplayMeasurer`. No measurer means a fail-closed revert.
+4. `shadow_verdict` acquires the shadow budget; if `CALYX_ANNEAL_BUDGET_EXHAUSTED` it returns `Revert { BudgetExhausted }`, otherwise it runs `ShadowExecutor::run_shadow`.
+5. On `Promote`: write the promote ledger entry (with metrics + optional details), promote the prepared pointer, and return `ChangeOutcome::Promoted(change_id)`.
+6. On `Revert`: reject the prepared change, write the revert ledger entry, and return `ChangeOutcome::Reverted { reason, change_id }`.
 
 `ChangeOutcome = Promoted(ChangeId) | Reverted { reason, change_id }` (`:21`). Default action pair is `(Promote, Revert)`; callers may pass custom `AnnealLedgerActionPair` and JSON details. Other helpers: `rollback_explicit_with_action`, `write_sleep_pass_deferred`, `write_outcome_event_with_details`, `status` (returns tripwire states + budget + last 16 ledger entries). Ledger pointer hashes: `ArtifactPtr::HnswGraphPath` hashed via `full_content_hash`; the others carry their own `[u8;32]` (`:393-398`). Error code `CALYX_LEDGER_WRITE_FAIL` wraps ledger failures (`:404`).
 

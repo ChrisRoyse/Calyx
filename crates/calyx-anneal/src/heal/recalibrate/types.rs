@@ -146,8 +146,8 @@ pub enum LensParkOutcome {
 pub(super) struct TauShadowAction(pub(super) ActionMetricSnapshot);
 
 impl AnnealAction for TauShadowAction {
-    fn apply_shadow(&self, _query: &ReplayQuery) -> ActionMetricSnapshot {
-        self.0.clone()
+    fn apply_shadow(&self, _query: &ReplayQuery) -> Result<ActionMetricSnapshot> {
+        Ok(self.0.clone())
     }
 }
 
