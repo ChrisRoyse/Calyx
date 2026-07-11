@@ -13,10 +13,10 @@ pub use storage::{
 };
 pub use types::{
     CALYX_ANNEAL_SOAK_INVALID_CONFIG, CALYX_ANNEAL_SOAK_INVALID_ROW,
-    CALYX_ANNEAL_SOAK_TIME_BUDGET_EXHAUSTED, DEFAULT_SOAK_OSCILLATION_WINDOW,
-    DEFAULT_SOAK_P99_TARGET_REDUCTION, DEFAULT_SOAK_QUERIES, DEFAULT_SOAK_SAMPLE_INTERVAL,
-    DEFAULT_SOAK_SEED, MetricSample, SeededSoakProfile, SoakConfig, SoakMetrics, SoakMode,
-    SoakReport, SoakRowKind, SoakStoredRow,
+    CALYX_ANNEAL_SOAK_LIVE_TRAFFIC_UNAVAILABLE, CALYX_ANNEAL_SOAK_TIME_BUDGET_EXHAUSTED,
+    DEFAULT_SOAK_OSCILLATION_WINDOW, DEFAULT_SOAK_P99_TARGET_REDUCTION, DEFAULT_SOAK_QUERIES,
+    DEFAULT_SOAK_SAMPLE_INTERVAL, DEFAULT_SOAK_SEED, MetricSample, SeededSoakProfile, SoakConfig,
+    SoakMetrics, SoakMode, SoakReport, SoakRowKind, SoakStoredRow,
 };
 
 use crate::{
@@ -124,6 +124,9 @@ where
         C: Clock,
     {
         validate_config(&self.config)?;
+        if self.config.mode == SoakMode::LiveTraffic {
+            return Err(live_traffic_unavailable());
+        }
         validate_profile(self.profile)?;
         self.metrics.samples.clear();
         let run_id = self.run_id();
@@ -438,6 +441,14 @@ fn invalid_config(message: impl Into<String>) -> CalyxError {
         code: CALYX_ANNEAL_SOAK_INVALID_CONFIG,
         message: message.into(),
         remediation: "repair SoakConfig or seeded soak profile before running the soak",
+    }
+}
+
+fn live_traffic_unavailable() -> CalyxError {
+    CalyxError {
+        code: CALYX_ANNEAL_SOAK_LIVE_TRAFFIC_UNAVAILABLE,
+        message: "live-traffic soak has no vault-backed replay measurement provider".to_string(),
+        remediation: "install an independently measured vault-backed replay provider before selecting SoakMode::LiveTraffic; use SoakMode::Seeded only for explicit simulation",
     }
 }
 

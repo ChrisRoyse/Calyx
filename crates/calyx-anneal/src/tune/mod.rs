@@ -55,9 +55,10 @@ pub use scope_storage::{
 };
 pub use soak_harness::{
     AsterSoakStorage, CALYX_ANNEAL_SOAK_INVALID_CONFIG, CALYX_ANNEAL_SOAK_INVALID_ROW,
-    CALYX_ANNEAL_SOAK_TIME_BUDGET_EXHAUSTED, DEFAULT_SOAK_OSCILLATION_WINDOW,
-    DEFAULT_SOAK_P99_TARGET_REDUCTION, DEFAULT_SOAK_QUERIES, DEFAULT_SOAK_SAMPLE_INTERVAL,
-    DEFAULT_SOAK_SEED, MetricSample, NoopSoakStorage, SeededSoakProfile, SoakConfig, SoakHarness,
-    SoakMetrics, SoakMode, SoakReport, SoakRowKind, SoakStorage, SoakStoredRow, check_oscillation,
-    decode_soak_reports, decode_soak_row, encode_soak_row, soak_report_key, soak_sample_key,
+    CALYX_ANNEAL_SOAK_LIVE_TRAFFIC_UNAVAILABLE, CALYX_ANNEAL_SOAK_TIME_BUDGET_EXHAUSTED,
+    DEFAULT_SOAK_OSCILLATION_WINDOW, DEFAULT_SOAK_P99_TARGET_REDUCTION, DEFAULT_SOAK_QUERIES,
+    DEFAULT_SOAK_SAMPLE_INTERVAL, DEFAULT_SOAK_SEED, MetricSample, NoopSoakStorage,
+    SeededSoakProfile, SoakConfig, SoakHarness, SoakMetrics, SoakMode, SoakReport, SoakRowKind,
+    SoakStorage, SoakStoredRow, check_oscillation, decode_soak_reports, decode_soak_row,
+    encode_soak_row, soak_report_key, soak_sample_key,
 };
