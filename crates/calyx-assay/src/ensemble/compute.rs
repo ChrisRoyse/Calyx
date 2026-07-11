@@ -258,7 +258,7 @@ fn pair_values(
             let sig_a = row_signature(&lenses[a].vectors);
             let sig_b = row_signature(&lenses[b].vectors);
             let nmi = partitioned_histogram_nmi(&sig_a, &sig_b, bins)?.nmi;
-            let corr = pearson_abs(&sig_a, &sig_b);
+            let corr = linear_cka(&lenses[a].vectors, &lenses[b].vectors);
             pairs.push(EnsemblePairValue {
                 a: lenses[a].name.clone(),
                 b: lenses[b].name.clone(),
@@ -305,28 +305,56 @@ fn row_signature(rows: &[Vec<f32>]) -> Vec<f32> {
         .collect()
 }
 
-fn pearson_abs(a: &[f32], b: &[f32]) -> f32 {
-    let n = a.len().min(b.len());
-    if n == 0 {
+fn linear_cka(a: &[Vec<f32>], b: &[Vec<f32>]) -> f32 {
+    let rows = a.len().min(b.len());
+    if rows == 0 {
         return 0.0;
     }
-    let mean_a = a.iter().take(n).sum::<f32>() / n as f32;
-    let mean_b = b.iter().take(n).sum::<f32>() / n as f32;
-    let mut num = 0.0;
-    let mut den_a = 0.0;
-    let mut den_b = 0.0;
-    for idx in 0..n {
-        let da = a[idx] - mean_a;
-        let db = b[idx] - mean_b;
-        num += da * db;
-        den_a += da * da;
-        den_b += db * db;
+
+    let mean_a = column_means(a, rows);
+    let mean_b = column_means(b, rows);
+    let mut alignment = 0.0_f64;
+    let mut norm_a = 0.0_f64;
+    let mut norm_b = 0.0_f64;
+    for left in 0..rows {
+        for right in 0..=left {
+            let gram_a = centered_dot(&a[left], &a[right], &mean_a);
+            let gram_b = centered_dot(&b[left], &b[right], &mean_b);
+            let weight = if left == right { 1.0 } else { 2.0 };
+            alignment += weight * gram_a * gram_b;
+            norm_a += weight * gram_a * gram_a;
+            norm_b += weight * gram_b * gram_b;
+        }
     }
-    if den_a <= f32::EPSILON || den_b <= f32::EPSILON {
+
+    if norm_a <= f64::EPSILON || norm_b <= f64::EPSILON {
         0.0
     } else {
-        (num / (den_a.sqrt() * den_b.sqrt())).abs().min(1.0)
+        (alignment / (norm_a * norm_b).sqrt()).clamp(0.0, 1.0) as f32
     }
+}
+
+fn column_means(rows: &[Vec<f32>], count: usize) -> Vec<f64> {
+    let mut means = vec![0.0_f64; rows.first().map(Vec::len).unwrap_or(0)];
+    for row in rows.iter().take(count) {
+        for (mean, value) in means.iter_mut().zip(row) {
+            *mean += f64::from(*value);
+        }
+    }
+    for mean in &mut means {
+        *mean /= count as f64;
+    }
+    means
+}
+
+fn centered_dot(left: &[f32], right: &[f32], means: &[f64]) -> f64 {
+    left.iter()
+        .zip(right)
+        .zip(means)
+        .map(|((left, right), mean)| {
+            (f64::from(*left) - mean) * (f64::from(*right) - mean)
+        })
+        .sum()
 }
 
 fn max_pairwise<F>(lenses: &[EnsembleLensInput], pairs: &[EnsemblePairValue], value: F) -> Vec<f32>
