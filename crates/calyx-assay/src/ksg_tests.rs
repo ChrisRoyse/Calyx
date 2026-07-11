@@ -107,6 +107,30 @@ fn continuous_ksg_zero_joint_radius_fails_closed() {
     assert!(error.message.contains("kth joint radius is zero"));
 }
 
+#[test]
+fn mixed_ksg_zero_same_class_radius_fails_closed() {
+    let x = vec![vec![0.0]; 80];
+    let labels = (0..80).map(|index| index % 2).collect::<Vec<_>>();
+
+    let error = ksg_mi_continuous_discrete(&x, &labels, 3)
+        .expect_err("k same-class duplicates must fail closed");
+
+    assert_eq!(error.code, "CALYX_ASSAY_DEGENERATE_INPUT");
+    assert!(error.message.contains("kth same-class radius is zero"));
+}
+
+#[test]
+fn mixed_ksg_ci_requires_valid_no_replacement_subsample() {
+    let x = (0..60).map(|index| vec![index as f32]).collect::<Vec<_>>();
+    let labels = (0..60).map(|index| index % 2).collect::<Vec<_>>();
+
+    let error = ksg_mi_continuous_discrete(&x, &labels, 3)
+        .expect_err("dependent local terms must not be bootstrapped as independent samples");
+
+    assert_eq!(error.code, "CALYX_ASSAY_INSUFFICIENT_SAMPLES");
+    assert!(error.message.contains("m=48"));
+}
+
 fn old_replacement_duplicate_stats(
     n: usize,
     draws: usize,
