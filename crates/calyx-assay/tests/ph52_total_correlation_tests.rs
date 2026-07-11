@@ -166,6 +166,35 @@ fn total_correlation_edges_fail_closed_with_code() {
     assert!(unclear.ci_95.0 <= 0.0 && 0.0 <= unclear.ci_95.1);
 }
 
+#[test]
+fn exact_duplicate_rows_fail_closed_before_ci_estimation() {
+    let mut panel = independent_panel(180);
+    for slot in &mut panel {
+        for index in 1..=3 {
+            slot[index] = slot[0];
+        }
+    }
+    let tc_error = total_correlation_with_config(&panel, &clock(), &fast_config()).unwrap_err();
+
+    let mut triple = redundant_triple(180);
+    for index in 1..=3 {
+        triple.0[index] = triple.0[0];
+        triple.1[index] = triple.1[0];
+        triple.2[index] = triple.2[0];
+    }
+    let ii_error = interaction_information_with_config(
+        &triple.0,
+        &triple.1,
+        &triple.2,
+        &clock(),
+        &fast_config(),
+    )
+    .unwrap_err();
+
+    assert_eq!(tc_error.code, "CALYX_ASSAY_DEGENERATE_INPUT");
+    assert_eq!(ii_error.code, "CALYX_ASSAY_DEGENERATE_INPUT");
+}
+
 proptest! {
     #![proptest_config(calyx_testkit::integration_proptest_config(256))]
 

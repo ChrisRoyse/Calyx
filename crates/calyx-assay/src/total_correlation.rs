@@ -4,7 +4,7 @@
 //! `TC(Phi) = sum_k H(slot_k) - H(Phi)`. It complements the cheap pairwise
 //! differentiation gate; it does not replace that first-pass admission filter.
 
-use rand::{SeedableRng, seq::SliceRandom};
+use rand::SeedableRng;
 use rand_chacha::ChaCha8Rng;
 use serde::{Deserialize, Serialize};
 
@@ -13,6 +13,7 @@ use calyx_core::{CalyxError, Clock, Result, Ts};
 use crate::estimate::TrustTag;
 use crate::ksg::{MIN_ASSAY_SAMPLES, ksg_mi_continuous_point};
 use crate::samples::validate_rectangular_finite;
+use crate::subsample::{m_out_of_n_size, sample_paired_values_without_replacement};
 
 pub type SlotVectors = [Vec<f32>];
 
@@ -240,10 +241,19 @@ fn entropy_bits_ksg(samples: &[Vec<f32>], k: usize) -> Result<f32> {
             "KSG entropy requires at least {MIN_ASSAY_SAMPLES} samples and 0 < k < n; got n={n}, k={k}"
         )));
     }
-    let mean_log_radius = (0..n)
-        .map(|i| kth_radius(samples, i, k).max(f32::EPSILON).ln() as f64)
-        .sum::<f64>()
-        / n as f64;
+    let log_radius_sum = (0..n).try_fold(0.0, |sum, i| {
+        let radius = kth_radius(samples, i, k);
+        if radius == 0.0 {
+            let exact_duplicates = (0..n)
+                .filter(|&j| i != j && chebyshev(&samples[i], &samples[j]) == 0.0)
+                .count();
+            return Err(CalyxError::assay_degenerate_input(format!(
+                "KSG entropy kth radius is zero for sample {i}: exact_duplicates={exact_duplicates} k={k}"
+            )));
+        }
+        Ok(sum + radius.ln() as f64)
+    })?;
+    let mean_log_radius = log_radius_sum / n as f64;
     let dim = dim as f64;
     let h_nats =
         digamma(n as f64) - digamma(k as f64) + dim * (std::f64::consts::LN_2 + mean_log_radius);
@@ -256,11 +266,13 @@ fn bootstrap_tc_ci(
     config: &TotalCorrelationConfig,
     seed: u64,
 ) -> Result<(f32, f32)> {
+    let m = m_out_of_n_size(slots[0].len(), config.k, MIN_ASSAY_SAMPLES, "TC")?;
+    let columns = slots.iter().map(Vec::as_slice).collect::<Vec<_>>();
     let mut rng = ChaCha8Rng::seed_from_u64(seed);
     let mut estimates = Vec::with_capacity(config.bootstrap_resamples);
     for _ in 0..config.bootstrap_resamples {
-        let resampled = resample_slots(slots, &mut rng);
-        estimates.push(estimate_total_correlation(&resampled, config.k)?.tc);
+        let sampled = sample_paired_values_without_replacement(&columns, m, &mut rng)?;
+        estimates.push(estimate_total_correlation(&sampled, config.k)?.tc);
     }
     Ok(percentile_ci(estimates, point))
 }
@@ -273,11 +285,18 @@ fn bootstrap_ii_ci(
     config: &TotalCorrelationConfig,
     seed: u64,
 ) -> Result<(f32, f32)> {
+    let m = m_out_of_n_size(a.len(), config.k, MIN_ASSAY_SAMPLES, "II")?;
+    let columns = [a, b, c];
     let mut rng = ChaCha8Rng::seed_from_u64(seed);
     let mut estimates = Vec::with_capacity(config.bootstrap_resamples);
     for _ in 0..config.bootstrap_resamples {
-        let (ra, rb, rc) = resample_triple(a, b, c, &mut rng);
-        estimates.push(estimate_interaction_information(&ra, &rb, &rc, config.k)?);
+        let sampled = sample_paired_values_without_replacement(&columns, m, &mut rng)?;
+        estimates.push(estimate_interaction_information(
+            &sampled[0],
+            &sampled[1],
+            &sampled[2],
+            config.k,
+        )?);
     }
     Ok(percentile_ci(estimates, point))
 }
@@ -400,43 +419,6 @@ fn joint_matrix(slots: &SlotVectors) -> Vec<Vec<f32>> {
     (0..n)
         .map(|sample| slots.iter().map(|slot| slot[sample]).collect())
         .collect()
-}
-
-fn resample_slots(slots: &SlotVectors, rng: &mut ChaCha8Rng) -> Vec<Vec<f32>> {
-    let n = slots[0].len();
-    let indices = subsample_indices(n, rng);
-    let mut resampled = vec![Vec::with_capacity(indices.len()); slots.len()];
-    for index in indices {
-        for (slot_index, slot) in slots.iter().enumerate() {
-            resampled[slot_index].push(slot[index]);
-        }
-    }
-    resampled
-}
-
-fn resample_triple(
-    a: &[f32],
-    b: &[f32],
-    c: &[f32],
-    rng: &mut ChaCha8Rng,
-) -> (Vec<f32>, Vec<f32>, Vec<f32>) {
-    let indices = subsample_indices(a.len(), rng);
-    let mut ra = Vec::with_capacity(indices.len());
-    let mut rb = Vec::with_capacity(indices.len());
-    let mut rc = Vec::with_capacity(indices.len());
-    for index in indices {
-        ra.push(a[index]);
-        rb.push(b[index]);
-        rc.push(c[index]);
-    }
-    (ra, rb, rc)
-}
-
-fn subsample_indices(n: usize, rng: &mut ChaCha8Rng) -> Vec<usize> {
-    let mut indices = (0..n).collect::<Vec<_>>();
-    indices.shuffle(rng);
-    indices.truncate((n * 4 / 5).max(MIN_ASSAY_SAMPLES).min(n));
-    indices
 }
 
 fn kth_radius(samples: &[Vec<f32>], i: usize, k: usize) -> f32 {

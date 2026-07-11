@@ -3,7 +3,7 @@
 use std::collections::BTreeMap;
 
 use calyx_core::{Anchor, CalyxError, Result};
-use rand::{SeedableRng, seq::SliceRandom};
+use rand::SeedableRng;
 use rand_chacha::ChaCha8Rng;
 
 use crate::bootstrap::{
@@ -12,12 +12,11 @@ use crate::bootstrap::{
 };
 use crate::estimate::{EstimatorKind, MiEstimate, TrustTag, trust_for_anchor};
 use crate::samples::validate_rectangular_finite;
+use crate::subsample::{m_out_of_n_size, sample_without_replacement_indices};
 
 pub const MIN_ASSAY_SAMPLES: usize = 50;
 const KSG_BOOTSTRAP_CONFIG: BootstrapConfig =
     BootstrapConfig::new(DEFAULT_BOOTSTRAP_RESAMPLES, DEFAULT_BOOTSTRAP_SEED);
-const KSG_SUBSAMPLE_NUMERATOR: usize = 4;
-const KSG_SUBSAMPLE_DENOMINATOR: usize = 5;
 
 pub fn ksg_mi_continuous(x: &[Vec<f32>], y: &[Vec<f32>], k: usize) -> Result<MiEstimate> {
     ksg_mi_continuous_with_trust(x, y, k, TrustTag::Provisional)
@@ -84,16 +83,11 @@ fn ksg_subsample_ci(
             "KSG no-replacement CI requires at least one resample",
         ));
     }
-    let m = ksg_subsample_size(x.len(), k)?;
+    let m = m_out_of_n_size(x.len(), k, MIN_ASSAY_SAMPLES, "KSG")?;
     let mut rng = ChaCha8Rng::seed_from_u64(config.seed);
     let mut estimates = Vec::with_capacity(config.resamples);
     for _ in 0..config.resamples {
-        let indices = sample_without_replacement_indices(x.len(), m, &mut rng);
-        if !indices_are_distinct(&indices, x.len()) {
-            return Err(CalyxError::assay_insufficient_samples(
-                "KSG no-replacement CI duplicate index invariant violated",
-            ));
-        }
+        let indices = sample_without_replacement_indices(x.len(), m, &mut rng)?;
         let sampled_x: Vec<Vec<f32>> = indices.iter().map(|index| x[*index].clone()).collect();
         let sampled_y: Vec<Vec<f32>> = indices.iter().map(|index| y[*index].clone()).collect();
         estimates.push(ksg_bits_from_validated_samples(&sampled_x, &sampled_y, k));
@@ -103,34 +97,6 @@ fn ksg_subsample_ci(
         point_estimate,
         (m as f32 / x.len() as f32).sqrt(),
     ))
-}
-
-fn ksg_subsample_size(n: usize, k: usize) -> Result<usize> {
-    let m = n.saturating_mul(KSG_SUBSAMPLE_NUMERATOR) / KSG_SUBSAMPLE_DENOMINATOR;
-    if m < MIN_ASSAY_SAMPLES || k == 0 || k >= m {
-        return Err(CalyxError::assay_insufficient_samples(format!(
-            "KSG no-replacement CI requires a distinct subsample with at least {MIN_ASSAY_SAMPLES} rows and 0 < k < m; got n={n}, m={m}, k={k}, fraction={KSG_SUBSAMPLE_NUMERATOR}/{KSG_SUBSAMPLE_DENOMINATOR}"
-        )));
-    }
-    Ok(m)
-}
-
-fn sample_without_replacement_indices(n: usize, m: usize, rng: &mut ChaCha8Rng) -> Vec<usize> {
-    let mut indices: Vec<usize> = (0..n).collect();
-    indices.shuffle(rng);
-    indices.truncate(m);
-    indices
-}
-
-fn indices_are_distinct(indices: &[usize], n: usize) -> bool {
-    let mut seen = vec![false; n];
-    for index in indices {
-        if *index >= n || seen[*index] {
-            return false;
-        }
-        seen[*index] = true;
-    }
-    true
 }
 
 fn ci_from_resample_estimates(

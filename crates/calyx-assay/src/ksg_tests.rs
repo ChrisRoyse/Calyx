@@ -58,7 +58,7 @@ fn ksg_no_replacement_ci_rejects_duplicate_bootstrap_pathology() {
         "duplicate_invariant": {
             "old_with_replacement": duplicate_stats,
             "new_no_replacement_duplicate_free": no_replacement,
-            "subsample_m": ksg_subsample_size(x.len(), 3).unwrap(),
+            "subsample_m": m_out_of_n_size(x.len(), 3, MIN_ASSAY_SAMPLES, "KSG").unwrap(),
         },
         "planted_signal": planted,
         "edge_case": {
@@ -139,11 +139,13 @@ fn old_replacement_duplicate_stats(
 }
 
 fn no_replacement_duplicate_free(n: usize, k: usize, resamples: usize, seed: u64) -> bool {
-    let m = ksg_subsample_size(n, k).unwrap();
+    let m = m_out_of_n_size(n, k, MIN_ASSAY_SAMPLES, "KSG").unwrap();
     let mut rng = ChaCha8Rng::seed_from_u64(seed);
     (0..resamples).all(|_| {
-        let indices = sample_without_replacement_indices(n, m, &mut rng);
-        indices_are_distinct(&indices, n)
+        let mut indices = sample_without_replacement_indices(n, m, &mut rng).unwrap();
+        indices.sort_unstable();
+        indices.dedup();
+        indices.len() == m
     })
 }
 

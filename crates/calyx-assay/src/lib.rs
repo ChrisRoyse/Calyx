@@ -41,6 +41,7 @@ mod samples;
 mod special_fn;
 pub mod store;
 pub mod stratified;
+mod subsample;
 pub mod sufficiency;
 pub mod total_correlation;
 pub mod transfer_entropy;
