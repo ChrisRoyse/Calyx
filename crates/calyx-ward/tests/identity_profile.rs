@@ -4,7 +4,8 @@ use std::path::Path;
 use calyx_core::{AnchorKind, FixedClock, SlotId};
 use calyx_ward::{
     CALYX_GUARD_IDENTITY_SLOT_NOT_REQUIRED, CalibrationMeta, GuardId, GuardPolicy, GuardProfile,
-    IdentityProfile, IdentitySlotConfig, NoveltyAction, WardError,
+    IdentityProfile, IdentitySlotConfig, NoveltyAction, SlotCalibrationMeta, SlotKind, WardError,
+    guard,
 };
 use proptest::prelude::*;
 use serde_json::json;
@@ -236,6 +237,39 @@ fn tau_override_updates_guard_profile_tau() {
     assert_eq!(profile.guard_profile.tau_for(&slot(9)), Some(0.82));
 }
 
+#[test]
+fn explicit_tau_override_invalidates_calibration_on_deserialize() {
+    for stored_tau in [0.0, 0.88] {
+        let mut guard_profile = profile_template(vec![slot(8), slot(9)], true);
+        guard_profile.tau.insert(slot(8), stored_tau);
+        let value = json!({
+            "guard_profile": guard_profile,
+            "identity_slots": identity_slots(Some(0.0), None),
+            "matched_slot_cache": matched_vecs(),
+        });
+
+        let profile = serde_json::from_value::<IdentityProfile>(value).expect("identity profile");
+        assert_eq!(profile.guard_profile.tau_for(&slot(8)), Some(0.0));
+        let error = guard(
+            &profile.guard_profile,
+            &profile.matched_slot_cache,
+            &profile.matched_slot_cache,
+            true,
+        )
+        .expect_err("an explicit override must not retain high-stakes calibration");
+
+        assert_eq!(
+            error,
+            WardError::MissingSlotCalibration {
+                guard_id: profile.guard_profile.guard_id,
+                slot: slot(8),
+            }
+        );
+        assert!(!profile.is_calibrated());
+        assert!(profile.guard_profile.calibration.is_some());
+    }
+}
+
 proptest! {
     #![proptest_config(calyx_testkit::integration_proptest_config(256))]
 
@@ -406,6 +440,21 @@ fn profile_template(required_slots: Vec<SlotId>, calibrated: bool) -> GuardProfi
     let mut tau = BTreeMap::new();
     tau.insert(slot(8), 0.88);
     tau.insert(slot(9), 0.76);
+    let calibration = calibrated.then(|| {
+        let mut metadata = CalibrationMeta::new(
+            [9; 32],
+            "identity_calibration_v1",
+            0.01,
+            0.0,
+            0.95,
+            &clock(),
+        );
+        for slot in &required_slots {
+            let slot_meta = SlotCalibrationMeta::from_calibration(&metadata, SlotKind::Identity);
+            metadata.per_slot.insert(*slot, slot_meta);
+        }
+        metadata
+    });
     GuardProfile {
         guard_id: GUARD_UUID.parse::<GuardId>().expect("guard id"),
         panel_version: 39,
@@ -413,16 +462,7 @@ fn profile_template(required_slots: Vec<SlotId>, calibrated: bool) -> GuardProfi
         tau,
         required_slots,
         policy: GuardPolicy::AllRequired,
-        calibration: calibrated.then(|| {
-            CalibrationMeta::new(
-                [9; 32],
-                "identity_calibration_v1",
-                0.01,
-                0.0,
-                0.95,
-                &clock(),
-            )
-        }),
+        calibration,
         novelty_action: NoveltyAction::Quarantine,
     }
 }
