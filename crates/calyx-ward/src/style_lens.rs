@@ -46,6 +46,8 @@ impl StyleProviderPolicy {
 
 /// Backend seam used by tests while production uses the pinned ONNX session.
 pub trait StyleEmbeddingBackend: Send + Sync {
+    /// Embeds the complete input or returns an error when full coverage is unavailable.
+    /// Implementations must not silently truncate input.
     fn embed(&self, text: &str) -> Result<Vec<f32>, WardError>;
     fn output_dim(&self) -> usize;
 
