@@ -40,30 +40,31 @@ fn failing_lens_is_excluded_from_active_lenses() {
 }
 
 #[test]
-fn degraded_ann_requires_explicit_heal_confirmation() {
+fn every_non_ok_state_requires_explicit_heal_confirmation() {
     let store = MemoryHealthStore::default();
     let mut registry = memory_registry(store);
     let mut ledger = memory_ledger();
-    let ann = ComponentKind::ann_index(SlotId::new(0));
+    let states = [
+        ComponentHealth::degraded(TEST_TS, "checksum mismatch"),
+        ComponentHealth::failing(TEST_TS, "endpoint unavailable"),
+        ComponentHealth::parked(TEST_TS, "signal below floor"),
+    ];
 
-    registry
-        .set_health(
-            ann.clone(),
-            ComponentHealth::degraded(TEST_TS, "checksum mismatch"),
-            &mut ledger,
-        )
-        .unwrap();
-    let error = registry
-        .set_health(ann.clone(), ComponentHealth::Ok, &mut ledger)
-        .unwrap_err();
-    assert_eq!(error.code, CALYX_ANNEAL_HEAL_CONFIRMATION_REQUIRED);
-    assert!(matches!(
-        registry.health(&ann),
-        ComponentHealth::Degraded { .. }
-    ));
+    for (slot, state) in states.into_iter().enumerate() {
+        let ann = ComponentKind::ann_index(SlotId::new(slot as u16));
+        registry
+            .set_health(ann.clone(), state.clone(), &mut ledger)
+            .unwrap();
 
-    registry.confirm_healed(ann.clone(), &mut ledger).unwrap();
-    assert_eq!(registry.health(&ann), &ComponentHealth::Ok);
+        let error = registry
+            .set_health(ann.clone(), ComponentHealth::Ok, &mut ledger)
+            .unwrap_err();
+
+        assert_eq!(error.code, CALYX_ANNEAL_HEAL_CONFIRMATION_REQUIRED);
+        assert_eq!(registry.health(&ann), &state);
+        registry.confirm_healed(ann.clone(), &mut ledger).unwrap();
+        assert_eq!(registry.health(&ann), &ComponentHealth::Ok);
+    }
 }
 
 #[test]

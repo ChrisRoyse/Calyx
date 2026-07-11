@@ -309,10 +309,10 @@ where
     {
         let prior = self.health(&kind).clone();
         if !confirmed_heal
-            && matches!(prior, ComponentHealth::Degraded { .. })
+            && !matches!(prior, ComponentHealth::Ok)
             && matches!(health, ComponentHealth::Ok)
         {
-            return Err(heal_confirmation_required(&kind));
+            return Err(heal_confirmation_required(&kind, &prior));
         }
 
         self.components.insert(kind.clone(), health.clone());
@@ -397,10 +397,13 @@ fn change_id_for(kind: &ComponentKind, health: &ComponentHealth, ts: LogicalTime
     ChangeId(acc.max(1))
 }
 
-fn heal_confirmation_required(kind: &ComponentKind) -> CalyxError {
+fn heal_confirmation_required(kind: &ComponentKind, prior: &ComponentHealth) -> CalyxError {
     CalyxError {
         code: CALYX_ANNEAL_HEAL_CONFIRMATION_REQUIRED,
-        message: format!("{kind} cannot transition Degraded->Ok without heal confirmation"),
+        message: format!(
+            "{kind} cannot transition {}->Ok without heal confirmation",
+            prior.state_name()
+        ),
         remediation: "call confirm_healed only after T03 rebuild verification succeeds",
     }
 }
