@@ -148,7 +148,7 @@ pub(super) fn probe_h21_panel_explosion(root: &Path) -> ProbeResult {
     let skipped_pairs = write_capped_xterms(&vault, &live_ids, xterm_cap_per_cx)?;
     vault.flush().map_err(err)?;
 
-    let target = VaultPanelVersionGcTarget::new(&vault, &vault_dir, &cold_dir);
+    let target = VaultPanelVersionGcTarget::new(&vault, &vault_dir, &cold_dir).map_err(err)?;
     let records_before = panel_records_json(target.panel_versions().map_err(err)?);
     let unreferenced = PanelVersionGc::new(RetentionPolicy {
         hot_versions_to_keep: 2,

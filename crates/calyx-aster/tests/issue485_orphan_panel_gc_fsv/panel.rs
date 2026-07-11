@@ -35,7 +35,8 @@ pub fn panel_codebook_fsv(root: &Path) -> Value {
     }
     vault.flush().unwrap();
 
-    let target = VaultPanelVersionGcTarget::new(&vault, &vault_dir, &cold_dir);
+    let target = VaultPanelVersionGcTarget::new(&vault, &vault_dir, &cold_dir)
+        .expect("load manifest for panel/codebook GC");
     let policy = RetentionPolicy {
         hot_versions_to_keep: 2,
         cold_tier_first: true,
@@ -139,7 +140,8 @@ fn panel_all_referenced_edge(root: &Path) -> Value {
             )
             .unwrap();
     }
-    let target = VaultPanelVersionGcTarget::new(&vault, &vault_dir, &cold_dir);
+    let target = VaultPanelVersionGcTarget::new(&vault, &vault_dir, &cold_dir)
+        .expect("load manifest for panel/codebook GC");
     let gc = PanelVersionGc::new(RetentionPolicy {
         hot_versions_to_keep: 0,
         cold_tier_first: true,
@@ -158,7 +160,9 @@ fn panel_rate_limit_edge(root: &Path) -> Value {
     fs::create_dir_all(vault_dir.join("panel")).unwrap();
     write_versioned_files(&vault_dir.join("panel"), "panel", 1..=5, 8);
     let vault = durable_vault(&vault_dir);
-    let target = VaultPanelVersionGcTarget::new(&vault, &vault_dir, &cold_dir);
+    write_manifest(&vault_dir, 5);
+    let target = VaultPanelVersionGcTarget::new(&vault, &vault_dir, &cold_dir)
+        .expect("load manifest for panel/codebook GC");
     let gc = PanelVersionGc::new(RetentionPolicy {
         hot_versions_to_keep: 0,
         cold_tier_first: true,
@@ -285,12 +289,17 @@ fn write_manifest(vault_dir: &Path, protected: u32) {
     let panel_name = format!("panel/panel-v{protected:08}.bin");
     let codebook_name = format!("codebooks/codebook-v{protected:08}.bin");
     let panel_bytes = fs::read(vault_dir.join(&panel_name)).unwrap();
-    let codebook_bytes = fs::read(vault_dir.join(&codebook_name)).unwrap();
+    let codebook_refs = if vault_dir.join(&codebook_name).exists() {
+        let codebook_bytes = fs::read(vault_dir.join(&codebook_name)).unwrap();
+        vec![ImmutableRef::from_bytes(codebook_name, &codebook_bytes).unwrap()]
+    } else {
+        Vec::new()
+    };
     let manifest = VaultManifest::new(
         1,
         1,
         ImmutableRef::from_bytes(panel_name, &panel_bytes).unwrap(),
-        vec![ImmutableRef::from_bytes(codebook_name, &codebook_bytes).unwrap()],
+        codebook_refs,
     )
     .unwrap();
     ManifestStore::open(vault_dir)

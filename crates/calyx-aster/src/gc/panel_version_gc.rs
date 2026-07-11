@@ -2,7 +2,7 @@
 
 mod codebook;
 
-use crate::manifest::ManifestStore;
+use crate::manifest::{ManifestStore, VaultManifest};
 use crate::vault::AsterVault;
 use crate::vault::encode::decode_constellation_base;
 use calyx_core::{Clock, LensId, Result};
@@ -227,30 +227,34 @@ pub struct VaultPanelVersionGcTarget<'a, C> {
     cold_codebook_dir: PathBuf,
     manifest_panel_path: Option<String>,
     manifest_codebook_paths: BTreeSet<String>,
+    protect_all_without_manifest: bool,
 }
 
 impl<'a, C> VaultPanelVersionGcTarget<'a, C> {
+    /// Loads and verifies the current manifest before enabling GC mutations.
+    /// A verified manifest-free vault is allowed but protects every version.
     pub fn new(
         vault: &'a AsterVault<C>,
         vault_dir: impl AsRef<Path>,
         cold_root: impl AsRef<Path>,
-    ) -> Self {
+    ) -> Result<Self> {
         let vault_dir = vault_dir.as_ref();
-        let manifest = ManifestStore::open(vault_dir).load_current().ok();
-        let manifest_panel_path = manifest
-            .as_ref()
-            .map(|manifest| manifest.panel_ref.logical_path.clone());
-        let manifest_codebook_paths = manifest
-            .as_ref()
-            .map(|manifest| {
-                manifest
-                    .codebook_refs
-                    .iter()
-                    .map(|reference| reference.logical_path.clone())
-                    .collect()
-            })
-            .unwrap_or_default();
-        Self {
+        let manifest = load_gc_manifest(vault_dir)?;
+        let protect_all_without_manifest = manifest.is_none();
+        let (manifest_panel_path, manifest_codebook_paths) = manifest.map_or_else(
+            || (None, BTreeSet::new()),
+            |manifest| {
+                (
+                    Some(manifest.panel_ref.logical_path),
+                    manifest
+                        .codebook_refs
+                        .into_iter()
+                        .map(|reference| reference.logical_path)
+                        .collect(),
+                )
+            },
+        );
+        Ok(Self {
             vault,
             hot_panel_dir: vault_dir.join("panel"),
             cold_panel_dir: cold_root.as_ref().join("panel"),
@@ -258,8 +262,58 @@ impl<'a, C> VaultPanelVersionGcTarget<'a, C> {
             cold_codebook_dir: cold_root.as_ref().join("codebooks"),
             manifest_panel_path,
             manifest_codebook_paths,
+            protect_all_without_manifest,
+        })
+    }
+}
+
+fn load_gc_manifest(vault_dir: &Path) -> Result<Option<VaultManifest>> {
+    match ManifestStore::open(vault_dir).load_current() {
+        Ok(manifest) => Ok(Some(manifest)),
+        Err(error) => {
+            if manifest_artifacts_absent(vault_dir)? {
+                Ok(None)
+            } else {
+                Err(error)
+            }
         }
     }
+}
+
+fn manifest_artifacts_absent(vault_dir: &Path) -> Result<bool> {
+    for name in ["CURRENT", "CURRENT.tmp", "MANIFEST", "MANIFEST.tmp"] {
+        match fs::symlink_metadata(vault_dir.join(name)) {
+            Ok(_) => return Ok(false),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => {
+                return Err(calyx_core::CalyxError::disk_pressure(format!(
+                    "inspect {name} before panel GC: {error}"
+                )));
+            }
+        }
+    }
+    let entries = match fs::read_dir(vault_dir) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(true),
+        Err(error) => {
+            return Err(calyx_core::CalyxError::disk_pressure(format!(
+                "inspect manifest directory before panel GC: {error}"
+            )));
+        }
+    };
+    for entry in entries {
+        let entry = entry.map_err(|error| {
+            calyx_core::CalyxError::disk_pressure(format!(
+                "inspect manifest entry before panel GC: {error}"
+            ))
+        })?;
+        let name = entry.file_name();
+        let name = name.to_string_lossy();
+        if name.starts_with("manifest-") && (name.ends_with(".json") || name.ends_with(".tmp")) {
+            return Ok(false);
+        }
+    }
+    Ok(true)
 }
 
 impl<C> PanelVersionGcTarget for VaultPanelVersionGcTarget<'_, C>
@@ -272,9 +326,16 @@ where
             &self.hot_panel_dir,
             VersionTier::Hot,
             self.manifest_panel_path.as_deref(),
+            self.protect_all_without_manifest,
             &mut records,
         )?;
-        collect_panel_records(&self.cold_panel_dir, VersionTier::Cold, None, &mut records)?;
+        collect_panel_records(
+            &self.cold_panel_dir,
+            VersionTier::Cold,
+            None,
+            self.protect_all_without_manifest,
+            &mut records,
+        )?;
         records.sort_by_key(|record| (record.id, record.tier == VersionTier::Cold));
         Ok(records)
     }
@@ -331,6 +392,7 @@ fn collect_panel_records(
     dir: &Path,
     tier: VersionTier,
     manifest_panel_path: Option<&str>,
+    protect_all_without_manifest: bool,
     out: &mut Vec<PanelVersionRecord>,
 ) -> Result<()> {
     if !dir.exists() {
@@ -352,7 +414,8 @@ fn collect_panel_records(
         out.push(PanelVersionRecord {
             id,
             tier,
-            ledger_referenced: relative.as_deref() == manifest_panel_path,
+            ledger_referenced: protect_all_without_manifest
+                || relative.as_deref() == manifest_panel_path,
             bytes: entry.metadata().map(|meta| meta.len()).unwrap_or(0),
         });
     }

@@ -1,8 +1,30 @@
 use super::*;
-use calyx_core::LensId;
+use crate::manifest::{ImmutableRef, ManifestStore, VaultManifest};
+use calyx_core::{FixedClock, LensId, VaultId};
 use proptest::prelude::*;
 use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet};
+use std::fs;
+
+trait IntoTargetResult<T> {
+    fn into_target_result(self) -> Result<T>;
+}
+
+impl<'a, C> IntoTargetResult<VaultPanelVersionGcTarget<'a, C>>
+    for VaultPanelVersionGcTarget<'a, C>
+{
+    fn into_target_result(self) -> Result<VaultPanelVersionGcTarget<'a, C>> {
+        Ok(self)
+    }
+}
+
+impl<'a, C> IntoTargetResult<VaultPanelVersionGcTarget<'a, C>>
+    for Result<VaultPanelVersionGcTarget<'a, C>>
+{
+    fn into_target_result(self) -> Result<VaultPanelVersionGcTarget<'a, C>> {
+        self
+    }
+}
 
 #[derive(Default)]
 struct FakePanelTarget {
@@ -174,6 +196,157 @@ fn codebook_version_gc_moves_then_purges_and_keeps_manifest_reference() {
     assert_eq!(*target.purges.borrow(), vec![1, 2]);
     assert!(target.records.borrow().contains_key(&3));
     assert!(target.records.borrow().contains_key(&4));
+}
+
+#[test]
+fn manifest_load_failure_aborts_gc_without_relocating_referenced_assets() {
+    let root = std::env::temp_dir().join(format!(
+        "calyx-issue1365-manifest-gc-{}",
+        std::process::id()
+    ));
+    let _ = fs::remove_dir_all(&root);
+    let vault_dir = root.join("vault");
+    let cold_dir = root.join("cold");
+    let panel_path = vault_dir.join("panel/panel-v00000001.bin");
+    let codebook_path = vault_dir.join("codebooks/codebook-v00000001.bin");
+    let cold_panel_path = cold_dir.join("panel/panel-v00000001.bin");
+    let cold_codebook_path = cold_dir.join("codebooks/codebook-v00000001.bin");
+    let panel_bytes = b"issue1365-manifest-panel".to_vec();
+    let codebook_bytes = b"issue1365-manifest-codebook".to_vec();
+    fs::create_dir_all(panel_path.parent().unwrap()).unwrap();
+    fs::create_dir_all(codebook_path.parent().unwrap()).unwrap();
+    fs::write(&panel_path, &panel_bytes).unwrap();
+    fs::write(&codebook_path, &codebook_bytes).unwrap();
+
+    let manifest = VaultManifest::new(
+        1,
+        0,
+        ImmutableRef::from_bytes("panel/panel-v00000001.bin", &panel_bytes).unwrap(),
+        vec![
+            ImmutableRef::from_bytes("codebooks/codebook-v00000001.bin", &codebook_bytes).unwrap(),
+        ],
+    )
+    .unwrap();
+    let manifest_store = ManifestStore::open(&vault_dir);
+    manifest_store.write_current(&manifest).unwrap();
+
+    let current_path = vault_dir.join("CURRENT");
+    let unavailable_current_path = vault_dir.join("CURRENT.transient-unavailable");
+    fs::rename(&current_path, &unavailable_current_path).unwrap();
+    let vault_id: VaultId = "01ARZ3NDEKTSV4RRFFQ69G5FAV".parse().unwrap();
+    let vault = AsterVault::with_clock(vault_id, b"issue1365".to_vec(), FixedClock::new(1_365));
+
+    let construction =
+        VaultPanelVersionGcTarget::new(&vault, &vault_dir, &cold_dir).into_target_result();
+    let constructor_error_code = match construction {
+        Err(error) => Some(error.code.to_string()),
+        Ok(target) => {
+            let policy = RetentionPolicy {
+                hot_versions_to_keep: 0,
+                cold_tier_first: true,
+                max_versions_per_run: 10,
+            };
+            let panel_gc = PanelVersionGc::new(policy);
+            let panel_ids = panel_gc.find_unreferenced(&target).unwrap();
+            panel_gc.prune(&target, &panel_ids).unwrap();
+            let codebook_gc = CodebookVersionGc::new(policy);
+            let codebook_ids = codebook_gc.find_unreferenced(&target).unwrap();
+            codebook_gc.prune(&target, &codebook_ids).unwrap();
+            None
+        }
+    };
+    fs::rename(&unavailable_current_path, &current_path).unwrap();
+
+    let panel_after = fs::read(&panel_path).ok();
+    let codebook_after = fs::read(&codebook_path).ok();
+    let manifest_reloads = manifest_store.load_current().is_ok();
+    let readback = format!(
+        "constructor_error_code={}\npanel_hot_exists={}\npanel_cold_exists={}\npanel_expected_blake3={}\npanel_actual_blake3={}\ncodebook_hot_exists={}\ncodebook_cold_exists={}\ncodebook_expected_blake3={}\ncodebook_actual_blake3={}\nmanifest_reloads={}\n",
+        constructor_error_code.as_deref().unwrap_or("NONE"),
+        panel_path.exists(),
+        cold_panel_path.exists(),
+        blake3::hash(&panel_bytes).to_hex(),
+        panel_after
+            .as_deref()
+            .map(blake3::hash)
+            .map_or_else(|| "MISSING".to_string(), |hash| hash.to_hex().to_string()),
+        codebook_path.exists(),
+        cold_codebook_path.exists(),
+        blake3::hash(&codebook_bytes).to_hex(),
+        codebook_after
+            .as_deref()
+            .map(blake3::hash)
+            .map_or_else(|| "MISSING".to_string(), |hash| hash.to_hex().to_string()),
+        manifest_reloads,
+    );
+    if let Some(root) = std::env::var_os("CALYX_GC_MANIFEST_FAILURE_FSV_ROOT") {
+        let root = std::path::PathBuf::from(root);
+        fs::create_dir_all(&root).unwrap();
+        let path = root.join("manifest-gc-readback.txt");
+        fs::write(&path, &readback).unwrap();
+        println!("CALYX_GC_MANIFEST_FAILURE_READBACK={}", path.display());
+    }
+    fs::remove_dir_all(&root).unwrap();
+
+    assert_eq!(
+        constructor_error_code.as_deref(),
+        Some("CALYX_DISK_PRESSURE"),
+        "manifest read failure was swallowed before GC:\n{readback}"
+    );
+    assert_eq!(panel_after.as_deref(), Some(panel_bytes.as_slice()));
+    assert_eq!(codebook_after.as_deref(), Some(codebook_bytes.as_slice()));
+    assert!(!cold_panel_path.exists());
+    assert!(!cold_codebook_path.exists());
+    assert!(manifest_reloads);
+}
+
+#[test]
+fn validated_manifest_free_target_protects_every_version() {
+    let root = std::env::temp_dir().join(format!(
+        "calyx-issue1365-manifest-free-gc-{}",
+        std::process::id()
+    ));
+    let _ = fs::remove_dir_all(&root);
+    let vault_dir = root.join("vault");
+    let cold_dir = root.join("cold");
+    let panel_path = vault_dir.join("panel/panel-v00000001.bin");
+    let codebook_path = vault_dir.join("codebooks/codebook-v00000001.bin");
+    fs::create_dir_all(panel_path.parent().unwrap()).unwrap();
+    fs::create_dir_all(codebook_path.parent().unwrap()).unwrap();
+    fs::write(&panel_path, b"fresh-panel").unwrap();
+    fs::write(&codebook_path, b"fresh-codebook").unwrap();
+    let vault_id: VaultId = "01ARZ3NDEKTSV4RRFFQ69G5FAV".parse().unwrap();
+    let vault = AsterVault::with_clock(vault_id, b"issue1365".to_vec(), FixedClock::new(1_365));
+    let target = VaultPanelVersionGcTarget::new(&vault, &vault_dir, &cold_dir)
+        .into_target_result()
+        .unwrap();
+    assert!(
+        target
+            .panel_versions()
+            .unwrap()
+            .iter()
+            .all(|record| record.ledger_referenced)
+    );
+    assert!(
+        target
+            .codebook_versions()
+            .unwrap()
+            .iter()
+            .all(|record| record.ledger_referenced)
+    );
+    let policy = RetentionPolicy {
+        hot_versions_to_keep: 0,
+        cold_tier_first: true,
+        max_versions_per_run: 10,
+    };
+    let panel_result = PanelVersionGc::new(policy).prune(&target, &[1]).unwrap();
+    let codebook_result = CodebookVersionGc::new(policy).prune(&target, &[1]).unwrap();
+    assert_eq!(panel_result.skipped_ledger_referenced, 1);
+    assert_eq!(codebook_result.skipped_ledger_referenced, 1);
+    assert!(panel_path.exists());
+    assert!(codebook_path.exists());
+    assert!(!cold_dir.exists());
+    fs::remove_dir_all(root).unwrap();
 }
 
 #[test]

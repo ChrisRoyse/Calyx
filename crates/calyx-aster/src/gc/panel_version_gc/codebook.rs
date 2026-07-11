@@ -98,12 +98,14 @@ where
             &self.hot_codebook_dir,
             VersionTier::Hot,
             &self.manifest_codebook_paths,
+            self.protect_all_without_manifest,
             &mut records,
         )?;
         collect_codebook_records(
             &self.cold_codebook_dir,
             VersionTier::Cold,
             &BTreeSet::new(),
+            self.protect_all_without_manifest,
             &mut records,
         )?;
         records.sort_by_key(|record| (record.id, record.tier == VersionTier::Cold));
@@ -128,6 +130,7 @@ fn collect_codebook_records(
     dir: &Path,
     tier: VersionTier,
     manifest_codebook_paths: &BTreeSet<String>,
+    protect_all_without_manifest: bool,
     out: &mut Vec<PanelVersionRecord>,
 ) -> Result<()> {
     if !dir.exists() {
@@ -149,9 +152,10 @@ fn collect_codebook_records(
         out.push(PanelVersionRecord {
             id,
             tier,
-            ledger_referenced: relative
-                .as_ref()
-                .is_some_and(|path| manifest_codebook_paths.contains(path)),
+            ledger_referenced: protect_all_without_manifest
+                || relative
+                    .as_ref()
+                    .is_some_and(|path| manifest_codebook_paths.contains(path)),
             bytes: entry.metadata().map(|meta| meta.len()).unwrap_or(0),
         });
     }
