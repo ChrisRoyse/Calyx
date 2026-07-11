@@ -315,10 +315,10 @@ where
             return Err(heal_confirmation_required(&kind, &prior));
         }
 
-        self.components.insert(kind.clone(), health.clone());
-        let ledger_ref = self.write_ledger_change(ledger, &kind, &prior, &health)?;
         let row = encode_health_row(&kind, &health, self.clock.now())?;
+        let ledger_ref = self.write_ledger_change(ledger, &kind, &prior, &health)?;
         self.storage.put(kind.storage_key(), row)?;
+        self.components.insert(kind, health);
         Ok(ledger_ref)
     }
 
