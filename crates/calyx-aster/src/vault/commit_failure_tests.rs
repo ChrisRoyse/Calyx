@@ -1,7 +1,7 @@
 //! Regression coverage for issue #1307: failures after WAL durability must
 //! never be reported as successful commits or hidden on stderr.
 
-use super::*;
+use super::super::*;
 use std::fs;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -9,11 +9,35 @@ use std::sync::atomic::{AtomicU64, Ordering};
 const POST_WAL_ERROR: &str = "CALYX_DURABLE_COMMIT_RECONCILIATION_REQUIRED";
 static NEXT_DIR: AtomicU64 = AtomicU64::new(0);
 
+fn fail_next_mvcc_commit(vault: &AsterVault) {
+    vault
+        .durable
+        .as_ref()
+        .expect("test MVCC failpoint requires durable vault")
+        .fail_next_mvcc_commit();
+}
+
+fn fail_next_mvcc_restore(vault: &AsterVault) {
+    vault
+        .durable
+        .as_ref()
+        .expect("test MVCC restore failpoint requires durable vault")
+        .fail_next_mvcc_restore();
+}
+
+fn fail_next_checkpoint(vault: &AsterVault) {
+    vault
+        .durable
+        .as_ref()
+        .expect("test checkpoint failpoint requires durable vault")
+        .fail_next_checkpoint();
+}
+
 #[test]
 fn post_wal_mvcc_failure_is_caller_visible_after_successful_reconciliation() {
     let dir = test_dir("reconciled");
     let vault = open_vault(&dir);
-    vault.fail_next_mvcc_commit_for_test();
+    fail_next_mvcc_commit(&vault);
 
     let error = vault
         .write_cf(
@@ -54,9 +78,9 @@ fn post_wal_mvcc_failure_is_caller_visible_after_successful_reconciliation() {
 fn post_wal_error_reports_restore_and_checkpoint_failures_and_wal_recovers() {
     let dir = test_dir("recovery-required");
     let vault = open_vault(&dir);
-    vault.fail_next_mvcc_commit_for_test();
-    vault.fail_next_mvcc_restore_for_test();
-    vault.fail_next_checkpoint_for_test();
+    fail_next_mvcc_commit(&vault);
+    fail_next_mvcc_restore(&vault);
+    fail_next_checkpoint(&vault);
 
     let error = vault
         .write_cf(
@@ -101,9 +125,7 @@ fn open_vault(dir: &PathBuf) -> AsterVault {
 }
 
 fn vault_id() -> VaultId {
-    "01ARZ3NDEKTSV4RRFFQ69G5FAV"
-        .parse()
-        .expect("valid ULID")
+    "01ARZ3NDEKTSV4RRFFQ69G5FAV".parse().expect("valid ULID")
 }
 
 fn test_dir(name: &str) -> PathBuf {

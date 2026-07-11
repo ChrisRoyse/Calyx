@@ -49,6 +49,7 @@ use calyx_core::{CalyxError, Clock, Constellation, CxId, Result, Seq, SystemCloc
 use std::{path::Path, sync::Mutex};
 
 pub use anchor_compact::{AnchorCompactionConflict, AnchorCompactionReport};
+pub use commit::CALYX_DURABLE_COMMIT_RECONCILIATION_REQUIRED;
 pub use compaction_bridge::VaultCompactionScheduler;
 pub use grant::{AuditEvent, GrantEntry, GrantStore};
 pub use htap::HtapDualRead;
@@ -258,30 +259,6 @@ where
             .as_ref()
             .expect("test WAL failpoint requires durable vault")
             .fail_next_wal_append();
-    }
-
-    #[cfg(test)]
-    pub(crate) fn fail_next_mvcc_commit_for_test(&self) {
-        self.durable
-            .as_ref()
-            .expect("test MVCC failpoint requires durable vault")
-            .fail_next_mvcc_commit();
-    }
-
-    #[cfg(test)]
-    pub(crate) fn fail_next_mvcc_restore_for_test(&self) {
-        self.durable
-            .as_ref()
-            .expect("test MVCC restore failpoint requires durable vault")
-            .fail_next_mvcc_restore();
-    }
-
-    #[cfg(test)]
-    pub(crate) fn fail_next_checkpoint_for_test(&self) {
-        self.durable
-            .as_ref()
-            .expect("test checkpoint failpoint requires durable vault")
-            .fail_next_checkpoint();
     }
 
     /// Reads one raw CF row at `snapshot`.
@@ -499,8 +476,6 @@ mod compaction_tests;
 
 #[cfg(test)]
 mod recovery_stranding_tests;
-#[cfg(test)]
-mod commit_failure_tests;
 #[cfg(test)]
 mod seq_domain_tests;
 
