@@ -1,4 +1,4 @@
-use std::fs;
+use std::{collections::HashSet, fs};
 
 use rand::{Rng, SeedableRng};
 use rand_chacha::ChaCha8Rng;
@@ -129,6 +129,24 @@ fn mixed_ksg_ci_requires_valid_no_replacement_subsample() {
 
     assert_eq!(error.code, "CALYX_ASSAY_INSUFFICIENT_SAMPLES");
     assert!(error.message.contains("m=48"));
+}
+
+#[test]
+fn mixed_ksg_subsamples_are_distinct_and_class_valid() {
+    let labels = (0..240).map(|index| index % 3).collect::<Vec<_>>();
+    let m = m_out_of_n_size(labels.len(), 3, MIN_ASSAY_SAMPLES, "mixed KSG").unwrap();
+
+    for seed in 0..32 {
+        let mut rng = ChaCha8Rng::seed_from_u64(seed);
+        let indices = sample_mixed_indices(&labels, m, 3, &mut rng).unwrap();
+        let unique = indices.iter().copied().collect::<HashSet<_>>();
+        let sampled_labels = indices.iter().map(|index| labels[*index]).collect::<Vec<_>>();
+        let counts = validate_mixed_discrete_classes(&sampled_labels, 3).unwrap();
+
+        assert_eq!(indices.len(), m);
+        assert_eq!(unique.len(), m);
+        assert!(counts.values().all(|count| *count > 3));
+    }
 }
 
 fn old_replacement_duplicate_stats(

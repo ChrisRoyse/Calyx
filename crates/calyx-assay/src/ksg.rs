@@ -3,12 +3,11 @@
 use std::collections::BTreeMap;
 
 use calyx_core::{Anchor, CalyxError, Result};
-use rand::SeedableRng;
+use rand::{Rng, SeedableRng, seq::SliceRandom};
 use rand_chacha::ChaCha8Rng;
 
 use crate::bootstrap::{
     BootstrapCi, BootstrapConfig, DEFAULT_BOOTSTRAP_RESAMPLES, DEFAULT_BOOTSTRAP_SEED,
-    bootstrap_mean_ci_with_config,
 };
 use crate::estimate::{EstimatorKind, MiEstimate, TrustTag, trust_for_anchor};
 use crate::samples::validate_rectangular_finite;
@@ -148,10 +147,9 @@ fn ksg_mi_continuous_discrete_with_anchor_opt(
     validate_sample_counts(x.len(), labels.len(), k)?;
     validate_rectangular_finite("x", x)?;
     let class_counts = validate_mixed_discrete_classes(labels, k)?;
-    let local_bits = ross_mixed_local_bits_from_validated_samples(x, labels, k, &class_counts);
-    let bits = mean(&local_bits).max(0.0);
-    let ci = bootstrap_mean_ci_with_config(&local_bits, KSG_BOOTSTRAP_CONFIG)
-        .ok_or_else(|| CalyxError::assay_insufficient_samples("bootstrap CI requires samples"))?;
+    validate_mixed_radius_defined(x, labels, k)?;
+    let bits = ross_mixed_bits_from_validated_samples(x, labels, k, &class_counts);
+    let ci = ross_mixed_subsample_ci(x, labels, bits, k, KSG_BOOTSTRAP_CONFIG)?;
     Ok(MiEstimate::new(
         bits,
         ci.ci_low,
@@ -160,6 +158,112 @@ fn ksg_mi_continuous_discrete_with_anchor_opt(
         EstimatorKind::Ksg,
         trust_for_anchor(anchor),
     ))
+}
+
+fn ross_mixed_bits_from_validated_samples(
+    x: &[Vec<f32>],
+    labels: &[usize],
+    k: usize,
+    class_counts: &BTreeMap<usize, usize>,
+) -> f32 {
+    mean(&ross_mixed_local_bits_from_validated_samples(
+        x,
+        labels,
+        k,
+        class_counts,
+    ))
+    .max(0.0)
+}
+
+fn ross_mixed_subsample_ci(
+    x: &[Vec<f32>],
+    labels: &[usize],
+    point_estimate: f32,
+    k: usize,
+    config: BootstrapConfig,
+) -> Result<BootstrapCi> {
+    if config.resamples == 0 {
+        return Err(CalyxError::assay_insufficient_samples(
+            "mixed continuous-discrete KSG no-replacement CI requires at least one resample",
+        ));
+    }
+    let m = m_out_of_n_size(
+        x.len(),
+        k,
+        MIN_ASSAY_SAMPLES,
+        "mixed continuous-discrete KSG",
+    )?;
+    let mut rng = ChaCha8Rng::seed_from_u64(config.seed);
+    let mut estimates = Vec::with_capacity(config.resamples);
+    for _ in 0..config.resamples {
+        let indices = sample_mixed_indices(labels, m, k, &mut rng)?;
+        let sampled_x = indices
+            .iter()
+            .map(|index| x[*index].clone())
+            .collect::<Vec<_>>();
+        let sampled_labels = indices
+            .iter()
+            .map(|index| labels[*index])
+            .collect::<Vec<_>>();
+        let sampled_counts = validate_mixed_discrete_classes(&sampled_labels, k)?;
+        estimates.push(ross_mixed_bits_from_validated_samples(
+            &sampled_x,
+            &sampled_labels,
+            k,
+            &sampled_counts,
+        ));
+    }
+    Ok(ci_from_resample_estimates(
+        estimates,
+        point_estimate,
+        (m as f32 / x.len() as f32).sqrt(),
+    ))
+}
+
+fn sample_mixed_indices<R: Rng + ?Sized>(
+    labels: &[usize],
+    m: usize,
+    k: usize,
+    rng: &mut R,
+) -> Result<Vec<usize>> {
+    if m == 0 || m > labels.len() {
+        return Err(CalyxError::assay_insufficient_samples(format!(
+            "mixed continuous-discrete KSG no-replacement subsample requires 0 < m <= n; got n={}, m={m}",
+            labels.len()
+        )));
+    }
+    let mut classes = BTreeMap::<usize, Vec<usize>>::new();
+    for (index, label) in labels.iter().enumerate() {
+        classes.entry(*label).or_default().push(index);
+    }
+    let minimum_per_class = k + 1;
+    if classes
+        .values()
+        .any(|indices| indices.len() < minimum_per_class)
+    {
+        return Err(CalyxError::assay_insufficient_samples(
+            "mixed continuous-discrete KSG subsample source has fewer than k+1 rows in a class",
+        ));
+    }
+    let required = classes.len().saturating_mul(minimum_per_class);
+    if required > m {
+        return Err(CalyxError::assay_insufficient_samples(format!(
+            "mixed continuous-discrete KSG no-replacement CI requires at least k+1 rows per class; classes={}, k={k}, required={required}, m={m}",
+            classes.len()
+        )));
+    }
+
+    let mut selected = Vec::with_capacity(m);
+    let mut remaining = Vec::with_capacity(labels.len().saturating_sub(required));
+    for indices in classes.values_mut() {
+        indices.shuffle(rng);
+        selected.extend_from_slice(&indices[..minimum_per_class]);
+        remaining.extend_from_slice(&indices[minimum_per_class..]);
+    }
+    remaining.shuffle(rng);
+    selected.extend(remaining.into_iter().take(m - selected.len()));
+    selected.shuffle(rng);
+    Ok(selected)
 }
 
 fn validate_mixed_discrete_classes(labels: &[usize], k: usize) -> Result<BTreeMap<usize, usize>> {
@@ -206,6 +310,21 @@ fn kth_same_class_radius(x: &[Vec<f32>], labels: &[usize], i: usize, k: usize) -
         }
     }
     *kth_distance(&mut distances, k)
+}
+
+fn validate_mixed_radius_defined(x: &[Vec<f32>], labels: &[usize], k: usize) -> Result<()> {
+    for i in 0..x.len() {
+        let exact_duplicates = (0..x.len())
+            .filter(|&j| i != j && labels[i] == labels[j] && chebyshev(&x[i], &x[j]) == 0.0)
+            .count();
+        if exact_duplicates >= k {
+            return Err(CalyxError::assay_degenerate_input(format!(
+                "mixed continuous-discrete KSG kth same-class radius is zero for sample {i}: label={} exact_same_class_duplicates={exact_duplicates} k={k}",
+                labels[i]
+            )));
+        }
+    }
+    Ok(())
 }
 
 fn neighbor_count_continuous_inclusive(values: &[Vec<f32>], i: usize, radius: f32) -> usize {
