@@ -15,6 +15,7 @@ pub mod encode;
 mod gc_bridge;
 pub mod grant;
 mod htap;
+mod input_pointer;
 mod key;
 pub mod keyspace;
 mod layer_commit;
@@ -50,6 +51,7 @@ pub use anchor_compact::{AnchorCompactionConflict, AnchorCompactionReport};
 pub use compaction_bridge::VaultCompactionScheduler;
 pub use grant::{AuditEvent, GrantEntry, GrantStore};
 pub use htap::HtapDualRead;
+pub use input_pointer::{CALYX_INPUT_POINTER_IDENTITY_MISMATCH, InputPointerBackfill};
 pub use key::{CALYX_DECRYPTION_FAILED, CALYX_ENCRYPTION_FAILED, CALYX_VAULT_KEY_MISSING};
 pub use keyspace::{
     CALYX_VAULT_KEYSPACE_MISMATCH, KeyspaceGuard, VaultWriteLock, VaultWriteLockGuard, vault_prefix,
@@ -481,10 +483,9 @@ mod seq_domain_tests;
 mod recovery_tests;
 
 #[cfg(test)]
-mod ledger_timestamp_tests;
-
-#[cfg(test)]
 mod ledger_integration_tests;
+#[cfg(test)]
+mod ledger_timestamp_tests;
 
 #[cfg(test)]
 mod ledger_atomicity_tests;

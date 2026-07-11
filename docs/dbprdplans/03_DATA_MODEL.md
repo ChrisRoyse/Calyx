@@ -81,6 +81,25 @@ Constellation {
 }
 ```
 
+`InputRef` is the immutable source-identity contract:
+
+```
+InputRef {
+  hash: [u8; 32],
+  pointer: Option<String>,
+  redacted: bool,
+}
+```
+
+For ordinary non-redacted text ingest, `pointer` is mandatory and canonical:
+`calyx-vault://inputs/<lowercase-raw-blake3>.bin`. The named vault-owned blob
+contains the exact UTF-8 source bytes and every read verifies those bytes against
+`hash`. A legacy hash-only text constellation may gain this pointer only through
+exact-byte idempotent replay: panel, modality, hash, redaction state, and metadata
+must still match. Aster commits the Base-row pointer and an `EntryKind::Migrate`
+Ledger row atomically; an existing different pointer/hash fails closed. Arbitrary
+metadata text is never source authority for replay or migration.
+
 ### SlotVector
 ```
 SlotVector =
@@ -157,6 +176,10 @@ Mirror ContextGraph `mistake_log`/`replay_buffer`/`online_head_state`. Frozen le
 - One **Vault = one tenant boundary.** Cross-vault reads require an explicit grant; default deny (A16).
 - Lenses are **shareable by content-id** (A4) — many vaults reference the same `LensId` and its weights/codebook on disk once, but vectors and constellations are per-vault, never mixed (inherits Leapable "never mix vectors across models").
 - Redaction: `input_ref` may be hash-only (raw bytes absent/redacted) while slot-vectors persist — supports Leapable's "never persist candidate text" reranker rule and privacy posture.
+
+- Ordinary non-redacted text ingest retains exact source bytes. Privacy-sensitive
+  callers must select explicit redaction rather than silently creating an
+  unreadable non-redacted reference.
 
 ## 8. Consistency model (summary; detail in `04`/`17`)
 

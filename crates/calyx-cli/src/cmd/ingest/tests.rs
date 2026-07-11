@@ -31,6 +31,7 @@ mod anchor_replay;
 mod basic;
 mod batch_edges;
 mod rebuild_marker;
+mod retention;
 mod route_gate;
 mod session_status;
 

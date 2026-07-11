@@ -26,6 +26,7 @@ pub mod recurrence;
 pub mod redaction;
 pub mod residency;
 pub mod resource;
+pub mod retained_input;
 pub mod retention;
 pub mod security;
 pub mod sst;

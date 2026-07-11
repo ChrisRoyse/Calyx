@@ -43,6 +43,7 @@ layout (`src/vault/durable.rs`, `src/cf/router.rs`, `src/manifest/mod.rs`).
 |---|---|---|
 | `wal/{index:020}.wal` | `wal::Wal` | WAL segment files (`src/wal/segment.rs::segment_path`). |
 | `wal/.append.lock` | `wal::Wal::open`/`append_batch` | Exclusive append lock (`file_lock::FileLockGuard`). |
+| `inputs/<lowercase-raw-blake3>.bin` | `retained_input::retain_text_input` | Exact non-redacted text source bytes for deterministic replay. Base stores the corresponding `calyx-vault://inputs/<hash>.bin` pointer. |
 | `cf/<family>/` | `CfRouter`, `DurableVault` | Per-column-family SSTable directory. `<family>` is `ColumnFamily::name()`. |
 | `cf/<family>/flush-{watermark:020}-{ordinal:04}.sst` | `CfRouter::flush_cf_at` | LSM router memtable flush, commit-anchored (issue #1138). `watermark` is the highest commit seq whose rows can be in the file; `ordinal` is the per-CF flush counter. |
 | `cf/<family>/{ordinal:020}.sst` | pre-#1138 `CfRouter::flush_cf` | Legacy LSM router memtable flush (read-only compatibility; no longer written by durable vaults). |
@@ -502,6 +503,26 @@ bytes (`trailing bytes after constellation metadata`).
 `modality_tag`: `Text=0, Code=1, Image=2, Audio=3, Video=4, Structured=5,
 Mixed=6, Protein=7, Dna=8, Molecule=9`. `flags_bits` packs
 `ungrounded|degraded<<1|novel_region<<2|redacted_input<<3`.
+
+#### Retained text input and pointer migration (`src/retained_input.rs`, `src/vault/input_pointer.rs`)
+
+- Single and JSONL-batch text ingest retain exact source bytes before measurement.
+  New pointers are exactly `calyx-vault://inputs/<lowercase-raw-blake3>.bin`.
+- Installation uses a create-new temporary file, `sync_all`, a no-replace hard
+  link, temporary removal, and parent-directory sync. Existing content must be
+  byte-identical; a content-address collision or tamper fails closed.
+- Resolution accepts one lowercase 64-hex `.bin` name only. Parent components,
+  nested paths, absolute paths, and symlinked `inputs`/blob paths are rejected.
+  Readback verifies raw BLAKE3; the former length-delimited single-part hash is
+  accepted only to read existing retained rows.
+- Exact idempotent replay is the migration surface for legacy pointerless text
+  rows. CLI preflight verifies panel, modality, hash, redaction state, metadata,
+  and anchors before mutation. Aster then atomically writes the updated Base row
+  and an `EntryKind::Migrate` Ledger row. Matching pointers are no-ops; conflicts
+  return `CALYX_INPUT_POINTER_IDENTITY_MISMATCH` without mutation.
+- Lens-proposal replay reads only the verified `input_ref.pointer`. Metadata keys
+  such as `raw_input` are not replay authority. Missing, escaped, unavailable, or
+  hash-mismatched blobs surface as `CALYX_PROPOSE_INPUT_UNAVAILABLE`.
 
 `encode_slot_vector` tags: `Dense=0` (`dim_be(4)` then `f32` bits BE each),
 `Absent=1` (absent reason), `Sparse=2` (`dim`, count, `(idx, f32 bits)` pairs),

@@ -108,9 +108,12 @@ fn mcp_propose_lens_rejects_algorithmic_signal_before_hot_add() {
 
 #[test]
 fn commissioned_placeholder_card_uses_measured_profile_metrics() {
+    let env = TestEnv::new("commissioned-profile");
+    let vault_dir = env.path("profile-vault");
+    fs::create_dir_all(&vault_dir).unwrap();
     let corpus = vec![
-        commissioned_doc(70, true, "identical profile input"),
-        commissioned_doc(71, false, "identical profile input"),
+        commissioned_doc(&vault_dir, 70, true, "identical profile input"),
+        commissioned_doc(&vault_dir, 71, false, "identical profile input"),
     ];
     let candidate = calyx_anneal::CandidateLens::Commission {
         spec: calyx_anneal::CommissionSpec {
@@ -137,7 +140,7 @@ fn commissioned_placeholder_card_uses_measured_profile_metrics() {
         },
     };
     let measured = super::super::propose_profile::measure_candidate(
-        Path::new("."),
+        &vault_dir,
         &AnchorKind::TestPass,
         &candidate,
         &corpus,
@@ -185,15 +188,24 @@ fn ingest_frequency_corpus(server: &McpServer) -> Vec<String> {
         .collect()
 }
 
-fn commissioned_doc(seed: u8, positive: bool, input: &str) -> calyx_core::Constellation {
+fn commissioned_doc(
+    vault_dir: &Path,
+    seed: u8,
+    positive: bool,
+    input: &str,
+) -> calyx_core::Constellation {
     let mut cx = constellation(
         seed,
         Some(AnchorValue::Bool(positive)),
         vec![1.0, 0.0],
         vec![1.0, 0.0],
     );
-    cx.metadata
-        .insert("raw_input".to_string(), input.to_string());
+    let retained = calyx_aster::retained_input::retain_text_input(vault_dir, input).unwrap();
+    cx.input_ref = calyx_core::InputRef {
+        hash: *blake3::hash(input.as_bytes()).as_bytes(),
+        pointer: retained.pointer,
+        redacted: false,
+    };
     cx
 }
 

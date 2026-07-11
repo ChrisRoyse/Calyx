@@ -9,7 +9,8 @@ use super::batch_support::{
     should_stage_batch_constellation,
 };
 use super::replay::{
-    existing_batch_replay_rows, existing_plain_batch_replay_rows, flush_existing_batch_replay,
+    backfill_batch_existing_input_pointers, existing_batch_replay_rows,
+    existing_plain_batch_replay_rows, flush_existing_batch_replay,
     flush_plain_existing_batch_replay, preflight_batch_existing_identity,
 };
 use super::*;
@@ -145,7 +146,7 @@ pub(crate) fn ingest_validated_batch_streaming_with_output(
         gpu_route.resident_addr,
         gpu_route.allow_cold_gpu_workers
     ));
-    preflight_batch_existing_identity(&vault, &state, path, validated_row_count)?;
+    preflight_batch_existing_identity(&vault, &state, &resolved.path, path, validated_row_count)?;
     let batch_cx_ids = collect_batch_cx_ids(&vault, &state, path)?;
     let physical_before = physical_batch_base_state(&resolved.path, &batch_cx_ids)?;
     reject_tombstoned_batch_ids(&physical_before)?;
@@ -169,6 +170,7 @@ pub(crate) fn ingest_validated_batch_streaming_with_output(
         session.as_deref().map(|session| session.session_id()),
         Some(path),
     )?;
+    backfill_batch_existing_input_pointers(&vault, &state, &resolved.path, path)?;
     let mut chunk: Vec<BatchRow> = Vec::with_capacity(measure_window);
     let mut summary = BatchIngestSummary::empty();
     for (index, line) in reader.lines().enumerate() {
@@ -274,7 +276,8 @@ fn flush_measure_batch(
 ) -> CliResult<()> {
     let rows: Vec<BatchRow> = std::mem::take(chunk);
     if rows.iter().all(|(_, _, _, oracle)| oracle.is_none())
-        && let Some(existing_rows) = existing_plain_batch_replay_rows(vault, state, &rows)?
+        && let Some(existing_rows) =
+            existing_plain_batch_replay_rows(vault, state, vault_path, &rows)?
     {
         ingest_runtime_log(format_args!(
             "phase=batch_existing_replay_base_only_fast_path rows={} runtime_batch_limit={} measurement_skipped=true slot_decode_skipped=true",
@@ -290,7 +293,7 @@ fn flush_measure_batch(
         )?;
         return Ok(());
     }
-    if let Some(existing_rows) = existing_batch_replay_rows(vault, state, &rows)? {
+    if let Some(existing_rows) = existing_batch_replay_rows(vault, state, vault_path, &rows)? {
         ingest_runtime_log(format_args!(
             "phase=batch_existing_replay_fast_path rows={} runtime_batch_limit={} measurement_skipped=true",
             existing_rows.len(),
@@ -301,8 +304,8 @@ fn flush_measure_batch(
     }
     let inputs: Vec<Input> = rows
         .iter()
-        .map(|(text, _, _, _)| text_input(text.clone()))
-        .collect();
+        .map(|(text, _, _, _)| retention::retained_text_input(vault_path, text))
+        .collect::<CliResult<_>>()?;
     let constellations = measure_constellation_microbatch_with_runtime_limit(
         vault,
         state,
