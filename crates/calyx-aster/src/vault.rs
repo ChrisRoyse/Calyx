@@ -49,6 +49,7 @@ use calyx_core::{CalyxError, Clock, Constellation, CxId, Result, Seq, SystemCloc
 use std::{path::Path, sync::Mutex};
 
 pub use anchor_compact::{AnchorCompactionConflict, AnchorCompactionReport};
+pub use commit::CALYX_DURABLE_COMMIT_RECONCILIATION_REQUIRED;
 pub use compaction_bridge::VaultCompactionScheduler;
 pub use grant::{AuditEvent, GrantEntry, GrantStore};
 pub use htap::HtapDualRead;

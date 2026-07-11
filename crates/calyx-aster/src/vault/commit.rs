@@ -1,6 +1,11 @@
 use super::{AsterVault, encode, ledger_hook};
 use calyx_core::{CalyxError, Clock, Result, Seq};
 
+/// The WAL append is durable, but the live MVCC/router apply failed and the
+/// caller must reconcile the reported sequence before retrying.
+pub const CALYX_DURABLE_COMMIT_RECONCILIATION_REQUIRED: &str =
+    "CALYX_DURABLE_COMMIT_RECONCILIATION_REQUIRED";
+
 impl<C> AsterVault<C>
 where
     C: Clock,
@@ -139,17 +144,15 @@ where
         }
         let mvcc_seq = match self.commit_rows_to_mvcc(rows) {
             Ok(seq) => seq,
-            Err(error) => {
-                self.restore_committed_rows(durable_seq, rows)?;
-                eprintln!(
-                    "calyx durable commit restored WAL seq {durable_seq} after MVCC/router error: {error}"
-                );
-                if let Err(checkpoint_error) = durable.checkpoint_batch(durable_seq, rows) {
-                    eprintln!(
-                        "calyx durable checkpoint failed after WAL seq {durable_seq}: {checkpoint_error}"
-                    );
-                }
-                return Ok(durable_seq);
+            Err(mvcc_error) => {
+                let restore = self.restore_committed_rows(durable_seq, rows);
+                let checkpoint = durable.checkpoint_batch(durable_seq, rows);
+                return Err(post_wal_commit_error(
+                    durable_seq,
+                    &mvcc_error,
+                    &restore,
+                    &checkpoint,
+                ));
             }
         };
         if mvcc_seq != durable_seq {
@@ -162,6 +165,16 @@ where
     }
 
     fn commit_rows_to_mvcc(&self, rows: &[encode::WriteRow]) -> Result<Seq> {
+        #[cfg(test)]
+        if self
+            .durable
+            .as_ref()
+            .is_some_and(|durable| durable.take_mvcc_commit_failure())
+        {
+            return Err(CalyxError::aster_corrupt_shard(
+                "injected post-WAL MVCC/router commit failure",
+            ));
+        }
         self.rows.commit_batch(
             rows.iter()
                 .map(|row| (row.cf, row.key.clone(), row.value.clone())),
@@ -169,6 +182,16 @@ where
     }
 
     fn restore_committed_rows(&self, seq: Seq, rows: &[encode::WriteRow]) -> Result<()> {
+        #[cfg(test)]
+        if self
+            .durable
+            .as_ref()
+            .is_some_and(|durable| durable.take_mvcc_restore_failure())
+        {
+            return Err(CalyxError::aster_corrupt_shard(
+                "injected post-WAL MVCC restore failure",
+            ));
+        }
         self.rows.restore_batch(
             seq,
             rows.iter()
@@ -178,3 +201,34 @@ where
         Ok(())
     }
 }
+
+fn post_wal_commit_error(
+    durable_seq: Seq,
+    mvcc_error: &CalyxError,
+    restore: &Result<()>,
+    checkpoint: &Result<()>,
+) -> CalyxError {
+    CalyxError {
+        code: CALYX_DURABLE_COMMIT_RECONCILIATION_REQUIRED,
+        message: format!(
+            "WAL commit is durable but live MVCC/router application failed; wal_seq={durable_seq} \
+             mvcc=error[{}]: {} restore={} checkpoint={}",
+            mvcc_error.code,
+            mvcc_error.message,
+            reconciliation_outcome(restore),
+            reconciliation_outcome(checkpoint),
+        ),
+        remediation: "treat wal_seq as durably committed; reconcile by idempotency/readback or reopen the vault before retrying",
+    }
+}
+
+fn reconciliation_outcome(result: &Result<()>) -> String {
+    match result {
+        Ok(()) => "ok".to_string(),
+        Err(error) => format!("error[{}]: {}", error.code, error.message),
+    }
+}
+
+#[cfg(test)]
+#[path = "commit_failure_tests.rs"]
+mod failure_tests;

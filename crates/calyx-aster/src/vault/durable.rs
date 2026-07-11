@@ -102,6 +102,12 @@ pub(super) struct DurableVault {
     checkpointed_derived_content_seq: AtomicU64,
     #[cfg(test)]
     fail_next_wal_append: Arc<AtomicBool>,
+    #[cfg(test)]
+    fail_next_mvcc_commit: Arc<AtomicBool>,
+    #[cfg(test)]
+    fail_next_mvcc_restore: Arc<AtomicBool>,
+    #[cfg(test)]
+    fail_next_checkpoint: Arc<AtomicBool>,
 }
 
 pub(super) struct RecoveredBatch {
@@ -206,6 +212,12 @@ impl DurableVault {
             checkpointed_derived_content_seq: AtomicU64::new(0),
             #[cfg(test)]
             fail_next_wal_append: Arc::new(AtomicBool::new(false)),
+            #[cfg(test)]
+            fail_next_mvcc_commit: Arc::new(AtomicBool::new(false)),
+            #[cfg(test)]
+            fail_next_mvcc_restore: Arc::new(AtomicBool::new(false)),
+            #[cfg(test)]
+            fail_next_checkpoint: Arc::new(AtomicBool::new(false)),
         };
         if durable.root.join("CURRENT").exists() {
             let manifest = crate::manifest::ManifestStore::open(&durable.root).load_current()?;
@@ -329,6 +341,36 @@ impl DurableVault {
     #[cfg(test)]
     pub(super) fn fail_next_wal_append(&self) {
         self.fail_next_wal_append.store(true, Ordering::SeqCst);
+    }
+
+    #[cfg(test)]
+    pub(super) fn fail_next_mvcc_commit(&self) {
+        self.fail_next_mvcc_commit.store(true, Ordering::SeqCst);
+    }
+
+    #[cfg(test)]
+    pub(super) fn take_mvcc_commit_failure(&self) -> bool {
+        self.fail_next_mvcc_commit.swap(false, Ordering::SeqCst)
+    }
+
+    #[cfg(test)]
+    pub(super) fn fail_next_mvcc_restore(&self) {
+        self.fail_next_mvcc_restore.store(true, Ordering::SeqCst);
+    }
+
+    #[cfg(test)]
+    pub(super) fn take_mvcc_restore_failure(&self) -> bool {
+        self.fail_next_mvcc_restore.swap(false, Ordering::SeqCst)
+    }
+
+    #[cfg(test)]
+    pub(super) fn fail_next_checkpoint(&self) {
+        self.fail_next_checkpoint.store(true, Ordering::SeqCst);
+    }
+
+    #[cfg(test)]
+    pub(super) fn take_checkpoint_failure(&self) -> bool {
+        self.fail_next_checkpoint.swap(false, Ordering::SeqCst)
     }
 
     fn advance_checkpointed_derived_content(&self, seq: u64, rows: &[WriteRow]) {
