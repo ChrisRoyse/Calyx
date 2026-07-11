@@ -435,7 +435,7 @@ Terminal states (`ProposalTerminalState`): `NoDeficit | GateRejected | HotAddFai
 
 ### 13.16.2 Operator proposal — `ProposeOperator::propose_operator` (`operator_synth.rs`)
 
-When refit doesn't close the deficit, proposes a learned operator (`ProposedOperator = OnlineHead{kind, param_count} | KernelScope{scope, scope_hash, kernel_recall_before/after}`). Terminal states: `NoDeficit | RefitClosed | Promoted | RolledBack`. Gating: `deficit_total > deficit_threshold_bits (0.5)`, `refit_delta_j < deficit_total`, and `shadow_delta_j ≥ min_delta_j (1e-6)` else `CALYX_ANNEAL_OPERATOR_NO_GAIN`. Promotes via `OperatorPromotionGate` (ledger `OperatorPromoted`/`OperatorReverted`). Records stored to CF `AnnealOperators`, tag `anneal_operator_proposal_v1`, key `operator/v1/{ts_be}{proposal_id}`. Error `CALYX_ANNEAL_OPERATOR_INVALID_RECORD`.
+When refit doesn't close the deficit, proposes a learned operator (`ProposedOperator = OnlineHead{kind, param_count} | KernelScope{scope, scope_hash, kernel_recall_before/after}`). Kernel-scope synthesis requires independently measured held-out recall for both the incumbent and candidate; missing either value fails before gate/storage mutation with `CALYX_ASSAY_UNAVAILABLE`, and no deficit-derived fallback exists. Terminal states: `NoDeficit | RefitClosed | Promoted | RolledBack`. Gating: `deficit_total > deficit_threshold_bits (0.5)`, `refit_delta_j < deficit_total`, and measured `shadow_delta_j ≥ min_delta_j (1e-6)` else `CALYX_ANNEAL_OPERATOR_NO_GAIN`. Promotes via `OperatorPromotionGate` (ledger `OperatorPromoted`/`OperatorReverted`). Records stored to CF `AnnealOperators`, tag `anneal_operator_proposal_v1`, key `operator/v1/{ts_be}{proposal_id}`. Error `CALYX_ANNEAL_OPERATOR_INVALID_RECORD`.
 
 ---
 

@@ -81,9 +81,13 @@ For learned operators (#582): use a deterministic synthetic deficit where
 `anneal_operators` CF rows, `anneal_rollback` rows, WAL files, and decoded
 Ledger rows. Expected happy paths: online-head proposal persists a row with
 `shadow_delta_j = total_bits_deficit - refit_delta_j`; kernel-scope proposal
-persists `shadow_delta_j = kernel_recall_after - kernel_recall_before`; Ledger
-contains `operator_promoted`. Required edges: refit-closed writes no rows,
-no-gain fails with `CALYX_ANNEAL_OPERATOR_NO_GAIN`, invalid metrics fail with
+requires independently measured held-out `kernel_recall_before` and
+`kernel_recall_after`, then persists their exact delta. Missing either
+measurement fails before gate/storage mutation with `CALYX_ASSAY_UNAVAILABLE`;
+there is no deficit-derived recall fallback. Ledger contains
+`operator_promoted` only after the shadow gate passes. Required edges:
+refit-closed writes no rows, missing recall writes no rows, no-gain fails with
+`CALYX_ANNEAL_OPERATOR_NO_GAIN`, invalid metrics fail with
 `CALYX_ASSAY_INVALID_METRIC`, and shadow rollback records `operator_reverted`.
 
 ## Risks / landmines

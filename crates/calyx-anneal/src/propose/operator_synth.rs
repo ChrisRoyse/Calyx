@@ -214,12 +214,8 @@ fn synthesize_operator(
         .map(|gap| gap.anchor_class.as_str())
         .unwrap_or("unknown");
     if prefers_kernel_scope(top_anchor) {
-        let before = validate_unit("kernel_recall_before", kernel_recall_before.unwrap_or(0.0))?;
-        let fallback_after = (before + deficit.total_bits_deficit.min(1.0)).min(1.0);
-        let after = validate_unit(
-            "kernel_recall_after",
-            kernel_recall_after.unwrap_or(fallback_after),
-        )?;
+        let before = require_kernel_recall("kernel_recall_before", kernel_recall_before)?;
+        let after = require_kernel_recall("kernel_recall_after", kernel_recall_after)?;
         let scope_hash = scope_hash(deficit)?;
         return Ok(ProposedOperator::KernelScope {
             scope: ScopeId::from_hash(scope_hash),
@@ -252,6 +248,17 @@ fn shadow_delta_j(
             kernel_recall_after - kernel_recall_before,
         ),
     }
+}
+
+fn require_kernel_recall(name: &'static str, value: Option<f64>) -> Result<f64> {
+    let value = value.ok_or_else(|| CalyxError {
+        code: super::CALYX_ASSAY_UNAVAILABLE,
+        message: format!(
+            "{name} is required for a kernel-scope operator proposal; no measured recall was supplied"
+        ),
+        remediation: "measure incumbent and candidate recall independently on the deterministic held-out replay before proposing a kernel-scope operator",
+    })?;
+    validate_unit(name, value)
 }
 
 fn validate_deficit(deficit: &DeficitMap) -> Result<()> {
