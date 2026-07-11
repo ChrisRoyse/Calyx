@@ -326,7 +326,7 @@ impl SufficiencyBasis {
         Self {
             panel_bits,
             sufficiency_basis_bits: panel_bits,
-            estimate_bound: EstimateBound::LowerBound,
+            estimate_bound: EstimateBound::Point,
             power_calibration: None,
         }
     }
