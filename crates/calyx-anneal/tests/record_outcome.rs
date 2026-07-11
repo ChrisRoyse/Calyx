@@ -313,7 +313,7 @@ fn record_inner(
         Arc::new(clock),
         [OnlineHead::new(HeadKind::Predictor, vec![0.0])?],
     )?;
-    let mut context = RecordOutcomeContext::new(&log, &mut replay, &mut heads, &outcomes);
+    let mut context = RecordOutcomeContext::new(&log, &mut replay, &mut heads, &outcomes, vault);
     record_outcome(cx_id, anchor, prediction, &mut context, config)
 }
 

@@ -4,7 +4,8 @@ use serde::{Deserialize, Serialize};
 
 use super::{
     FrozenLensCheck, HeadPromotionGate, HeadStorage, MistakeLog, MistakeRef, MistakeStorage,
-    OnlineHeadState, ReplayBuffer, ReplayEntry, ReplayStorage, record_mistake_for_replay,
+    OnlineHeadState, RegressionContextSource, ReplayBuffer, ReplayEntry, ReplayStorage,
+    record_mistake_for_replay,
 };
 use crate::{
     AnnealLedgerAction, ChangeId, DEFAULT_MISTAKE_SURPRISE_THRESHOLD,
@@ -102,7 +103,7 @@ pub enum RecordOutcomeResult {
     Contradiction(RecordOutcomeContradiction),
 }
 
-pub struct RecordOutcomeContext<'a, M, R, H, G, F, O>
+pub struct RecordOutcomeContext<'a, M, R, H, G, F, O, C>
 where
     M: MistakeStorage,
     R: ReplayStorage,
@@ -110,14 +111,16 @@ where
     G: HeadPromotionGate,
     F: FrozenLensCheck,
     O: OutcomeStorage,
+    C: RegressionContextSource,
 {
     pub log: &'a MistakeLog<M>,
     pub replay: &'a mut ReplayBuffer<R>,
     pub heads: &'a mut OnlineHeadState<H, G, F>,
     pub outcomes: &'a OutcomeQueue<O>,
+    pub contexts: &'a C,
 }
 
-impl<'a, M, R, H, G, F, O> RecordOutcomeContext<'a, M, R, H, G, F, O>
+impl<'a, M, R, H, G, F, O, C> RecordOutcomeContext<'a, M, R, H, G, F, O, C>
 where
     M: MistakeStorage,
     R: ReplayStorage,
@@ -125,27 +128,30 @@ where
     G: HeadPromotionGate,
     F: FrozenLensCheck,
     O: OutcomeStorage,
+    C: RegressionContextSource,
 {
     pub fn new(
         log: &'a MistakeLog<M>,
         replay: &'a mut ReplayBuffer<R>,
         heads: &'a mut OnlineHeadState<H, G, F>,
         outcomes: &'a OutcomeQueue<O>,
+        contexts: &'a C,
     ) -> Self {
         Self {
             log,
             replay,
             heads,
             outcomes,
+            contexts,
         }
     }
 }
 
-pub fn record_outcome<M, R, H, G, F, O>(
+pub fn record_outcome<M, R, H, G, F, O, C>(
     cx_id: CxId,
     anchor: Anchor,
     prediction: Option<OutcomePrediction>,
-    context: &mut RecordOutcomeContext<'_, M, R, H, G, F, O>,
+    context: &mut RecordOutcomeContext<'_, M, R, H, G, F, O, C>,
     config: RecordOutcomeConfig,
 ) -> Result<RecordOutcomeResult>
 where
@@ -155,6 +161,7 @@ where
     G: HeadPromotionGate,
     F: FrozenLensCheck,
     O: OutcomeStorage,
+    C: RegressionContextSource,
 {
     validate_config(config)?;
     validate_prediction(prediction)?;
@@ -199,15 +206,19 @@ where
     let training = ReplayEntry::new(
         cx_id,
         entry.head_target,
+        entry.surprise,
         MistakeRef {
             seq: entry.seq,
-            surprise: entry.head_target,
+            surprise: entry.surprise,
         },
         entry.ts,
     )?;
-    let update = context
-        .heads
-        .update(&[training], config.lr, config.fisher_weight)?;
+    let update = context.heads.update(
+        &[training],
+        context.contexts,
+        config.lr,
+        config.fisher_weight,
+    )?;
     let hash = full_content_hash([encode_outcome_queue_entry(&entry)?.as_slice()]);
     context.heads.record_outcome_event(
         AnnealLedgerAction::OutcomeReward,

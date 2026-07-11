@@ -98,7 +98,7 @@ fn empty_all_recur_and_nan_edges_are_fail_closed() {
 fn missing_context_fails_closed_with_exact_code() {
     let log = memory_log();
     let row = append(&log, 1, 0.0, 1.0);
-    let batch = vec![replay(row, 1)];
+    let batch = vec![replay(row, 1, 1.0)];
     let err = assert_no_regression(
         &FixedPredictor::new(1.0),
         &batch,
@@ -108,6 +108,18 @@ fn missing_context_fails_closed_with_exact_code() {
     .unwrap_err();
 
     assert_eq!(err.code, CALYX_ANNEAL_REGRESSION_SOURCE_UNAVAILABLE);
+}
+
+#[test]
+fn replay_target_must_match_logged_observation() {
+    let (log, mut batch, contexts) = single_case(0.8, 0.0);
+    batch[0].target = 0.8;
+
+    let error =
+        assert_no_regression(&FixedPredictor::new(0.0), &batch, &log, &contexts).unwrap_err();
+
+    assert_eq!(error.code, CALYX_ANNEAL_REGRESSION_SOURCE_UNAVAILABLE);
+    assert!(error.message.contains("replay target does not match"));
 }
 
 #[derive(Default)]
@@ -192,7 +204,7 @@ fn single_case(
     let row = append(&log, 1, old_prediction, observed);
     let mut contexts = MemoryContexts::default();
     contexts.insert(cx(1));
-    (log, vec![replay(row, 1)], contexts)
+    (log, vec![replay(row, 1, observed)], contexts)
 }
 
 fn multi_case(
@@ -208,7 +220,7 @@ fn multi_case(
     for (index, (old_prediction, observed)) in values.iter().copied().enumerate() {
         let seed = index as u8 + 1;
         let row = append(&log, seed, old_prediction, observed);
-        batch.push(replay(row, seed));
+        batch.push(replay(row, seed, observed));
         contexts.insert(cx(seed));
     }
     (log, batch, contexts)
@@ -233,8 +245,8 @@ fn append(
         .unwrap()
 }
 
-fn replay(reference: MistakeRef, seed: u8) -> ReplayEntry {
-    ReplayEntry::new(cx_id(seed), reference.surprise, reference, TEST_TS).unwrap()
+fn replay(reference: MistakeRef, seed: u8, target: f64) -> ReplayEntry {
+    ReplayEntry::new(cx_id(seed), target, reference.surprise, reference, TEST_TS).unwrap()
 }
 
 fn cx_id(seed: u8) -> CxId {

@@ -21,13 +21,13 @@ entries; entries are eventually evicted only by the capacity rule).
 
 ## Build (checklist of concrete, code-level steps)
 
-- [ ] `struct ReplayEntry { cx_id: CxId, surprise: f64, mistake_ref: MistakeRef, added_ts: LogicalTime }`.
+- [ ] `struct ReplayEntry { cx_id: CxId, target: f64, surprise: f64, mistake_ref: MistakeRef, added_ts: LogicalTime }`; `target` is the observed supervised value and is never inferred from `surprise`.
 - [ ] `struct ReplayBuffer { heap: BinaryHeap<ReplayEntry>, capacity: usize, clock: Arc<dyn Clock> }` — max-heap by `surprise`; fixed `capacity` (default 4096).
 - [ ] `fn push(&mut self, entry: ReplayEntry)` — if buffer full and `entry.surprise ≤ min_surprise_in_heap`, discard; else insert and pop the min-surprise entry.
 - [ ] `fn sample_batch(&self, n: usize, seed: u64) -> Vec<ReplayEntry>` — returns `n` entries sampled proportional to `surprise`; seeded RNG for determinism; does NOT remove sampled entries from the buffer.
 - [ ] `fn len(&self) -> usize`; `fn is_empty(&self) -> bool`.
 - [ ] `fn seed_from_log(&mut self, log: &MistakeLog, n: usize)` — reads last `n` entries from `MistakeLog`, pushes them; used on restart.
-- [ ] Persist buffer state to `anneal_replay` CF (serialized snapshot) so high-surprise mistakes survive restarts.
+- [ ] Persist buffer state to `anneal_replay` CF (serialized snapshot v2) so high-surprise mistakes survive restarts; reject legacy snapshots that lack an explicit target.
 - [ ] Replay does NOT feed back into `MistakeLog` (no infinite loops); replay is strictly read + consume for head update.
 
 ## Tests (synthetic, deterministic — known input → known bytes/number)
@@ -37,6 +37,7 @@ entries; entries are eventually evicted only by the capacity rule).
 - [ ] proptest: for any sequence of pushes on a capacity-N buffer, `len() ≤ N` always.
 - [ ] edge: push to a capacity-1 buffer: higher surprise replaces lower surprise; equal surprise keeps existing entry (stable eviction); empty buffer `sample_batch` → empty vec.
 - [ ] fail-closed: `capacity=0` → `CALYX_ANNEAL_INVALID_CAPACITY`; `sample_batch(n > len())` → returns all entries (no panic).
+- [ ] fail-closed: a persisted v1 replay row without `target` returns `CALYX_ANNEAL_REPLAY_INVALID_ROW`; it must never default `target=surprise`.
 
 ## FSV (read the bytes on aiwonder — the truth gate)
 

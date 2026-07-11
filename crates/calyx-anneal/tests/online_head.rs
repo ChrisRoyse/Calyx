@@ -6,12 +6,14 @@ use std::sync::{Arc, Mutex};
 
 use calyx_anneal::{
     CALYX_ANNEAL_HEAD_TOO_LARGE, CALYX_ANNEAL_HEAD_UPDATE_REVERTED, ChangeOutcome, FrozenLensCheck,
-    HeadKind, HeadPromotionGate, HeadStorage, MistakeRef, OnlineHead, OnlineHeadState, ReplayEntry,
-    ShadowRevertReason, decode_online_head,
+    HeadKind, HeadPromotionGate, HeadStorage, MistakeRef, OnlineHead, OnlineHeadState,
+    RegressionContextSource, ReplayEntry, ShadowRevertReason, decode_online_head,
 };
 use calyx_aster::cf::ColumnFamily;
 use calyx_aster::vault::{AsterVault, VaultOptions};
-use calyx_core::{CalyxError, CxId, FixedClock, Result};
+use calyx_core::{
+    CalyxError, Constellation, CxFlags, CxId, FixedClock, InputRef, LedgerRef, Modality, Result,
+};
 use proptest::prelude::*;
 
 mod fsv_support;
@@ -23,7 +25,9 @@ const TEST_TS: u64 = 1_785_500_408;
 fn first_predictor_update_has_exact_delta_and_persists() {
     let storage = MemoryHeadStorage::default();
     let mut state = state_with_heads(storage.clone(), ScriptedGate::promote(), [zero_predictor()]);
-    let outcome = state.update(&[entry(1.0, 1)], 0.01, 0.0).unwrap();
+    let outcome = state
+        .update(&[entry(1.0, 1)], &contexts(0.0), 0.01, 0.0)
+        .unwrap();
 
     let head = state.head(HeadKind::Predictor).unwrap();
     assert!(outcome.promoted);
@@ -39,17 +43,58 @@ fn first_predictor_update_has_exact_delta_and_persists() {
 }
 
 #[test]
+fn predictor_training_uses_the_same_constellation_features_as_serving() {
+    let mut state = state_with_heads(
+        MemoryHeadStorage::default(),
+        ScriptedGate::promote(),
+        [OnlineHead::new(HeadKind::Predictor, vec![0.0, 0.0]).unwrap()],
+    );
+    let contexts = contexts(0.25);
+    let context = constellation(7, 0.25);
+
+    state
+        .update(&[entry_with_surprise(0.8, 0.6, 7)], &contexts, 1.0, 0.0)
+        .unwrap();
+
+    let head = state.head(HeadKind::Predictor).unwrap();
+    assert!((head.params[1] - 0.2).abs() < 1e-6);
+    assert!((state.predict(&context) - 0.85).abs() < 1e-6);
+}
+
+#[test]
+fn predictor_replay_does_not_mutate_untyped_heads() {
+    let calibrator = OnlineHead::new(HeadKind::Calibrator, vec![1.0, 0.0]).unwrap();
+    let fusion = OnlineHead::new(HeadKind::FusionWeights, vec![0.2, 0.3, 0.5]).unwrap();
+    let mut state = state_with_heads(
+        MemoryHeadStorage::default(),
+        ScriptedGate::promote(),
+        [zero_predictor(), calibrator.clone(), fusion.clone()],
+    );
+
+    state
+        .update(&[entry(1.0, 1)], &contexts(0.0), 0.01, 0.0)
+        .unwrap();
+
+    assert_eq!(state.head(HeadKind::Calibrator), Some(&calibrator));
+    assert_eq!(state.head(HeadKind::FusionWeights), Some(&fusion));
+}
+
+#[test]
 fn ewc_regularizer_bounds_task_a_loss_increase() {
     let mut state = state_with_heads(
         MemoryHeadStorage::default(),
         ScriptedGate::promote(),
         [zero_predictor()],
     );
-    state.update(&[entry(1.0, 1)], 0.1, 0.0).unwrap();
+    state
+        .update(&[entry(1.0, 1)], &contexts(0.0), 0.1, 0.0)
+        .unwrap();
     let task_a_param = state.head(HeadKind::Predictor).unwrap().params[0];
     let task_a_loss = squared_loss(task_a_param, 1.0);
 
-    state.update(&[entry(0.0, 2)], 0.001, 5.0).unwrap();
+    state
+        .update(&[entry(0.0, 2)], &contexts(0.0), 0.001, 5.0)
+        .unwrap();
 
     let head = state.head(HeadKind::Predictor).unwrap();
     let loss_increase = squared_loss(head.params[0], 1.0) - task_a_loss;
@@ -70,7 +115,14 @@ proptest! {
             [OnlineHead::new(HeadKind::Predictor, vec![0.0, 0.0, 0.0]).unwrap()],
         );
         for (index, surprise) in surprises.into_iter().enumerate() {
-            state.update(&[entry(surprise, index as u64 + 1)], 0.005, 0.5).unwrap();
+            state
+                .update(
+                    &[entry(surprise, index as u64 + 1)],
+                    &contexts(0.0),
+                    0.005,
+                    0.5,
+                )
+                .unwrap();
             prop_assert_eq!(state.head(HeadKind::Predictor).unwrap().params.len(), 3);
             prop_assert_eq!(state.head(HeadKind::Predictor).unwrap().fisher_diag.len(), 3);
         }
@@ -82,11 +134,13 @@ fn empty_zero_lr_and_too_large_edges_are_fail_closed() {
     let storage = MemoryHeadStorage::default();
     let mut state = state_with_heads(storage.clone(), ScriptedGate::promote(), [zero_predictor()]);
 
-    state.update(&[], 0.01, 1.0).unwrap();
+    state.update(&[], &contexts(0.0), 0.01, 1.0).unwrap();
     assert_eq!(state.head(HeadKind::Predictor).unwrap().params, vec![0.0]);
     assert!(storage.scan_heads().unwrap().is_empty());
 
-    state.update(&[entry(1.0, 1)], 0.0, 1.0).unwrap();
+    state
+        .update(&[entry(1.0, 1)], &contexts(0.0), 0.0, 1.0)
+        .unwrap();
     assert_eq!(state.head(HeadKind::Predictor).unwrap().version, 0);
     assert!(storage.scan_heads().unwrap().is_empty());
 
@@ -99,7 +153,9 @@ fn reverted_substrate_does_not_update_params_version_or_storage() {
     let storage = MemoryHeadStorage::default();
     let mut state = state_with_heads(storage.clone(), ScriptedGate::revert(), [zero_predictor()]);
 
-    let err = state.update(&[entry(1.0, 1)], 0.01, 0.0).unwrap_err();
+    let err = state
+        .update(&[entry(1.0, 1)], &contexts(0.0), 0.01, 0.0)
+        .unwrap_err();
 
     assert_eq!(err.code, CALYX_ANNEAL_HEAD_UPDATE_REVERTED);
     let head = state.head(HeadKind::Predictor).unwrap();
@@ -115,7 +171,9 @@ fn promoted_save_failure_rolls_back_and_keeps_prior_head() {
     let rollbacks = gate.rollbacks.clone();
     let mut state = state_with_heads(storage, gate, [zero_predictor()]);
 
-    let err = state.update(&[entry(1.0, 1)], 0.01, 0.0).unwrap_err();
+    let err = state
+        .update(&[entry(1.0, 1)], &contexts(0.0), 0.01, 0.0)
+        .unwrap_err();
 
     assert_eq!(err.code, "CALYX_TEST_HEAD_SAVE_FAILED");
     assert_eq!(rollbacks.load(Ordering::SeqCst), 1);
@@ -137,7 +195,9 @@ fn aster_storage_writes_cbor_head_row_to_anneal_heads_cf() {
     let storage = calyx_anneal::AsterHeadStorage::new(&vault);
     let mut state = state_with_heads(storage, ScriptedGate::promote(), [zero_predictor()]);
 
-    state.update(&[entry(1.0, 1)], 0.01, 0.0).unwrap();
+    state
+        .update(&[entry(1.0, 1)], &contexts(0.0), 0.01, 0.0)
+        .unwrap();
     vault.flush().unwrap();
 
     let rows = vault
@@ -163,7 +223,9 @@ fn online_head_update_checks_frozen_guard_before_and_after() {
     )
     .unwrap();
 
-    state.update(&[entry(1.0, 1)], 0.01, 0.0).unwrap();
+    state
+        .update(&[entry(1.0, 1)], &contexts(0.0), 0.01, 0.0)
+        .unwrap();
 
     assert_eq!(calls.load(Ordering::SeqCst), 2);
 }
@@ -182,13 +244,58 @@ fn zero_predictor() -> OnlineHead {
 }
 
 fn entry(surprise: f64, seq: u64) -> ReplayEntry {
+    entry_with_surprise(surprise, surprise, seq)
+}
+
+fn entry_with_surprise(target: f64, surprise: f64, seq: u64) -> ReplayEntry {
     ReplayEntry::new(
         CxId::from_bytes([seq as u8; 16]),
+        target,
         surprise,
         MistakeRef { seq, surprise },
         TEST_TS,
     )
     .unwrap()
+}
+
+struct TestContexts {
+    signal: f64,
+}
+
+fn contexts(signal: f64) -> TestContexts {
+    TestContexts { signal }
+}
+
+impl RegressionContextSource for TestContexts {
+    fn regression_constellation(&self, cx_id: CxId) -> Result<Constellation> {
+        Ok(constellation(cx_id.as_bytes()[0], self.signal))
+    }
+}
+
+fn constellation(seed: u8, signal: f64) -> Constellation {
+    let mut scalars = BTreeMap::new();
+    scalars.insert("signal".to_string(), signal);
+    Constellation {
+        cx_id: CxId::from_bytes([seed; 16]),
+        vault_id: vault_id(),
+        panel_version: 1,
+        created_at: TEST_TS,
+        input_ref: InputRef {
+            hash: [seed; 32],
+            pointer: None,
+            redacted: false,
+        },
+        modality: Modality::Text,
+        slots: BTreeMap::new(),
+        scalars,
+        metadata: BTreeMap::new(),
+        anchors: Vec::new(),
+        provenance: LedgerRef {
+            seq: u64::from(seed),
+            hash: [seed; 32],
+        },
+        flags: CxFlags::default(),
+    }
 }
 
 fn squared_loss(param: f32, target: f32) -> f32 {

@@ -5,6 +5,7 @@ use calyx_core::{CalyxError, Clock, Constellation, Result};
 use serde::{Deserialize, Serialize};
 
 mod codec;
+mod features;
 mod regression;
 mod sleep_pass;
 mod storage;
@@ -22,15 +23,18 @@ pub use sleep_pass::{
 pub use storage::{AsterHeadStorage, HeadStorage};
 pub use update::HeadPromotionGate;
 
-use super::{FrozenLensCheck, NoFrozenLensGuard, ReplayEntry};
+use super::{FrozenLensCheck, NoFrozenLensGuard, RegressionContextSource, ReplayEntry};
 use crate::{AnnealLedgerAction, ChangeId, ChangeOutcome, LogicalTime};
 use codec::{encode_head_rows, heads_hash};
+use features::{constellation_features, resolve_replay_contexts};
 use update::{apply_update, update_reverted, validate_update};
 
 pub const MAX_ONLINE_HEAD_PARAMS: usize = 1024;
 pub const CALYX_ANNEAL_HEAD_TOO_LARGE: &str = "CALYX_ANNEAL_HEAD_TOO_LARGE";
 pub const CALYX_ANNEAL_HEAD_INVALID_ROW: &str = "CALYX_ANNEAL_HEAD_INVALID_ROW";
 pub const CALYX_ANNEAL_HEAD_UPDATE_REVERTED: &str = "CALYX_ANNEAL_HEAD_UPDATE_REVERTED";
+pub const CALYX_ANNEAL_HEAD_FEATURE_SOURCE_UNAVAILABLE: &str =
+    "CALYX_ANNEAL_HEAD_FEATURE_SOURCE_UNAVAILABLE";
 
 const ONLINE_HEAD_TAG: &str = "anneal_online_head_v1";
 const HEAD_KEY_PREFIX: &[u8] = b"head/v1/";
@@ -174,26 +178,34 @@ where
         Self::open_with_guard(storage, substrate, clock, default_heads()?, frozen_guard)
     }
 
-    pub fn update(
+    pub fn update<C>(
         &mut self,
         batch: &[ReplayEntry],
+        contexts: &C,
         lr: f32,
         fisher_weight: f32,
-    ) -> Result<HeadUpdateOutcome> {
+    ) -> Result<HeadUpdateOutcome>
+    where
+        C: RegressionContextSource,
+    {
         self.frozen_guard.assert_no_violation()?;
-        let outcome = self.update_inner(batch, lr, fisher_weight);
+        let outcome = self.update_inner(batch, contexts, lr, fisher_weight);
         post_update_guard(&self.frozen_guard)?;
         outcome
     }
 
-    fn update_inner(
+    fn update_inner<C>(
         &mut self,
         batch: &[ReplayEntry],
+        contexts: &C,
         lr: f32,
         fisher_weight: f32,
-    ) -> Result<HeadUpdateOutcome> {
+    ) -> Result<HeadUpdateOutcome>
+    where
+        C: RegressionContextSource,
+    {
         validate_update(batch, lr, fisher_weight)?;
-        if batch.is_empty() || lr == 0.0 || self.heads.is_empty() {
+        if batch.is_empty() || lr == 0.0 || !self.heads.contains_key(&HeadKind::Predictor) {
             return Ok(HeadUpdateOutcome {
                 promoted: false,
                 change_id: None,
@@ -202,7 +214,7 @@ where
                 heads: self.summaries(),
             });
         }
-        let candidate_heads = self.candidate_heads(batch, lr, fisher_weight)?;
+        let candidate_heads = self.candidate_heads(batch, contexts, lr, fisher_weight)?;
         let prior_ptr = crate::ArtifactPtr::ConfigCacheKeyHash(heads_hash(self.sorted_heads()?)?);
         let candidate_ptr =
             crate::ArtifactPtr::ConfigCacheKeyHash(heads_hash(candidate_heads.clone())?);
@@ -290,15 +302,26 @@ where
         )
     }
 
-    fn candidate_heads(
+    fn candidate_heads<C>(
         &self,
         batch: &[ReplayEntry],
+        contexts: &C,
         lr: f32,
         fisher_weight: f32,
-    ) -> Result<Vec<OnlineHead>> {
+    ) -> Result<Vec<OnlineHead>>
+    where
+        C: RegressionContextSource,
+    {
+        let replay_contexts = resolve_replay_contexts(batch, contexts)?;
         self.sorted_heads()?
-            .iter()
-            .map(|head| apply_update(head, batch, lr, fisher_weight))
+            .into_iter()
+            .map(|head| {
+                if head.kind == HeadKind::Predictor {
+                    apply_update(&head, batch, &replay_contexts, lr, fisher_weight)
+                } else {
+                    Ok(head)
+                }
+            })
             .collect()
     }
 
@@ -437,33 +460,6 @@ fn default_heads() -> Result<Vec<OnlineHead>> {
         OnlineHead::new(HeadKind::Calibrator, vec![1.0, 0.0])?,
         OnlineHead::new(HeadKind::FusionWeights, vec![1.0, 1.0, 1.0])?,
     ])
-}
-
-fn constellation_features(cx: &Constellation, len: usize) -> Vec<f32> {
-    let mut features = Vec::with_capacity(len);
-    if len == 0 {
-        return features;
-    }
-    features.push(1.0);
-    features.extend(
-        cx.scalars
-            .values()
-            .take(len.saturating_sub(features.len()))
-            .map(|value| *value as f32),
-    );
-    for value in cx
-        .slots
-        .values()
-        .filter_map(|slot| slot.as_dense())
-        .flatten()
-    {
-        if features.len() == len {
-            break;
-        }
-        features.push(*value);
-    }
-    features.resize(len, 0.0);
-    features
 }
 
 pub(crate) fn dot(left: &[f32], right: &[f32]) -> f32 {

@@ -15,7 +15,7 @@ The crate root declares the public contract in `src/lib.rs:1` (`//! Anneal self-
 - Ledger: `src/ledger_anneal.rs`
 - J-objective: `src/j/mod.rs`, `src/j/j_composite.rs`, `src/j/gradient.rs`, `src/j/goodhart.rs`, `src/j/growth_curve.rs`, `src/j/intelligence_report.rs`
 - Self-heal: `src/heal/mod.rs`, `src/heal/degrade.rs`, `src/heal/triggers.rs` (+`triggers/support.rs`), `src/heal/rebuild.rs` (+`rebuild/{scheduler,builders,source,artifact}.rs`), `src/heal/recalibrate.rs` (+`recalibrate/{types,tau,lens,store}.rs`), `src/heal/restore.rs` (+`restore/{checksum,barrier,alert}.rs`)
-- Learn: `src/learn/mod.rs`, `src/learn/mistake_log.rs`, `src/learn/replay_buffer.rs`, `src/learn/frozen_guard.rs`, `src/learn/regression_assert.rs`, `src/learn/outcome.rs` (+`outcome/queue.rs`), `src/learn/online_head.rs` (+`online_head/{codec,storage,update,regression,sleep_pass}.rs`)
+- Learn: `src/learn/mod.rs`, `src/learn/mistake_log.rs`, `src/learn/replay_buffer.rs`, `src/learn/frozen_guard.rs`, `src/learn/regression_assert.rs`, `src/learn/outcome.rs` (+`outcome/queue.rs`), `src/learn/online_head.rs` (+`online_head/{codec,features,storage,update,regression,sleep_pass}.rs`)
 - Tune: `src/tune/mod.rs`, `src/tune/bandit.rs`, `src/tune/ab_runner.rs` (+subs), `src/tune/soak_harness.rs` (+subs), `src/tune/scope_{forge,index,loom,storage}.rs` (+subs)
 - Propose: `src/propose/mod.rs`, `src/propose/propose_lens.rs`, `src/propose/deficit_localize.rs`, `src/propose/differentiation_gate.rs`, `src/propose/candidate_synth.rs` (+`targets.rs`), `src/propose/operator_synth.rs` (+`gate,codec,storage`), `src/propose/admission_record.rs`, `src/propose/registry_hot_add.rs`
 - Recurrence: `src/recurrence_schedule.rs`
@@ -335,7 +335,7 @@ Append-only `MistakeEntry { cx_id, predicted, observed, anchor, ts, surprise }` 
 
 ### 13.14.2 Replay buffer (`src/learn/replay_buffer.rs`)
 
-Surprise-prioritized min-heap of `ReplayEntry { cx_id, surprise, mistake_ref, added_ts }`, default capacity `DEFAULT_REPLAY_CAPACITY = 4096`. `push` accepts if not full or `new.surprise > min.surprise` (replace). `sample_batch(n, seed)` does surprise-weighted sampling via `ChaCha8Rng` without replacement. Snapshot stored to CF `AnnealReplay` under fixed key `b"snapshot/v1"`. Errors: `CALYX_ANNEAL_INVALID_CAPACITY`, `CALYX_ANNEAL_REPLAY_INVALID_ROW`.
+Surprise-prioritized min-heap of `ReplayEntry { cx_id, target, surprise, mistake_ref, added_ts }`, default capacity `DEFAULT_REPLAY_CAPACITY = 4096`. `target` is the supervised observed value; `surprise` is only the replay-priority score. `push` accepts if not full or `new.surprise > min.surprise` (replace). `sample_batch(n, seed)` does surprise-weighted sampling via `ChaCha8Rng` without replacement. Snapshot tag `anneal_replay_snapshot_v2` is stored to CF `AnnealReplay` under the fixed key `b"snapshot/v1"`; legacy rows without `target` are rejected instead of inferring a target from surprise. Errors: `CALYX_ANNEAL_INVALID_CAPACITY`, `CALYX_ANNEAL_REPLAY_INVALID_ROW`.
 
 ### 13.14.3 Online heads (`src/learn/online_head.rs` + subs)
 
@@ -351,11 +351,11 @@ param[i]          -= lr · (gradient[i] + regularizer[i])
 fisher_diag[i]     = max(fisher_diag[i], observed_fisher[i])
 ```
 
-Features per entry: `[1.0, entry.surprise, mistake_ref.surprise, seq/(seq+1), cx_id bytes/255…]`, scaled by head kind. `version` increments each update.
+Predictor features come only from the referenced `Constellation`: bias `1.0`, scalar values in deterministic map order, dense slot values in deterministic map order, then zero padding to the fixed parameter count. `update`, `predict`, and regression candidate prediction call the same extractor. `target`, `surprise`, `MistakeRef`, and `CxId` are never features. Predictor replay mutates and versions only `HeadKind::Predictor`; calibrator and fusion heads remain unchanged until their APIs provide typed training examples.
 
-**Promotion gating** — `OnlineHeadState::update` (`online_head.rs:`): asserts no frozen-lens violation, computes candidate heads, proposes a shadowed change via `HeadPromotionGate`; on Promote persists & swaps, on Revert → `CALYX_ANNEAL_HEAD_UPDATE_REVERTED`. Post-update frozen-lens re-assert.
+**Promotion gating** — `OnlineHeadState::update` (`online_head.rs:`): requires a `RegressionContextSource`, resolves the exact constellation for every replay row, asserts no frozen-lens violation, computes candidate heads, and proposes a shadowed change via `HeadPromotionGate`; on Promote persists and swaps, on Revert returns `CALYX_ANNEAL_HEAD_UPDATE_REVERTED`. A missing or mismatched constellation returns `CALYX_ANNEAL_HEAD_FEATURE_SOURCE_UNAVAILABLE`. Post-update frozen-lens re-assert.
 
-**Regression rollback** (`online_head/regression.rs`): `update_with_regression` computes candidate heads, runs `assert_no_regression` over the batch, proposes the change, then if `regression_rate(report) > config.max_regression_rate` calls `rollback_regressed_head_update` (ledger `HeadUpdateReverted`) and errors `CALYX_ANNEAL_REGRESSION_RECURRED`. `RegressionResult.recurred = new_surprise ≥ old_surprise`. `DEFAULT_MAX_REGRESSION_RATE = 0.05`; `RegressionConfig::strict()` = 0.0. Errors: `CALYX_ANNEAL_REGRESSION_{RECURRED,INVALID_CONFIG,SOURCE_UNAVAILABLE,NAN_PREDICTION}`.
+**Regression rollback** (`online_head/regression.rs`): `update_with_regression` computes candidate heads, runs `assert_no_regression` over the batch, proposes the change, then if `regression_rate(report) > config.max_regression_rate` calls `rollback_regressed_head_update` (ledger `HeadUpdateReverted`) and errors `CALYX_ANNEAL_REGRESSION_RECURRED`. Reassertion requires `ReplayEntry.target` to equal the mistake log's `observed` value and fails closed on a mismatch. `RegressionResult.recurred = new_surprise >= old_surprise`. `DEFAULT_MAX_REGRESSION_RATE = 0.05`; `RegressionConfig::strict()` = 0.0. Errors: `CALYX_ANNEAL_REGRESSION_{RECURRED,INVALID_CONFIG,SOURCE_UNAVAILABLE,NAN_PREDICTION}`.
 
 **Sleep pass** (`online_head/sleep_pass.rs`) — offline batch-train state machine:
 1. Validate config. If `degraded_components` non-empty → `record_sleep_pass_deferred`, `SleepPassOutcome::Deferred`.
@@ -369,7 +369,7 @@ Defaults: `DEFAULT_SLEEP_PASS_BATCH_SIZE = 16`, `DEFAULT_SLEEP_PASS_MIN_SURPRISE
 
 `record_outcome(cx_id, anchor, prediction, context, config)` extracts a scalar outcome from the anchor, and:
 - If a trusted prediction exists with `surprise ≥ contradiction_threshold` (default 0.3): **Contradiction** — records to mistake log + replay buffer (`OutcomeContradiction`), returns `RecordOutcomeContradiction`.
-- Else **Reward**: `reward = clamp(observed·confidence, 0,1)`, `expected_delta_j = reward·max(1−surprise,0)`, `delta_j_per_cost = expected_delta_j/action_cost`; enqueues an `OutcomeQueueEntry`, trains the online head, returns `RecordOutcomeReward`.
+- Else **Reward**: `reward = clamp(observed*confidence, 0,1)`, `expected_delta_j = reward*max(1-surprise,0)`, `delta_j_per_cost = expected_delta_j/action_cost`; enqueues an `OutcomeQueueEntry`, trains the predictor against `target=observed` and the referenced constellation while retaining the actual prediction error as `surprise`, then returns `RecordOutcomeReward`.
 
 Defaults: `DEFAULT_OUTCOME_ACTION_COST = 1.0`, `DEFAULT_OUTCOME_LR = 1.0`, `DEFAULT_OUTCOME_FISHER_WEIGHT = 0.0`. Outcome queue uses CF `Online` (`OnlineKeyKind::DeltaJQueue`), tag `anneal_outcome_delta_j_v1`. Errors: `CALYX_ANNEAL_OUTCOME_{INVALID_CONFIG,INVALID_ANCHOR,INVALID_ROW,APPEND_ONLY}`.
 

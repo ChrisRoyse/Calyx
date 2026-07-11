@@ -50,6 +50,7 @@ fn issue407_manual_fsv_fixture_writes_anneal_replay_bytes() {
         let invalid_entry = buffer
             .push(ReplayEntry {
                 cx_id: cx(0xEE),
+                target: 0.0,
                 surprise: f64::NAN,
                 mistake_ref: MistakeRef {
                     seq: 1,
@@ -234,6 +235,7 @@ fn fsv_root() -> PathBuf {
 fn entry(byte: u8, surprise: f64, seq: u64) -> ReplayEntry {
     ReplayEntry::new(
         cx(byte),
+        surprise,
         surprise,
         MistakeRef { seq, surprise },
         4_070_100 + seq,

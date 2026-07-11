@@ -17,12 +17,13 @@ pub const DEFAULT_REPLAY_CAPACITY: usize = 4096;
 pub const CALYX_ANNEAL_INVALID_CAPACITY: &str = "CALYX_ANNEAL_INVALID_CAPACITY";
 pub const CALYX_ANNEAL_REPLAY_INVALID_ROW: &str = "CALYX_ANNEAL_REPLAY_INVALID_ROW";
 
-const REPLAY_SNAPSHOT_TAG: &str = "anneal_replay_snapshot_v1";
+const REPLAY_SNAPSHOT_TAG: &str = "anneal_replay_snapshot_v2";
 const REPLAY_SNAPSHOT_KEY: &[u8] = b"snapshot/v1";
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ReplayEntry {
     pub cx_id: CxId,
+    pub target: f64,
     pub surprise: f64,
     pub mistake_ref: MistakeRef,
     pub added_ts: LogicalTime,
@@ -204,22 +205,25 @@ where
     pub fn entry(
         &self,
         cx_id: CxId,
+        target: f64,
         surprise: f64,
         mistake_ref: MistakeRef,
     ) -> Result<ReplayEntry> {
-        ReplayEntry::new(cx_id, surprise, mistake_ref, self.clock.now())
+        ReplayEntry::new(cx_id, target, surprise, mistake_ref, self.clock.now())
     }
 }
 
 impl ReplayEntry {
     pub fn new(
         cx_id: CxId,
+        target: f64,
         surprise: f64,
         mistake_ref: MistakeRef,
         added_ts: LogicalTime,
     ) -> Result<Self> {
         let entry = Self {
             cx_id,
+            target,
             surprise,
             mistake_ref,
             added_ts,
@@ -231,6 +235,7 @@ impl ReplayEntry {
     pub fn from_mistake(seq: u64, entry: &MistakeEntry) -> Result<Self> {
         Self::new(
             entry.cx_id,
+            entry.observed,
             entry.surprise,
             MistakeRef {
                 seq,
@@ -244,6 +249,7 @@ impl ReplayEntry {
 impl PartialEq for ReplayEntry {
     fn eq(&self, other: &Self) -> bool {
         self.cx_id == other.cx_id
+            && self.target.to_bits() == other.target.to_bits()
             && self.surprise.to_bits() == other.surprise.to_bits()
             && self.mistake_ref.seq == other.mistake_ref.seq
             && self.mistake_ref.surprise.to_bits() == other.mistake_ref.surprise.to_bits()
@@ -415,6 +421,9 @@ fn validate_capacity(capacity: usize) -> Result<()> {
 }
 
 fn validate_entry(entry: &ReplayEntry) -> Result<()> {
+    if !entry.target.is_finite() {
+        return Err(invalid_row("replay target must be finite"));
+    }
     if !entry.surprise.is_finite() || entry.surprise < 0.0 {
         return Err(invalid_row("replay surprise must be finite and >= 0"));
     }

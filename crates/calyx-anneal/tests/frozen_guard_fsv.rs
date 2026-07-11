@@ -6,9 +6,12 @@ use std::sync::{Arc, Mutex};
 
 use calyx_anneal::{
     ChangeOutcome, FrozenLensGuard, FrozenLensSource, HeadKind, HeadPromotionGate, HeadStorage,
-    MistakeRef, OnlineHead, OnlineHeadState, ReplayEntry,
+    MistakeRef, OnlineHead, OnlineHeadState, RegressionContextSource, ReplayEntry,
 };
-use calyx_core::{CalyxError, CxId, FixedClock, LensId, Modality, Result};
+use calyx_core::{
+    CalyxError, Constellation, CxFlags, CxId, FixedClock, InputRef, LedgerRef, LensId, Modality,
+    Result,
+};
 use calyx_registry::{AlgorithmicLens, FrozenLensSnapshot, Registry};
 use serde_json::json;
 
@@ -50,7 +53,9 @@ fn fsv_frozen_lens_guard_manual() {
         guard.clone(),
     )
     .unwrap();
-    let outcome = state.update(&[entry(1.0, 1)], 0.01, 0.0).unwrap();
+    let outcome = state
+        .update(&[entry(1.0, 1)], &FixedContext, 0.01, 0.0)
+        .unwrap();
     let after_report = guard.check().unwrap();
     write_json(&root.join("after-report.json"), &after_report);
 
@@ -225,10 +230,40 @@ fn entry(surprise: f64, seq: u64) -> ReplayEntry {
     ReplayEntry::new(
         CxId::from_bytes([seq as u8; 16]),
         surprise,
+        surprise,
         MistakeRef { seq, surprise },
         TEST_TS,
     )
     .unwrap()
+}
+
+struct FixedContext;
+
+impl RegressionContextSource for FixedContext {
+    fn regression_constellation(&self, cx_id: CxId) -> Result<Constellation> {
+        let seed = cx_id.as_bytes()[0];
+        Ok(Constellation {
+            cx_id,
+            vault_id: fsv_support::vault_id(),
+            panel_version: 1,
+            created_at: TEST_TS,
+            input_ref: InputRef {
+                hash: [seed; 32],
+                pointer: None,
+                redacted: false,
+            },
+            modality: Modality::Text,
+            slots: BTreeMap::new(),
+            scalars: BTreeMap::new(),
+            metadata: BTreeMap::new(),
+            anchors: Vec::new(),
+            provenance: LedgerRef {
+                seq: u64::from(seed),
+                hash: [seed; 32],
+            },
+            flags: CxFlags::default(),
+        })
+    }
 }
 
 fn snapshot(id: u8, hash: u8) -> FrozenLensSnapshot {

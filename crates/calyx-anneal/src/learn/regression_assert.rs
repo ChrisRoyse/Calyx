@@ -125,6 +125,24 @@ where
                 format!("missing mistake seq {}", entry.mistake_ref.seq),
             )
         })?;
+        if mistake.cx_id != entry.cx_id {
+            return Err(source_unavailable(
+                entry.cx_id,
+                format!(
+                    "mistake seq {} belongs to {}",
+                    entry.mistake_ref.seq, mistake.cx_id
+                ),
+            ));
+        }
+        if entry.target.to_bits() != mistake.observed.to_bits() {
+            return Err(source_unavailable(
+                entry.cx_id,
+                format!(
+                    "replay target does not match observed value for mistake seq {}",
+                    entry.mistake_ref.seq
+                ),
+            ));
+        }
         let cx = contexts
             .regression_constellation(entry.cx_id)
             .map_err(|error| source_unavailable(entry.cx_id, error.to_string()))?;

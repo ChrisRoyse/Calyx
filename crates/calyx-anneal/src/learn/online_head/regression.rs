@@ -79,7 +79,7 @@ where
         let config = config.validate()?;
         self.frozen_guard.assert_no_violation()?;
         validate_update(batch, lr, fisher_weight)?;
-        if batch.is_empty() || lr == 0.0 || self.heads.is_empty() {
+        if batch.is_empty() || lr == 0.0 || !self.heads.contains_key(&HeadKind::Predictor) {
             let update = HeadUpdateOutcome {
                 promoted: false,
                 change_id: None,
@@ -93,7 +93,7 @@ where
             });
         }
 
-        let candidate_heads = self.candidate_heads(batch, lr, fisher_weight)?;
+        let candidate_heads = self.candidate_heads(batch, contexts, lr, fisher_weight)?;
         let candidate_map = candidate_heads
             .iter()
             .cloned()
@@ -174,7 +174,7 @@ impl RegressionPredictor for CandidatePredictor<'_> {
         };
         dot(
             &head.params,
-            &super::constellation_features(cx, head.params.len()),
+            &super::features::constellation_features(cx, head.params.len()),
         ) as f64
     }
 }

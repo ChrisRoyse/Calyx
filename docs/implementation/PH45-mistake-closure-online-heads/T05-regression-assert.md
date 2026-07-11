@@ -23,7 +23,7 @@ invariant made concrete and machine-checkable.
 ## Build (checklist of concrete, code-level steps)
 
 - [ ] `struct RegressionResult { cx_id: CxId, old_surprise: f64, new_surprise: f64, recurred: bool }` — `recurred = new_surprise >= old_surprise`.
-- [ ] `fn assert_no_regression(heads: &OnlineHeadState, batch: &[ReplayEntry], log: &MistakeLog) -> RegressionReport` — for each entry in `batch`, calls `heads.predict(cx)` to get `new_prediction`; retrieves `observed` from `log`; computes `new_surprise`; sets `recurred` if `new_surprise >= old_surprise`; returns `RegressionReport { results, regression_count, passed: regression_count == 0 }`.
+- [ ] `fn assert_no_regression(heads: &OnlineHeadState, batch: &[ReplayEntry], log: &MistakeLog, contexts: &impl RegressionContextSource) -> RegressionReport` — for each entry in `batch`, resolves the same constellation used for training, requires `entry.target == mistake.observed`, calls `heads.predict(cx)` to get `new_prediction`, computes `new_surprise`, and sets `recurred` if `new_surprise >= old_surprise`.
 - [ ] `fn regression_rate(report: &RegressionReport) -> f64` — `regression_count / batch.len()`.
 - [ ] Integration with `OnlineHeadState::update`: after a promoted update, `assert_no_regression` is run; if `regression_rate > max_regression_rate` (configurable, default `0.05`), the update is reverted via `AnnealSubstrate::rollback_explicit`; Ledger gets `action=HeadUpdateReverted` with `regression_rate`.
 - [ ] `fn record_regression(result: &RegressionResult, log: &mut MistakeLog)` — a recurred mistake is re-appended to `MistakeLog` with increased `surprise` (to ensure it re-enters the `ReplayBuffer` at higher priority next cycle).
@@ -36,6 +36,7 @@ invariant made concrete and machine-checkable.
 - [ ] proptest: if all new_surprises < all old_surprises, `regression_rate = 0.0`.
 - [ ] edge: empty batch → `regression_count=0`, `passed=true`; all entries recur → `regression_rate=1.0`; `max_regression_rate=0.0` (strict mode) → any regression triggers revert.
 - [ ] fail-closed: `heads.predict` returns `NaN` → treat as `new_surprise = f64::MAX` (worst case; always counts as regression); error logged.
+- [ ] fail-closed: replay target differs from the mistake log's observed value, or the context source returns the wrong `CxId` → reject the report as source unavailable.
 
 ## FSV (read the bytes on aiwonder — the truth gate)
 

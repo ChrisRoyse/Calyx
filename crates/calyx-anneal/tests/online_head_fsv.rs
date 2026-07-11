@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::env;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -8,7 +9,9 @@ use calyx_anneal::{
 };
 use calyx_aster::cf::{ColumnFamily, full_content_hash};
 use calyx_aster::vault::AsterVault;
-use calyx_core::{CxId, FixedClock};
+use calyx_core::{
+    Constellation, CxFlags, CxId, FixedClock, InputRef, LedgerRef, Modality, VaultStore,
+};
 use serde_json::{Value, json};
 
 #[path = "fsv_support/mod.rs"]
@@ -27,6 +30,9 @@ fn fsv_online_head_manual() {
         PathBuf::from(env::var("CALYX_ISSUE408_FSV_ROOT").expect("set CALYX_ISSUE408_FSV_ROOT"));
     support::reset_dir(&root);
     let (vault_dir, vault) = support::open_durable_vault(&root, "vault");
+    for seq in 1..=4 {
+        vault.put(context(seq)).unwrap();
+    }
     let base_hash_before = cf_hash(&vault, ColumnFamily::Base);
     let slot_hash_before = cf_hash(&vault, ColumnFamily::slot(calyx_core::SlotId::new(0)));
     let before_rows = raw_cf_rows(&vault, ColumnFamily::AnnealHeads);
@@ -46,9 +52,9 @@ fn fsv_online_head_manual() {
     )
     .unwrap();
 
-    let empty = state.update(&[], 0.01, 1.0).unwrap();
+    let empty = state.update(&[], &vault, 0.01, 1.0).unwrap();
     let rows_after_empty = raw_cf_rows(&vault, ColumnFamily::AnnealHeads);
-    let lr_zero = state.update(&[entry(1.0, 1)], 0.0, 1.0).unwrap();
+    let lr_zero = state.update(&[entry(1.0, 1)], &vault, 0.0, 1.0).unwrap();
     let rows_after_lr_zero = raw_cf_rows(&vault, ColumnFamily::AnnealHeads);
     let too_large_error = OnlineHead::new(HeadKind::Predictor, vec![0.0; 1025])
         .unwrap_err()
@@ -56,12 +62,12 @@ fn fsv_online_head_manual() {
         .to_string();
     assert_eq!(too_large_error, CALYX_ANNEAL_HEAD_TOO_LARGE);
     let invalid_lr_error = state
-        .update(&[entry(1.0, 2)], f32::NAN, 1.0)
+        .update(&[entry(1.0, 2)], &vault, f32::NAN, 1.0)
         .unwrap_err()
         .code
         .to_string();
     let reverted_error = state
-        .update(&[entry(1.0, 3)], 0.01, 0.0)
+        .update(&[entry(1.0, 3)], &vault, 0.01, 0.0)
         .unwrap_err()
         .code
         .to_string();
@@ -77,7 +83,7 @@ fn fsv_online_head_manual() {
         [zero_predictor()],
     )
     .unwrap();
-    let promoted = state.update(&[entry(1.0, 4)], 0.01, 0.0).unwrap();
+    let promoted = state.update(&[entry(1.0, 4)], &vault, 0.01, 0.0).unwrap();
     vault.flush().unwrap();
 
     let after_rows = raw_cf_rows(&vault, ColumnFamily::AnnealHeads);
@@ -146,10 +152,35 @@ fn entry(surprise: f64, seq: u64) -> ReplayEntry {
     ReplayEntry::new(
         CxId::from_bytes([seq as u8; 16]),
         surprise,
+        surprise,
         calyx_anneal::MistakeRef { seq, surprise },
         TEST_TS,
     )
     .unwrap()
+}
+
+fn context(seed: u8) -> Constellation {
+    Constellation {
+        cx_id: CxId::from_bytes([seed; 16]),
+        vault_id: fsv_support::vault_id(),
+        panel_version: 1,
+        created_at: TEST_TS,
+        input_ref: InputRef {
+            hash: [seed; 32],
+            pointer: None,
+            redacted: false,
+        },
+        modality: Modality::Text,
+        slots: BTreeMap::new(),
+        scalars: BTreeMap::new(),
+        metadata: BTreeMap::new(),
+        anchors: Vec::new(),
+        provenance: LedgerRef {
+            seq: u64::from(seed),
+            hash: [seed; 32],
+        },
+        flags: CxFlags::default(),
+    }
 }
 
 fn state_version(outcome: &calyx_anneal::HeadUpdateOutcome) -> u64 {

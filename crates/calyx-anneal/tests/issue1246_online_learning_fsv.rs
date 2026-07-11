@@ -81,7 +81,7 @@ fn outcome_ingress(root: &Path) -> Result<Value> {
         AsterOutcomeStorage::new(&vault),
         Arc::new(FixedClock::new(closure::TEST_TS + 10)),
     )?;
-    let mut context = RecordOutcomeContext::new(&log, &mut replay, &mut heads, &outcomes);
+    let mut context = RecordOutcomeContext::new(&log, &mut replay, &mut heads, &outcomes, &vault);
 
     let reward = record_outcome(
         reward_cx.cx_id,
@@ -218,7 +218,7 @@ fn regression_rollback(root: &Path) -> Result<Value> {
     vault.put(cx.clone())?;
     let log = closure::mistake_log(&vault);
     let reference = log.append(cx.cx_id, 0.2, 0.0, AnchorKind::Reward)?;
-    let batch = [replay(reference, cx.cx_id)?];
+    let batch = [replay(reference, cx.cx_id, 0.0)?];
     let clock = FixedClock::new(closure::TEST_TS + 30);
     let mut state = OnlineHeadState::open(
         AsterHeadStorage::new(&vault),
@@ -278,8 +278,15 @@ fn goodhart_guard() -> Value {
 fn replay(
     reference: calyx_anneal::MistakeRef,
     cx_id: calyx_core::CxId,
+    target: f64,
 ) -> Result<calyx_anneal::ReplayEntry> {
-    calyx_anneal::ReplayEntry::new(cx_id, reference.surprise, reference, closure::TEST_TS)
+    calyx_anneal::ReplayEntry::new(
+        cx_id,
+        target,
+        reference.surprise,
+        reference,
+        closure::TEST_TS,
+    )
 }
 
 fn reward_anchor(value: f64) -> Anchor {

@@ -16,10 +16,11 @@ pub use mistake_log::{
     mistake_key, mistake_seq_from_key,
 };
 pub use online_head::{
-    AsterHeadStorage, CALYX_ANNEAL_HEAD_INVALID_ROW, CALYX_ANNEAL_HEAD_TOO_LARGE,
-    CALYX_ANNEAL_HEAD_UPDATE_REVERTED, CALYX_ANNEAL_SLEEP_PASS_INVALID_CONFIG,
-    DEFAULT_SLEEP_PASS_BATCH_SIZE, DEFAULT_SLEEP_PASS_MIN_SURPRISE, HeadKind, HeadPromotionGate,
-    HeadReadback, HeadRegressionRollback, HeadStorage, HeadUpdateOutcome, HeadUpdateSummary,
+    AsterHeadStorage, CALYX_ANNEAL_HEAD_FEATURE_SOURCE_UNAVAILABLE, CALYX_ANNEAL_HEAD_INVALID_ROW,
+    CALYX_ANNEAL_HEAD_TOO_LARGE, CALYX_ANNEAL_HEAD_UPDATE_REVERTED,
+    CALYX_ANNEAL_SLEEP_PASS_INVALID_CONFIG, DEFAULT_SLEEP_PASS_BATCH_SIZE,
+    DEFAULT_SLEEP_PASS_MIN_SURPRISE, HeadKind, HeadPromotionGate, HeadReadback,
+    HeadRegressionRollback, HeadStorage, HeadUpdateOutcome, HeadUpdateSummary,
     MAX_ONLINE_HEAD_PARAMS, OnlineHead, OnlineHeadState, RegressionUpdateOutcome, SleepPassConfig,
     SleepPassOutcome, SleepPassReplayRecord, decode_head_rows, decode_online_head,
     encode_online_head, head_key, head_state_artifact_key, record_mistake_for_replay,

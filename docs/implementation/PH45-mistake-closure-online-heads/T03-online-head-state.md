@@ -5,7 +5,7 @@
 | **Phase** | PH45 — Mistake-Closure + Online Heads + Replay Buffer |
 | **Stage** | S10 — Anneal + Intelligence Objective J |
 | **Crate** | `calyx-anneal` |
-| **Files** | `crates/calyx-anneal/src/learn/online_head.rs` (≤500) |
+| **Files** | `crates/calyx-anneal/src/learn/online_head.rs`, `online_head/features.rs`, `online_head/update.rs` (each ≤500) |
 | **Depends on** | T02 (ReplayBuffer provides sampled batches for updates) |
 | **Axioms** | A4, A14 |
 | **PRD** | `dbprdplans/12 §3`, `dbprdplans/27 §5` |
@@ -13,8 +13,9 @@
 ## Goal
 
 Implement `OnlineHeadState`: the set of small, trainable derived structures that
-adapt online as new outcomes arrive — predictor head weights, calibration head
-weights, and RRF/fusion weights. Each update uses an EWC++-style continual
+adapt online as new outcomes arrive. Replay entries currently provide a typed
+contract only for predictor weights; calibration and RRF/fusion heads remain
+unchanged until their own typed examples are available. Predictor updates use an EWC++-style continual
 update with a Fisher-diagonal regularizer to prevent catastrophic forgetting of
 prior knowledge. Only these derived structures are updated; frozen lens weights
 are never touched (enforced by `FrozenLensGuard`, T04). Every parameter update
@@ -25,7 +26,8 @@ is shadow-tested through the PH43 substrate before promotion.
 - [ ] `enum HeadKind { Predictor, Calibrator, FusionWeights }` — the three adaptable head types; all ≤1024 parameters each (enforced at construction).
 - [ ] `struct OnlineHead { kind: HeadKind, params: Vec<f32>, fisher_diag: Vec<f32>, version: u64 }` — `fisher_diag` is the EWC++ importance estimate per parameter.
 - [ ] `struct OnlineHeadState { heads: HashMap<HeadKind, OnlineHead>, substrate: Arc<AnnealSubstrate>, clock: Arc<dyn Clock> }`.
-- [ ] `fn update(&mut self, batch: &[ReplayEntry], lr: f32, fisher_weight: f32) -> Result<HeadUpdateOutcome, CalyxError>` — computes gradient from batch losses; applies EWC++ update: `Δθ = −lr · (∇L + fisher_weight · F · (θ − θ_prior))`; wraps as an `AnnealAction`; passes through `substrate.propose_change`; on `Promote`: apply update, increment `version`; on `Revert`: discard.
+- [ ] `fn update(&mut self, batch: &[ReplayEntry], contexts: &impl RegressionContextSource, lr: f32, fisher_weight: f32) -> Result<HeadUpdateOutcome, CalyxError>` — resolves each row's exact constellation, computes the predictor gradient against `ReplayEntry.target`, applies EWC++ update: `Δθ = −lr · (∇L + fisher_weight · F · (θ − θ_prior))`; wraps as an `AnnealAction`; passes through `substrate.propose_change`; on `Promote`: apply update, increment predictor `version`; on `Revert`: discard.
+- [ ] `constellation_features` is the single train/serve extractor: bias, deterministic scalar values, deterministic dense slot values, then zero padding. Surprise, target, mistake metadata, and IDs are forbidden as features.
 - [ ] `fn predict(&self, cx: &Constellation) -> f64` — forward pass of the `Predictor` head; used by regression re-assert (T05).
 - [ ] `fn calibrate(&self, raw_score: f64) -> f64` — Platt-scaling via the `Calibrator` head.
 - [ ] `fn fusion_weights(&self) -> &[f32]` — returns current RRF/fusion weights for use by search fusion.
@@ -39,6 +41,7 @@ is shadow-tested through the PH43 substrate before promotion.
 - [ ] proptest: for any sequence of updates, `params.len()` remains constant (no growth/shrinkage).
 - [ ] edge: empty batch → no parameter change; `params.len() = 1025` at construction → `CALYX_ANNEAL_HEAD_TOO_LARGE`; `lr=0.0` → params unchanged.
 - [ ] fail-closed: substrate `propose_change` returns `Revert` → parameters NOT updated; `version` NOT incremented; `CALYX_ANNEAL_HEAD_UPDATE_REVERTED` returned to caller.
+- [ ] fail-closed: missing or mismatched replay constellation → `CALYX_ANNEAL_HEAD_FEATURE_SOURCE_UNAVAILABLE`; calibrator and fusion params/version remain byte-for-byte unchanged after predictor replay.
 
 ## FSV (read the bytes on aiwonder — the truth gate)
 

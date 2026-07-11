@@ -1,8 +1,9 @@
 use std::sync::{Arc, Mutex};
 
 use calyx_anneal::{
-    AsterMistakeStorage, AsterReplayStorage, CALYX_ANNEAL_INVALID_CAPACITY, MistakeLog, MistakeRef,
-    ReplayBuffer, ReplayEntry, ReplayStorage, decode_replay_snapshot, replay_snapshot_key,
+    AsterMistakeStorage, AsterReplayStorage, CALYX_ANNEAL_INVALID_CAPACITY,
+    CALYX_ANNEAL_REPLAY_INVALID_ROW, MistakeLog, MistakeRef, ReplayBuffer, ReplayEntry,
+    ReplayStorage, decode_replay_snapshot, replay_snapshot_key,
 };
 use calyx_aster::cf::ColumnFamily;
 use calyx_aster::vault::AsterVault;
@@ -95,7 +96,62 @@ fn seed_from_log_replays_recent_mistakes_without_log_feedback() {
 
     assert_eq!(accepted, 2);
     assert_eq!(buffer.top_surprises(5), vec![0.8, 0.39999999999999997]);
+    assert_eq!(
+        buffer
+            .entries_by_priority()
+            .into_iter()
+            .map(|entry| entry.target)
+            .collect::<Vec<_>>(),
+        vec![0.1, 0.3]
+    );
     assert_eq!(log.readback_recent(10).unwrap().len(), log_rows_before);
+}
+
+#[test]
+fn legacy_snapshot_without_target_fails_closed() {
+    #[derive(serde::Serialize)]
+    struct LegacyEntry {
+        cx_id: CxId,
+        surprise: f64,
+        mistake_ref: MistakeRef,
+        added_ts: u64,
+    }
+
+    #[derive(serde::Serialize)]
+    struct LegacySnapshot {
+        capacity: usize,
+        entries: Vec<LegacyEntry>,
+    }
+
+    #[derive(serde::Serialize)]
+    struct LegacyRow {
+        tag: String,
+        snapshot: LegacySnapshot,
+    }
+
+    let mut bytes = Vec::new();
+    ciborium::ser::into_writer(
+        &LegacyRow {
+            tag: "anneal_replay_snapshot_v1".to_string(),
+            snapshot: LegacySnapshot {
+                capacity: 1,
+                entries: vec![LegacyEntry {
+                    cx_id: cx(1),
+                    surprise: 0.5,
+                    mistake_ref: MistakeRef {
+                        seq: 1,
+                        surprise: 0.5,
+                    },
+                    added_ts: 1001,
+                }],
+            },
+        },
+        &mut bytes,
+    )
+    .unwrap();
+
+    let error = decode_replay_snapshot(&bytes).unwrap_err();
+    assert_eq!(error.code, CALYX_ANNEAL_REPLAY_INVALID_ROW);
 }
 
 #[test]
@@ -116,6 +172,7 @@ fn aster_storage_writes_cbor_snapshot_under_anneal_replay_cf() {
     assert_eq!(snapshot.capacity, 2);
     assert_eq!(snapshot.entries.len(), 1);
     assert_eq!(snapshot.entries[0].cx_id, cx(9));
+    assert_eq!(snapshot.entries[0].target, 0.75);
     assert_eq!(snapshot.entries[0].surprise, 0.75);
 }
 
@@ -157,7 +214,14 @@ fn memory_buffer(capacity: usize, ts: u64) -> ReplayBuffer<MemoryReplayStorage> 
 }
 
 fn entry(byte: u8, surprise: f64, seq: u64) -> ReplayEntry {
-    ReplayEntry::new(cx(byte), surprise, MistakeRef { seq, surprise }, 1000 + seq).unwrap()
+    ReplayEntry::new(
+        cx(byte),
+        surprise,
+        surprise,
+        MistakeRef { seq, surprise },
+        1000 + seq,
+    )
+    .unwrap()
 }
 
 fn cx(byte: u8) -> CxId {

@@ -103,7 +103,7 @@ where
     let mistake_ref = log.append(cx_id, predicted, observed, anchor)?;
     let mut replay_added = false;
     if mistake_ref.surprise >= min_surprise {
-        let entry = buffer.entry(cx_id, mistake_ref.surprise, mistake_ref)?;
+        let entry = buffer.entry(cx_id, observed, mistake_ref.surprise, mistake_ref)?;
         replay_added = buffer.push(entry)?;
     }
     Ok(SleepPassReplayRecord {

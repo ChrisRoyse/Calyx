@@ -74,7 +74,7 @@ fn happy_update_path(root: &Path) -> Result<Value> {
         Arc::new(FixedClock::new(TEST_TS)),
     )?;
     let reference = log.append(cx.cx_id, 0.0, 1.0, AnchorKind::Reward)?;
-    let batch = [replay(reference, cx.cx_id)?];
+    let batch = [replay(reference, cx.cx_id, 1.0)?];
     let clock = FixedClock::new(TEST_TS);
     let mut state = OnlineHeadState::open(
         AsterHeadStorage::new(&vault),
@@ -128,26 +128,26 @@ fn strict_noop_revert_path(root: &Path) -> Result<Value> {
         16,
         Arc::new(FixedClock::new(TEST_TS)),
     )?;
-    let reference = log.append(cx.cx_id, 0.2, 0.0, AnchorKind::Reward)?;
-    let batch = [replay(reference, cx.cx_id)?];
+    let reference = log.append(cx.cx_id, 0.9, 0.0, AnchorKind::Reward)?;
+    let batch = [replay(reference, cx.cx_id, 0.0)?];
     let clock = FixedClock::new(TEST_TS);
     let mut state = OnlineHeadState::open(
         AsterHeadStorage::new(&vault),
         support::durable_substrate(&clock, &vault, &vault_dir),
         Arc::new(FixedClock::new(TEST_TS)),
-        [OnlineHead::new(HeadKind::Predictor, vec![0.2])?],
+        [OnlineHead::new(HeadKind::Predictor, vec![1.0])?],
     )?;
 
-    let before = assert_no_regression(&state, &batch, &log, &vault)?;
-    write_report(root, "revert-candidate-report.json", &before);
+    let candidate = assert_no_regression(&FixedPredictor(-2.0), &batch, &log, &vault)?;
+    write_report(root, "revert-candidate-report.json", &candidate);
     let error = state
-        .update_with_regression(&batch, &log, &vault, 1.0, 0.0, RegressionConfig::strict())
+        .update_with_regression(&batch, &log, &vault, 3.0, 0.0, RegressionConfig::strict())
         .unwrap_err();
     vault.flush()?;
 
     let ledger = ledger_rows(&vault);
     assert_eq!(error.code, CALYX_ANNEAL_REGRESSION_RECURRED);
-    assert_eq!(regression_rate(&before)?, 1.0);
+    assert_eq!(regression_rate(&candidate)?, 1.0);
     assert!(has_ledger_action(
         &ledger,
         "head_update",
@@ -162,9 +162,9 @@ fn strict_noop_revert_path(root: &Path) -> Result<Value> {
 
     Ok(json!({
         "vault": vault_dir.display().to_string(),
-        "known_input": {"old_prediction": 0.2, "observed": 0.0, "old_surprise": 0.2},
-        "hand_expected": {"noop_prediction": 0.2, "new_surprise": 0.2, "recurred": true, "regression_rate": 1.0},
-        "candidate_report": before,
+        "known_input": {"old_prediction": 0.9, "observed": 0.0, "old_surprise": 0.9},
+        "hand_expected": {"candidate_prediction": -2.0, "new_surprise": 2.0, "recurred": true, "regression_rate": 1.0},
+        "candidate_report": candidate,
         "error_code": error.code,
         "head_after_error": state.head(HeadKind::Predictor),
         "head_rows_after_error": cf_rows(&vault, ColumnFamily::AnnealHeads),
@@ -203,7 +203,7 @@ fn edge_audit(root: &Path) -> Result<Value> {
     write_report(root, "edge-nan-report.json", &nan);
 
     let missing_ref = log.append(cx_id(99), 1.0, 0.0, AnchorKind::Reward)?;
-    let missing_batch = [replay(missing_ref, cx_id(99))?];
+    let missing_batch = [replay(missing_ref, cx_id(99), 0.0)?];
     let missing_error =
         assert_no_regression(&FixedPredictor(0.0), &missing_batch, &log, &vault).unwrap_err();
 
@@ -250,7 +250,7 @@ fn append_cases(
             let cx = cx(*seed);
             vault.put(cx.clone())?;
             let reference = log.append(cx.cx_id, *predicted, *observed, AnchorKind::Reward)?;
-            replay(reference, cx.cx_id)
+            replay(reference, cx.cx_id, *observed)
         })
         .collect()
 }
@@ -312,8 +312,8 @@ fn has_ledger_action(rows: &[Value], action: &str, description_contains: &str) -
     })
 }
 
-fn replay(reference: MistakeRef, cx_id: CxId) -> Result<ReplayEntry> {
-    ReplayEntry::new(cx_id, reference.surprise, reference, TEST_TS)
+fn replay(reference: MistakeRef, cx_id: CxId, target: f64) -> Result<ReplayEntry> {
+    ReplayEntry::new(cx_id, target, reference.surprise, reference, TEST_TS)
 }
 
 fn cx(seed: u8) -> Constellation {
