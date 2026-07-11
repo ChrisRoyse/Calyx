@@ -122,6 +122,31 @@ fn rank_correlation_fsv_writes_and_reads_back_all_planted_cases() {
             &k,
         );
     }
+
+    // ---- Case 6: ties in both columns exercise the cross-tie variance term.
+    // scipy.stats.kendalltau(method="asymptotic", variant="b"):
+    // tau-b=0.7161148740, Var(S)=26.25, z=1.951800146, p=0.050961937.
+    {
+        let x = [0.0f32, 1.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0];
+        let y = [0.0f32, 0.0, 0.0, 2.0, 2.0, 2.0, 2.0, 2.0];
+        let s = spearman_rho(&x, &y).unwrap();
+        let k = kendall_tau_b(&x, &y).unwrap();
+        assert!((s.rho - 0.737_711_13).abs() <= TOL, "{s:?}");
+        assert!((k.tau_b - 0.716_114_9).abs() <= TOL, "{k:?}");
+        assert!((k.z_statistic - 1.951_800_1).abs() <= TOL, "{k:?}");
+        assert!((k.p_value - 0.050_961_94).abs() <= TOL, "{k:?}");
+        assert!(
+            k.p_value > 0.05,
+            "tie correction must avoid false +ve: {k:?}"
+        );
+        assert_eq!(k.s_statistic, 10);
+        write_and_read_back(
+            "rankcorr_case6_both_columns_tied.json",
+            "both columns tied; scipy asymptotic p=0.050961937",
+            &s,
+            &k,
+        );
+    }
 }
 
 #[test]
