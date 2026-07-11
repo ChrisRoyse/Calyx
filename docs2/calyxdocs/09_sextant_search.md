@@ -216,7 +216,7 @@ Steps (`KernelFirstSearch::search`):
 
 ### 6.2 Posting/index layout
 
-`InvertedIndex` (in-memory): `docs: BTreeMap<CxId,String>`, `vectors`, `postings: BTreeMap<term, Vec<Posting{cx_id, tf}>>`, `doc_len: BTreeMap<CxId, usize>`, `scorer: Bm25`. Postings store per-doc term frequency. A sparse `SlotVector` is indexed by synthesizing text `"t<idx> t<idx> …"` from entry indices; `insert_text`/`search_text` index real text. `shape()` = `Sparse(1_000_000)`. `stats().kind = "inverted"`.
+`InvertedIndex` (in-memory): `docs: BTreeMap<CxId,String>`, `vectors`, `postings: BTreeMap<term, Vec<Posting{cx_id, tf: f32}>>`, `doc_len: BTreeMap<CxId, f32>`, `scorer: Bm25`. Text indexing stores token counts as `f32`. Sparse indexing uses each positive finite `SparseEntry.val` as `tf`, sums values for `doc_len`, and applies each query value as a per-term boost. Synthetic `"t<idx>"` text remains only for candidate text/removal; rebuild restores weighted postings from `vectors`. Invalid or overflowing sparse weights fail closed. `shape()` = `Sparse(1_000_000)`. `stats().kind = "inverted"`. Persisted `calyx-search` sparse sidecars use strict format `calyx-search-sparse-index-v2`; v1 requires rebuild.
 
 ### 6.3 Scoring formula (`index/bm25.rs`)
 
