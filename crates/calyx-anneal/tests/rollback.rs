@@ -54,6 +54,36 @@ fn rollback_after_commit_fails_closed() {
 }
 
 #[test]
+fn commit_requires_promoted_unreverted_snapshot() {
+    let clock = FixedClock::new(1_785_500_396);
+    let store = RollbackStore::open(&clock, 7, MemoryStorage::default()).unwrap();
+    let rollback_key = key(7);
+    let prior = ptr(8);
+    store
+        .install_live_ptr(rollback_key.clone(), prior.clone())
+        .unwrap();
+    let change_id = store.prepare(rollback_key.clone(), ptr(9)).unwrap();
+
+    let err = store.commit(change_id).unwrap_err();
+    assert_eq!(err.code, CALYX_ANNEAL_INVALID_ROLLBACK_STATE);
+    let prepared = store.snapshot(change_id).unwrap().unwrap();
+    assert!(!prepared.promoted);
+    assert!(!prepared.reverted);
+    assert!(!prepared.committed);
+
+    store.promote(change_id).unwrap();
+    store.rollback(change_id).unwrap();
+
+    let err = store.commit(change_id).unwrap_err();
+    assert_eq!(err.code, CALYX_ANNEAL_INVALID_ROLLBACK_STATE);
+    let reverted = store.snapshot(change_id).unwrap().unwrap();
+    assert!(reverted.promoted);
+    assert!(reverted.reverted);
+    assert!(!reverted.committed);
+    assert_eq!(store.live_ptr(&rollback_key).unwrap(), Some(prior));
+}
+
+#[test]
 fn stale_rollback_marks_reverted_without_clobbering_newer_live_pointer() {
     let clock = FixedClock::new(1_785_500_396);
     let storage = MemoryStorage::default();
