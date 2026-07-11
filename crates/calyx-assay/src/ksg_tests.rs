@@ -140,7 +140,10 @@ fn mixed_ksg_subsamples_are_distinct_and_class_valid() {
         let mut rng = ChaCha8Rng::seed_from_u64(seed);
         let indices = sample_mixed_indices(&labels, m, 3, &mut rng).unwrap();
         let unique = indices.iter().copied().collect::<HashSet<_>>();
-        let sampled_labels = indices.iter().map(|index| labels[*index]).collect::<Vec<_>>();
+        let sampled_labels = indices
+            .iter()
+            .map(|index| labels[*index])
+            .collect::<Vec<_>>();
         let counts = validate_mixed_discrete_classes(&sampled_labels, 3).unwrap();
 
         assert_eq!(indices.len(), m);

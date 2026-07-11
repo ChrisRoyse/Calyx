@@ -351,9 +351,7 @@ fn centered_dot(left: &[f32], right: &[f32], means: &[f64]) -> f64 {
     left.iter()
         .zip(right)
         .zip(means)
-        .map(|((left, right), mean)| {
-            (f64::from(*left) - mean) * (f64::from(*right) - mean)
-        })
+        .map(|((left, right), mean)| (f64::from(*left) - mean) * (f64::from(*right) - mean))
         .sum()
 }
 
