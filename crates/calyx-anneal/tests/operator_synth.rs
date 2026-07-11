@@ -3,10 +3,10 @@ use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
 use calyx_anneal::{
-    AnchorGap, CALYX_ANNEAL_OPERATOR_NO_GAIN, CALYX_ASSAY_INVALID_METRIC, ChangeId, ChangeOutcome,
-    DeficitMap, HeadKind, OperatorPromotionGate, OperatorProposalStorage, OperatorTerminalState,
-    ProposeOperator, ProposeOperatorRequest, ProposedOperator, ShadowRevertReason,
-    decode_operator_proposal_rows,
+    AnchorGap, CALYX_ANNEAL_OPERATOR_NO_GAIN, CALYX_ASSAY_INVALID_METRIC, CALYX_ASSAY_UNAVAILABLE,
+    ChangeId, ChangeOutcome, DeficitMap, HeadKind, OperatorPromotionGate, OperatorProposalStorage,
+    OperatorTerminalState, ProposeOperator, ProposeOperatorRequest, ProposedOperator,
+    ShadowRevertReason, decode_operator_proposal_rows,
 };
 use calyx_core::{FixedClock, Modality, Result};
 
@@ -141,6 +141,40 @@ fn no_gain_and_invalid_metric_fail_closed_without_rows() {
     assert_eq!(no_gain.code, CALYX_ANNEAL_OPERATOR_NO_GAIN);
     assert_eq!(invalid.code, CALYX_ASSAY_INVALID_METRIC);
     assert!(storage.scan_operator_proposals().unwrap().is_empty());
+    assert_eq!(gate.proposed.load(Ordering::SeqCst), 0);
+}
+
+#[test]
+fn kernel_scope_requires_complete_measured_recall_without_mutation() {
+    let storage = MemoryOperatorStorage::default();
+    let mut gate = ScriptedGate::promote();
+    let clock = FixedClock::new(TEST_TS + 5);
+    let proposer = ProposeOperator::new(&clock);
+
+    for (before, after, missing_name) in [
+        (None, None, "kernel_recall_before"),
+        (None, Some(0.72), "kernel_recall_before"),
+        (Some(0.40), None, "kernel_recall_after"),
+    ] {
+        let mut req = request(&storage, &mut gate, kernel_deficit(), 0.05);
+        req.kernel_recall_before = before;
+        req.kernel_recall_after = after;
+
+        let error = proposer.propose_operator(req).unwrap_err();
+
+        assert_eq!(error.code, CALYX_ASSAY_UNAVAILABLE);
+        assert!(error.message.contains(missing_name));
+    }
+
+    let mut non_finite = request(&storage, &mut gate, kernel_deficit(), 0.05);
+    non_finite.kernel_recall_before = Some(f64::NAN);
+    non_finite.kernel_recall_after = Some(0.72);
+    assert_eq!(
+        proposer.propose_operator(non_finite).unwrap_err().code,
+        CALYX_ASSAY_INVALID_METRIC
+    );
+    assert!(storage.scan_operator_proposals().unwrap().is_empty());
+    assert_eq!(gate.ensured.load(Ordering::SeqCst), 0);
     assert_eq!(gate.proposed.load(Ordering::SeqCst), 0);
 }
 

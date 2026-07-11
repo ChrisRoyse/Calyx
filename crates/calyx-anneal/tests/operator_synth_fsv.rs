@@ -4,8 +4,8 @@ use std::path::{Path, PathBuf};
 
 use calyx_anneal::{
     AnchorGap, AsterOperatorProposalStorage, CALYX_ANNEAL_OPERATOR_NO_GAIN,
-    CALYX_ASSAY_INVALID_METRIC, DeficitMap, OperatorTerminalState, ProposeOperator,
-    ProposeOperatorRequest, decode_operator_proposal,
+    CALYX_ASSAY_INVALID_METRIC, CALYX_ASSAY_UNAVAILABLE, DeficitMap, OperatorTerminalState,
+    ProposeOperator, ProposeOperatorRequest, decode_operator_proposal,
 };
 use calyx_aster::cf::ColumnFamily;
 use calyx_aster::vault::AsterVault;
@@ -67,6 +67,10 @@ fn issue582_operator_synth_fsv_manual() {
     let no_gain_error = run_no_gain(&vault, &vault_dir);
     let no_gain_after = snapshot(&vault, &vault_dir);
 
+    let missing_recall_before = snapshot(&vault, &vault_dir);
+    let missing_recall_error = run_missing_recall(&vault, &vault_dir);
+    let missing_recall_after = snapshot(&vault, &vault_dir);
+
     let rollback_before = snapshot(&vault, &vault_dir);
     let rollback = run_rollback(&vault, &vault_dir);
     vault.flush().unwrap();
@@ -88,8 +92,13 @@ fn issue582_operator_synth_fsv_manual() {
         invalid_before["operator_rows"],
         invalid_after["operator_rows"]
     );
+    assert_eq!(
+        missing_recall_before["operator_rows"],
+        missing_recall_after["operator_rows"]
+    );
     assert_eq!(no_gain_error, CALYX_ANNEAL_OPERATOR_NO_GAIN);
     assert_eq!(invalid_error, CALYX_ASSAY_INVALID_METRIC);
+    assert_eq!(missing_recall_error, CALYX_ASSAY_UNAVAILABLE);
     assert_eq!(rollback_after["operator_rows"].as_array().unwrap().len(), 3);
     assert!(has_ledger_action(&after_online, "operator_promoted"));
     assert!(has_ledger_action(&after_kernel, "operator_promoted"));
@@ -113,6 +122,7 @@ fn issue582_operator_synth_fsv_manual() {
             "kernel_shadow_delta_j": 0.32,
             "refit_closed_writes_rows": false,
             "no_gain_error": CALYX_ANNEAL_OPERATOR_NO_GAIN,
+            "missing_recall_error": CALYX_ASSAY_UNAVAILABLE,
             "invalid_metric_error": CALYX_ASSAY_INVALID_METRIC
         },
         "before": before,
@@ -130,6 +140,11 @@ fn issue582_operator_synth_fsv_manual() {
                 "error": no_gain_error,
                 "before": no_gain_before,
                 "after": no_gain_after
+            },
+            "missing_recall": {
+                "error": missing_recall_error,
+                "before": missing_recall_before,
+                "after": missing_recall_after
             },
             "rollback": {
                 "outcome": rollback,
@@ -211,8 +226,25 @@ fn run_no_gain(vault: &AsterVault, vault_dir: &Path) -> &'static str {
         .code
 }
 
-fn run_invalid_metric(vault: &AsterVault, vault_dir: &Path) -> &'static str {
+fn run_missing_recall(vault: &AsterVault, vault_dir: &Path) -> &'static str {
     let clock = FixedClock::new(TEST_TS + 5);
+    let storage = AsterOperatorProposalStorage::new(vault);
+    let mut substrate = support::durable_substrate(&clock, vault, vault_dir);
+    ProposeOperator::new(&clock)
+        .propose_operator(ProposeOperatorRequest {
+            deficit: &kernel_deficit(),
+            refit_delta_j: 0.05,
+            storage: &storage,
+            gate: &mut substrate,
+            kernel_recall_before: Some(0.40),
+            kernel_recall_after: None,
+        })
+        .unwrap_err()
+        .code
+}
+
+fn run_invalid_metric(vault: &AsterVault, vault_dir: &Path) -> &'static str {
+    let clock = FixedClock::new(TEST_TS + 6);
     let storage = AsterOperatorProposalStorage::new(vault);
     let mut substrate = support::durable_substrate(&clock, vault, vault_dir);
     ProposeOperator::new(&clock)
