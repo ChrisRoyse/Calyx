@@ -22,12 +22,12 @@ Hysteresis prevents oscillation after a metric first crosses its threshold.
 
 - [x] Define `TripwireMetric::{RecallAtK, GuardFAR, GuardFRR, SearchP99, IngestP95}`.
 - [x] Define `TripwireThreshold { bound, hysteresis, direction }` with `ThresholdDir::{Below, Above}`.
-- [x] Store thresholds and per-metric `ThresholdState { last_value, crossed }` in `TripwireRegistry`.
+- [x] Store thresholds and per-metric `ThresholdState { last_value, crossed }` in `TripwireRegistry` and persist both maps to the vault TOML.
 - [x] Expose `check(metric, value) -> Result<TripwireResult>` with `Ok` and `Crossed { metric, threshold, hysteresis }`.
 - [x] Implement lower-bound and upper-bound hysteresis clearing without oscillation.
-- [x] Implement `set_tripwire(metric, bound, hysteresis)` and persist to `<vault>/.anneal/tripwire.toml`.
+- [x] Implement `set_tripwire(metric, bound, hysteresis)`, carry and recompute the metric state, and persist the candidate registry before publishing it in memory.
 - [x] Implement `status() -> Vec<TripwireStatus>`.
-- [x] Load defaults from vault config; create hardcoded safe defaults if absent.
+- [x] Load defaults from vault config; create hardcoded safe defaults if absent, and safely initialize state for legacy threshold-only files.
 - [x] Add serde persistence for config/status/result types.
 - [x] Fail closed for non-finite metric values with `CALYX_TRIPWIRE_INVALID_METRIC`.
 - [x] Fail closed for invalid config with `CALYX_TRIPWIRE_INVALID_CONFIG`.
@@ -48,13 +48,14 @@ Hysteresis prevents oscillation after a metric first crosses its threshold.
 - [x] Unit: `recall@k = 0.85` against `0.90` crosses; recovery to `0.95` clears.
 - [x] Unit: after crossing, `0.91` remains crossed inside the `0.90 + 0.05` band; `0.96` clears.
 - [x] Proptest: lower-bound hysteresis remains crossed inside the recovery band.
+- [x] Regression: reload while inside the recovery band retains `crossed=true`.
 - [x] Edge: `NaN` and `Inf` return `CALYX_TRIPWIRE_INVALID_METRIC`.
 - [x] Edge: zero hysteresis behaves as a simple threshold.
 - [x] Fail-closed: lower-bound `hysteresis > bound` returns `CALYX_TRIPWIRE_INVALID_CONFIG`.
 
 ## FSV
 
-- Source of truth: `<vault>/.anneal/tripwire.toml` plus in-memory `TripwireRegistry` state.
+- Source of truth: `<vault>/.anneal/tripwire.toml`; the in-memory `TripwireRegistry` is published only after the persisted threshold/state update succeeds.
 - Readback: `calyx readback config tripwire --vault <vault>`.
 - aiwonder evidence root: `/home/croyse/calyx/data/fsv-issue394-tripwire-20260610-2220`.
 - Manual proof sequence:

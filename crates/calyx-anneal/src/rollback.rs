@@ -274,7 +274,9 @@ where
             return Err(change_committed(change_id));
         }
         if !snapshot.promoted {
-            return Err(invalid_state("cannot commit an unpromoted rollback snapshot"));
+            return Err(invalid_state(
+                "cannot commit an unpromoted rollback snapshot",
+            ));
         }
         if snapshot.reverted {
             return Err(invalid_state("cannot commit a reverted rollback snapshot"));

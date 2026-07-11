@@ -24,20 +24,20 @@ registry is the single source of truth for serving-path health decisions.
 - [x] `enum ComponentHealth { Ok, Degraded { since: LogicalTime, reason: String }, Failing { since: LogicalTime, reason: String }, Parked { since: LogicalTime, reason: String } }`.
 - [x] `enum ComponentKind { AnnIndex { slot_id: SlotId }, KernelIndex { scope: ScopeId }, GuardProfile { slot_id: SlotId }, LensEndpoint { lens_id: LensId } }`.
 - [x] `struct DegradeRegistry { components: HashMap<ComponentKind, ComponentHealth>, clock: Arc<dyn Clock> }`.
-- [x] `fn set_health(&mut self, kind: ComponentKind, health: ComponentHealth)` — updates state and writes an `AnnealLedger` entry (`action=DegradeChange`).
+- [x] `fn set_health(&mut self, kind: ComponentKind, health: ComponentHealth)` — writes an `AnnealLedger` entry (`action=DegradeChange`) and the health CF row before publishing served state.
 - [x] `fn health(&self, kind: &ComponentKind) -> &ComponentHealth` — fast read path; no locking on the hot serving path (use `Arc<RwLock<_>>` with short-lived read locks).
 - [x] `fn active_lenses(&self, all: &[LensId]) -> Vec<LensId>` — returns lenses not in `Failing` or `Parked`; used by search fusion to route queries.
 - [x] `fn degraded_components(&self) -> Vec<(ComponentKind, ComponentHealth)>` — used by `calyx anneal status`.
-- [x] Persist registry snapshot to `anneal_health` CF in Aster; reload on restart.
-- [x] Never transitions from `Degraded` → `Ok` without an explicit heal confirmation (from T03 rebuild complete); prevents premature health clearing.
+- [x] Persist registry snapshot to `anneal_health` CF in Aster before updating the in-memory map; reload on restart.
+- [x] Never transition from any non-`Ok` state (`Degraded`, `Failing`, or `Parked`) to `Ok` without explicit heal confirmation; prevents premature health clearing and lens reactivation.
 
 ## Tests (synthetic, deterministic — known input → known bytes/number)
 
 - [x] unit: set lens `L1` to `Failing`; `active_lenses([L1, L2])` returns `[L2]`.
-- [x] unit: set ANN index to `Degraded`; `health(AnnIndex{slot})` returns `Degraded`; set to `Ok` after rebuild confirmation → `health` returns `Ok`.
+- [x] unit: direct `Degraded`/`Failing`/`Parked` → `Ok` transitions fail; `confirm_healed` restores `Ok` after rebuild/recalibration/unpark confirmation.
 - [x] proptest: for any sequence of `set_health` calls, `active_lenses` never returns a `Failing` or `Parked` lens.
 - [x] edge: all lenses in `Failing` → `active_lenses` returns empty vec (not a panic); single component registry → `degraded_components` returns it; component not registered → `health` returns `Ok` (unknown = assumed ok, not assumed broken).
-- [x] fail-closed: CF persist failure during `set_health` → `CALYX_ASTER_CF_UNAVAILABLE`; in-memory state still updated (serve can continue); error surfaced to caller.
+- [x] fail-closed: ledger or CF persistence failure during `set_health` leaves the prior in-memory and durable health active; error is surfaced to the caller.
 
 ## FSV (read the bytes on aiwonder — the truth gate)
 

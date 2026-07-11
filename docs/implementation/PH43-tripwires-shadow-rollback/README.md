@@ -26,7 +26,7 @@ PH43 Ledger card lands.
 `calyx-anneal` has PH42 recurrence scheduling plus PH43 T01, T02, T03, T04,
 and T05:
 
-- T01 persists tripwire thresholds under `<vault>/.anneal/tripwire.toml`, exposes
+- T01 persists tripwire thresholds and hysteresis state under `<vault>/.anneal/tripwire.toml`, exposes
   `check`/`set_tripwire`/`status`, and provides
   `calyx readback config tripwire --vault <dir>` for byte-backed inspection.
 - T02 provides deterministic held-out replay sampling, `ShadowExecutor`,

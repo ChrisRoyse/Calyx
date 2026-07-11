@@ -200,8 +200,10 @@ constant is `.anneal` (`CONFIG_DIR`) in both modules.
 (`tripwire_config_path`). Loaded by `TripwireRegistry::load_from_vault`.
 
 On-disk shape: a `[thresholds]` table keyed by metric name, each value a
-`{ bound, hysteresis, direction }` record. All five metrics must be present (an unknown metric
-key, or a missing one, → `CALYX_TRIPWIRE_INVALID_CONFIG`).
+`{ bound, hysteresis, direction }` record, plus a `[state]` table with each metric's
+`{ last_value, crossed }` hysteresis state. All five thresholds must be present (an unknown
+metric key, or a missing one, → `CALYX_TRIPWIRE_INVALID_CONFIG`). A legacy threshold-only
+file is accepted and receives safe, non-crossed initial states.
 
 Default thresholds (`default_bound` / `default_direction`; default hysteresis =
 `bound * DEFAULT_HYSTERESIS_FRACTION`, `DEFAULT_HYSTERESIS_FRACTION = 0.05`):
@@ -214,7 +216,9 @@ Default thresholds (`default_bound` / `default_direction`; default hysteresis =
 | `search_p99` | 200.0 | 10.0 | `above` |
 | `ingest_p95` | 500.0 | 25.0 | `above` |
 
-`direction` serializes snake_case (`below` / `above`). A non-finite measured metric value →
+`direction` serializes snake_case (`below` / `above`). Persisted `last_value` must be finite
+and `crossed` must agree with the threshold's hysteresis band; invalid persisted state yields
+`CALYX_TRIPWIRE_INVALID_CONFIG`. A non-finite measured metric value →
 `CALYX_TRIPWIRE_INVALID_METRIC`.
 
 ### 4.2 `.anneal/budget.toml`

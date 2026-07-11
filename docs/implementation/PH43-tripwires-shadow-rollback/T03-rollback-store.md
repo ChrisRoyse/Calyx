@@ -32,6 +32,8 @@ mutation and no artifact data movement.
 - [x] `install_live_ptr`, `prepare`, `promote`, `rollback`, and `commit` write
   durable rows first, then update memory, so storage failure leaves no partial
   snapshot/live-pointer mutation.
+- [x] `commit` accepts only a promoted, unreverted snapshot; prepared, reverted,
+  and already committed states fail closed without changing snapshot flags.
 - [x] Aster has a real `anneal_rollback` column family with WAL tag 9, durable
   recovery parsing, compaction scan parsing, and generic CLI CF readback support.
 - [x] `AsterVault::write_cf_batch` exposes a narrow WAL-backed raw CF batch API
@@ -47,6 +49,8 @@ mutation and no artifact data movement.
 - [x] Unit: `prepare` -> `promote` -> `rollback` restores the prior live pointer
   bytes exactly.
 - [x] Unit: rollback after commit returns `CALYX_ANNEAL_CHANGE_COMMITTED`.
+- [x] Unit: commit of a prepared or reverted snapshot returns
+  `CALYX_ANNEAL_INVALID_ROLLBACK_STATE` and leaves the snapshot usable/unchanged.
 - [x] Unit/edge: unknown change and empty store return
   `CALYX_ANNEAL_UNKNOWN_CHANGE_ID`.
 - [x] Unit/edge: concurrent promote and rollback on different keys succeed
