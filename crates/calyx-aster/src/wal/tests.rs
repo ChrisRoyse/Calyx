@@ -305,27 +305,43 @@ fn reopen_resumes_after_last_replayed_sequence() {
 }
 
 #[test]
-fn torn_tail_in_early_segment_removes_later_segments() {
-    let dir = test_dir("torn-removes-later");
+fn torn_tail_in_early_segment_fails_closed_and_preserves_all_segments() {
+    let fsv_root = std::env::var_os("CALYX_WAL_MID_LOG_CORRUPTION_FSV_ROOT").map(PathBuf::from);
+    let dir = fsv_root.as_ref().map_or_else(
+        || test_dir("torn-fails-closed"),
+        |root| {
+            let _ = fs::remove_dir_all(root);
+            let dir = root.join("wal");
+            fs::create_dir_all(&dir).expect("create fsv wal dir");
+            dir
+        },
+    );
     let first = record::encode(1, b"acked").expect("encode acked");
     let torn = record::encode(2, b"torn").expect("encode torn");
     let segment0 = dir.join("00000000000000000000.wal");
     let segment1 = dir.join("00000000000000000001.wal");
-    fs::write(
-        &segment0,
-        [&first[..], &torn[..record::HEADER_LEN + 1]].concat(),
-    )
-    .expect("write segment 0");
-    fs::write(&segment1, record::encode(3, b"discard").unwrap()).expect("write segment 1");
+    let segment0_before = [&first[..], &torn[..record::HEADER_LEN + 1]].concat();
+    let segment1_before = record::encode(3, b"durable-later").expect("encode later record");
+    fs::write(&segment0, &segment0_before).expect("write segment 0");
+    fs::write(&segment1, &segment1_before).expect("write segment 1");
 
-    let replay = replay_dir(&dir).expect("replay torn early segment");
-    let tail = replay.torn_tail.expect("torn tail");
+    let replay = replay_dir(&dir);
+    let segment0_after = fs::read(&segment0).ok();
+    let segment1_after = fs::read(&segment1).ok();
+    let segment0_preserved = segment0_after.as_deref() == Some(segment0_before.as_slice());
+    let segment1_preserved = segment1_after.as_deref() == Some(segment1_before.as_slice());
 
-    assert_eq!(tail.code, "CALYX_ASTER_TORN_WAL");
-    assert_eq!(replay.records.len(), 1);
-    assert_eq!(fs::metadata(&segment0).unwrap().len(), first.len() as u64);
-    assert!(!segment1.exists());
-    cleanup(dir);
+    assert!(
+        segment0_preserved && segment1_preserved,
+        "mid-log replay mutated durable bytes: segment0_preserved={segment0_preserved} \
+         segment1_preserved={segment1_preserved}"
+    );
+    let error = replay.expect_err("mid-log corruption must fail closed");
+    assert_eq!(error.code, "CALYX_ASTER_TORN_WAL");
+    assert!(error.message.contains(&segment0.display().to_string()));
+    if fsv_root.is_none() {
+        cleanup(dir);
+    }
 }
 
 #[test]

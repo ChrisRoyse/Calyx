@@ -160,6 +160,60 @@ fn open_reports_torn_tail_through_recovery_report() {
 }
 
 #[test]
+fn cold_open_fails_closed_on_mid_log_corruption_without_mutating_segments() {
+    let dir = test_dir("mid-log-corruption");
+    let mut options = VaultOptions::default();
+    options.wal_options.max_segment_bytes = 1;
+    let vault =
+        AsterVault::new_durable(&dir, vault_id(), b"salt", options.clone()).expect("open durable");
+    let first = sample_constellation();
+    let mut later = sample_constellation();
+    later.cx_id = CxId::from_bytes([0x42; 16]);
+    later.input_ref.hash = [0x42; 32];
+    later.input_ref.pointer = Some("synthetic://mid-log-later".to_string());
+    vault.put(first).expect("put first durable row");
+    vault.put(later).expect("put later durable row");
+    drop(vault);
+
+    let mut segments = fs::read_dir(dir.join("wal"))
+        .expect("read wal directory")
+        .filter_map(|entry| {
+            let path = entry.ok()?.path();
+            (path.extension().and_then(|value| value.to_str()) == Some("wal")).then_some(path)
+        })
+        .collect::<Vec<_>>();
+    segments.sort();
+    assert!(segments.len() >= 2, "expected WAL rotation: {segments:?}");
+    let segment0 = &segments[0];
+    let segment1 = &segments[1];
+    let mut file = OpenOptions::new()
+        .append(true)
+        .open(segment0)
+        .expect("open first segment for corrupt append");
+    file.write_all(b"CXW1partial")
+        .expect("append malformed header");
+    file.sync_data().expect("fsync malformed header");
+    drop(file);
+    let segment0_before = fs::read(segment0).expect("read corrupt segment before open");
+    let segment1_before = fs::read(segment1).expect("read later segment before open");
+
+    let opened = AsterVault::open(&dir, vault_id(), b"salt", options);
+    let segment0_after = fs::read(segment0).ok();
+    let segment1_after = fs::read(segment1).ok();
+    let segment0_preserved = segment0_after.as_deref() == Some(segment0_before.as_slice());
+    let segment1_preserved = segment1_after.as_deref() == Some(segment1_before.as_slice());
+    assert!(
+        segment0_preserved && segment1_preserved,
+        "cold open mutated durable WAL bytes: segment0_preserved={segment0_preserved} \
+         segment1_preserved={segment1_preserved}"
+    );
+    let error = opened.expect_err("cold open must reject mid-log corruption");
+    assert_eq!(error.code, "CALYX_ASTER_TORN_WAL");
+    assert!(error.message.contains(&segment0.display().to_string()));
+    cleanup(dir);
+}
+
+#[test]
 fn cold_open_fails_closed_on_unrecognized_sst_name() {
     let dir = test_dir("unrecognized-sst-name");
     let vault = AsterVault::new_durable(&dir, vault_id(), b"salt", VaultOptions::default())

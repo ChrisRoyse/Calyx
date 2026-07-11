@@ -347,14 +347,6 @@ fn sync_parent(path: &Path) -> Result<()> {
     crate::fsync::sync_parent(path, "WAL segment")
 }
 
-fn remove_later_segments(segments: &[(u64, PathBuf)]) -> Result<()> {
-    for (_, path) in segments {
-        fs::remove_file(path)
-            .map_err(|error| storage_error("remove discarded WAL segment", error))?;
-    }
-    Ok(())
-}
-
 fn segment_inventory_locked(dir: &Path, active_index: u64) -> Result<Vec<WalSegmentStatus>> {
     let mut inventory = Vec::new();
     for (index, path) in segment::list_segments(dir)? {

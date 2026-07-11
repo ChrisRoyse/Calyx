@@ -1,12 +1,10 @@
 use super::record::DecodeStatus;
-use super::{
-    ReplayOutcome, ReplayRecord, TornTail, record, remove_later_segments, segment, storage_error,
-};
+use super::{ReplayOutcome, ReplayRecord, TornTail, record, segment, storage_error};
 use calyx_core::{CalyxErrorCode, Result};
-use std::fs::OpenOptions;
+use std::fs::{File, OpenOptions};
 use std::path::Path;
 
-/// Replays a WAL directory, truncating the first torn segment tail if present.
+/// Replays a WAL directory, truncating a torn physical tail if present.
 pub fn replay_dir(dir: impl AsRef<Path>) -> Result<ReplayOutcome> {
     replay_dir_after(dir, 0)
 }
@@ -31,6 +29,7 @@ pub(super) fn replay_dir_locked_after(dir: &Path, replay_floor_seq: u64) -> Resu
     let mut records = Vec::new();
 
     for (position, (_, path)) in segments.iter().enumerate() {
+        let has_later_segments = position + 1 < segments.len();
         let mut file = OpenOptions::new()
             .read(true)
             .write(true)
@@ -45,20 +44,14 @@ pub(super) fn replay_dir_locked_after(dir: &Path, replay_floor_seq: u64) -> Resu
                 record::HeaderStatus::Complete(header) => header,
                 record::HeaderStatus::Eof => break,
                 record::HeaderStatus::Torn { offset, message } => {
-                    file.set_len(offset)
-                        .map_err(|error| storage_error("truncate torn WAL tail", error))?;
-                    file.sync_data()
-                        .map_err(|error| storage_error("fsync truncated WAL tail", error))?;
-                    remove_later_segments(&segments[position + 1..])?;
-                    return Ok(ReplayOutcome {
+                    return resolve_torn_tail(
+                        &file,
+                        path,
+                        offset,
+                        message,
                         records,
-                        torn_tail: Some(TornTail {
-                            segment_path: path.clone(),
-                            offset,
-                            code: CalyxErrorCode::AsterTornWal.code(),
-                            message,
-                        }),
-                    });
+                        has_later_segments,
+                    );
                 }
             };
             if header.seq <= replay_floor_seq {
@@ -80,20 +73,14 @@ pub(super) fn replay_dir_locked_after(dir: &Path, replay_floor_seq: u64) -> Resu
                 }
                 DecodeStatus::Eof => break,
                 DecodeStatus::Torn { offset, message } => {
-                    file.set_len(offset)
-                        .map_err(|error| storage_error("truncate torn WAL tail", error))?;
-                    file.sync_data()
-                        .map_err(|error| storage_error("fsync truncated WAL tail", error))?;
-                    remove_later_segments(&segments[position + 1..])?;
-                    return Ok(ReplayOutcome {
+                    return resolve_torn_tail(
+                        &file,
+                        path,
+                        offset,
+                        message,
                         records,
-                        torn_tail: Some(TornTail {
-                            segment_path: path.clone(),
-                            offset,
-                            code: CalyxErrorCode::AsterTornWal.code(),
-                            message,
-                        }),
-                    });
+                        has_later_segments,
+                    );
                 }
             }
         }
@@ -102,5 +89,33 @@ pub(super) fn replay_dir_locked_after(dir: &Path, replay_floor_seq: u64) -> Resu
     Ok(ReplayOutcome {
         records,
         torn_tail: None,
+    })
+}
+
+fn resolve_torn_tail(
+    file: &File,
+    segment_path: &Path,
+    offset: u64,
+    message: String,
+    records: Vec<ReplayRecord>,
+    has_later_segments: bool,
+) -> Result<ReplayOutcome> {
+    let torn_tail = TornTail {
+        segment_path: segment_path.to_path_buf(),
+        offset,
+        code: CalyxErrorCode::AsterTornWal.code(),
+        message,
+    };
+    if has_later_segments {
+        return Err(torn_tail.error());
+    }
+
+    file.set_len(offset)
+        .map_err(|error| storage_error("truncate torn WAL tail", error))?;
+    file.sync_data()
+        .map_err(|error| storage_error("fsync truncated WAL tail", error))?;
+    Ok(ReplayOutcome {
+        records,
+        torn_tail: Some(torn_tail),
     })
 }
