@@ -99,7 +99,7 @@ fn selected_snapshot_read_hydrates_only_requested_slots_and_fails_closed() {
 
     let snapshot = vault.snapshot_handle(vault.snapshot());
     let selected = vault
-        .get_selected_slots_at_snapshot(id, snapshot, [SlotId::new(0)])
+        .get_selected_slots_at_snapshot(id, snapshot.snapshot(), [SlotId::new(0)])
         .expect("selected slot read");
 
     assert_eq!(selected.cx_id, id);
@@ -115,7 +115,7 @@ fn selected_snapshot_read_hydrates_only_requested_slots_and_fails_closed() {
     );
 
     let error = vault
-        .get_selected_slots_at_snapshot(id, snapshot, [SlotId::new(999)])
+        .get_selected_slots_at_snapshot(id, snapshot.snapshot(), [SlotId::new(999)])
         .expect_err("missing selected slot must fail closed");
     assert_eq!(error.code, "CALYX_STALE_DERIVED");
 }

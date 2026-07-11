@@ -115,6 +115,7 @@ where
         artifact: Option<DerivedMediaArtifactDraft>,
     ) -> Result<BatchIngestCommit> {
         let latest = self.snapshot();
+        let snapshot = self.snapshot_handle(latest);
         let mut accepted_indexes = BTreeMap::<Vec<u8>, usize>::new();
         let mut existing_merges = BTreeMap::<Vec<u8>, Constellation>::new();
         let mut anchor_merge_rows = Vec::new();
@@ -130,12 +131,10 @@ where
             let id = constellation.cx_id;
             let key = base_key(id);
             let base = encode::encode_constellation_base(&constellation)?;
-            if let Some(existing) = self.rows.read_at(
-                self.snapshot_handle(latest),
-                ColumnFamily::Base,
-                &key,
-                &self.clock,
-            )? {
+            if let Some(existing) =
+                self.rows
+                    .read_at(snapshot.snapshot(), ColumnFamily::Base, &key, &self.clock)?
+            {
                 if existing == base {
                     ids.push(id);
                     continue;
@@ -143,7 +142,8 @@ where
                 let merged = if let Some(merged) = existing_merges.get_mut(&key) {
                     merged
                 } else {
-                    existing_merges.insert(key.clone(), self.get(id, latest)?);
+                    existing_merges
+                        .insert(key.clone(), self.get_at_snapshot(id, snapshot.snapshot())?);
                     existing_merges
                         .get_mut(&key)
                         .expect("inserted existing merge")

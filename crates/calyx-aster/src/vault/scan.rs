@@ -16,13 +16,9 @@ where
         F: FnMut(Vec<(Vec<u8>, Vec<u8>)>) -> std::result::Result<(), E>,
         E: From<calyx_core::CalyxError>,
     {
-        self.rows.scan_cf_pages_at(
-            self.snapshot_handle(snapshot),
-            cf,
-            limit,
-            &self.clock,
-            on_page,
-        )
+        let snapshot = self.snapshot_handle(snapshot);
+        self.rows
+            .scan_cf_pages_at(snapshot.snapshot(), cf, limit, &self.clock, on_page)
     }
 
     /// Streams visible raw CF rows using an already-pinned snapshot lease.

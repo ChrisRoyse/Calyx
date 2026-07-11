@@ -145,8 +145,9 @@ where
             let id = constellation.cx_id;
             let base_key = base_key(id);
             let latest = self.snapshot();
+            let snapshot = self.snapshot_handle(latest);
             if let Some(existing) = self.rows.read_at(
-                self.snapshot_handle(latest),
+                snapshot.snapshot(),
                 ColumnFamily::Base,
                 &base_key,
                 &self.clock,
@@ -155,7 +156,7 @@ where
                 if existing == base_bytes {
                     return Ok(id);
                 }
-                let mut merged = self.get(id, latest)?;
+                let mut merged = self.get_at_snapshot(id, snapshot.snapshot())?;
                 let added = anchor_merge::merge_duplicate_anchors(&mut merged, &constellation)?;
                 if !added.is_empty() {
                     let rows = anchor_merge::stage_anchor_merge_rows(id, &merged, &added)?;
@@ -214,7 +215,8 @@ where
     }
 
     fn get(&self, id: CxId, snapshot: Seq) -> Result<Constellation> {
-        self.get_at_snapshot(id, self.snapshot_handle(snapshot))
+        let snapshot = self.snapshot_handle(snapshot);
+        self.get_at_snapshot(id, snapshot.snapshot())
     }
 
     fn anchor(&self, id: CxId, anchor: Anchor) -> Result<()> {

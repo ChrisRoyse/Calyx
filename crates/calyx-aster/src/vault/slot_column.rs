@@ -113,11 +113,10 @@ where
     }
 
     fn dense_slot_rows_at(&self, snapshot: Seq, slot: SlotId) -> Result<Vec<SlotColumnRow>> {
-        let rows = self.rows.scan_cf_at(
-            self.snapshot_handle(snapshot),
-            ColumnFamily::slot(slot),
-            &self.clock,
-        )?;
+        let snapshot = self.snapshot_handle(snapshot);
+        let rows =
+            self.rows
+                .scan_cf_at(snapshot.snapshot(), ColumnFamily::slot(slot), &self.clock)?;
         if rows.is_empty() {
             return Err(CalyxError::stale_derived(format!(
                 "slot {slot} has no rows to materialize"

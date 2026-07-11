@@ -30,13 +30,14 @@ mod scan;
 mod seq_readback;
 mod slot_backfill;
 mod slot_column;
+mod snapshot_lease;
 mod store;
 mod temporal_xterm;
 #[cfg(test)]
 use crate::cf::ledger_key;
 use crate::cf::{CfRouter, ColumnFamily, KeyRange, anchor_key, base_key, slot_key};
 use crate::dedup::DedupPolicy;
-use crate::mvcc::{Freshness, ReadBarrier, ReaderLease, Snapshot, VersionedCfStore};
+use crate::mvcc::{Freshness, ReadBarrier, Snapshot, VersionedCfStore};
 use crate::resource::{ResourceStatus, VramBudgetStatus, collect_resource_status};
 use crate::timetravel::RetentionHorizon;
 use crate::vault::durable::DurableVault;
@@ -266,8 +267,8 @@ where
         cf: ColumnFamily,
         key: &[u8],
     ) -> Result<Option<Vec<u8>>> {
-        self.rows
-            .read_at(self.snapshot_handle(snapshot), cf, key, &self.clock)
+        let snapshot = self.snapshot_handle(snapshot);
+        self.rows.read_at(snapshot.snapshot(), cf, key, &self.clock)
     }
 
     /// Reads one raw CF row using an already-pinned snapshot lease.
@@ -302,8 +303,8 @@ where
 
     /// Scans visible raw CF rows at `snapshot`; use `scan_cf_pages_at` for large data CFs.
     pub fn scan_cf_at(&self, snapshot: Seq, cf: ColumnFamily) -> Result<Vec<(Vec<u8>, Vec<u8>)>> {
-        self.rows
-            .scan_cf_at(self.snapshot_handle(snapshot), cf, &self.clock)
+        let snapshot = self.snapshot_handle(snapshot);
+        self.rows.scan_cf_at(snapshot.snapshot(), cf, &self.clock)
     }
 
     /// Scans visible raw CF rows for a pinned lease; use `scan_cf_pages_snapshot` for large data.
@@ -322,8 +323,9 @@ where
         cf: ColumnFamily,
         range: &KeyRange,
     ) -> Result<Vec<(Vec<u8>, Vec<u8>)>> {
+        let snapshot = self.snapshot_handle(snapshot);
         self.rows
-            .scan_cf_range_at(self.snapshot_handle(snapshot), cf, range, &self.clock)
+            .scan_cf_range_at(snapshot.snapshot(), cf, range, &self.clock)
     }
 
     /// Scans visible raw CF rows in a key range using an already-pinned snapshot lease.
@@ -343,8 +345,9 @@ where
         cf: ColumnFamily,
         range: &KeyRange,
     ) -> Result<Vec<Vec<u8>>> {
+        let snapshot = self.snapshot_handle(snapshot);
         self.rows
-            .scan_cf_range_keys_at(self.snapshot_handle(snapshot), cf, range, &self.clock)
+            .scan_cf_range_keys_at(snapshot.snapshot(), cf, range, &self.clock)
     }
 
     /// Scans at most `limit` visible raw CF rows in key order after `after_key`.
@@ -356,8 +359,9 @@ where
         after_key: Option<&[u8]>,
         limit: usize,
     ) -> Result<Vec<(Vec<u8>, Vec<u8>)>> {
+        let snapshot = self.snapshot_handle(snapshot);
         self.rows.scan_cf_range_page_at(
-            self.snapshot_handle(snapshot),
+            snapshot.snapshot(),
             cf,
             range,
             after_key,
@@ -395,11 +399,6 @@ where
         Ok(())
     }
 
-    fn snapshot_handle(&self, seq: Seq) -> Snapshot {
-        let lease = ReaderLease::new(0, seq, self.clock.now(), DEFAULT_LEASE_MS);
-        Snapshot::new(seq, Freshness::FreshDerived, lease)
-    }
-
     pub fn flush(&self) -> Result<()> {
         self.with_durable_commit_lock(|| self.flush_locked())
     }
@@ -415,8 +414,8 @@ where
 
     /// Pins an explicit reader lease tracked for oldest-pinned-seq accounting.
     ///
-    /// Unlike vault-internal snapshot handles, leases pinned here register in
-    /// the store lease registry and hold the oldest-pinned-seq gap open until
+    /// Unlike scoped vault-internal snapshot handles, explicit pins remain in
+    /// the store lease registry after one read call, until
     /// [`Self::release_reader`] or lease expiry.
     pub fn pin_reader(&self, freshness: Freshness, max_age_ms: u64) -> Snapshot {
         self.rows.pin_snapshot(freshness, &self.clock, max_age_ms)

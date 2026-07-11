@@ -4,14 +4,13 @@ use crate::gc::{GapAlert, ReadLease, ReaderId, SnapshotPinMetrics, SnapshotPinWa
 use crate::mvcc::ReaderLease;
 use calyx_core::{Seq, Ts};
 
-/// Registry of live reader leases pinned through `VersionedCfStore::pin_snapshot`.
+/// Registry of live reader leases pinned through `VersionedCfStore`.
 ///
 /// Bounded by construction (A26): every lease carries an expiry, and expired
 /// entries are aborted on every watchdog tick/view, so the registry can never
 /// grow past the set of leases that are still within their `max_age_ms` window.
-/// Ad-hoc internal snapshot handles (lease id 0, vault-internal reads) are
-/// intentionally not registered: the oldest-pinned-seq gap tracks explicit
-/// long readers, the hazard PRD 24 §7 row 6 cares about.
+/// Scoped vault reads release their lease when the operation ends; explicit
+/// long-reader pins remain until caller release or expiry.
 #[derive(Debug, Default)]
 pub struct LeaseRegistry {
     watchdog: SnapshotPinWatchdog,

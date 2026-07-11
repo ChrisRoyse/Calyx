@@ -13,8 +13,9 @@ where
         cf: ColumnFamily,
         key: &[u8],
     ) -> Result<Option<Seq>> {
+        let snapshot = self.snapshot_handle(snapshot);
         self.rows
-            .seq_for_key_at(self.snapshot_handle(snapshot), cf, key, &self.clock)
+            .seq_for_key_at(snapshot.snapshot(), cf, key, &self.clock)
     }
 
     /// Returns the visible MVCC sequence for one CF/key at the latest snapshot.
