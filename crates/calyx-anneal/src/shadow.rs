@@ -1,12 +1,17 @@
 use std::collections::HashMap;
+use std::sync::Arc;
 
-use calyx_core::{Clock, CxId, Result, Ts};
+use calyx_core::{CalyxError, Clock, CxId, Result, Ts};
 use rand::SeedableRng;
 use rand::seq::SliceRandom;
 use rand_chacha::ChaCha8Rng;
 use serde::{Deserialize, Serialize};
 
-use crate::{BudgetHandle, TripwireMetric, TripwireRegistry, TripwireResult};
+use crate::{
+    ArtifactKey, ArtifactPtr, BudgetHandle, TripwireMetric, TripwireRegistry, TripwireResult,
+};
+
+pub const CALYX_ANNEAL_SHADOW_MEASUREMENT_MISSING: &str = "CALYX_ANNEAL_SHADOW_MEASUREMENT_MISSING";
 
 const SHADOW_METRICS: [TripwireMetric; 5] = [
     TripwireMetric::RecallAtK,
@@ -111,7 +116,47 @@ impl MetricSnapshot {
 }
 
 pub trait AnnealAction: Send + Sync {
-    fn apply_shadow(&self, query: &ReplayQuery) -> ActionMetricSnapshot;
+    fn apply_shadow(&self, query: &ReplayQuery) -> Result<ActionMetricSnapshot>;
+}
+
+pub trait ArtifactReplayMeasurer: Send + Sync {
+    fn measure(
+        &self,
+        key: &ArtifactKey,
+        artifact: &ArtifactPtr,
+        query: &ReplayQuery,
+    ) -> Result<ActionMetricSnapshot>;
+}
+
+#[derive(Clone)]
+pub(crate) struct ArtifactShadowAction {
+    key: ArtifactKey,
+    artifact: ArtifactPtr,
+    measurer: Option<Arc<dyn ArtifactReplayMeasurer>>,
+}
+
+impl ArtifactShadowAction {
+    pub(crate) fn new(
+        key: ArtifactKey,
+        artifact: ArtifactPtr,
+        measurer: Option<Arc<dyn ArtifactReplayMeasurer>>,
+    ) -> Self {
+        Self {
+            key,
+            artifact,
+            measurer,
+        }
+    }
+}
+
+impl AnnealAction for ArtifactShadowAction {
+    fn apply_shadow(&self, query: &ReplayQuery) -> Result<ActionMetricSnapshot> {
+        let measurer = self
+            .measurer
+            .as_ref()
+            .ok_or_else(|| missing_artifact_measurement(&self.key, &self.artifact))?;
+        measurer.measure(&self.key, &self.artifact, query)
+    }
 }
 
 pub struct ShadowExecutor<'a> {
@@ -136,9 +181,10 @@ impl<'a> ShadowExecutor<'a> {
         }
     }
 
-    pub fn run_shadow<A>(&mut self, candidate: &A, incumbent: &A) -> ShadowVerdict
+    pub fn run_shadow<C, I>(&mut self, candidate: &C, incumbent: &I) -> ShadowVerdict
     where
-        A: AnnealAction,
+        C: AnnealAction,
+        I: AnnealAction,
     {
         let evaluated_at = self.clock.now();
         if self.replay.queries.is_empty() {
@@ -156,8 +202,30 @@ impl<'a> ShadowExecutor<'a> {
                     metrics: accumulator.snapshot(evaluated_at),
                 };
             }
-            let candidate_snapshot = candidate.apply_shadow(query);
-            let incumbent_snapshot = incumbent.apply_shadow(query);
+            let candidate_snapshot = match candidate.apply_shadow(query) {
+                Ok(snapshot) => snapshot,
+                Err(error) => {
+                    return ShadowVerdict::Revert {
+                        reason: ShadowRevertReason::MeasurementFailed {
+                            side: MetricSide::Candidate,
+                            code: error.code.to_string(),
+                        },
+                        metrics: accumulator.snapshot(evaluated_at),
+                    };
+                }
+            };
+            let incumbent_snapshot = match incumbent.apply_shadow(query) {
+                Ok(snapshot) => snapshot,
+                Err(error) => {
+                    return ShadowVerdict::Revert {
+                        reason: ShadowRevertReason::MeasurementFailed {
+                            side: MetricSide::Incumbent,
+                            code: error.code.to_string(),
+                        },
+                        metrics: accumulator.snapshot(evaluated_at),
+                    };
+                }
+            };
             if let Some(reason) = accumulator.add_query(&candidate_snapshot, &incumbent_snapshot) {
                 return ShadowVerdict::Revert {
                     reason,
@@ -227,6 +295,10 @@ pub enum ShadowRevertReason {
     InvalidMetric {
         metric: TripwireMetric,
         side: MetricSide,
+    },
+    MeasurementFailed {
+        side: MetricSide,
+        code: String,
     },
     TripwireError {
         metric: TripwireMetric,
@@ -341,5 +413,15 @@ fn regressed(comparison: MetricComparison) -> bool {
         | TripwireMetric::IngestP95 => {
             comparison.candidate_value > comparison.incumbent_value + COMPARE_EPSILON
         }
+    }
+}
+
+fn missing_artifact_measurement(key: &ArtifactKey, artifact: &ArtifactPtr) -> CalyxError {
+    CalyxError {
+        code: CALYX_ANNEAL_SHADOW_MEASUREMENT_MISSING,
+        message: format!(
+            "no replay measurer configured for artifact key {key:?} pointer {artifact:?}"
+        ),
+        remediation: "measure candidate and incumbent on the held-out replay before proposing the artifact",
     }
 }

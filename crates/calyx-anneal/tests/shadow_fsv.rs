@@ -126,9 +126,9 @@ impl FixedAction {
 }
 
 impl AnnealAction for FixedAction {
-    fn apply_shadow(&self, _query: &ReplayQuery) -> ActionMetricSnapshot {
+    fn apply_shadow(&self, _query: &ReplayQuery) -> calyx_core::Result<ActionMetricSnapshot> {
         self.calls.fetch_add(1, Ordering::SeqCst);
-        self.values.clone()
+        Ok(self.values.clone())
     }
 }
 

@@ -4,9 +4,9 @@ use std::sync::{Arc, Mutex};
 
 use calyx_anneal::{
     CALYX_ANNEAL_REGRESSION_RECURRED, ChangeId, ChangeOutcome, HeadKind, HeadPromotionGate,
-    HeadRegressionRollback, HeadShadowProposal, HeadStorage, MistakeLog, MistakeRef,
-    MistakeStorage, OnlineHead, OnlineHeadState, RegressionConfig, RegressionContextSource,
-    RegressionReport, ReplayEntry, ShadowRevertReason, decode_online_head,
+    HeadRegressionRollback, HeadStorage, MistakeLog, MistakeRef, MistakeStorage, OnlineHead,
+    OnlineHeadState, RegressionConfig, RegressionContextSource, RegressionReport, ReplayEntry,
+    ShadowRevertReason, decode_online_head,
 };
 use calyx_core::{
     AnchorKind, CalyxError, Constellation, CxFlags, CxId, FixedClock, InputRef, LedgerRef,
@@ -190,8 +190,6 @@ impl HeadPromotionGate for ScriptedGate {
         &mut self,
         _key: calyx_anneal::ArtifactKey,
         _candidate_ptr: calyx_anneal::ArtifactPtr,
-        _candidate: &HeadShadowProposal,
-        _incumbent: &HeadShadowProposal,
         _description: &str,
     ) -> Result<ChangeOutcome> {
         if self.revert.load(Ordering::SeqCst) {

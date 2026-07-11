@@ -20,7 +20,7 @@ pub use sleep_pass::{
     record_mistake_for_replay, run_sleep_pass,
 };
 pub use storage::{AsterHeadStorage, HeadStorage};
-pub use update::{HeadPromotionGate, HeadShadowProposal};
+pub use update::HeadPromotionGate;
 
 use super::{FrozenLensCheck, NoFrozenLensGuard, ReplayEntry};
 use crate::{AnnealLedgerAction, ChangeId, ChangeOutcome, LogicalTime};
@@ -212,14 +212,10 @@ where
             "online_head_update batch={} lr={lr:.6} fisher_weight={fisher_weight:.6}",
             batch.len()
         );
-        let proposal = HeadShadowProposal::stable();
-        match self.substrate.propose_head_change(
-            key,
-            candidate_ptr,
-            &proposal,
-            &proposal,
-            &description,
-        )? {
+        match self
+            .substrate
+            .propose_head_change(key, candidate_ptr, &description)?
+        {
             ChangeOutcome::Promoted(change_id) => {
                 let rows = encode_head_rows(&candidate_heads)?;
                 if let Err(error) = self.storage.save_heads(rows) {

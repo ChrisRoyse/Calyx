@@ -271,14 +271,14 @@ struct ParamAction {
 }
 
 impl AnnealAction for ParamAction {
-    fn apply_shadow(&self, _query: &ReplayQuery) -> ActionMetricSnapshot {
-        ActionMetricSnapshot::from_values([
+    fn apply_shadow(&self, _query: &ReplayQuery) -> calyx_core::Result<ActionMetricSnapshot> {
+        Ok(ActionMetricSnapshot::from_values([
             (TripwireMetric::RecallAtK, self.recall),
             (TripwireMetric::GuardFAR, 0.004),
             (TripwireMetric::GuardFRR, 0.015),
             (TripwireMetric::SearchP99, 40.0),
             (TripwireMetric::IngestP95, 70.0),
-        ])
+        ]))
     }
 }
 

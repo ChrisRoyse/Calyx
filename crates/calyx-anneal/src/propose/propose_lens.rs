@@ -7,8 +7,8 @@ use calyx_registry::SwapController;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    ActionMetricSnapshot, AnnealAction, AnnealSubstrate, ArtifactKey, ArtifactPtr, BudgetProbe,
-    ChangeId, ChangeOutcome, RollbackStorage, ShadowRevertReason, TripwireMetric,
+    AnnealSubstrate, ArtifactKey, ArtifactPtr, BudgetProbe, ChangeId, ChangeOutcome,
+    RollbackStorage, ShadowRevertReason,
 };
 
 use super::{
@@ -56,36 +56,7 @@ pub struct HotAddPlan {
     pub artifact_key: ArtifactKey,
     pub prior_ptr: ArtifactPtr,
     pub candidate_ptr: ArtifactPtr,
-    pub candidate_action: HotAddAction,
-    pub incumbent_action: HotAddAction,
     pub description: String,
-}
-
-#[derive(Clone, Debug)]
-pub struct HotAddAction {
-    metrics: ActionMetricSnapshot,
-}
-
-impl HotAddAction {
-    pub fn from_metrics(metrics: ActionMetricSnapshot) -> Self {
-        Self { metrics }
-    }
-
-    pub fn stable() -> Self {
-        Self::from_metrics(ActionMetricSnapshot::from_values([
-            (TripwireMetric::RecallAtK, 0.95),
-            (TripwireMetric::GuardFAR, 0.001),
-            (TripwireMetric::GuardFRR, 0.001),
-            (TripwireMetric::SearchP99, 50.0),
-            (TripwireMetric::IngestP95, 80.0),
-        ]))
-    }
-}
-
-impl AnnealAction for HotAddAction {
-    fn apply_shadow(&self, _query: &crate::ReplayQuery) -> ActionMetricSnapshot {
-        self.metrics.clone()
-    }
 }
 
 pub trait ProposalSubstrate {
@@ -109,11 +80,9 @@ where
     }
 
     fn propose_hot_add(&mut self, plan: &HotAddPlan) -> Result<ChangeOutcome> {
-        self.propose_change_with_description(
+        self.propose_artifact_change_with_description(
             plan.artifact_key.clone(),
             plan.candidate_ptr.clone(),
-            &plan.candidate_action,
-            &plan.incumbent_action,
             plan.description.clone(),
         )
     }

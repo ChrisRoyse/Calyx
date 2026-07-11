@@ -1,3 +1,7 @@
+mod artifact;
+
+use std::sync::Arc;
+
 use calyx_aster::cf::full_content_hash;
 use calyx_core::{CalyxError, Clock, Result};
 use calyx_ledger::LedgerCfStore;
@@ -6,10 +10,10 @@ use serde_json::Value;
 
 use crate::shadow::AnnealAction as ShadowAnnealAction;
 use crate::{
-    AnnealLedger, AnnealLedgerAction, AnnealLedgerEntry, ArtifactKey, ArtifactPtr, BudgetEnforcer,
-    BudgetProbe, ChangeId, HeldOutReplay, MetricSnapshot, ProcStatBudgetProbe, RollbackReadback,
-    RollbackStorage, RollbackStore, ShadowExecutor, ShadowRevertReason, ShadowVerdict,
-    TripwireRegistry, TripwireStatus,
+    AnnealLedger, AnnealLedgerAction, AnnealLedgerEntry, ArtifactKey, ArtifactPtr,
+    ArtifactReplayMeasurer, BudgetEnforcer, BudgetProbe, ChangeId, HeldOutReplay, MetricSnapshot,
+    ProcStatBudgetProbe, RollbackReadback, RollbackStorage, RollbackStore, ShadowExecutor,
+    ShadowRevertReason, ShadowVerdict, TripwireRegistry, TripwireStatus,
 };
 
 pub const CALYX_LEDGER_WRITE_FAIL: &str = "CALYX_LEDGER_WRITE_FAIL";
@@ -78,6 +82,7 @@ where
     pub ledger: AnnealLedger<L, C>,
     pub budget: BudgetEnforcer<'a, P>,
     clock: &'a dyn Clock,
+    replay_measurer: Option<Arc<dyn ArtifactReplayMeasurer>>,
     shadow_cpu_weight: f64,
     shadow_vram_bytes: u64,
 }
@@ -104,6 +109,7 @@ where
             ledger,
             budget,
             clock,
+            replay_measurer: None,
             shadow_cpu_weight: DEFAULT_SHADOW_CPU_WEIGHT,
             shadow_vram_bytes: DEFAULT_SHADOW_VRAM_BYTES,
         }
@@ -115,15 +121,16 @@ where
         self
     }
 
-    pub fn propose_change<A>(
+    pub fn propose_change<Candidate, Incumbent>(
         &mut self,
         key: ArtifactKey,
         candidate_ptr: ArtifactPtr,
-        candidate: &A,
-        incumbent: &A,
+        candidate: &Candidate,
+        incumbent: &Incumbent,
     ) -> Result<ChangeOutcome>
     where
-        A: ShadowAnnealAction,
+        Candidate: ShadowAnnealAction,
+        Incumbent: ShadowAnnealAction,
     {
         self.propose_change_with_description(
             key,
@@ -134,16 +141,17 @@ where
         )
     }
 
-    pub fn propose_change_with_description<A>(
+    pub fn propose_change_with_description<Candidate, Incumbent>(
         &mut self,
         key: ArtifactKey,
         candidate_ptr: ArtifactPtr,
-        candidate: &A,
-        incumbent: &A,
+        candidate: &Candidate,
+        incumbent: &Incumbent,
         description: impl Into<String>,
     ) -> Result<ChangeOutcome>
     where
-        A: ShadowAnnealAction,
+        Candidate: ShadowAnnealAction,
+        Incumbent: ShadowAnnealAction,
     {
         self.propose_change_with_actions(
             key,
@@ -155,17 +163,18 @@ where
         )
     }
 
-    pub fn propose_change_with_actions<A>(
+    pub fn propose_change_with_actions<Candidate, Incumbent>(
         &mut self,
         key: ArtifactKey,
         candidate_ptr: ArtifactPtr,
-        candidate: &A,
-        incumbent: &A,
+        candidate: &Candidate,
+        incumbent: &Incumbent,
         actions: AnnealLedgerActionPair,
         description: impl Into<String>,
     ) -> Result<ChangeOutcome>
     where
-        A: ShadowAnnealAction,
+        Candidate: ShadowAnnealAction,
+        Incumbent: ShadowAnnealAction,
     {
         self.propose_change_with_actions_and_details(
             key,
@@ -177,24 +186,47 @@ where
         )
     }
 
-    pub fn propose_change_with_actions_and_details<A>(
+    pub fn propose_change_with_actions_and_details<Candidate, Incumbent>(
         &mut self,
         key: ArtifactKey,
         candidate_ptr: ArtifactPtr,
-        candidate: &A,
-        incumbent: &A,
+        candidate: &Candidate,
+        incumbent: &Incumbent,
         ledger_options: AnnealProposalLedgerOptions,
         description: impl Into<String>,
     ) -> Result<ChangeOutcome>
     where
-        A: ShadowAnnealAction,
+        Candidate: ShadowAnnealAction,
+        Incumbent: ShadowAnnealAction,
     {
         let description = description.into();
+        let (change_id, readback) =
+            self.prepare_change(key, candidate_ptr, description.as_str())?;
+        let verdict = self.shadow_verdict(candidate, incumbent)?;
+        self.finish_prepared_change(change_id, readback, verdict, ledger_options, description)
+    }
+
+    pub(crate) fn prepare_change(
+        &mut self,
+        key: ArtifactKey,
+        candidate_ptr: ArtifactPtr,
+        description: &str,
+    ) -> Result<(ChangeId, RollbackReadback)> {
         let change_id =
             self.rollback
-                .prepare_with_description(key, candidate_ptr, description.clone())?;
+                .prepare_with_description(key, candidate_ptr, description.to_string())?;
         let readback = self.rollback.readback(change_id)?;
-        let verdict = self.shadow_verdict(candidate, incumbent)?;
+        Ok((change_id, readback))
+    }
+
+    pub(crate) fn finish_prepared_change(
+        &mut self,
+        change_id: ChangeId,
+        readback: RollbackReadback,
+        verdict: ShadowVerdict,
+        ledger_options: AnnealProposalLedgerOptions,
+        description: String,
+    ) -> Result<ChangeOutcome> {
         match verdict {
             ShadowVerdict::Promote { metrics } => {
                 let details = ledger_options.details.clone();
@@ -323,9 +355,14 @@ where
         })
     }
 
-    fn shadow_verdict<A>(&mut self, candidate: &A, incumbent: &A) -> Result<ShadowVerdict>
+    pub(crate) fn shadow_verdict<Candidate, Incumbent>(
+        &mut self,
+        candidate: &Candidate,
+        incumbent: &Incumbent,
+    ) -> Result<ShadowVerdict>
     where
-        A: ShadowAnnealAction,
+        Candidate: ShadowAnnealAction,
+        Incumbent: ShadowAnnealAction,
     {
         let budget = match self
             .budget

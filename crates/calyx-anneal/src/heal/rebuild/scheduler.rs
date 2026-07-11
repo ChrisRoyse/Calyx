@@ -7,10 +7,9 @@ use calyx_core::{CalyxError, Clock, Result};
 use calyx_ledger::LedgerCfStore;
 
 use crate::{
-    ActionMetricSnapshot, AnnealAction, AnnealLedger, AnnealLedgerAction, AnnealLedgerEntry,
-    AnnealSubstrate, ArtifactPtr, BudgetProbe, CALYX_ANNEAL_BUDGET_EXHAUSTED, ChangeId,
-    ChangeOutcome, ComponentHealth, DegradeRegistry, HealthStorage, MetricSnapshot, ReplayQuery,
-    RollbackStorage, TripwireMetric,
+    AnnealLedger, AnnealLedgerAction, AnnealLedgerEntry, AnnealSubstrate, ArtifactPtr, BudgetProbe,
+    CALYX_ANNEAL_BUDGET_EXHAUSTED, ChangeId, ChangeOutcome, ComponentHealth, DegradeRegistry,
+    HealthStorage, MetricSnapshot, RollbackStorage,
 };
 
 use super::artifact::{hex, ptr_hash, target_hash};
@@ -141,12 +140,9 @@ where
                 }
                 Err(error) => return self.record_failure(substrate, job.target, error),
             };
-        let action = RebuildShadowAction;
-        let outcome = substrate.propose_change_with_description(
+        let outcome = substrate.propose_artifact_change_with_description(
             job.target.artifact_key(),
             new_ptr.clone(),
-            &action,
-            &action,
             "background rebuild",
         )?;
         match outcome {
@@ -230,21 +226,6 @@ impl PartialOrd for QueuedJob {
 impl PartialEq for QueuedJob {
     fn eq(&self, other: &Self) -> bool {
         self.0.priority == other.0.priority && self.0.sequence == other.0.sequence
-    }
-}
-
-#[derive(Clone)]
-struct RebuildShadowAction;
-
-impl AnnealAction for RebuildShadowAction {
-    fn apply_shadow(&self, _query: &ReplayQuery) -> ActionMetricSnapshot {
-        ActionMetricSnapshot::from_values([
-            (TripwireMetric::RecallAtK, 0.95),
-            (TripwireMetric::GuardFAR, 0.001),
-            (TripwireMetric::GuardFRR, 0.001),
-            (TripwireMetric::SearchP99, 50.0),
-            (TripwireMetric::IngestP95, 80.0),
-        ])
     }
 }
 

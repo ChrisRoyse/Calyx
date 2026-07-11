@@ -2,10 +2,9 @@ use std::collections::{BTreeMap, VecDeque};
 use std::sync::Mutex;
 
 use calyx_anneal::{
-    ActionMetricSnapshot, AnchorId, AssayAttribution, CALYX_ASSAY_INVALID_METRIC,
-    CALYX_REGISTRY_HOT_ADD_FAIL, CandidateLens, ChangeId, ChangeOutcome, HotAddAction, HotAddPlan,
-    HotAddReceipt, LensHotAdder, LensProfiler, PairNMI, ProposalSubstrate, ShadowRevertReason,
-    TripwireMetric,
+    AnchorId, AssayAttribution, CALYX_ASSAY_INVALID_METRIC, CALYX_REGISTRY_HOT_ADD_FAIL,
+    CandidateLens, ChangeId, ChangeOutcome, HotAddPlan, HotAddReceipt, LensHotAdder, LensProfiler,
+    PairNMI, ProposalSubstrate, ShadowRevertReason,
 };
 use calyx_core::{
     Anchor, Asymmetry, CalyxError, Constellation, CxFlags, CxId, InputRef, LedgerRef, LensId,
@@ -103,14 +102,6 @@ impl LensHotAdder for TestHotAdder {
             artifact_key: calyx_anneal::ArtifactKey::ConfigCache([0xAB; 32]),
             prior_ptr: calyx_anneal::ArtifactPtr::ConfigCacheKeyHash([0x11; 32]),
             candidate_ptr: calyx_anneal::ArtifactPtr::ConfigCacheKeyHash([0x22; 32]),
-            candidate_action: HotAddAction::stable(),
-            incumbent_action: HotAddAction::from_metrics(ActionMetricSnapshot::from_values([
-                (TripwireMetric::RecallAtK, 0.94),
-                (TripwireMetric::GuardFAR, 0.001),
-                (TripwireMetric::GuardFRR, 0.001),
-                (TripwireMetric::SearchP99, 55.0),
-                (TripwireMetric::IngestP95, 85.0),
-            ])),
             description: "test hot add".to_string(),
         })
     }

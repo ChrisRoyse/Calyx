@@ -4,10 +4,11 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use calyx_anneal::{
-    AsterHeadStorage, AsterMistakeStorage, AsterOutcomeStorage, AsterReplayStorage, HeadKind,
-    OnlineHead, OnlineHeadState, OutcomePrediction, OutcomeQueue, RecordOutcomeConfig,
-    RecordOutcomeContext, RecordOutcomeResult, decode_online_head, decode_outcome_queue_entry,
-    record_outcome,
+    ActionMetricSnapshot, ArtifactKey, ArtifactPtr, ArtifactReplayMeasurer, AsterHeadStorage,
+    AsterMistakeStorage, AsterOutcomeStorage, AsterReplayStorage, HeadKind, OnlineHead,
+    OnlineHeadState, OutcomePrediction, OutcomeQueue, RecordOutcomeConfig, RecordOutcomeContext,
+    RecordOutcomeResult, ReplayQuery, TripwireMetric, decode_online_head,
+    decode_outcome_queue_entry, record_outcome,
 };
 use calyx_aster::cf::{ColumnFamily, anchor_key, ledger_key};
 use calyx_aster::vault::AsterVault;
@@ -30,7 +31,7 @@ const TS: u64 = 1_785_500_580;
 #[test]
 fn record_outcome_reward_writes_anchor_queue_head_and_ledger() -> Result<()> {
     let root = test_root("reward");
-    let result = reward_scenario(&root)?;
+    let result = reward_scenario_with_unit_measurer(&root)?;
 
     assert_eq!(result["result"]["queue_seq"], json!(1));
     assert_eq!(result["queue"][0]["entry"]["observed"], json!(1.0));
@@ -57,7 +58,7 @@ fn record_outcome_fail_closed_edges_do_not_write_rows() -> Result<()> {
     let root = test_root("edges");
     let invalid_config = invalid_config_edge(&root)?;
     let invalid_anchor = invalid_anchor_edge(&root)?;
-    let untrusted = untrusted_disagreement_edge(&root)?;
+    let untrusted = untrusted_disagreement_edge_with_unit_measurer(&root)?;
 
     assert_eq!(
         invalid_config["error_code"],
@@ -128,9 +129,17 @@ fn fsv_record_outcome_manual() -> Result<()> {
 }
 
 fn reward_scenario(root: &Path) -> Result<Value> {
+    reward_scenario_inner(root, false)
+}
+
+fn reward_scenario_with_unit_measurer(root: &Path) -> Result<Value> {
+    reward_scenario_inner(root, true)
+}
+
+fn reward_scenario_inner(root: &Path, install_unit_measurer: bool) -> Result<Value> {
     let (vault_dir, vault) = support::open_durable_vault(root, "reward-vault");
     let cx = insert_cx(&vault, 1)?;
-    let outcome = record(
+    let outcome = record_inner(
         &vault,
         &vault_dir,
         cx.cx_id,
@@ -140,6 +149,7 @@ fn reward_scenario(root: &Path) -> Result<Value> {
             trusted: true,
         }),
         RecordOutcomeConfig::default(),
+        install_unit_measurer,
     )?;
     vault.flush()?;
     Ok(json!({
@@ -234,9 +244,17 @@ fn invalid_anchor_edge(root: &Path) -> Result<Value> {
 }
 
 fn untrusted_disagreement_edge(root: &Path) -> Result<Value> {
+    untrusted_disagreement_edge_inner(root, false)
+}
+
+fn untrusted_disagreement_edge_with_unit_measurer(root: &Path) -> Result<Value> {
+    untrusted_disagreement_edge_inner(root, true)
+}
+
+fn untrusted_disagreement_edge_inner(root: &Path, install_unit_measurer: bool) -> Result<Value> {
     let (vault_dir, vault) = support::open_durable_vault(root, "untrusted-vault");
     let cx = insert_cx(&vault, 5)?;
-    let outcome = record(
+    let outcome = record_inner(
         &vault,
         &vault_dir,
         cx.cx_id,
@@ -246,6 +264,7 @@ fn untrusted_disagreement_edge(root: &Path) -> Result<Value> {
             trusted: false,
         }),
         RecordOutcomeConfig::default(),
+        install_unit_measurer,
     )?;
     vault.flush()?;
     Ok(json!({
@@ -267,12 +286,27 @@ fn record(
     prediction: Option<OutcomePrediction>,
     config: RecordOutcomeConfig,
 ) -> Result<RecordOutcomeResult> {
+    record_inner(vault, vault_dir, cx_id, anchor, prediction, config, false)
+}
+
+fn record_inner(
+    vault: &AsterVault,
+    vault_dir: &Path,
+    cx_id: CxId,
+    anchor: Anchor,
+    prediction: Option<OutcomePrediction>,
+    config: RecordOutcomeConfig,
+    install_unit_measurer: bool,
+) -> Result<RecordOutcomeResult> {
     let clock = FixedClock::new(TS);
     let log = calyx_anneal::MistakeLog::open(AsterMistakeStorage::new(vault), 16, Arc::new(clock))?;
     let mut replay =
         calyx_anneal::ReplayBuffer::open(AsterReplayStorage::new(vault), 16, Arc::new(clock))?;
     let outcomes = OutcomeQueue::open(AsterOutcomeStorage::new(vault), Arc::new(clock))?;
-    let substrate = support::durable_substrate(&clock, vault, vault_dir);
+    let mut substrate = support::durable_substrate(&clock, vault, vault_dir);
+    if install_unit_measurer {
+        substrate = substrate.with_replay_measurer(Arc::new(UnitPassingArtifactMeasurer));
+    }
     let mut heads = OnlineHeadState::open(
         AsterHeadStorage::new(vault),
         substrate,
@@ -281,6 +315,26 @@ fn record(
     )?;
     let mut context = RecordOutcomeContext::new(&log, &mut replay, &mut heads, &outcomes);
     record_outcome(cx_id, anchor, prediction, &mut context, config)
+}
+
+#[derive(Clone)]
+struct UnitPassingArtifactMeasurer;
+
+impl ArtifactReplayMeasurer for UnitPassingArtifactMeasurer {
+    fn measure(
+        &self,
+        _key: &ArtifactKey,
+        _artifact: &ArtifactPtr,
+        _query: &ReplayQuery,
+    ) -> Result<ActionMetricSnapshot> {
+        Ok(ActionMetricSnapshot::from_values([
+            (TripwireMetric::RecallAtK, 0.95),
+            (TripwireMetric::GuardFAR, 0.001),
+            (TripwireMetric::GuardFRR, 0.001),
+            (TripwireMetric::SearchP99, 50.0),
+            (TripwireMetric::IngestP95, 80.0),
+        ]))
+    }
 }
 
 fn insert_cx(vault: &AsterVault, seed: u8) -> Result<Constellation> {

@@ -3,9 +3,8 @@ use calyx_ledger::LedgerCfStore;
 use serde_json::{Value, json};
 
 use crate::{
-    ActionMetricSnapshot, AnnealAction, AnnealLedgerAction, AnnealLedgerActionPair,
-    AnnealProposalLedgerOptions, AnnealSubstrate, ArtifactKey, ArtifactPtr, BudgetProbe,
-    ChangeOutcome, RollbackStorage, TripwireMetric,
+    AnnealLedgerAction, AnnealLedgerActionPair, AnnealProposalLedgerOptions, AnnealSubstrate,
+    ArtifactKey, ArtifactPtr, BudgetProbe, ChangeOutcome, RollbackStorage,
 };
 
 use super::{ANNEAL_OPERATOR_PROPOSAL_TAG, ProposedOperator, hex32, operator_label};
@@ -17,8 +16,7 @@ pub trait OperatorPromotionGate {
         &mut self,
         key: ArtifactKey,
         candidate_ptr: ArtifactPtr,
-        candidate: &OperatorShadowProposal,
-        incumbent: &OperatorShadowProposal,
+        details: Value,
         description: &str,
     ) -> Result<ChangeOutcome>;
 }
@@ -41,76 +39,23 @@ where
         &mut self,
         key: ArtifactKey,
         candidate_ptr: ArtifactPtr,
-        candidate: &OperatorShadowProposal,
-        incumbent: &OperatorShadowProposal,
+        details: Value,
         description: &str,
     ) -> Result<ChangeOutcome> {
-        self.propose_change_with_actions_and_details(
+        self.propose_artifact_change_with_actions_and_details(
             key,
             candidate_ptr,
-            candidate,
-            incumbent,
             AnnealProposalLedgerOptions::new(AnnealLedgerActionPair::new(
                 AnnealLedgerAction::OperatorPromoted,
                 AnnealLedgerAction::OperatorReverted,
             ))
-            .with_details(candidate.details.clone()),
+            .with_details(details),
             description,
         )
     }
 }
 
-#[derive(Clone, Debug)]
-pub struct OperatorShadowProposal {
-    metrics: ActionMetricSnapshot,
-    details: Value,
-}
-
-impl OperatorShadowProposal {
-    pub(super) fn stable(
-        proposal_id: &str,
-        operator: &ProposedOperator,
-        deficit_total_bits: f64,
-        refit_delta_j: f64,
-        shadow_delta_j: f64,
-    ) -> Self {
-        Self {
-            metrics: stable_metrics(),
-            details: ledger_details(
-                proposal_id,
-                operator,
-                deficit_total_bits,
-                refit_delta_j,
-                shadow_delta_j,
-            ),
-        }
-    }
-
-    pub(super) fn stable_incumbent() -> Self {
-        Self {
-            metrics: stable_metrics(),
-            details: json!({ "tag": ANNEAL_OPERATOR_PROPOSAL_TAG, "operator_id": "incumbent" }),
-        }
-    }
-}
-
-impl AnnealAction for OperatorShadowProposal {
-    fn apply_shadow(&self, _query: &crate::ReplayQuery) -> ActionMetricSnapshot {
-        self.metrics.clone()
-    }
-}
-
-fn stable_metrics() -> ActionMetricSnapshot {
-    ActionMetricSnapshot::from_values([
-        (TripwireMetric::RecallAtK, 0.95),
-        (TripwireMetric::GuardFAR, 0.001),
-        (TripwireMetric::GuardFRR, 0.001),
-        (TripwireMetric::SearchP99, 50.0),
-        (TripwireMetric::IngestP95, 80.0),
-    ])
-}
-
-fn ledger_details(
+pub(super) fn operator_ledger_details(
     proposal_id: &str,
     operator: &ProposedOperator,
     deficit_total_bits: f64,

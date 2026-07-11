@@ -6,8 +6,8 @@ use std::sync::{Arc, Mutex};
 
 use calyx_anneal::{
     CALYX_ANNEAL_HEAD_TOO_LARGE, CALYX_ANNEAL_HEAD_UPDATE_REVERTED, ChangeOutcome, FrozenLensCheck,
-    HeadKind, HeadPromotionGate, HeadShadowProposal, HeadStorage, MistakeRef, OnlineHead,
-    OnlineHeadState, ReplayEntry, ShadowRevertReason, decode_online_head,
+    HeadKind, HeadPromotionGate, HeadStorage, MistakeRef, OnlineHead, OnlineHeadState, ReplayEntry,
+    ShadowRevertReason, decode_online_head,
 };
 use calyx_aster::cf::ColumnFamily;
 use calyx_aster::vault::{AsterVault, VaultOptions};
@@ -301,8 +301,6 @@ impl HeadPromotionGate for ScriptedGate {
         &mut self,
         _key: calyx_anneal::ArtifactKey,
         _candidate_ptr: calyx_anneal::ArtifactPtr,
-        _candidate: &HeadShadowProposal,
-        _incumbent: &HeadShadowProposal,
         _description: &str,
     ) -> Result<ChangeOutcome> {
         if self.revert.load(Ordering::SeqCst) {
