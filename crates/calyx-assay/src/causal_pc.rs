@@ -3,6 +3,7 @@
 //! This is the linear/Gaussian skeleton phase: no orientation, no nonlinear CI.
 //! Depth updates are stable: all removals discovered at a conditioning depth are
 //! applied only after every currently-adjacent pair has been tested at that depth.
+//! Each pair considers conditioning subsets from both frozen endpoint neighborhoods.
 
 use calyx_core::{CalyxError, Result};
 use serde::{Deserialize, Serialize};
@@ -69,11 +70,7 @@ pub fn pc_stable_gaussian(
                 if !snapshot[i][j] {
                     continue;
                 }
-                let candidates = neighbor_indices(&snapshot, i, j);
-                if candidates.len() < depth {
-                    continue;
-                }
-                for conditioning in combinations(&candidates, depth) {
+                for conditioning in endpoint_conditioning_sets(&snapshot, i, j, depth) {
                     let test = gaussian_ci_test(series, i, j, &conditioning, alpha)?;
                     if test.independent {
                         removals.push((i, j, test));
@@ -222,6 +219,28 @@ fn neighbor_indices(snapshot: &[Vec<bool>], node: usize, exclude: usize) -> Vec<
         .enumerate()
         .filter_map(|(idx, &is_adjacent)| (idx != exclude && is_adjacent).then_some(idx))
         .collect()
+}
+
+fn endpoint_conditioning_sets(
+    snapshot: &[Vec<bool>],
+    left: usize,
+    right: usize,
+    depth: usize,
+) -> Vec<Vec<usize>> {
+    let mut seen = std::collections::BTreeSet::new();
+    let mut out = Vec::new();
+    for (node, exclude) in [(left, right), (right, left)] {
+        let candidates = neighbor_indices(snapshot, node, exclude);
+        if candidates.len() < depth {
+            continue;
+        }
+        for conditioning in combinations(&candidates, depth) {
+            if seen.insert(conditioning.clone()) {
+                out.push(conditioning);
+            }
+        }
+    }
+    out
 }
 
 fn combinations(values: &[usize], k: usize) -> Vec<Vec<usize>> {
