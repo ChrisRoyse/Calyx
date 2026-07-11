@@ -420,14 +420,14 @@ impl CfRouter {
             .or_insert_with(|| Memtable::new(self.memtable_byte_cap))
     }
 
-    fn next_sequence(&mut self, cf: ColumnFamily) -> u64 {
+    pub(super) fn next_sequence(&mut self, cf: ColumnFamily) -> u64 {
         let next = self.next_file.entry(cf).or_insert(1);
         let seq = *next;
         *next += 1;
         seq
     }
 
-    fn cf_dir(&self, cf: ColumnFamily) -> PathBuf {
+    pub(super) fn cf_dir(&self, cf: ColumnFamily) -> PathBuf {
         self.tiering_policy.as_ref().map_or_else(
             || self.vault_dir.join("cf").join(cf.name()),
             |policy| policy.place_current_cf(cf).absolute_dir(),

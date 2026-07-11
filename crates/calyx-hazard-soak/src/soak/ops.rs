@@ -3,22 +3,22 @@ use super::{
     WAL_BATCH_RECORDS, WAL_RECYCLE_EVERY_GC_TICKS, err,
 };
 use calyx_anneal::{BudgetEnforcer, BudgetProbe};
-use calyx_aster::cf::{CfRouter, ColumnFamily};
+use calyx_aster::cf::ColumnFamily;
 use calyx_aster::gc::{
     CompactionGcReclaimer, CompactionGcTarget, TombstoneInventory, WalRecycler,
     scan_tombstone_inventory,
 };
-use calyx_aster::mvcc::tombstone_value;
+use calyx_aster::mvcc::{Freshness, VersionedCfStore, tombstone_value};
 use calyx_aster::resource::heap_rss_bytes;
 use calyx_aster::wal::Wal;
-use calyx_core::{CxId, Result as CalyxResult, SlotVector};
+use calyx_core::{Clock, CxId, Result as CalyxResult, SlotVector};
 use calyx_forge::{Category, VramBudgeter, VramProbe};
 use calyx_sextant::{HnswIndex, SextantIndex};
 use std::fs;
 use std::path::Path;
 
 pub(super) struct WriteOpState<'a> {
-    pub(super) router: &'a mut CfRouter,
+    pub(super) store: &'a VersionedCfStore,
     pub(super) index: &'a mut HnswIndex,
     pub(super) value: &'a mut [u8],
     pub(super) wal: &'a mut Wal,
@@ -34,19 +34,21 @@ pub(super) fn write_op(op: u64, state: WriteOpState<'_>) -> Result<(), String> {
     state.value[0] = op as u8;
     state.value[state.value.len() - 1] = (op >> 8) as u8;
     let row_len = 64 + (op as usize % 128);
-    state
-        .router
-        .put(ColumnFamily::Base, &key, &state.value[..row_len])
-        .map_err(err)?;
+    let mut rows = vec![(
+        ColumnFamily::Base,
+        key.to_vec(),
+        state.value[..row_len].to_vec(),
+    )];
     *state.live_values += 1;
     if op.is_multiple_of(4) {
-        let tombstone = tombstone_value();
-        state
-            .router
-            .put(ColumnFamily::Base, &tombstone_key(op), &tombstone)
-            .map_err(err)?;
+        rows.push((
+            ColumnFamily::Base,
+            tombstone_key(op).to_vec(),
+            tombstone_value(),
+        ));
         *state.tombstone_values += 1;
     }
+    state.store.commit_batch(rows).map_err(err)?;
     if state.index.live_len() < ANN_INDEX_CAP {
         state
             .index
@@ -61,9 +63,20 @@ pub(super) fn write_op(op: u64, state: WriteOpState<'_>) -> Result<(), String> {
     Ok(())
 }
 
-pub(super) fn read_op(op: u64, router: &CfRouter, counts: &mut SoakCounts) -> Result<(), String> {
+pub(super) fn read_op(
+    op: u64,
+    store: &VersionedCfStore,
+    clock: &dyn Clock,
+    counts: &mut SoakCounts,
+) -> Result<(), String> {
     let key = row_key(op.saturating_sub(1));
-    let _ = router.get(ColumnFamily::Base, &key).map_err(err)?;
+    let snapshot = store.pin_snapshot(Freshness::FreshDerived, clock, u64::MAX);
+    let read = store.read_at(snapshot, ColumnFamily::Base, &key, clock);
+    let released = store.release_lease(snapshot.lease().id());
+    if !released {
+        return Err("read lease disappeared before release".to_string());
+    }
+    let _ = read.map_err(err)?;
     counts.reads += 1;
     Ok(())
 }
@@ -83,7 +96,7 @@ pub(super) fn ann_search_op(
 pub(super) fn gc_tick_op(
     op: u64,
     vault_dir: &Path,
-    router: &mut CfRouter,
+    store: &VersionedCfStore,
     wal: &mut Wal,
     wal_recycler: &WalRecycler,
     durable_wal_seq: u64,
@@ -94,10 +107,31 @@ pub(super) fn gc_tick_op(
         let _ = wal_recycler.run_once_at(wal, durable_wal_seq, op);
     }
     if counts.gc_ticks.is_multiple_of(GC_SWEEP_EVERY_GC_TICKS) {
-        router.flush_pending().map_err(err)?;
-        let reclaimer = CompactionGcReclaimer::with_limits(0.5, 1, 1_000_000_000, op);
-        let target = SoakGcTarget { vault_dir };
-        let _ = reclaimer.maybe_trigger_at(&target, 1.0, op);
+        store.flush_all_cfs().map_err(err)?;
+        let mut reclaimer = CompactionGcReclaimer::with_limits(0.5, 1, 1_000_000_000, op);
+        reclaimer.tombstone_ratio_trigger = 0.15;
+        let target = SoakGcTarget { vault_dir, store };
+        let result = reclaimer.maybe_trigger_at(&target, 1.0, op);
+        if let Some(code) = result.error_code {
+            return Err(format!(
+                "compaction GC {code}: {}",
+                result.error_message.as_deref().unwrap_or("unknown error")
+            ));
+        }
+        if result.triggered {
+            if result.tombstones_removed == 0 {
+                return Err(
+                    "compaction GC triggered without physical tombstone removal".to_string()
+                );
+            }
+            counts.compaction_gc_runs += 1;
+            counts.compaction_tombstones_removed = counts
+                .compaction_tombstones_removed
+                .saturating_add(result.tombstones_removed);
+            counts.compaction_bytes_freed = counts
+                .compaction_bytes_freed
+                .saturating_add(result.bytes_freed);
+        }
     }
     Ok(())
 }
@@ -227,6 +261,7 @@ fn dir_bytes(path: &Path) -> u64 {
 
 struct SoakGcTarget<'a> {
     vault_dir: &'a Path,
+    store: &'a VersionedCfStore,
 }
 
 impl CompactionGcTarget for SoakGcTarget<'_> {
@@ -234,7 +269,10 @@ impl CompactionGcTarget for SoakGcTarget<'_> {
         scan_tombstone_inventory(self.vault_dir)
     }
 
-    fn compact_tombstoned_cfs(&self, _cfs: &[ColumnFamily]) -> CalyxResult<()> {
-        Ok(())
+    fn compact_tombstoned_cfs(&self, cfs: &[ColumnFamily]) -> CalyxResult<()> {
+        self.store.compact_router_tombstoned_cfs(cfs)
     }
 }
+
+#[cfg(test)]
+mod tests;

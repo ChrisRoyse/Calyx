@@ -52,7 +52,7 @@ QJL seed version must be FSV-proven. Defends intelligence integrity at the numer
   - Verify no data loss in base CF (only graph index was corrupt, base is WAL-protected)
   - Record `calyx_ann_degraded_rebuilds_total`
 
-- [ ] Aggregate into `target/ph59_hazards_9_12.json`
+- [ ] Aggregate into `${PH59_HAZARDS_9_12_ROOT}/ph59_hazards_9_12.json`
 
 ## Tests (synthetic, deterministic — known input → known bytes/number)
 
@@ -66,13 +66,14 @@ QJL seed version must be FSV-proven. Defends intelligence integrity at the numer
 
 ## FSV (read the bytes on aiwonder — the truth gate)
 
-- **SoT:** `target/ph59_hazards_9_12.json`; `calyx readback --metric nan_guard_trips_total`; `xxd /hotpool/vault_*/sst/slot_0_<seq>.sst | grep -i 'nan\|ff ff ff ff'` (IEEE 754 NaN pattern); `calyx readback --metric ann_degraded_rebuilds_total`
+- **SoT:** `${PH59_HAZARDS_9_12_ROOT}/ph59_hazards_9_12.json`; `calyx readback --metric nan_guard_trips_total`; `xxd /hotpool/vault_*/sst/slot_0_<seq>.sst | grep -i 'nan\|ff ff ff ff'` (IEEE 754 NaN pattern); `calyx readback --metric ann_degraded_rebuilds_total`
+- **Target hygiene:** FSV artifacts must never be written under any repository `target/`. Every Cargo invocation uses a fresh `CARGO_TARGET_DIR` under `/home/croyse/calyx/target-scratch`, then immediately runs `scripts/cargo-target-clean.sh --also-repo-targets --also-calyx-home-target` and verifies all target scans are empty.
 - **Readback:**
   ```
   calyx readback --metric nan_guard_trips_total
   calyx readback --metric ann_degraded_rebuilds_total
   xxd /hotpool/vault_test/sst/slot_0_latest.sst | head -20   # must not contain NaN
-  cat target/ph59_hazards_9_12.json | python3 -c "import json,sys; d=json.load(sys.stdin); print('passed:', all(h['passed'] for h in d))"
+  cat "${PH59_HAZARDS_9_12_ROOT}/ph59_hazards_9_12.json" | python3 -c "import json,sys; d=json.load(sys.stdin); print('passed:', all(h['passed'] for h in d))"
   ```
 - **Prove:** all four hazards report `passed: true`; `nan_guard_trips_total >= 1`; slot SST bytes do not contain the IEEE 754 NaN pattern (`0x7FC00000` for f32); `ann_degraded_rebuilds_total == 1` after the byte-flip probe. Attach JSON + readback + xxd snippet to PH59 GitHub issue.
 

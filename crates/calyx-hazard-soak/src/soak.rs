@@ -3,6 +3,7 @@ mod ops;
 use calyx_anneal::{BudgetConfig, BudgetEnforcer, BudgetProbe, BudgetProbeSample};
 use calyx_aster::cf::CfRouter;
 use calyx_aster::gc::WalRecycler;
+use calyx_aster::mvcc::{Freshness, VersionedCfStore};
 use calyx_aster::wal::{Wal, WalOptions};
 use calyx_core::{FixedClock, SlotId};
 use calyx_forge::{Result as ForgeResult, VramBudgeter, VramProbe};
@@ -56,6 +57,9 @@ pub struct SoakCounts {
     pub gc_ticks: u64,
     pub vram_dispatches: u64,
     pub anneal_ticks: u64,
+    pub compaction_gc_runs: u64,
+    pub compaction_tombstones_removed: u64,
+    pub compaction_bytes_freed: u64,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -76,6 +80,7 @@ pub struct SoakReport {
     pub rss_bounded: bool,
     pub vram_bounded: bool,
     pub oldest_pinned_seq_gap_bounded: bool,
+    pub compaction_gc_exercised: bool,
     pub soak_oscillation_detected: bool,
     pub max_gap_seqs: u64,
     pub final_tombstone_ratio: f64,
@@ -99,7 +104,9 @@ pub fn run_integrated_soak_at(root: &Path, n_ops: u64, seed: u64) -> Result<Soak
     let mut rng = SmallRng::seed_from_u64(seed);
     let vault_dir = root.join("vault");
     let wal_dir = root.join("wal");
-    let mut router = CfRouter::open(&vault_dir, MEMTABLE_BYTES).map_err(err)?;
+    let clock = FixedClock::new(1_800_700_000_000);
+    let router = CfRouter::open(&vault_dir, MEMTABLE_BYTES).map_err(err)?;
+    let store = VersionedCfStore::new_with_router(0, router);
     let mut wal = Wal::open(
         &wal_dir,
         WalOptions {
@@ -111,7 +118,6 @@ pub fn run_integrated_soak_at(root: &Path, n_ops: u64, seed: u64) -> Result<Soak
     let wal_recycler = WalRecycler::with_limits(64, 64, Duration::ZERO);
     let mut index = HnswIndex::new(SlotId::new(59), DIM as u32, seed);
     let budgeter = VramBudgeter::with_soft_cap(VRAM_SOFT_CAP_BYTES, StaticVram { free: 64 * GIB });
-    let clock = FixedClock::new(1_800_700_000_000);
     let anneal = BudgetEnforcer::with_probe(
         BudgetConfig {
             cpu_fraction: 0.75,
@@ -123,7 +129,14 @@ pub fn run_integrated_soak_at(root: &Path, n_ops: u64, seed: u64) -> Result<Soak
     )
     .map_err(err)?;
     let mut counts = SoakCounts::default();
-    let mut samples = vec![sample(0, &budgeter, &wal_dir, 0.0, pinned_gap(0))?];
+    let mut pinned_reader = store.pin_snapshot(Freshness::FreshDerived, &clock, u64::MAX);
+    let mut samples = vec![sample(
+        0,
+        &budgeter,
+        &wal_dir,
+        0.0,
+        measured_pinned_gap(&store, &clock),
+    )?];
     let mut value = vec![0_u8; 256];
     let mut wal_payloads = Vec::<Vec<u8>>::with_capacity(WAL_BATCH_RECORDS);
     let mut durable_wal_seq = 0_u64;
@@ -135,7 +148,7 @@ pub fn run_integrated_soak_at(root: &Path, n_ops: u64, seed: u64) -> Result<Soak
             0..=39 => write_op(
                 op,
                 WriteOpState {
-                    router: &mut router,
+                    store: &store,
                     index: &mut index,
                     value: &mut value,
                     wal: &mut wal,
@@ -146,12 +159,12 @@ pub fn run_integrated_soak_at(root: &Path, n_ops: u64, seed: u64) -> Result<Soak
                     counts: &mut counts,
                 },
             )?,
-            40..=64 => read_op(op, &router, &mut counts)?,
+            40..=64 => read_op(op, &store, &clock, &mut counts)?,
             65..=79 => ann_search_op(op, &index, &mut counts)?,
             80..=89 => gc_tick_op(
                 op,
                 &vault_dir,
-                &mut router,
+                &store,
                 &mut wal,
                 &wal_recycler,
                 durable_wal_seq,
@@ -167,14 +180,30 @@ pub fn run_integrated_soak_at(root: &Path, n_ops: u64, seed: u64) -> Result<Soak
                 &budgeter,
                 &wal_dir,
                 running_tombstone_ratio(tombstone_values, live_values),
-                pinned_gap(op + 1),
+                measured_pinned_gap(&store, &clock),
             )?);
+            if !store.release_lease(pinned_reader.lease().id()) {
+                return Err("sample reader lease disappeared before rotation".to_string());
+            }
+            pinned_reader = store.pin_snapshot(Freshness::FreshDerived, &clock, u64::MAX);
         }
     }
-    router.flush_pending().map_err(err)?;
+    store.flush_all_cfs().map_err(err)?;
     flush_wal_batch(&mut wal, &mut wal_payloads, &mut durable_wal_seq)?;
     let physical_tombstones = physical_tombstone_ratio(&vault_dir)?;
-    samples.push(sample(n_ops, &budgeter, &wal_dir, physical_tombstones, 0)?);
+    samples.push(sample(
+        n_ops,
+        &budgeter,
+        &wal_dir,
+        physical_tombstones,
+        measured_pinned_gap(&store, &clock),
+    )?);
+    if !store.release_lease(pinned_reader.lease().id()) {
+        return Err("final reader lease disappeared before release".to_string());
+    }
+    if measured_pinned_gap(&store, &clock) != 0 {
+        return Err("reader pin gap remained non-zero after final release".to_string());
+    }
 
     let rss_max = samples
         .iter()
@@ -187,6 +216,8 @@ pub fn run_integrated_soak_at(root: &Path, n_ops: u64, seed: u64) -> Result<Soak
         .map(|sample| sample.vram_mib)
         .max()
         .unwrap_or(0);
+    let compaction_gc_exercised =
+        counts.compaction_gc_runs > 0 && counts.compaction_tombstones_removed > 0;
     let report = SoakReport {
         op_count: n_ops,
         seed,
@@ -206,6 +237,7 @@ pub fn run_integrated_soak_at(root: &Path, n_ops: u64, seed: u64) -> Result<Soak
         oldest_pinned_seq_gap_bounded: samples
             .iter()
             .all(|sample| sample.oldest_pinned_seq_gap <= MAX_PINNED_GAP_SEQS),
+        compaction_gc_exercised,
         soak_oscillation_detected: oscillates(&samples),
         max_gap_seqs: samples
             .iter()
@@ -226,15 +258,14 @@ pub fn write_soak_artifacts(root: &Path, report: &SoakReport) -> Result<Vec<u8>,
     let bytes = serde_json::to_vec_pretty(report).map_err(|error| error.to_string())?;
     fs::write(root.join("ph59_final_soak.json"), &bytes)
         .map_err(|error| format!("write root final soak: {error}"))?;
-    let target = repo_root().join("target");
-    fs::create_dir_all(&target).map_err(|error| format!("create target dir: {error}"))?;
-    fs::write(target.join("ph59_final_soak.json"), &bytes)
-        .map_err(|error| format!("write target final soak: {error}"))?;
     Ok(bytes)
 }
 
-fn pinned_gap(op: u64) -> u64 {
-    10_000_u64.saturating_sub(op / SAMPLE_EVERY)
+fn measured_pinned_gap(store: &VersionedCfStore, clock: &FixedClock) -> u64 {
+    store
+        .snapshot_gc_tick(clock, MAX_PINNED_GAP_SEQS)
+        .metrics
+        .oldest_pinned_seq_gap
 }
 
 fn tail_rss_slope(samples: &[SoakSample]) -> f64 {
@@ -357,14 +388,6 @@ fn collect_files(root: &Path, dir: &Path, out: &mut Vec<String>) -> Result<(), S
     Ok(())
 }
 
-fn repo_root() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .and_then(Path::parent)
-        .expect("repo root")
-        .to_path_buf()
-}
-
 pub(super) fn err(error: impl std::fmt::Display) -> String {
     error.to_string()
 }
@@ -395,74 +418,4 @@ impl BudgetProbe for StaticBudget {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn soak_sample(op: u64, tombstone_ratio: f64, oldest_pinned_seq_gap: u64) -> SoakSample {
-        SoakSample {
-            op,
-            rss_kib: 100_000,
-            vram_mib: 0,
-            tombstone_ratio,
-            wal_bytes_active: 0,
-            oldest_pinned_seq_gap,
-        }
-    }
-
-    #[test]
-    fn bounded_tombstone_jitter_is_not_oscillation() {
-        let ratios = [
-            0.0, 0.1939, 0.1988, 0.1980, 0.1966, 0.1974, 0.1970, 0.1977, 0.1969, 0.1972, 0.2001,
-            0.2000,
-        ];
-        let samples: Vec<_> = ratios
-            .into_iter()
-            .enumerate()
-            .map(|(idx, ratio)| soak_sample(idx as u64 * SAMPLE_EVERY, ratio, 10_000 - idx as u64))
-            .collect();
-
-        assert!(!oscillates(&samples));
-    }
-
-    #[test]
-    fn large_tombstone_sawtooth_is_oscillation() {
-        let ratios = [
-            0.20, 0.35, 0.12, 0.34, 0.11, 0.33, 0.10, 0.32, 0.09, 0.31, 0.08, 0.30, 0.07, 0.29,
-            0.06,
-        ];
-        let samples: Vec<_> = ratios
-            .into_iter()
-            .enumerate()
-            .map(|(idx, ratio)| soak_sample(idx as u64 * SAMPLE_EVERY, ratio, 0))
-            .collect();
-
-        assert!(oscillates(&samples));
-    }
-
-    #[test]
-    fn monotone_pinned_gap_cleanup_is_not_oscillation() {
-        let gaps = [10_000, 9_999, 9_998, 9_997, 9_996, 8_000, 0];
-        let samples: Vec<_> = gaps
-            .into_iter()
-            .enumerate()
-            .map(|(idx, gap)| soak_sample(idx as u64 * SAMPLE_EVERY, 0.20, gap))
-            .collect();
-
-        assert!(!oscillates(&samples));
-    }
-
-    #[test]
-    fn large_pinned_gap_sawtooth_is_oscillation() {
-        let gaps = [
-            10_000, 8_000, 9_500, 7_500, 9_000, 7_000, 8_500, 6_500, 8_000, 6_000, 7_500, 5_500,
-            7_000, 5_000, 6_500,
-        ];
-        let samples: Vec<_> = gaps
-            .into_iter()
-            .enumerate()
-            .map(|(idx, gap)| soak_sample(idx as u64 * SAMPLE_EVERY, 0.20, gap))
-            .collect();
-
-        assert!(oscillates(&samples));
-    }
-}
+mod tests;

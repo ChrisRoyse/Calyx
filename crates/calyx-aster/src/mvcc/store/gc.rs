@@ -1,6 +1,7 @@
 use super::{RowTable, VersionChain, VersionedCfStore};
+use crate::cf::ColumnFamily;
 use crate::gc::{GcMetrics, GcRateLimit, GcResult, SnapshotVersionGc};
-use calyx_core::{Clock, Result, Seq, Ts};
+use calyx_core::{CalyxError, Clock, Result, Seq, Ts};
 
 impl VersionedCfStore {
     pub fn set_snapshot_gc_rate_limit(&self, rate_limit: GcRateLimit) {
@@ -26,6 +27,18 @@ impl VersionedCfStore {
 
     pub fn record_snapshot_gc_physical_bytes_freed(&self, bytes: usize) {
         self.snapshot_gc_counters.record_physical_bytes_freed(bytes);
+    }
+
+    pub fn compact_router_tombstoned_cfs(&self, cfs: &[ColumnFamily]) -> Result<()> {
+        let mut router = self.router.write().expect("mvcc router poisoned");
+        let Some(router) = router.as_mut() else {
+            return Err(CalyxError {
+                code: "CALYX_ASTER_COMPACTION_UNAVAILABLE",
+                message: "tombstone compaction requires a physical CF router".to_string(),
+                remediation: "open the MVCC store with a CF router before requesting compaction",
+            });
+        };
+        router.compact_tombstoned_cfs_at(cfs, self.current_seq())
     }
 }
 

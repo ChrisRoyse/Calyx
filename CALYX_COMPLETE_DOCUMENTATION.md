@@ -9976,7 +9976,7 @@ Internal (`const`) tuning: `DIM=32`, `MEMTABLE_BYTES=64 MiB`,
 |---|---|---|
 | `run_integrated_soak` | `(n_ops: u64, seed: u64) -> Result<SoakReport, String>` | chooses root from env `PH59_FINAL_SOAK_ROOT` or `temp_dir()/calyx-ph59-final-soak-<seed hex>`, then delegates |
 | `run_integrated_soak_at` | `(root: &Path, n_ops: u64, seed: u64) -> Result<SoakReport, String>` | the real driver |
-| `write_soak_artifacts` | `(root: &Path, report: &SoakReport) -> Result<Vec<u8>, String>` | writes `ph59_final_soak.json` to `root` and `<repo>/target` |
+| `write_soak_artifacts` | `(root: &Path, report: &SoakReport) -> Result<Vec<u8>, String>` | writes `ph59_final_soak.json` only to the selected FSV `root`; repository `target/` is disposable build scratch and never artifact storage |
 
 #### A.5.3 Public types
 

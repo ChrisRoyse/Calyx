@@ -1,8 +1,11 @@
 mod cli;
 mod hazards;
+#[cfg(test)]
+#[path = "main/tests.rs"]
+mod tests;
 
 use calyx_hazard_soak::soak::{SoakReport, run_integrated_soak_at, write_soak_artifacts};
-use cli::{RunConfig, dmesg_oom_count};
+use cli::{OomEvidence, RunConfig, dmesg_oom_evidence};
 use hazards::numerical::run_hazards_9_12;
 use hazards::operational::{run_hazards_13_16, run_hazards_17_21};
 use hazards::resource::{HazardResult, run_hazards_1_5};
@@ -42,7 +45,10 @@ fn run() -> Result<(), String> {
         write_soak_artifacts(&root, &report)?;
         soak_report = Some(report);
     }
-    let oom_count = dmesg_oom_count();
+    let oom_evidence = suite
+        .runs_final_soak()
+        .then(dmesg_oom_evidence)
+        .transpose()?;
     let artifact = stage_artifact(StageArtifactInput {
         suite,
         root: &root,
@@ -51,13 +57,23 @@ fn run() -> Result<(), String> {
         pass_count,
         config,
         soak: soak_report.as_ref(),
-        oom_count,
+        oom_evidence: oom_evidence.as_ref(),
     });
     write_artifacts(&root, &artifact, &results, suite, soak_report.as_ref())?;
     if let Some(soak) = &soak_report {
+        let oom = oom_evidence.as_ref().expect("Stage-13 OOM evidence");
         println!(
-            "STAGE13 EXIT GATE: hazard_pass_count={} rss_bounded={} vram_bounded={} oscillation={}",
-            pass_count, soak.rss_bounded, soak.vram_bounded, soak.soak_oscillation_detected
+            "STAGE13 EXIT GATE: hazard_pass_count={} rss_bounded={} vram_bounded={} pinned_gap_bounded={} max_gap_seqs={} compaction_gc_exercised={} tombstones_removed={} oscillation={} oom_source={} oom_count={}",
+            pass_count,
+            soak.rss_bounded,
+            soak.vram_bounded,
+            soak.oldest_pinned_seq_gap_bounded,
+            soak.max_gap_seqs,
+            soak.compaction_gc_exercised,
+            soak.counts.compaction_tombstones_removed,
+            soak.soak_oscillation_detected,
+            oom.source,
+            oom.count
         );
     }
     println!(
@@ -68,7 +84,7 @@ fn run() -> Result<(), String> {
         results.len()
     );
     println!("PH59_{}_FSV_ROOT={}", suite.task(), root.display());
-    if stage_passed(passed, soak_report.as_ref(), oom_count) {
+    if stage_passed(passed, soak_report.as_ref(), oom_evidence.as_ref()) {
         Ok(())
     } else if suite.runs_final_soak() {
         Err("PH59 Stage 13 exit gate failed".to_string())
@@ -88,7 +104,7 @@ struct StageArtifactInput<'a> {
     pass_count: usize,
     config: RunConfig,
     soak: Option<&'a SoakReport>,
-    oom_count: Option<u64>,
+    oom_evidence: Option<&'a OomEvidence>,
 }
 
 fn stage_artifact(input: StageArtifactInput<'_>) -> Value {
@@ -103,7 +119,6 @@ fn stage_artifact(input: StageArtifactInput<'_>) -> Value {
         "source_of_truth": {
             "fsv_root": input.root,
             "root_artifact": input.root.join(input.suite.json_artifact()),
-            "target_artifact": repo_root().join("target").join(input.suite.json_artifact()),
             "metrics": input.root.join(input.suite.prom_artifact())
         },
         "results": input.results
@@ -116,13 +131,15 @@ fn stage_artifact(input: StageArtifactInput<'_>) -> Value {
         "phase": "PH59",
         "task": input.suite.task(),
         "suite": input.suite.suite_name(),
-        "passed": stage_passed(input.hazards_passed, Some(soak), input.oom_count),
+        "passed": stage_passed(input.hazards_passed, Some(soak), input.oom_evidence),
         "hazard_pass_count": input.pass_count,
         "hazard_count": input.results.len(),
         "soak_rss_bounded": soak.rss_bounded,
         "soak_vram_bounded": soak.vram_bounded,
+        "soak_pinned_gap_bounded": soak.oldest_pinned_seq_gap_bounded,
+        "soak_compaction_gc_exercised": soak.compaction_gc_exercised,
         "soak_oscillation_detected": soak.soak_oscillation_detected,
-        "dmesg_oom_count": input.oom_count,
+        "dmesg_oom": input.oom_evidence,
         "seed_input": input.config.seed_input,
         "seed": input.config.seed,
         "soak_ops": input.config.soak_ops,
@@ -130,8 +147,6 @@ fn stage_artifact(input: StageArtifactInput<'_>) -> Value {
             "fsv_root": input.root,
             "hazard_results": input.root.join(input.suite.json_artifact()),
             "final_soak": input.root.join("ph59_final_soak.json"),
-            "target_hazard_results": repo_root().join("target").join(input.suite.json_artifact()),
-            "target_final_soak": repo_root().join("target").join("ph59_final_soak.json"),
             "metrics": input.root.join(input.suite.prom_artifact())
         },
         "soak": soak,
@@ -142,14 +157,17 @@ fn stage_artifact(input: StageArtifactInput<'_>) -> Value {
 fn stage_passed(
     hazards_passed: bool,
     soak: Option<&SoakReport>,
-    dmesg_oom_count: Option<u64>,
+    oom_evidence: Option<&OomEvidence>,
 ) -> bool {
     if let Some(soak) = soak {
         hazards_passed
             && soak.rss_bounded
             && soak.vram_bounded
+            && soak.oldest_pinned_seq_gap_bounded
+            && soak.max_gap_seqs > 0
+            && soak.compaction_gc_exercised
             && !soak.soak_oscillation_detected
-            && dmesg_oom_count.unwrap_or(0) == 0
+            && oom_evidence.is_some_and(|evidence| evidence.count == 0)
     } else {
         hazards_passed
     }
@@ -345,10 +363,6 @@ fn write_artifacts(
     let bytes = serde_json::to_vec_pretty(artifact).map_err(|error| error.to_string())?;
     fs::write(root.join(suite.json_artifact()), &bytes)
         .map_err(|error| format!("write root artifact: {error}"))?;
-    let target = repo_root().join("target");
-    fs::create_dir_all(&target).map_err(|error| format!("create target dir: {error}"))?;
-    fs::write(target.join(suite.json_artifact()), &bytes)
-        .map_err(|error| format!("write target artifact: {error}"))?;
     fs::write(
         root.join(suite.prom_artifact()),
         metrics_text(results, suite, soak),
@@ -384,6 +398,9 @@ fn metrics_text(results: &[HazardResult], suite: Suite, soak: Option<&SoakReport
                 "calyx_stage13_hazard_pass_count{{suite=\"ph59_t07\"}} {}\n",
                 "calyx_final_soak_rss_bounded{{suite=\"ph59_t07\"}} {}\n",
                 "calyx_final_soak_vram_bounded{{suite=\"ph59_t07\"}} {}\n",
+                "calyx_final_soak_pinned_gap_bounded{{suite=\"ph59_t07\"}} {}\n",
+                "calyx_final_soak_compaction_gc_exercised{{suite=\"ph59_t07\"}} {}\n",
+                "calyx_final_soak_compaction_tombstones_removed{{suite=\"ph59_t07\"}} {}\n",
                 "calyx_final_soak_oscillation_detected{{suite=\"ph59_t07\"}} {}\n",
                 "calyx_final_soak_rss_trend_bytes_per_op{{suite=\"ph59_t07\"}} {:.6}\n",
                 "calyx_final_soak_vram_max_mib{{suite=\"ph59_t07\"}} {}\n"
@@ -391,6 +408,9 @@ fn metrics_text(results: &[HazardResult], suite: Suite, soak: Option<&SoakReport
             pass_count,
             u8::from(soak.rss_bounded),
             u8::from(soak.vram_bounded),
+            u8::from(soak.oldest_pinned_seq_gap_bounded),
+            u8::from(soak.compaction_gc_exercised),
+            soak.counts.compaction_tombstones_removed,
             u8::from(soak.soak_oscillation_detected),
             soak.trend_bytes_per_op,
             soak.vram_max_mib
@@ -409,12 +429,4 @@ fn fsv_root(suite: Suite) -> PathBuf {
                 std::process::id()
             ))
         })
-}
-
-fn repo_root() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .and_then(Path::parent)
-        .expect("repo root")
-        .to_path_buf()
 }

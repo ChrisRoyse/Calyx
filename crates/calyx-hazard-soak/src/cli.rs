@@ -1,7 +1,8 @@
 use super::Suite;
 use calyx_hazard_soak::soak::{DEFAULT_SOAK_OPS, DEFAULT_SOAK_SEED};
+use serde::Serialize;
 use std::env;
-use std::process::Command;
+use std::process::{Command, Output};
 
 #[derive(Clone)]
 pub(crate) struct RunConfig {
@@ -58,12 +59,61 @@ impl RunConfig {
     }
 }
 
-pub(crate) fn dmesg_oom_count() -> Option<u64> {
-    let output = Command::new("sh")
-        .args(["-lc", "dmesg 2>/dev/null | grep -ci oom || true"])
-        .output()
-        .ok()?;
-    String::from_utf8_lossy(&output.stdout).trim().parse().ok()
+#[derive(Clone, Debug, Serialize)]
+pub(crate) struct OomEvidence {
+    pub(crate) source: String,
+    pub(crate) count: u64,
+}
+
+pub(crate) fn dmesg_oom_evidence() -> Result<OomEvidence, String> {
+    let direct = Command::new("dmesg").output();
+    if let Ok(output) = &direct
+        && output.status.success()
+    {
+        return Ok(oom_evidence("dmesg", output));
+    }
+    let elevated = Command::new("sudo").args(["-n", "dmesg"]).output();
+    if let Ok(output) = &elevated
+        && output.status.success()
+    {
+        return Ok(oom_evidence("sudo -n dmesg", output));
+    }
+    let journal = Command::new("journalctl")
+        .args(["-k", "--no-pager", "-q"])
+        .output();
+    if let Ok(output) = &journal
+        && output.status.success()
+    {
+        return Ok(oom_evidence("journalctl -k --no-pager -q", output));
+    }
+    Err(format!(
+        "kernel OOM evidence unavailable: dmesg={}; sudo -n dmesg={}; journalctl={}",
+        command_failure(&direct),
+        command_failure(&elevated),
+        command_failure(&journal)
+    ))
+}
+
+fn oom_evidence(source: &str, output: &Output) -> OomEvidence {
+    let count = String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .filter(|line| line.to_ascii_lowercase().contains("oom"))
+        .count() as u64;
+    OomEvidence {
+        source: source.to_string(),
+        count,
+    }
+}
+
+fn command_failure(output: &std::io::Result<Output>) -> String {
+    match output {
+        Ok(output) => format!(
+            "status={} stderr={}",
+            output.status,
+            String::from_utf8_lossy(&output.stderr).trim()
+        ),
+        Err(error) => error.to_string(),
+    }
 }
 
 fn parse_seed(input: &str) -> u64 {
@@ -85,4 +135,29 @@ fn parse_seed(input: &str) -> u64 {
 
 fn env_u64(name: &str) -> Option<u64> {
     env::var(name).ok()?.parse().ok()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn oom_evidence_counts_matching_kernel_log_lines() {
+        let output = if cfg!(windows) {
+            Command::new("cmd")
+                .args(["/c", "echo Out of memory: OOM kill&&echo healthy"])
+                .output()
+                .unwrap()
+        } else {
+            Command::new("sh")
+                .args(["-c", "printf 'Out of memory: OOM kill\\nhealthy\\n'"])
+                .output()
+                .unwrap()
+        };
+
+        let evidence = oom_evidence("test", &output);
+
+        assert_eq!(evidence.count, 1);
+        assert_eq!(evidence.source, "test");
+    }
 }

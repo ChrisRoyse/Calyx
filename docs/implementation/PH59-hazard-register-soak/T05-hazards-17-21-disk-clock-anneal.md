@@ -58,7 +58,7 @@ invariant to wall-clock skew.
   - Verify `n_eff` budget caps materialized cross-terms (< C(N,2)); check `materialized_xterms ≤ n_eff_budget`
   - Record `panel_versions_pruned_total > 0`; `materialized_xterms`
 
-- [ ] Aggregate into `target/ph59_hazards_17_21.json`
+- [ ] Aggregate into `${PH59_HAZARDS_17_21_ROOT}/ph59_hazards_17_21.json`
 
 ## Tests (synthetic, deterministic — known input → known bytes/number)
 
@@ -73,14 +73,15 @@ invariant to wall-clock skew.
 
 ## FSV (read the bytes on aiwonder — the truth gate)
 
-- **SoT:** `target/ph59_hazards_17_21.json`; `calyx readback --metric disk_pressure_events_total`; `calyx readback --metric anneal_config_flips_total`; `calyx readback --metric panel_versions_pruned_total`
+- **SoT:** `${PH59_HAZARDS_17_21_ROOT}/ph59_hazards_17_21.json`; `calyx readback --metric disk_pressure_events_total`; `calyx readback --metric anneal_config_flips_total`; `calyx readback --metric panel_versions_pruned_total`
+- **Target hygiene:** FSV artifacts must never be written under any repository `target/`. Every Cargo invocation uses a fresh `CARGO_TARGET_DIR` under `/home/croyse/calyx/target-scratch`, then immediately runs `scripts/cargo-target-clean.sh --also-repo-targets --also-calyx-home-target` and verifies all target scans are empty.
 - **Readback:**
   ```
   calyx readback --metric disk_pressure_events_total
   calyx readback --metric anneal_config_flips_total
   calyx readback --metric panel_versions_pruned_total
   df -h /hotpool
-  cat target/ph59_hazards_17_21.json | python3 -c "import json,sys; d=json.load(sys.stdin); print('passed:', all(h['passed'] for h in d))"
+  cat "${PH59_HAZARDS_17_21_ROOT}/ph59_hazards_17_21.json" | python3 -c "import json,sys; d=json.load(sys.stdin); print('passed:', all(h['passed'] for h in d))"
   ```
 - **Prove:** all five hazards report `passed: true`; `disk_pressure_events_total >= 1`; `clock_skew_ordering_violations == 0`; `anneal_config_flips_total ≤ 3`; `panel_versions_pruned_total >= 15`. Attach JSON + readbacks to PH59 GitHub issue.
 

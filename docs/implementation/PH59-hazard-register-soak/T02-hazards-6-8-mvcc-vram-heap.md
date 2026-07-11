@@ -45,7 +45,7 @@ databases. Byte-level FSV on aiwonder is the verdict.
   - Verify RSS trend from soak is < 1.0 bytes/op (no leak)
   - Read `/proc/self/status VmRSS` max; verify ≤ configured bound
 
-- [ ] Aggregate into `target/ph59_hazards_6_8.json`
+- [ ] Aggregate into `${PH59_HAZARDS_6_8_ROOT}/ph59_hazards_6_8.json`
 
 ## Tests (synthetic, deterministic — known input → known bytes/number)
 
@@ -58,7 +58,8 @@ databases. Byte-level FSV on aiwonder is the verdict.
 
 ## FSV (read the bytes on aiwonder — the truth gate)
 
-- **SoT:** `target/ph59_hazards_6_8.json`; `calyx readback` metrics; `sudo dmesg | grep -i oom`; `nvidia-smi --query-gpu=memory.used --format=csv,noheader`
+- **SoT:** `${PH59_HAZARDS_6_8_ROOT}/ph59_hazards_6_8.json`; `calyx readback` metrics; `sudo dmesg | grep -i oom`; `nvidia-smi --query-gpu=memory.used --format=csv,noheader`
+- **Target hygiene:** FSV artifacts must never be written under any repository `target/`. Every Cargo invocation uses a fresh `CARGO_TARGET_DIR` under `/home/croyse/calyx/target-scratch`, then immediately runs `scripts/cargo-target-clean.sh --also-repo-targets --also-calyx-home-target` and verifies all target scans are empty.
 - **Readback:**
   ```
   calyx readback --metric reader_lease_expired_total
@@ -67,7 +68,7 @@ databases. Byte-level FSV on aiwonder is the verdict.
   calyx readback --metric backpressure_events_total
   nvidia-smi --query-gpu=memory.used,memory.free --format=csv,noheader,nounits
   sudo dmesg | grep -i oom
-  cat target/ph59_hazards_6_8.json | python3 -c "import json,sys; d=json.load(sys.stdin); print('passed:', all(h['passed'] for h in d))"
+  cat "${PH59_HAZARDS_6_8_ROOT}/ph59_hazards_6_8.json" | python3 -c "import json,sys; d=json.load(sys.stdin); print('passed:', all(h['passed'] for h in d))"
   ```
 - **Prove:** all three hazards report `passed: true` in JSON; metrics within bounds; no OOM in dmesg. Attach `ph59_hazards_6_8.json` + all readback outputs to the PH59 GitHub issue.
 

@@ -35,7 +35,7 @@ not a green test harness. All five must pass their byte-level FSV on aiwonder.
 - [ ] `fn probe_h5_wal_bloat(vault: &mut Vault) -> HazardResult` — write 1e4 entries without triggering flush (hold flush suppressed); verify `wal_bytes_active` grows; release flush; verify `wal_bytes_active` drops after WAL recycler runs; crash+recover; verify all acked writes present on readback; WAL bounded post-recovery
 
 - [ ] Each `HazardResult` has fields `{ hazard_id: u8, passed: bool, evidence: serde_json::Value }` — serialize to JSON
-- [ ] Aggregate into `target/ph59_hazards_1_5.json`
+- [ ] Aggregate into `${PH59_HAZARDS_1_5_ROOT}/ph59_hazards_1_5.json`
 
 ## Tests (synthetic, deterministic — known input → known bytes/number)
 
@@ -49,7 +49,8 @@ not a green test harness. All five must pass their byte-level FSV on aiwonder.
 
 ## FSV (read the bytes on aiwonder — the truth gate)
 
-- **SoT:** `target/ph59_hazards_1_5.json` produced on aiwonder; Prometheus series for `write_amp`, `tombstone_ratio`, `fsync_p99_us`, `wal_bytes_active`, `memtable_used_bytes`
+- **SoT:** `${PH59_HAZARDS_1_5_ROOT}/ph59_hazards_1_5.json` produced on aiwonder; Prometheus series for `write_amp`, `tombstone_ratio`, `fsync_p99_us`, `wal_bytes_active`, `memtable_used_bytes`
+- **Target hygiene:** FSV artifacts must never be written under any repository `target/`. Every Cargo invocation uses a fresh `CARGO_TARGET_DIR` under `/home/croyse/calyx/target-scratch`, then immediately runs `scripts/cargo-target-clean.sh --also-repo-targets --also-calyx-home-target` and verifies all target scans are empty.
 - **Readback:**
   ```
   calyx readback --metric write_amp
@@ -57,7 +58,7 @@ not a green test harness. All five must pass their byte-level FSV on aiwonder.
   calyx readback --metric fsync_p99_us
   calyx readback --metric wal_bytes_active
   calyx readback --metric memtable_used_bytes
-  cat target/ph59_hazards_1_5.json | python3 -c "import json,sys; d=json.load(sys.stdin); print('passed:', all(h['passed'] for h in d))"
+  cat "${PH59_HAZARDS_1_5_ROOT}/ph59_hazards_1_5.json" | python3 -c "import json,sys; d=json.load(sys.stdin); print('passed:', all(h['passed'] for h in d))"
   ```
 - **Prove:** `all passed == true` in the JSON; each metric within its bound. Attach `ph59_hazards_1_5.json` + readback output to the PH59 GitHub issue.
 

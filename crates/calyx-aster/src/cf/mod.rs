@@ -3,6 +3,7 @@
 mod family;
 mod key;
 mod router;
+mod router_compaction;
 mod router_load;
 mod router_scan;
 

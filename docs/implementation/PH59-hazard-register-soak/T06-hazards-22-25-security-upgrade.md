@@ -56,7 +56,7 @@ FSV is a byte scan of all persisted files. Hazard 23 uses `CALYX_DETERMINISM=1` 
   - Attempt to open with `format_version=99` (unknown major) → verify `CALYX_FORMAT_VERSION_UNSUPPORTED` returned (refuse unknown-major, fail closed)
   - Record `old_shards_readable == true`; `unknown_major_rejected == true`
 
-- [ ] Aggregate into `target/ph59_hazards_22_25.json`
+- [ ] Aggregate into `${PH59_HAZARDS_22_25_ROOT}/ph59_hazards_22_25.json`
 
 ## Tests (synthetic, deterministic — known input → known bytes/number)
 
@@ -70,12 +70,13 @@ FSV is a byte scan of all persisted files. Hazard 23 uses `CALYX_DETERMINISM=1` 
 
 ## FSV (read the bytes on aiwonder — the truth gate)
 
-- **SoT:** `target/ph59_hazards_22_25.json`; output of `grep -r CALYX_TEST_SECRET_ABCD1234 /hotpool/vault_test/`; `calyx readback --chain-verify` on the restored vault (H24)
+- **SoT:** `${PH59_HAZARDS_22_25_ROOT}/ph59_hazards_22_25.json`; output of `grep -r CALYX_TEST_SECRET_ABCD1234 /hotpool/vault_test/`; `calyx readback --chain-verify` on the restored vault (H24)
+- **Target hygiene:** FSV artifacts must never be written under any repository `target/`. Every Cargo invocation uses a fresh `CARGO_TARGET_DIR` under `/home/croyse/calyx/target-scratch`, then immediately runs `scripts/cargo-target-clean.sh --also-repo-targets --also-calyx-home-target` and verifies all target scans are empty.
 - **Readback:**
   ```
   grep -r 'CALYX_TEST_SECRET_ABCD1234' /hotpool/vault_test/ || echo "CLEAN: no secret found"
   calyx readback --chain-verify /tmp/calyx_dr_restore_test/vault_test   # H24
-  cat target/ph59_hazards_22_25.json | python3 -c "import json,sys; d=json.load(sys.stdin); print('passed:', all(h['passed'] or h.get('skipped') for h in d))"
+  cat "${PH59_HAZARDS_22_25_ROOT}/ph59_hazards_22_25.json" | python3 -c "import json,sys; d=json.load(sys.stdin); print('passed:', all(h['passed'] or h.get('skipped') for h in d))"
   ```
 - **Prove:** `grep` returns nothing (CLEAN); `chain-verify` passes on the restored vault; all four hazards report `passed: true` or `skipped_pending_ph66: true`. Attach JSON + grep output + chain-verify output to PH59 GitHub issue.
 

@@ -53,7 +53,7 @@ per-lens timeout + circuit breaker from PH20/PH58.
   - Verify: `lens_timeout_total` and `lens_breaker_trips_total` counters increment
   - Verify: restoring the slow lens closes the breaker after the half-open probe succeeds
 
-- [ ] Aggregate into `target/ph59_hazards_13_16.json`
+- [ ] Aggregate into `${PH59_HAZARDS_13_16_ROOT}/ph59_hazards_13_16.json`
 
 ## Tests (synthetic, deterministic — known input → known bytes/number)
 
@@ -67,13 +67,14 @@ per-lens timeout + circuit breaker from PH20/PH58.
 
 ## FSV (read the bytes on aiwonder — the truth gate)
 
-- **SoT:** `target/ph59_hazards_13_16.json`; Prometheus `calyx_rate_limited_total`, `calyx_lens_timeout_total`, `calyx_lens_breaker_trips_total`
+- **SoT:** `${PH59_HAZARDS_13_16_ROOT}/ph59_hazards_13_16.json`; Prometheus `calyx_rate_limited_total`, `calyx_lens_timeout_total`, `calyx_lens_breaker_trips_total`
+- **Target hygiene:** FSV artifacts must never be written under any repository `target/`. Every Cargo invocation uses a fresh `CARGO_TARGET_DIR` under `/home/croyse/calyx/target-scratch`, then immediately runs `scripts/cargo-target-clean.sh --also-repo-targets --also-calyx-home-target` and verifies all target scans are empty.
 - **Readback:**
   ```
   calyx readback --metric rate_limited_total
   calyx readback --metric lens_timeout_total
   calyx readback --metric lens_breaker_trips_total
-  cat target/ph59_hazards_13_16.json | python3 -c "import json,sys; d=json.load(sys.stdin); print('passed:', all(h['passed'] for h in d))"
+  cat "${PH59_HAZARDS_13_16_ROOT}/ph59_hazards_13_16.json" | python3 -c "import json,sys; d=json.load(sys.stdin); print('passed:', all(h['passed'] for h in d))"
   ```
 - **Prove:** all four hazards report `passed: true`; `lens_timeout_total >= 1` and `lens_breaker_trips_total >= 1` (breaker fired); H15 single-flight count == 1 (stamped in JSON evidence). Attach JSON + readback output to PH59 GitHub issue.
 

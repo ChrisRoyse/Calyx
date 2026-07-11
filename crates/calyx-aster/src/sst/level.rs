@@ -202,6 +202,10 @@ impl SstLevel {
         self.files.len()
     }
 
+    pub(crate) fn file_paths_newest_first(&self) -> Vec<PathBuf> {
+        self.files.iter().map(|file| file.path.clone()).collect()
+    }
+
     #[cfg(test)]
     fn candidate_file_count_for_key(&self, key: &[u8]) -> usize {
         self.files
