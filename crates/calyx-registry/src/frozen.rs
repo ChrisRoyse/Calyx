@@ -219,6 +219,11 @@ impl FrozenLensContract {
 
     /// Measures a probe twice and requires byte-identical deterministic output.
     pub fn verify_determinism_probe(&self, lens: &dyn Lens, probe: &Input) -> Result<()> {
+        self.measure_determinism_probe(lens, probe).map(drop)
+    }
+
+    /// Measures and validates a deterministic probe, returning the verified output.
+    pub fn measure_determinism_probe(&self, lens: &dyn Lens, probe: &Input) -> Result<SlotVector> {
         ensure_input_modality(lens, probe)?;
         let first = lens.measure(probe)?;
         let second = lens.measure(probe)?;
@@ -236,7 +241,7 @@ impl FrozenLensContract {
                 lens.id()
             )));
         }
-        Ok(())
+        Ok(first)
     }
 
     /// Verifies an emitted vector against the frozen shape and numerical policy.

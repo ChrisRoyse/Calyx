@@ -34,6 +34,28 @@ fn adapter_requires_real_config_and_registers_loaded_contract() {
 }
 
 #[test]
+fn persisted_adapter_rehash_rejects_replaced_model_file() {
+    let fixture = adapter_fixture("frozen-rehash", MultimodalAxis::Image, 32);
+    let lens = MultimodalAdapterLens::from_adapter_spec(adapter_spec(
+        "fixture-frozen-rehash",
+        MultimodalAxis::Image,
+        32,
+        Some(fixture.config.clone()),
+        None,
+        false,
+    ))
+    .unwrap();
+    let spec = lens.lens_spec();
+    let model = fixture.config.parent().unwrap().join("model.onnx");
+    fs::write(model, b"replacement-model-bytes").unwrap();
+
+    let error = MultimodalAdapterLens::from_lens_spec(&spec).unwrap_err();
+
+    assert_eq!(error.code, "CALYX_LENS_FROZEN_VIOLATION");
+    assert!(error.message.contains("weights_sha256"));
+}
+
+#[test]
 fn missing_adapter_config_fails_closed() {
     let error = MultimodalAdapterLens::from_adapter_spec(adapter_spec(
         "missing",

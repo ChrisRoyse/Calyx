@@ -9,10 +9,13 @@ use serde::{Deserialize, Serialize};
 mod contract;
 mod reproduce;
 
+use crate::drift::{PROCESS_RUNTIME_GOLDEN_TOLERANCE, RuntimeGolden};
 use crate::frozen::FrozenLensContract;
 use crate::ingest_microbatch::{IngestLensOutcome, IngestMicrobatchController, IngestPanelReadout};
-use crate::spec::{LensHealth, LensSpec};
+use crate::spec::{LensHealth, LensRuntime, LensSpec};
 use contract::ensure_spec_declares_contract;
+
+const PROCESS_RUNTIME_GOLDEN_PROBE_BYTES: &[u8] = b"calyx frozen process runtime identity probe v1";
 
 /// Runtime registry for frozen lens measurement instruments.
 #[derive(Clone, Default)]
@@ -26,6 +29,7 @@ struct RegistryEntry {
     frozen: Option<FrozenLensContract>,
     spec: Option<LensSpec>,
     determinism: DeterminismProof,
+    runtime_golden: Option<RuntimeGolden>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -49,6 +53,8 @@ pub struct RegistryLensSnapshot {
     pub contract: FrozenLensContract,
     pub spec: Option<LensSpec>,
     pub determinism: DeterminismProof,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub runtime_golden: Option<RuntimeGolden>,
 }
 
 impl Registry {
@@ -98,6 +104,20 @@ impl Registry {
         self.register_frozen_inner(lens, contract, None, Some(spec))
     }
 
+    /// Registers a process-boundary lens with a caller-supplied identity probe.
+    pub fn register_frozen_with_spec_and_probe<L>(
+        &mut self,
+        lens: L,
+        contract: FrozenLensContract,
+        spec: LensSpec,
+        probe: &Input,
+    ) -> Result<LensId>
+    where
+        L: Lens + 'static,
+    {
+        self.register_frozen_inner(lens, contract, Some(probe), Some(spec))
+    }
+
     /// Registers an already-constructed frozen lens with structured registry metadata.
     pub fn register_frozen_arc_with_spec(
         &mut self,
@@ -105,12 +125,7 @@ impl Registry {
         contract: FrozenLensContract,
         spec: LensSpec,
     ) -> Result<LensId> {
-        self.register_persisted_arc(
-            lens,
-            contract,
-            Some(spec),
-            DeterminismProof::ContractOnlyExemption,
-        )
+        self.register_frozen_arc_inner(lens, contract, None, Some(spec))
     }
 
     /// Registers a frozen lens after a deterministic two-pass probe.
@@ -263,6 +278,7 @@ impl Registry {
                     contract: contract.clone(),
                     spec: entry.spec.clone(),
                     determinism: entry.determinism,
+                    runtime_golden: entry.runtime_golden.clone(),
                 })
             })
             .collect()
@@ -274,10 +290,14 @@ impl Registry {
         contract: FrozenLensContract,
         spec: Option<LensSpec>,
         determinism: DeterminismProof,
+        runtime_golden: Option<RuntimeGolden>,
     ) -> Result<LensId> {
         contract.verify_registration(lens.as_ref())?;
         if let Some(spec) = &spec {
             ensure_spec_declares_contract(&contract, spec)?;
+        }
+        if let Some(golden) = &runtime_golden {
+            verify_runtime_golden_identity(&contract, golden)?;
         }
         let id = lens.id();
         if self.lenses.contains_key(&id) {
@@ -292,6 +312,7 @@ impl Registry {
                 frozen: Some(contract),
                 spec,
                 determinism,
+                runtime_golden,
             },
         );
         Ok(id)
@@ -322,14 +343,50 @@ impl Registry {
     where
         L: Lens + 'static,
     {
-        contract.verify_registration(&lens)?;
+        self.register_frozen_arc_inner(Arc::new(lens), contract, probe, spec)
+    }
+
+    fn register_frozen_arc_inner(
+        &mut self,
+        lens: Arc<dyn Lens>,
+        contract: FrozenLensContract,
+        probe: Option<&Input>,
+        spec: Option<LensSpec>,
+    ) -> Result<LensId> {
+        contract.verify_registration(lens.as_ref())?;
         if let Some(spec) = &spec {
             ensure_spec_declares_contract(&contract, spec)?;
         }
-        if let Some(probe) = probe {
-            contract.verify_determinism_probe(&lens, probe)?;
-        }
-        let determinism = if probe.is_some() {
+
+        let runtime_version = spec.as_ref().and_then(process_runtime_golden_version);
+        let default_probe = runtime_version.map(|_| {
+            Input::new(
+                contract.modality(),
+                PROCESS_RUNTIME_GOLDEN_PROBE_BYTES.to_vec(),
+            )
+        });
+        let effective_probe = probe.or(default_probe.as_ref());
+        let verified_output = effective_probe
+            .map(|probe| contract.measure_determinism_probe(lens.as_ref(), probe))
+            .transpose()?;
+        let runtime_golden = match (runtime_version, effective_probe, verified_output.as_ref()) {
+            (Some(runtime_version), Some(probe), Some(output)) => {
+                let golden_output = output.as_dense().ok_or_else(|| {
+                    CalyxError::lens_frozen_violation(
+                        "process runtime identity probes require dense output",
+                    )
+                })?;
+                Some(RuntimeGolden {
+                    lens_id: contract.lens_id(),
+                    runtime_version: runtime_version.to_string(),
+                    probe: probe.clone(),
+                    golden_output: golden_output.to_vec(),
+                    tolerance: PROCESS_RUNTIME_GOLDEN_TOLERANCE,
+                })
+            }
+            _ => None,
+        };
+        let determinism = if effective_probe.is_some() {
             DeterminismProof::ProbeVerified
         } else {
             DeterminismProof::ContractOnlyExemption
@@ -343,10 +400,11 @@ impl Registry {
         self.lenses.insert(
             id,
             RegistryEntry {
-                lens: Arc::new(lens),
+                lens,
                 frozen: Some(contract),
                 spec,
                 determinism,
+                runtime_golden,
             },
         );
         Ok(id)
@@ -371,6 +429,39 @@ impl Registry {
             CalyxError::lens_unreachable(format!("lens {lens_id} is not registered"))
         })
     }
+}
+
+pub(crate) fn process_runtime_requires_golden(spec: &LensSpec) -> bool {
+    process_runtime_golden_version(spec).is_some()
+}
+
+fn process_runtime_golden_version(spec: &LensSpec) -> Option<&'static str> {
+    match &spec.runtime {
+        LensRuntime::TeiHttp { .. } => Some("tei-http-golden-v1"),
+        LensRuntime::ExternalCmd { .. } => Some("external-cmd-golden-v1"),
+        _ => None,
+    }
+}
+
+fn verify_runtime_golden_identity(
+    contract: &FrozenLensContract,
+    golden: &RuntimeGolden,
+) -> Result<()> {
+    if golden.lens_id != contract.lens_id() {
+        return Err(CalyxError::lens_frozen_violation(format!(
+            "runtime golden lens {} does not match frozen contract {}",
+            golden.lens_id,
+            contract.lens_id()
+        )));
+    }
+    if golden.probe.modality != contract.modality() {
+        return Err(CalyxError::lens_frozen_violation(format!(
+            "runtime golden probe modality {:?} does not match frozen {:?}",
+            golden.probe.modality,
+            contract.modality()
+        )));
+    }
+    Ok(())
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

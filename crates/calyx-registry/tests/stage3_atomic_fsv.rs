@@ -189,6 +189,7 @@ fn norm_health_dual_and_drift_readback(out: &mut BTreeMap<&'static str, serde_js
     let golden = RuntimeGolden {
         lens_id: id,
         runtime_version: "cuda=13.2;ort=2rc12".to_string(),
+        probe: Input::new(Modality::Text, b"stage3 runtime golden".to_vec()),
         golden_output: vec![0.0, 1.0],
         tolerance: 0.001,
     };

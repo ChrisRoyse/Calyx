@@ -45,7 +45,9 @@ pub use compression::{
     decode_stored_slot_envelope, matryoshka_truncate_renormalize, write_compressed_slot_batch,
     write_compressed_slot_batch_with_assay_evidence,
 };
-pub use drift::{DriftDecision, RuntimeGolden};
+pub use drift::{
+    CALYX_LENS_RUNTIME_DRIFT, DriftDecision, PROCESS_RUNTIME_GOLDEN_TOLERANCE, RuntimeGolden,
+};
 pub use explain::{LensExplanation, explain_lens, explain_lens_from_card};
 pub use frozen::{FrozenLensContract, LensDType, NormPolicy};
 pub use ingest_microbatch::{
