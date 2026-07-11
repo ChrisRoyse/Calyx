@@ -21,6 +21,12 @@ use std::fs;
 
 impl DurableVault {
     pub(in crate::vault) fn checkpoint_batch(&self, seq: u64, rows: &[WriteRow]) -> Result<()> {
+        #[cfg(test)]
+        if self.take_checkpoint_failure() {
+            return Err(CalyxError::disk_pressure(
+                "injected durable checkpoint failure",
+            ));
+        }
         self.write_rows(seq, rows)?;
         self.advance_checkpointed_derived_content(seq, rows);
         self.write_manifest(seq)

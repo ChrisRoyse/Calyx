@@ -260,6 +260,30 @@ where
             .fail_next_wal_append();
     }
 
+    #[cfg(test)]
+    pub(crate) fn fail_next_mvcc_commit_for_test(&self) {
+        self.durable
+            .as_ref()
+            .expect("test MVCC failpoint requires durable vault")
+            .fail_next_mvcc_commit();
+    }
+
+    #[cfg(test)]
+    pub(crate) fn fail_next_mvcc_restore_for_test(&self) {
+        self.durable
+            .as_ref()
+            .expect("test MVCC restore failpoint requires durable vault")
+            .fail_next_mvcc_restore();
+    }
+
+    #[cfg(test)]
+    pub(crate) fn fail_next_checkpoint_for_test(&self) {
+        self.durable
+            .as_ref()
+            .expect("test checkpoint failpoint requires durable vault")
+            .fail_next_checkpoint();
+    }
+
     /// Reads one raw CF row at `snapshot`.
     pub fn read_cf_at(
         &self,
@@ -475,6 +499,8 @@ mod compaction_tests;
 
 #[cfg(test)]
 mod recovery_stranding_tests;
+#[cfg(test)]
+mod commit_failure_tests;
 #[cfg(test)]
 mod seq_domain_tests;
 
