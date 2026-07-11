@@ -411,9 +411,9 @@ fn score(
                 continue;
             }
             let len = *index.doc_lengths.get(&posting.cx_id).unwrap_or(&1.0);
-            let contribution = scorer
-                .score_term(posting.tf, len, index.avg_doc_len, total_docs, df)
-                * query_entry.val;
+            let contribution =
+                scorer.score_term(posting.tf, len, index.avg_doc_len, total_docs, df)
+                    * query_entry.val;
             let score = scores.entry(posting.cx_id).or_default();
             *score += contribution;
             if !score.is_finite() {

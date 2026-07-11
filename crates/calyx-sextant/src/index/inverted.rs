@@ -97,13 +97,10 @@ impl InvertedIndex {
             *counts.entry(term).or_default() += 1;
         }
         for (term, tf) in counts {
-            self.postings
-                .entry(term)
-                .or_default()
-                .push(Posting {
-                    cx_id,
-                    tf: tf as f32,
-                });
+            self.postings.entry(term).or_default().push(Posting {
+                cx_id,
+                tf: tf as f32,
+            });
         }
         self.update_seq(seq);
     }

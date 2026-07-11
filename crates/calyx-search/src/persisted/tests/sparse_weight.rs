@@ -8,12 +8,9 @@ fn persisted_sparse_ranking_uses_document_weights() {
     let weak_id = cx(0x11);
     let strong_id = cx(0x22);
     let mut weak = constellation(weak_id, vec![1.0, 0.0]);
-    weak.slots
-        .insert(SlotId::new(1), sparse(&[(7, 0.25)]));
+    weak.slots.insert(SlotId::new(1), sparse(&[(7, 0.25)]));
     let mut strong = constellation(strong_id, vec![0.0, 1.0]);
-    strong
-        .slots
-        .insert(SlotId::new(1), sparse(&[(7, 2.5)]));
+    strong.slots.insert(SlotId::new(1), sparse(&[(7, 2.5)]));
     let docs = BTreeMap::from([(weak_id, weak), (strong_id, strong)]);
 
     rebuild_from_docs(&root, &docs, 7).expect("rebuild weighted sparse index");
@@ -49,25 +46,19 @@ fn persisted_sparse_ranking_uses_query_weights() {
     let decoy_id = cx(0x21);
     let relevant_id = cx(0x42);
     let mut decoy = constellation(decoy_id, vec![1.0, 0.0]);
-    decoy.slots.insert(
-        SlotId::new(1),
-        sparse(&[(3, 0.25), (9, 4.0)]),
-    );
+    decoy
+        .slots
+        .insert(SlotId::new(1), sparse(&[(3, 0.25), (9, 4.0)]));
     let mut relevant = constellation(relevant_id, vec![0.0, 1.0]);
-    relevant.slots.insert(
-        SlotId::new(1),
-        sparse(&[(3, 4.0), (9, 0.25)]),
-    );
+    relevant
+        .slots
+        .insert(SlotId::new(1), sparse(&[(3, 4.0), (9, 0.25)]));
     let docs = BTreeMap::from([(decoy_id, decoy), (relevant_id, relevant)]);
 
     rebuild_from_docs(&root, &docs, 8).expect("rebuild query-weighted sparse index");
     let indexes = PersistedSearchIndexes::open(&root).expect("open query-weighted sparse index");
     let hits = indexes
-        .search(
-            SlotId::new(1),
-            &sparse(&[(3, 3.0), (9, 0.5)]),
-            2,
-        )
+        .search(SlotId::new(1), &sparse(&[(3, 3.0), (9, 0.5)]), 2)
         .expect("search query-weighted sparse index");
 
     assert_eq!(hits.len(), 2);
@@ -81,20 +72,16 @@ fn invalid_persisted_weights_fail_closed() {
     let invalid_root = scratch("issue1381-invalid-document-weight");
     let invalid_id = cx(0x51);
     let mut invalid = constellation(invalid_id, vec![1.0, 0.0]);
-    invalid
-        .slots
-        .insert(SlotId::new(1), sparse(&[(7, 0.0)]));
-    let err = rebuild_from_docs(&invalid_root, &BTreeMap::from([(invalid_id, invalid)]), 9)
-        .unwrap_err();
+    invalid.slots.insert(SlotId::new(1), sparse(&[(7, 0.0)]));
+    let err =
+        rebuild_from_docs(&invalid_root, &BTreeMap::from([(invalid_id, invalid)]), 9).unwrap_err();
     assert_eq!(err.code(), "CALYX_STALE_DERIVED");
     assert!(!invalid_root.join("idx/search/manifest.json").exists());
     fs::remove_dir_all(invalid_root).ok();
 
     let overflow_root = scratch("issue1381-corpus-overflow");
     let mut first = constellation(cx(0x53), vec![1.0, 0.0]);
-    first
-        .slots
-        .insert(SlotId::new(1), sparse(&[(7, f32::MAX)]));
+    first.slots.insert(SlotId::new(1), sparse(&[(7, f32::MAX)]));
     let mut second = constellation(cx(0x54), vec![0.0, 1.0]);
     second
         .slots
@@ -113,9 +100,7 @@ fn invalid_persisted_weights_fail_closed() {
     let query_root = scratch("issue1381-invalid-query-weight");
     let valid_id = cx(0x52);
     let mut valid = constellation(valid_id, vec![1.0, 0.0]);
-    valid
-        .slots
-        .insert(SlotId::new(1), sparse(&[(7, 1.0)]));
+    valid.slots.insert(SlotId::new(1), sparse(&[(7, 1.0)]));
     rebuild_from_docs(&query_root, &BTreeMap::from([(valid_id, valid)]), 11)
         .expect("rebuild valid sparse index");
     let indexes = PersistedSearchIndexes::open(&query_root).expect("open valid sparse index");
@@ -131,8 +116,7 @@ fn legacy_sparse_sidecar_format_requires_rebuild() {
     let root = scratch("issue1381-v1-sidecar");
     let id = cx(0x61);
     let mut doc = constellation(id, vec![1.0, 0.0]);
-    doc.slots
-        .insert(SlotId::new(1), sparse(&[(7, 1.0)]));
+    doc.slots.insert(SlotId::new(1), sparse(&[(7, 1.0)]));
     rebuild_from_docs(&root, &BTreeMap::from([(id, doc)]), 12).expect("rebuild v2 index");
 
     let manifest_path = root.join("idx/search/manifest.json");
@@ -158,7 +142,10 @@ fn legacy_sparse_sidecar_format_requires_rebuild() {
         .search(SlotId::new(1), &sparse(&[(7, 1.0)]), 1)
         .unwrap_err();
     assert_eq!(err.code(), "CALYX_STALE_DERIVED");
-    assert!(err.message().contains("expected calyx-search-sparse-index-v2"));
+    assert!(
+        err.message()
+            .contains("expected calyx-search-sparse-index-v2")
+    );
     fs::remove_dir_all(root).ok();
 }
 

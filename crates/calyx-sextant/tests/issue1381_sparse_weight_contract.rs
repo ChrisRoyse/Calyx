@@ -59,11 +59,7 @@ fn invalid_sparse_weights_fail_before_mutation() {
 
     let overflow_id = cx(0x34);
     let err = index
-        .insert(
-            overflow_id,
-            sparse(&[(2, f32::MAX), (3, f32::MAX)]),
-            3,
-        )
+        .insert(overflow_id, sparse(&[(2, f32::MAX), (3, f32::MAX)]), 3)
         .unwrap_err();
     assert_eq!(err.code, "CALYX_SEXTANT_VECTOR_SHAPE");
     assert!(index.vector(overflow_id).is_none());
