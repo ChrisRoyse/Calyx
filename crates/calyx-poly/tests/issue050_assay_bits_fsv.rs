@@ -115,6 +115,11 @@ fn happy_assay_bits_round_trip(root: &Path, clock: &FixedClock) -> Value {
     assert_eq!(run.report.n_samples, 50);
     assert_eq!(run.report.persisted_rows, 3, "two lens rows plus entropy");
     assert_eq!(run.report.trust, TrustTag::Trusted);
+    assert_eq!(
+        serde_json::to_value(&run.report.slot_bits[0]).expect("slot bits JSON")["bound"],
+        json!("point"),
+        "the public slot projection must retain the mixed estimator's Point contract"
+    );
     assert_eq!(assay_count(&vault), 3);
     assert_eq!(
         read_assay_bits_report(&run.report_path).expect("read report"),

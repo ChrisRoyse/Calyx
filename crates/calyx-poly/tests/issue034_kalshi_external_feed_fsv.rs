@@ -67,6 +67,11 @@ fn issue034_kalshi_external_feed_fsv() {
         DEFAULT_EXTERNAL_SIGNAL_K,
     )
     .expect("admission measurement");
+    assert_eq!(
+        serde_json::to_value(&admission).expect("admission JSON")["estimate_bound"],
+        json!("point"),
+        "external-signal evidence must retain the mixed estimator's Point contract"
+    );
     assert_eq!(admission.code, EXTERNAL_SIGNAL_ADMITTED);
     assert!(admission.admitted);
     assert!(
