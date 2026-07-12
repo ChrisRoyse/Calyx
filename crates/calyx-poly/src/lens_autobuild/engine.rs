@@ -1,145 +1,20 @@
-//! Local lens auto-build admission from panel-sufficiency deficits (issue #110).
-
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
-use calyx_assay::TrustTag;
-use serde::{Deserialize, Serialize};
+use calyx_assay::{EstimateBound, TrustTag};
 
+use super::types::{
+    BuiltLensSpec, LensAutobuildReport, LensAutobuildRequest, LensAutobuildStatus,
+    LensCandidateMeasurement, LensCandidateRejection, LensDeficit,
+};
+use super::{
+    ERR_LENS_AUTOBUILD_INVALID_REQUEST, ERR_LENS_AUTOBUILD_NO_ADMISSIBLE,
+    ERR_LENS_AUTOBUILD_NO_CANDIDATES, ERR_LENS_AUTOBUILD_NO_DEFICIT,
+    ERR_LENS_AUTOBUILD_READBACK_MISMATCH, LENS_AUTOBUILD_ARTIFACT_KIND, LENS_AUTOBUILD_REPORT_FILE,
+    LENS_AUTOBUILD_SCHEMA_VERSION,
+};
 use crate::diagnostics_store::{read_json, write_json};
 use crate::error::{PolyError, Result};
-use crate::panel_sufficiency::PolyPanelSufficiencyReport;
-
-pub const LENS_AUTOBUILD_SCHEMA_VERSION: &str = "poly.lens_autobuild.v1";
-pub const LENS_AUTOBUILD_ARTIFACT_KIND: &str = "poly_lens_autobuild";
-pub const LENS_AUTOBUILD_REPORT_FILE: &str = "lens_autobuild_report.json";
-pub const LENS_AUTOBUILD_MIN_GAIN_BITS: f32 = 0.05;
-
-pub const ERR_LENS_AUTOBUILD_INVALID_REQUEST: &str = "CALYX_POLY_LENS_AUTOBUILD_INVALID_REQUEST";
-pub const ERR_LENS_AUTOBUILD_NO_DEFICIT: &str = "CALYX_POLY_LENS_AUTOBUILD_NO_DEFICIT";
-pub const ERR_LENS_AUTOBUILD_NO_CANDIDATES: &str = "CALYX_POLY_LENS_AUTOBUILD_NO_CANDIDATES";
-pub const ERR_LENS_AUTOBUILD_NO_ADMISSIBLE: &str = "CALYX_POLY_LENS_AUTOBUILD_NO_ADMISSIBLE";
-pub const ERR_LENS_AUTOBUILD_READBACK_MISMATCH: &str =
-    "CALYX_POLY_LENS_AUTOBUILD_READBACK_MISMATCH";
-
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct LensDeficit {
-    pub domain: String,
-    pub panel_id: String,
-    pub panel_version: u32,
-    pub source_artifact: String,
-    pub proposal_action: String,
-    pub deficit_bits: f32,
-    pub weakest_slots: Vec<u16>,
-    pub reason: String,
-    pub trust: TrustTag,
-}
-
-impl LensDeficit {
-    /// Builds a deficit reference from a persisted panel-sufficiency report.
-    pub fn from_panel_sufficiency_report(
-        report: &PolyPanelSufficiencyReport,
-        source_artifact: impl Into<String>,
-    ) -> Option<Self> {
-        let proposal = report.assay_card.deficit_proposal.as_ref()?;
-        if proposal.action != "propose_lens" {
-            return None;
-        }
-        Some(Self {
-            domain: report.domain.clone(),
-            panel_id: report.panel_id.clone(),
-            panel_version: report.panel_version,
-            source_artifact: source_artifact.into(),
-            proposal_action: proposal.action.clone(),
-            deficit_bits: proposal.deficit_bits,
-            weakest_slots: proposal
-                .weakest_slots
-                .iter()
-                .map(|slot| slot.get())
-                .collect(),
-            reason: proposal.reason.clone(),
-            trust: report.assay_card.sufficiency.trust,
-        })
-    }
-}
-
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct LensCandidateMeasurement {
-    pub lens_key: String,
-    pub encoder_kind: String,
-    pub source_fields: Vec<String>,
-    pub measured_gain_bits: f32,
-    pub ci_low_bits: f32,
-    pub ci_high_bits: f32,
-    pub n_samples: usize,
-    pub trust: TrustTag,
-    pub evidence_artifact: String,
-    pub requested_action: String,
-}
-
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct LensAutobuildRequest {
-    pub domain: String,
-    pub panel_id: String,
-    pub panel_version: u32,
-    pub existing_lens_keys: Vec<String>,
-    pub deficits: Vec<LensDeficit>,
-    pub candidates: Vec<LensCandidateMeasurement>,
-    pub min_gain_bits: f32,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum LensAutobuildStatus {
-    Admitted,
-    Rejected,
-}
-
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct BuiltLensSpec {
-    pub lens_id: String,
-    pub lens_key: String,
-    pub encoder_kind: String,
-    pub source_fields: Vec<String>,
-    pub registry_patch_kind: String,
-    pub target_slots: Vec<u16>,
-    pub expected_gain_bits: f32,
-    pub ci_low_bits: f32,
-    pub n_samples: usize,
-    pub trust: TrustTag,
-    pub deficit_source_artifact: String,
-    pub evidence_artifact: String,
-}
-
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct LensCandidateRejection {
-    pub lens_key: String,
-    pub code: String,
-    pub reason: String,
-    pub measured_gain_bits: f32,
-    pub trust: TrustTag,
-    pub requested_action: String,
-}
-
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct LensAutobuildReport {
-    pub schema_version: String,
-    pub artifact_kind: String,
-    pub domain: String,
-    pub panel_id: String,
-    pub panel_version: u32,
-    pub min_gain_bits: f32,
-    pub existing_lens_count: usize,
-    pub deficit_count: usize,
-    pub candidate_count: usize,
-    pub admitted_count: usize,
-    pub rejected_count: usize,
-    pub status: LensAutobuildStatus,
-    pub primary_deficit: LensDeficit,
-    pub admitted: Vec<BuiltLensSpec>,
-    pub rejected: Vec<LensCandidateRejection>,
-    pub decision_hash: String,
-}
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct LensAutobuildRun {
@@ -346,6 +221,9 @@ fn reject_candidate(
     if candidate.trust != TrustTag::Trusted {
         return Some(reject(candidate, "provisional_evidence"));
     }
+    if candidate.estimate_bound != Some(EstimateBound::LowerBound) {
+        return Some(reject(candidate, "uncalibrated_estimate_bound"));
+    }
     if candidate.measured_gain_bits < min_gain_bits {
         return Some(reject(candidate, "below_gain_floor"));
     }
@@ -362,6 +240,7 @@ fn reject(candidate: &LensCandidateMeasurement, code: &str) -> LensCandidateReje
         reason: rejection_reason(code).to_string(),
         measured_gain_bits: candidate.measured_gain_bits,
         trust: candidate.trust,
+        estimate_bound: candidate.estimate_bound,
         requested_action: candidate.requested_action.clone(),
     }
 }
@@ -371,6 +250,7 @@ fn rejection_reason(code: &str) -> &'static str {
         "duplicate_existing_lens" => "candidate lens_key already exists in the panel",
         "forbidden_or_unsupported_action" => "candidate action must be local append_lens_spec only",
         "provisional_evidence" => "candidate evidence is provisional and cannot be admitted",
+        "uncalibrated_estimate_bound" => "candidate evidence is not a calibrated lower bound",
         "below_gain_floor" => "candidate measured gain is below the lens-level bit floor",
         "gain_ci_crosses_zero" => "candidate gain CI does not stay above zero",
         _ => "candidate failed lens auto-build admission",
@@ -389,6 +269,7 @@ fn build_lens_spec(candidate: &LensCandidateMeasurement, deficit: &LensDeficit) 
         ci_low_bits: candidate.ci_low_bits,
         n_samples: candidate.n_samples,
         trust: candidate.trust,
+        estimate_bound: Some(EstimateBound::LowerBound),
         deficit_source_artifact: deficit.source_artifact.clone(),
         evidence_artifact: candidate.evidence_artifact.clone(),
     }
@@ -419,6 +300,8 @@ fn decision_hash(
     rejected: &[LensCandidateRejection],
 ) -> String {
     let mut hasher = blake3::Hasher::new();
+    hasher.update(LENS_AUTOBUILD_SCHEMA_VERSION.as_bytes());
+    hasher.update(&[0]);
     hasher.update(request.domain.as_bytes());
     hasher.update(request.panel_id.as_bytes());
     hasher.update(&request.panel_version.to_le_bytes());
@@ -433,15 +316,26 @@ fn decision_hash(
         hasher.update(&spec.expected_gain_bits.to_le_bytes());
         hasher.update(&spec.ci_low_bits.to_le_bytes());
         hasher.update(&(spec.n_samples as u64).to_le_bytes());
+        hasher.update(&[estimate_bound_tag(spec.estimate_bound)]);
     }
     for rejection in rejected {
         hasher.update(rejection.lens_key.as_bytes());
         hasher.update(rejection.code.as_bytes());
         hasher.update(&rejection.measured_gain_bits.to_le_bytes());
+        hasher.update(&[estimate_bound_tag(rejection.estimate_bound)]);
         hasher.update(format!("{:?}", rejection.trust).as_bytes());
         hasher.update(rejection.requested_action.as_bytes());
     }
     hasher.finalize().to_hex().to_string()
+}
+
+fn estimate_bound_tag(bound: Option<EstimateBound>) -> u8 {
+    match bound {
+        None => 0,
+        Some(EstimateBound::LowerBound) => 1,
+        Some(EstimateBound::Point) => 2,
+        Some(EstimateBound::UpperBound) => 3,
+    }
 }
 
 fn forbidden_action(action: &str) -> bool {

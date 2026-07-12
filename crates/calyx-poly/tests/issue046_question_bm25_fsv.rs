@@ -5,7 +5,7 @@
 
 use std::path::Path;
 
-use calyx_assay::{EnsembleConfig, EnsembleLensInput, TrustTag};
+use calyx_assay::{EnsembleConfig, EnsembleLensInput, EstimateBound, TrustTag};
 use calyx_core::{AbsentReason, CxId, SlotId, SlotShape, SlotVector};
 use calyx_poly::lens_autobuild::{
     ERR_LENS_AUTOBUILD_NO_ADMISSIBLE, ERR_LENS_AUTOBUILD_NO_DEFICIT, LENS_AUTOBUILD_MIN_GAIN_BITS,
@@ -388,6 +388,7 @@ fn candidate(
         ci_high_bits: gain + 0.02,
         n_samples: MIN_ASSAY_ROWS,
         trust,
+        estimate_bound: Some(EstimateBound::LowerBound),
         evidence_artifact: evidence_path.display().to_string(),
         requested_action: requested_action.to_string(),
     };

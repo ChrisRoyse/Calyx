@@ -5,10 +5,10 @@
 
 use std::path::Path;
 
-use calyx_assay::{EnsembleConfig, EnsembleLensInput, TrustTag};
+use calyx_assay::{EnsembleConfig, EnsembleLensInput, EstimateBound, TrustTag};
 use calyx_core::SlotId;
 use calyx_poly::lens_autobuild::{
-    ERR_LENS_AUTOBUILD_NO_ADMISSIBLE, ERR_LENS_AUTOBUILD_NO_CANDIDATES,
+    BuiltLensSpec, ERR_LENS_AUTOBUILD_NO_ADMISSIBLE, ERR_LENS_AUTOBUILD_NO_CANDIDATES,
     ERR_LENS_AUTOBUILD_NO_DEFICIT, LENS_AUTOBUILD_MIN_GAIN_BITS, LensAutobuildRequest,
     LensAutobuildStatus, LensCandidateMeasurement, LensDeficit, read_lens_autobuild_report,
     require_lens_autobuild_admitted, run_lens_autobuild_report,
@@ -36,6 +36,7 @@ fn issue110_lens_autobuild_fsv() {
     let duplicate = edge_duplicate_lens_fails_closed(&root, &deficit);
     let below_gain = edge_below_gain_fails_closed(&root, &deficit);
     let provisional = edge_provisional_evidence_fails_closed(&root, &deficit);
+    let missing_bound = edge_missing_bound_fails_closed(&root, &deficit);
     let forbidden = edge_forbidden_action_fails_closed(&root, &deficit);
     let no_deficit = edge_missing_deficit_fails_loud(&root, &deficit);
     let no_candidates = edge_missing_candidates_fails_loud(&root, &deficit);
@@ -44,14 +45,14 @@ fn issue110_lens_autobuild_fsv() {
     collect_files(&root, &mut files);
     let readback = json!({
         "issue": 110,
-        "proof_claim": "Poly consumes a persisted Assay propose_lens deficit, synthesizes deterministic append_lens_spec artifacts from measured candidate evidence, admits only trusted lenses above the 0.05-bit floor, and fails closed for duplicate, weak, provisional, forbidden-action, and structurally incomplete requests.",
+        "proof_claim": "Poly consumes a persisted Assay propose_lens deficit, synthesizes deterministic append_lens_spec artifacts from measured candidate evidence, admits only trusted calibrated-lower-bound lenses above the 0.05-bit floor, and fails closed for duplicate, weak, provisional, unknown-bound, forbidden-action, and structurally incomplete requests.",
         "minimum_sufficient_corpus": {
             "sufficiency_rows": MIN_ASSAY_ROWS,
             "panel_lenses": MIN_PANEL_LENSES,
             "deficit_reports": 1,
-            "candidate_measurements": 5,
-            "why_this_is_sufficient": "50 rows and 3 lenses are the smallest Assay corpus that can produce a real persisted propose_lens deficit; one accepted candidate and four single-cause rejected candidates prove every #110 admission branch without conflating rejection causes.",
-            "why_smaller_is_insufficient": "49 rows or fewer than 3 lenses cannot produce the source deficit; removing the accepted candidate or any rejected candidate leaves the append, duplicate, gain-floor, trust, or local-only action gate unproven.",
+            "candidate_measurements": 6,
+            "why_this_is_sufficient": "50 rows and 3 lenses are the smallest Assay corpus that can produce a real persisted propose_lens deficit; one accepted candidate and five single-cause rejected candidates prove the append, duplicate, gain-floor, trust, bound, and local-only action gates without conflating rejection causes.",
+            "why_smaller_is_insufficient": "49 rows or fewer than 3 lenses cannot produce the source deficit; removing the accepted candidate or any rejected candidate leaves the append, duplicate, gain-floor, trust, bound, or local-only action gate unproven.",
             "why_larger_is_wasteful": "additional rows or candidates would repeat the same deterministic persisted readback and admission gates without proving another #110 behavior."
         },
         "happy_path": happy,
@@ -59,6 +60,7 @@ fn issue110_lens_autobuild_fsv() {
             "duplicate_existing_lens": duplicate,
             "below_gain_floor": below_gain,
             "provisional_evidence": provisional,
+            "missing_estimate_bound": missing_bound,
             "forbidden_action": forbidden,
             "missing_deficit": no_deficit,
             "missing_candidates": no_candidates
@@ -107,7 +109,16 @@ fn happy_admits_append_lens_spec(root: &Path, deficit: &LensDeficit) -> Value {
     assert_eq!(spec.lens_key, "macro_event_text_bm25");
     assert_eq!(spec.target_slots, deficit.weakest_slots);
     assert_eq!(spec.trust, TrustTag::Trusted);
+    assert_eq!(spec.estimate_bound, Some(EstimateBound::LowerBound));
     assert_eq!(spec.lens_id.len(), 64);
+    let mut legacy_spec = serde_json::to_value(spec).expect("legacy built lens JSON");
+    legacy_spec
+        .as_object_mut()
+        .expect("built lens object")
+        .remove("estimate_bound");
+    let legacy_spec: BuiltLensSpec =
+        serde_json::from_value(legacy_spec).expect("legacy built lens without bound");
+    assert_eq!(legacy_spec.estimate_bound, None);
     json!({
         "status": report.status,
         "admitted_count": report.admitted_count,
@@ -167,6 +178,35 @@ fn edge_provisional_evidence_fails_closed(root: &Path, deficit: &LensDeficit) ->
             "append_lens_spec",
         ),
     )
+}
+
+fn edge_missing_bound_fails_closed(root: &Path, deficit: &LensDeficit) -> Value {
+    let mut uncalibrated = candidate(
+        root,
+        "edge-missing-bound",
+        "unknown_bound_text",
+        0.09,
+        0.04,
+        TrustTag::Trusted,
+        "append_lens_spec",
+    );
+    uncalibrated.estimate_bound = None;
+    let report = run_and_read(
+        root,
+        "edge-missing-bound",
+        &request(deficit.clone(), vec![uncalibrated]),
+    );
+    assert_eq!(report.status, LensAutobuildStatus::Rejected);
+    assert_eq!(report.admitted_count, 0);
+    let rejection = &report.rejected[0];
+    assert_eq!(rejection.code, "uncalibrated_estimate_bound");
+    assert_eq!(rejection.estimate_bound, None);
+    json!({
+        "status": report.status,
+        "rejection_code": rejection.code,
+        "estimate_bound": rejection.estimate_bound,
+        "decision_hash": report.decision_hash
+    })
 }
 
 fn edge_forbidden_action_fails_closed(root: &Path, deficit: &LensDeficit) -> Value {
@@ -280,6 +320,7 @@ fn candidate(
         ci_high_bits: gain + 0.02,
         n_samples: MIN_ASSAY_ROWS,
         trust,
+        estimate_bound: Some(EstimateBound::LowerBound),
         evidence_artifact: evidence_path.display().to_string(),
         requested_action: requested_action.to_string(),
     };
