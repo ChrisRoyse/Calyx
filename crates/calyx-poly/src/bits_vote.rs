@@ -8,10 +8,13 @@
 //!
 //! Note: `calyx-assay`'s logistic probe reports unsigned bits only — it discards the fitted
 //! direction — so the per-slot sign is computed here from the difference of class-conditional means
-//! (a well-defined discriminant direction). The magnitude is the engine-measured bit value. Fail
+//! (a well-defined discriminant direction). The magnitude is the engine-measured bit value. A slot
+//! classified by Assay as low-signal is retained with zero weight and an explicit diagnostic so an
+//! informative peer can still vote. All other estimator errors remain fatal, and the vote fails
 //! closed below the MI sample floor, on a single-class outcome, or when no slot carries any bits.
 
 use calyx_assay::{MIN_ASSAY_SAMPLES, ksg_mi_continuous_discrete};
+use calyx_core::CalyxErrorCode;
 use serde::{Deserialize, Serialize};
 
 use crate::error::{PolyError, Result};
@@ -47,6 +50,9 @@ pub struct SlotVote {
     pub direction: i8,
     /// Whether the query fell on the YES side of this slot's class boundary.
     pub votes_yes: bool,
+    /// Stable Assay code when measurement classified this slot as zero-weight low signal.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub measurement_error_code: Option<String>,
 }
 
 /// The bits-weighted vote result.
@@ -114,11 +120,19 @@ pub fn bits_vote(
             ));
         }
         let x: Vec<Vec<f32>> = slot.train_values.iter().map(|v| vec![*v]).collect();
-        let bits = ksg_mi_continuous_discrete(&x, &labels_usize, k_neighbors)
-            .map_err(|err| {
-                PolyError::diagnostics(ERR_BV_SLOT, format!("slot '{}' MI: {err}", slot.key))
-            })?
-            .bits as f64;
+        let (bits, measurement_error_code) =
+            match ksg_mi_continuous_discrete(&x, &labels_usize, k_neighbors) {
+                Ok(estimate) => (estimate.bits as f64, None),
+                Err(error) if error.code == CalyxErrorCode::AssayLowSignal.code() => {
+                    (0.0, Some(error.code.to_string()))
+                }
+                Err(error) => {
+                    return Err(PolyError::diagnostics(
+                        ERR_BV_SLOT,
+                        format!("slot '{}' MI: {error}", slot.key),
+                    ));
+                }
+            };
 
         let (mut sum_yes, mut sum_no) = (0.0f64, 0.0f64);
         for (v, y) in slot.train_values.iter().zip(labels) {
@@ -144,6 +158,7 @@ pub fn bits_vote(
             bits: bits as f32,
             direction,
             votes_yes,
+            measurement_error_code,
         });
     }
 
@@ -176,7 +191,6 @@ pub fn bits_vote(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use calyx_core::CalyxErrorCode;
     use rand::{Rng, SeedableRng};
     use rand_chacha::ChaCha8Rng;
 
