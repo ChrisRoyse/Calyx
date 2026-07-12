@@ -120,23 +120,31 @@ fn mixed_ksg_zero_same_class_radius_fails_closed() {
 }
 
 #[test]
-fn mixed_ksg_ci_requires_valid_no_replacement_subsample() {
+fn mixed_ksg_internal_subsample_preserves_full_estimate_quorum() {
     let x = (0..60).map(|index| vec![index as f32]).collect::<Vec<_>>();
     let labels = (0..60).map(|index| index % 2).collect::<Vec<_>>();
 
-    let error = ksg_mi_continuous_discrete(&x, &labels, 3)
-        .expect_err("dependent local terms must not be bootstrapped as independent samples");
+    let estimate = ksg_mi_continuous_discrete(&x, &labels, 3)
+        .expect("the 50-row quorum applies to the full estimate, not each internal root");
 
-    assert_eq!(error.code, "CALYX_ASSAY_INSUFFICIENT_SAMPLES");
-    assert!(error.message.contains("m=48"));
+    assert_eq!(estimate.n_samples, 60);
+    assert_eq!(estimate.bound, crate::estimate::EstimateBound::Point);
+    assert!(estimate.ci_low.is_finite());
+    assert!(estimate.ci_high.is_finite());
+    assert!(estimate.ci_low <= estimate.bits);
+    assert!(estimate.bits <= estimate.ci_high);
 }
 
 #[test]
-fn mixed_ksg_subsamples_are_distinct_and_class_valid() {
-    let labels = (0..240).map(|index| index % 3).collect::<Vec<_>>();
-    let m = m_out_of_n_size(labels.len(), 3, MIN_ASSAY_SAMPLES, "mixed KSG").unwrap();
+fn mixed_ksg_subsamples_are_conditionally_uniform_not_quota_forced() {
+    let labels = (0..100)
+        .map(|index| usize::from(index >= 80))
+        .collect::<Vec<_>>();
+    let m = 30;
+    let mut minority_total = 0;
+    let resamples = 4_096;
 
-    for seed in 0..32 {
+    for seed in 0..resamples {
         let mut rng = ChaCha8Rng::seed_from_u64(seed);
         let indices = sample_mixed_indices(&labels, m, 3, &mut rng).unwrap();
         let unique = indices.iter().copied().collect::<HashSet<_>>();
@@ -149,7 +157,49 @@ fn mixed_ksg_subsamples_are_distinct_and_class_valid() {
         assert_eq!(indices.len(), m);
         assert_eq!(unique.len(), m);
         assert!(counts.values().all(|count| *count > 3));
+        minority_total += counts[&1];
     }
+
+    let minority_mean = minority_total as f64 / resamples as f64;
+    assert!(
+        (6.15..=6.45).contains(&minority_mean),
+        "conditional SRSWOR mean should be about 6.298, got {minority_mean}"
+    );
+}
+
+#[test]
+fn mixed_ksg_rare_class_without_supported_half_sample_plan_fails_closed() {
+    let x = (0..100).map(|index| vec![index as f32]).collect::<Vec<_>>();
+    let mut labels = vec![0; 96];
+    labels.extend([1, 1, 1, 1]);
+
+    let error = ksg_mi_continuous_discrete(&x, &labels, 3)
+        .expect_err("a barely valid full class cannot support an honest half-sample CI");
+
+    assert_eq!(error.code, "CALYX_ASSAY_INSUFFICIENT_SAMPLES");
+    assert!(error.message.contains("class-support"));
+}
+
+#[test]
+fn mixed_ksg_duplicate_guard_uses_the_exact_k_threshold_and_label_scope() {
+    let mut threshold_x = (0..80).map(|index| vec![index as f32]).collect::<Vec<_>>();
+    let threshold_labels = (0..80).map(|index| index % 2).collect::<Vec<_>>();
+    threshold_x[0] = vec![0.0];
+    threshold_x[2] = vec![0.0];
+    threshold_x[4] = vec![0.0];
+    validate_mixed_radius_defined(&threshold_x, &threshold_labels, 3)
+        .expect("k-1 same-class duplicates leave a positive kth radius");
+    threshold_x[6] = vec![0.0];
+    let error = validate_mixed_radius_defined(&threshold_x, &threshold_labels, 3)
+        .expect_err("exactly k same-class duplicates make the kth radius zero");
+    assert_eq!(error.code, "CALYX_ASSAY_DEGENERATE_INPUT");
+
+    let cross_class_x = (0..80)
+        .map(|index| vec![(index / 2) as f32])
+        .collect::<Vec<_>>();
+    let cross_class_labels = (0..80).map(|index| index % 2).collect::<Vec<_>>();
+    validate_mixed_radius_defined(&cross_class_x, &cross_class_labels, 3)
+        .expect("cross-class coordinate ties do not collapse a same-class radius");
 }
 
 fn old_replacement_duplicate_stats(
