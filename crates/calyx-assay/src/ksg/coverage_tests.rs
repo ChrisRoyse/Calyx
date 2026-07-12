@@ -63,10 +63,10 @@ fn audit_class_balance(positive_count: usize) {
         null_compatible >= 3,
         "positive_count={positive_count} null_compatible={null_compatible}"
     );
+    let null_mean_bits = null_bits_sum / null_successes as f32;
     assert!(
-        null_bits_sum / null_successes as f32 < 0.25,
-        "positive_count={positive_count} null_mean_bits={}",
-        null_bits_sum / null_successes as f32
+        null_mean_bits < 0.25,
+        "positive_count={positive_count} null_mean_bits={null_mean_bits}"
     );
 }
 
