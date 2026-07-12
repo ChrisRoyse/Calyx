@@ -1,4 +1,7 @@
-use std::{collections::HashSet, fs};
+use std::{
+    collections::{BTreeMap, HashSet},
+    fs,
+};
 
 use rand::{Rng, SeedableRng};
 use rand_chacha::ChaCha8Rng;
@@ -121,8 +124,15 @@ fn mixed_ksg_zero_same_class_radius_fails_closed() {
 
 #[test]
 fn mixed_ksg_internal_subsample_preserves_full_estimate_quorum() {
-    let x = (0..60).map(|index| vec![index as f32]).collect::<Vec<_>>();
     let labels = (0..60).map(|index| index % 2).collect::<Vec<_>>();
+    let x = labels
+        .iter()
+        .enumerate()
+        .map(|(index, label)| {
+            let center = if *label == 0 { -3.0 } else { 3.0 };
+            vec![center + (index / 2) as f32 * 0.01]
+        })
+        .collect::<Vec<_>>();
 
     let estimate = ksg_mi_continuous_discrete(&x, &labels, 3)
         .expect("the 50-row quorum applies to the full estimate, not each internal root");
@@ -146,7 +156,7 @@ fn mixed_ksg_subsamples_are_conditionally_uniform_not_quota_forced() {
 
     for seed in 0..resamples {
         let mut rng = ChaCha8Rng::seed_from_u64(seed);
-        let indices = sample_mixed_indices(&labels, m, 3, &mut rng).unwrap();
+        let indices = mixed_ci::sample_mixed_indices(&labels, m, 3, &mut rng).unwrap();
         let unique = indices.iter().copied().collect::<HashSet<_>>();
         let sampled_labels = indices
             .iter()
@@ -187,10 +197,10 @@ fn mixed_ksg_duplicate_guard_uses_the_exact_k_threshold_and_label_scope() {
     threshold_x[0] = vec![0.0];
     threshold_x[2] = vec![0.0];
     threshold_x[4] = vec![0.0];
-    validate_mixed_radius_defined(&threshold_x, &threshold_labels, 3)
+    mixed_ci::validate_radius_defined(&threshold_x, &threshold_labels, 3)
         .expect("k-1 same-class duplicates leave a positive kth radius");
     threshold_x[6] = vec![0.0];
-    let error = validate_mixed_radius_defined(&threshold_x, &threshold_labels, 3)
+    let error = mixed_ci::validate_radius_defined(&threshold_x, &threshold_labels, 3)
         .expect_err("exactly k same-class duplicates make the kth radius zero");
     assert_eq!(error.code, "CALYX_ASSAY_DEGENERATE_INPUT");
 
@@ -198,8 +208,46 @@ fn mixed_ksg_duplicate_guard_uses_the_exact_k_threshold_and_label_scope() {
         .map(|index| vec![(index / 2) as f32])
         .collect::<Vec<_>>();
     let cross_class_labels = (0..80).map(|index| index % 2).collect::<Vec<_>>();
-    validate_mixed_radius_defined(&cross_class_x, &cross_class_labels, 3)
+    mixed_ci::validate_radius_defined(&cross_class_x, &cross_class_labels, 3)
         .expect("cross-class coordinate ties do not collapse a same-class radius");
+}
+
+#[test]
+fn mixed_ksg_support_plan_uses_exact_hypergeometric_tail_math() {
+    let probability = mixed_ci::hypergeometric_cdf_at_most(10, 4, 5, 1).unwrap();
+    assert!((probability - 66.0 / 252.0).abs() < 1e-12);
+
+    let balanced = BTreeMap::from([(0, 30), (1, 30)]);
+    let balanced_plan = mixed_ci::subsample_plan(60, 3, &balanced).unwrap();
+    assert_eq!(balanced_plan.m, 16);
+    assert!(balanced_plan.support_failure_upper <= 0.01);
+
+    let imbalanced = BTreeMap::from([(0, 80), (1, 20)]);
+    let imbalanced_plan = mixed_ci::subsample_plan(100, 3, &imbalanced).unwrap();
+    assert_eq!(imbalanced_plan.m, 40);
+    assert!(imbalanced_plan.support_failure_upper <= 0.01);
+}
+
+#[test]
+fn mixed_ksg_root_interval_reverses_tails_and_preserves_raw_negatives() {
+    let interval = mixed_ci::ci_from_roots(vec![-4.0, -1.0, 0.0, 2.0, 9.0], 2.0, 100).unwrap();
+    assert!((interval.ci_low - 1.1).abs() < 1e-6);
+    assert!((interval.ci_high - 2.4).abs() < 1e-6);
+
+    let negative = mixed_ci::ci_from_roots(vec![-1.0, 0.0, 1.0], -0.2, 100).unwrap();
+    assert!((negative.mean + 0.2).abs() < 1e-6);
+    assert!(negative.ci_low < 0.0);
+    assert!(negative.ci_high < 0.0);
+
+    let error = mixed_ci::ci_from_roots(vec![0.0, f64::NAN], 0.0, 100).unwrap_err();
+    assert_eq!(error.code, "CALYX_ASSAY_LOW_SIGNAL");
+}
+
+#[test]
+fn mixed_ksg_finite_population_scale_and_production_root_count_are_pinned() {
+    let scale = mixed_ci::finite_population_root_scale(100, 50).unwrap();
+    assert!((scale - 10.0).abs() < 1e-12);
+    assert_eq!(mixed_ci::MIXED_KSG_SUBSAMPLE_RESAMPLES, 999);
 }
 
 fn old_replacement_duplicate_stats(
