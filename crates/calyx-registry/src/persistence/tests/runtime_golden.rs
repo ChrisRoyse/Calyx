@@ -1,9 +1,13 @@
+#[cfg(unix)]
 use std::fs;
 
 use super::super::runtime::load_runtime_lens;
 use super::*;
+#[cfg(unix)]
+use crate::ExternalCmdLens;
+#[cfg(unix)]
 use crate::frozen::{LensDType, NormPolicy, sha256_digest};
-use crate::{ExternalCmdLens, FrozenLensContract, RuntimeGolden};
+use crate::{FrozenLensContract, RuntimeGolden};
 
 #[test]
 fn process_runtime_snapshot_without_golden_fails_closed() {
@@ -167,6 +171,7 @@ fn runtime_spec(contract: &FrozenLensContract, runtime: LensRuntime) -> LensSpec
     }
 }
 
+#[cfg(unix)]
 fn external_contract(name: &str, command: &str, args: &[String], dim: u32) -> FrozenLensContract {
     let args_text = args.join("\0");
     FrozenLensContract::new(
