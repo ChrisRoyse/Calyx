@@ -296,4 +296,5 @@ fn sha256_hex(bytes: &[u8]) -> String {
 }
 
 #[cfg(test)]
+#[path = "ensemble/tests.rs"]
 mod tests;
