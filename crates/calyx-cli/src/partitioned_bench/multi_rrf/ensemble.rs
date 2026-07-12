@@ -293,8 +293,8 @@ mod tests {
 
     use calyx_assay::sufficiency::PanelSufficiency;
     use calyx_assay::{
-        EnsembleConfig, EnsembleDecision, EnsembleLensValue, EnsemblePairValue, PidBits, TrustTag,
-        a37_diversity_gate,
+        ENSEMBLE_CARD_SCHEMA_VERSION, EnsembleConfig, EnsembleDecision, EnsembleLensValue,
+        EnsemblePairValue, LinearCkaEstimate, PidBits, TrustTag, a37_diversity_gate,
     };
     use calyx_core::SlotId;
 
@@ -304,7 +304,6 @@ mod tests {
     #[test]
     fn recall_gate_requires_ensemble_card() {
         let err = load(None, &plan(10), true).unwrap_err();
-
         assert_eq!(err.code(), "CALYX_FSV_A35_ENSEMBLE_CARD_REQUIRED");
     }
 
@@ -313,9 +312,7 @@ mod tests {
         let root = temp_root("rrf-ensemble-card");
         let path = root.join("ensemble_card.json");
         std::fs::write(&path, serde_json::to_vec(&card(10, 0)).unwrap()).unwrap();
-
         let report = load(Some(&path), &plan(10), false).unwrap().unwrap();
-
         assert_eq!(report["panel_lens_count"], 10);
         assert_eq!(report["n_eff"], serde_json::json!(card(10, 0).n_eff));
         assert_eq!(report["card_sha256"].as_str().unwrap().len(), 64);
@@ -333,9 +330,7 @@ mod tests {
         let root = temp_root("rrf-ensemble-stale");
         let path = root.join("ensemble_card.json");
         std::fs::write(&path, serde_json::to_vec(&card(10, 1)).unwrap()).unwrap();
-
         let err = load(Some(&path), &plan(10), true).unwrap_err();
-
         assert_eq!(err.code(), "CALYX_FSV_A35_ENSEMBLE_CARD_STALE");
         let _ = std::fs::remove_dir_all(root);
     }
@@ -347,9 +342,7 @@ mod tests {
         let mut card = card(10, 0);
         card.lenses[3].name = "wrong-lens".to_string();
         std::fs::write(&path, serde_json::to_vec(&card).unwrap()).unwrap();
-
         let err = load(Some(&path), &plan(10), true).unwrap_err();
-
         assert_eq!(err.code(), "CALYX_FSV_A35_ENSEMBLE_CARD_STALE");
         assert!(err.message().contains("slot/name roster"));
         let _ = std::fs::remove_dir_all(root);
@@ -362,7 +355,6 @@ mod tests {
         std::fs::write(&path, serde_json::to_vec(&card(10, 0)).unwrap()).unwrap();
         let mut plan = plan(10);
         plan.slots[0].name = None;
-
         let err = load(Some(&path), &plan, true).unwrap_err();
 
         assert_eq!(err.code(), "CALYX_FSV_A35_PLAN_NAME_REQUIRED");
@@ -419,7 +411,7 @@ mod tests {
         }
         let a37_diversity = a37_diversity_gate(&lenses, &pairs, &EnsembleConfig::default());
         EnsembleCard {
-            schema_version: 1,
+            schema_version: ENSEMBLE_CARD_SCHEMA_VERSION,
             source: "unit-test".to_string(),
             pid_method: "bounded_decision_surrogate_v1".to_string(),
             panel_lens_count: count as usize,
@@ -431,6 +423,7 @@ mod tests {
             sufficient: false,
             deficit_bits: 0.5,
             a37_diversity,
+            redundancy_method: None,
             deficit_proposal: None,
             sufficiency: PanelSufficiency {
                 panel_bits: 0.5,
@@ -481,6 +474,12 @@ mod tests {
             slot_b: SlotId::new(b),
             corr: 0.2,
             nmi: 0.1,
+            redundancy: Some(LinearCkaEstimate {
+                raw_signed_point: 0.2,
+                redundancy_point: 0.2,
+                mc_standard_error: 0.0,
+                mc_gate_upper_estimate: 0.2,
+            }),
             pair_bits: 0.3,
             pair_ci: [0.2, 0.4],
             synergy_gain_bits: 0.02,

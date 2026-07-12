@@ -9,7 +9,7 @@ use super::model::{
 };
 use crate::n_eff::stable_rank;
 
-pub const A37_DIVERSITY_SCHEMA_VERSION: u32 = 2;
+pub const A37_DIVERSITY_SCHEMA_VERSION: u32 = 3;
 pub const A37_DIVERSITY_GATE_PASSED: &str = "gate_passed";
 pub const A37_DIVERSITY_DIAGNOSTIC_ONLY: &str = "diagnostic_only";
 
@@ -84,11 +84,23 @@ pub fn a37_diversity_gate(
         .map(|pair| ordered_pair(pair.slot_a, pair.slot_b))
         .collect::<BTreeSet<_>>();
     let pair_values_valid = content_pairs.iter().all(|pair| {
+        let redundancy_valid = pair.redundancy.as_ref().is_some_and(|estimate| {
+            estimate.raw_signed_point.is_finite()
+                && (-1.0..=1.0).contains(&estimate.raw_signed_point)
+                && estimate.redundancy_point.is_finite()
+                && (0.0..=1.0).contains(&estimate.redundancy_point)
+                && estimate.mc_standard_error.is_finite()
+                && estimate.mc_standard_error >= 0.0
+                && estimate.mc_gate_upper_estimate.is_finite()
+                && (estimate.redundancy_point..=1.0).contains(&estimate.mc_gate_upper_estimate)
+                && (pair.corr - estimate.mc_gate_upper_estimate).abs() <= 1.0e-6
+        });
         pair.slot_a != pair.slot_b
             && pair.corr.is_finite()
             && (0.0..=1.0).contains(&pair.corr)
             && pair.nmi.is_finite()
             && (0.0..=1.0).contains(&pair.nmi)
+            && redundancy_valid
     });
     let pair_evidence_pass = lens_slots_unique
         && expected_content_pair_count > 0
@@ -206,9 +218,14 @@ fn content_stable_rank(content_slots: &BTreeSet<SlotId>, pairs: &[&EnsemblePairV
         else {
             continue;
         };
-        if pair.corr.is_finite() && (0.0..=1.0).contains(&pair.corr) {
-            matrix[a][b] = pair.corr;
-            matrix[b][a] = pair.corr;
+        let point = pair
+            .redundancy
+            .as_ref()
+            .map(|estimate| estimate.redundancy_point)
+            .unwrap_or(pair.corr);
+        if point.is_finite() && (0.0..=1.0).contains(&point) {
+            matrix[a][b] = point;
+            matrix[b][a] = point;
         }
     }
     stable_rank(&matrix).n_eff
@@ -234,7 +251,7 @@ mod tests {
     use calyx_core::SlotId;
 
     use super::*;
-    use crate::ensemble::model::{EnsembleDecision, PidBits};
+    use crate::ensemble::model::{EnsembleDecision, LinearCkaEstimate, PidBits};
 
     #[test]
     fn a37_records_temporal_lane_as_time_manipulation_sidecar() {
@@ -393,6 +410,12 @@ mod tests {
             slot_b: b.slot,
             corr: redundancy,
             nmi: redundancy,
+            redundancy: Some(LinearCkaEstimate {
+                raw_signed_point: redundancy,
+                redundancy_point: redundancy,
+                mc_standard_error: 0.0,
+                mc_gate_upper_estimate: redundancy,
+            }),
             pair_bits: 0.2,
             pair_ci: [0.1, 0.3],
             synergy_gain_bits: 0.0,

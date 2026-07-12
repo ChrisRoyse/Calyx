@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 
 use calyx_assay::{
     A37_DIVERSITY_GATE_PASSED, A37DiversityGate, EnsembleCard, EnsembleConfig,
-    a37_association_family, a37_diversity_gate, ensemble_card,
+    a37_association_family, ensemble_card_with_redundancy,
 };
 use serde::Serialize;
 
@@ -111,23 +111,22 @@ pub(crate) fn evaluate(request: &I8binEnsembleRequest) -> Result<I8binEnsembleRe
             plan_ref.as_str(),
             label_source_name(&label_source),
             sample.indices.len(),
-            vectors.matrix.signature_rows
+            vectors.redundancy.method.row_count
         ),
         min_gate_lenses: request.min_lenses,
         min_marginal_bits: request.min_marginal_bits,
         max_redundancy: request.max_redundancy,
         nmi_bins: request.nmi_bins,
     };
-    let mut card = ensemble_card(
+    let card = ensemble_card_with_redundancy(
         &vectors.lenses,
         &sample.labels,
         Some(&sample.groups),
         &config,
+        &vectors.redundancy,
     )
     .map_err(calyx_error_detail)?;
-    apply_full_matrix_redundancy(&mut card, &vectors.matrix);
-    card.a37_diversity = a37_diversity_gate(&card.lenses, &card.pairs, &config);
-    card.n_eff = card.a37_diversity.n_eff;
+    let matrix = MatrixReadout::from_card(&card)?;
     let lens_roster = plan
         .slots
         .iter()
@@ -152,11 +151,11 @@ pub(crate) fn evaluate(request: &I8binEnsembleRequest) -> Result<I8binEnsembleRe
         sample_rows_selected: sample.indices.len(),
         sample_positive_rows: sample.positives,
         sample_negative_rows: sample.negatives,
-        signature_rows: vectors.matrix.signature_rows,
+        signature_rows: matrix.signature_rows,
         a37_mode: request.mode.as_str().to_string(),
         a37_gate_required: request.mode.requires_gate(),
         lens_roster,
-        matrix: vectors.matrix,
+        matrix,
         diversity,
         card,
     })
@@ -235,32 +234,6 @@ pub(crate) fn enforce_a37_mode(
         "CALYX_FSV_ASSAY_A37_DIVERSITY_GATE_REFUSED: A37 gate mode requires status={} but got {}; {}",
         A37_DIVERSITY_GATE_PASSED, report.diversity.status, report.diversity.verdict
     ))
-}
-
-fn apply_full_matrix_redundancy(card: &mut EnsembleCard, matrix: &MatrixReadout) {
-    for pair in &mut card.pairs {
-        if let Some(readout) = matrix.pairs.iter().find(|readout| {
-            (readout.slot_a == pair.slot_a.get() && readout.slot_b == pair.slot_b.get())
-                || (readout.slot_a == pair.slot_b.get() && readout.slot_b == pair.slot_a.get())
-        }) {
-            pair.corr = readout.corr;
-            pair.nmi = readout.nmi;
-        }
-    }
-    for lens in &mut card.lenses {
-        lens.max_pairwise_corr = matrix
-            .pairs
-            .iter()
-            .filter(|pair| pair.slot_a == lens.slot.get() || pair.slot_b == lens.slot.get())
-            .map(|pair| pair.corr)
-            .fold(0.0_f32, f32::max);
-        lens.max_pairwise_nmi = matrix
-            .pairs
-            .iter()
-            .filter(|pair| pair.slot_a == lens.slot.get() || pair.slot_b == lens.slot.get())
-            .map(|pair| pair.nmi)
-            .fold(0.0_f32, f32::max);
-    }
 }
 
 fn lens_readout(slot: &PlanSlot, dim: usize) -> LensReadout {

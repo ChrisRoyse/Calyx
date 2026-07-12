@@ -1,7 +1,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use calyx_assay::EnsembleDecision;
+use calyx_assay::{EnsembleDecision, LINEAR_CKA_REDUNDANCY_METHOD};
 
 use super::{evaluate, request_for, temp_root, write_outputs, write_rows};
 
@@ -21,6 +21,10 @@ fn i8bin_card_preserves_orthogonal_redundancy_through_persisted_decisions() {
     let report = evaluate(&request).unwrap();
 
     assert_eq!(report.matrix.pairs.len(), 45);
+    assert_eq!(
+        report.matrix.redundancy_metric,
+        LINEAR_CKA_REDUNDANCY_METHOD
+    );
     assert!(
         report.matrix.pairs.iter().all(|pair| pair.corr > 0.99),
         "full-matrix representation similarity lost orthogonal redundancy: {:?}",
@@ -34,6 +38,13 @@ fn i8bin_card_preserves_orthogonal_redundancy_through_persisted_decisions() {
     assert!(report.matrix.n_eff < 1.01, "matrix={:?}", report.matrix);
     assert!(report.card.n_eff < 1.01, "card={:?}", report.card);
     assert!(report.card.pairs.iter().all(|pair| pair.corr > 0.99));
+    assert!(report.card.pairs.iter().all(|pair| {
+        pair.redundancy.as_ref().is_some_and(|estimate| {
+            estimate.raw_signed_point > 0.99
+                && estimate.redundancy_point > 0.99
+                && estimate.mc_gate_upper_estimate > 0.99
+        })
+    }));
     assert!(report.card.lenses.iter().all(|lens| {
         lens.max_pairwise_corr > 0.99
             && lens.decision != EnsembleDecision::Keep
@@ -50,6 +61,17 @@ fn i8bin_card_preserves_orthogonal_redundancy_through_persisted_decisions() {
             .unwrap();
         assert_eq!(pair.corr, matrix_pair.corr);
         assert_eq!(pair.nmi, matrix_pair.nmi);
+        let estimate = pair.redundancy.as_ref().unwrap();
+        assert_eq!(estimate.raw_signed_point, matrix_pair.raw_linear_cka);
+        assert_eq!(estimate.redundancy_point, matrix_pair.linear_cka_point);
+        assert_eq!(
+            estimate.mc_standard_error,
+            matrix_pair.linear_cka_mc_standard_error
+        );
+        assert_eq!(
+            estimate.mc_gate_upper_estimate,
+            matrix_pair.linear_cka_gate_score
+        );
     }
 
     let evidence = write_outputs(&request, &report).unwrap();
@@ -57,13 +79,18 @@ fn i8bin_card_preserves_orthogonal_redundancy_through_persisted_decisions() {
     let persisted: serde_json::Value =
         serde_json::from_str(&fs::read_to_string(&evidence.ensemble_card_path).unwrap()).unwrap();
     assert!(persisted["n_eff"].as_f64().unwrap() < 1.01);
-    assert!(
-        persisted["pairs"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .all(|pair| pair["corr"].as_f64().unwrap() > 0.99)
+    assert_eq!(
+        persisted["redundancy_method"]["metric"],
+        LINEAR_CKA_REDUNDANCY_METHOD
     );
+    assert!(persisted["pairs"].as_array().unwrap().iter().all(|pair| {
+        pair["corr"].as_f64().unwrap() > 0.99
+            && pair["redundancy"]["raw_signed_point"].as_f64().unwrap() > 0.99
+            && pair["redundancy"]["mc_gate_upper_estimate"]
+                .as_f64()
+                .unwrap()
+                > 0.99
+    }));
 
     let _ = fs::remove_dir_all(root);
 }
