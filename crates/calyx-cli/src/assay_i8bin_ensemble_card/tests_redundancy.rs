@@ -133,7 +133,7 @@ fn write_orthogonal_i8bin(path: &Path, rows: usize, lens: usize) {
 }
 
 fn hadamard_sign(row: usize, column: usize) -> i8 {
-    if (row & column).count_ones() % 2 == 0 {
+    if (row & column).count_ones().is_multiple_of(2) {
         1
     } else {
         -1
