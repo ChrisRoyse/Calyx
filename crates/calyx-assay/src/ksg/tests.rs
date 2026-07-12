@@ -162,7 +162,7 @@ fn mixed_ksg_subsamples_are_conditionally_uniform_not_quota_forced() {
             .iter()
             .map(|index| labels[*index])
             .collect::<Vec<_>>();
-        let counts = validate_mixed_discrete_classes(&sampled_labels, 3).unwrap();
+        let counts = mixed_ci::validate_classes(&sampled_labels, 3).unwrap();
 
         assert_eq!(indices.len(), m);
         assert_eq!(unique.len(), m);

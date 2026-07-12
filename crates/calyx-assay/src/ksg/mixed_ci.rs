@@ -181,6 +181,7 @@ pub(super) fn finite_population_root_scale(n: usize, m: usize) -> Result<f64> {
     Ok(root_scale)
 }
 
+#[cfg(test)]
 pub(super) fn sample_mixed_indices<R: Rng + ?Sized>(
     labels: &[usize],
     m: usize,
