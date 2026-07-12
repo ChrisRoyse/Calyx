@@ -302,7 +302,7 @@ pub(super) fn hypergeometric_cdf_at_most(
             .iter()
             .map(|term| (*term - max_log).exp())
             .sum::<f64>();
-    if !probability.is_finite() || probability < -1e-12 || probability > 1.0 + 1e-9 {
+    if !probability.is_finite() || !(-1e-12..=1.0 + 1e-9).contains(&probability) {
         return Err(CalyxError::assay_low_signal(format!(
             "mixed continuous-discrete KSG hypergeometric probability is invalid: {probability}"
         )));

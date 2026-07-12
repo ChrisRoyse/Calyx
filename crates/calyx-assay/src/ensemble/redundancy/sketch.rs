@@ -277,8 +277,8 @@ fn validate_row(row: &[f32], dimension: usize, index: usize) -> Result<()> {
 pub(super) fn tuple_z(rows: [&[f32]; 4], inverse_energy: f64) -> Result<[f64; 3]> {
     let mut r = CompensatedSum::default();
     let mut s = CompensatedSum::default();
-    for column in 0..rows[0].len() {
-        let a = f64::from(rows[0][column]);
+    for (column, &a) in rows[0].iter().enumerate() {
+        let a = f64::from(a);
         let b = f64::from(rows[1][column]);
         let c = f64::from(rows[2][column]);
         let d = f64::from(rows[3][column]);
