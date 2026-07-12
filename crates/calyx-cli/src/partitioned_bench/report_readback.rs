@@ -7,6 +7,7 @@ use crate::output;
 use crate::partitioned_rrf_report_store::{self, PartitionedRrfReportDbReadback};
 
 const DEFAULT_LIMIT_SLOTS: usize = 12;
+const DEFAULT_LIMIT_PAIRS: usize = 12;
 
 pub(crate) fn run(raw: &[String]) -> CliResult {
     let args = Args::parse(raw)?;
@@ -27,6 +28,7 @@ struct Args {
     cf_root: PathBuf,
     report_key: String,
     limit_slots: usize,
+    limit_pairs: usize,
 }
 
 impl Args {
@@ -34,6 +36,7 @@ impl Args {
         let mut cf_root = None;
         let mut report_key = partitioned_rrf_report_store::DEFAULT_ASSOCIATION_KEY.to_string();
         let mut limit_slots = DEFAULT_LIMIT_SLOTS;
+        let mut limit_pairs = DEFAULT_LIMIT_PAIRS;
         let mut it = raw.iter();
         while let Some(flag) = it.next() {
             let mut next = || {
@@ -47,6 +50,9 @@ impl Args {
                 "--limit-slots" => {
                     limit_slots = parse_positive(&next()?, "--limit-slots")?;
                 }
+                "--limit-pairs" => {
+                    limit_pairs = parse_positive(&next()?, "--limit-pairs")?;
+                }
                 other => return Err(CliError::usage(format!("unknown flag: {other}"))),
             }
         }
@@ -57,6 +63,7 @@ impl Args {
             cf_root: cf_root.ok_or_else(|| CliError::usage("--cf-root <aster-dir> is required"))?,
             report_key,
             limit_slots,
+            limit_pairs,
         })
     }
 }
@@ -102,6 +109,7 @@ fn render(
     push_value(&mut out, report, "recall_floor", "recall_floor");
     render_latency(&mut out, report);
     render_counts(&mut out, report, args.limit_slots);
+    render_ensemble(&mut out, report, args.limit_pairs);
     render_plan(&mut out, report);
     render_ground_truth(&mut out, report);
     render_a37(&mut out, report);
@@ -119,6 +127,54 @@ fn render(
         "fusion_matches_or_beats_best_single",
     );
     out
+}
+
+fn render_ensemble(out: &mut Vec<String>, report: &Value, limit_pairs: usize) {
+    let ensemble = &report["ensemble_decomposition"];
+    if ensemble.is_null() {
+        return;
+    }
+    push_value(out, ensemble, "mode", "ensemble_mode");
+    let method = &ensemble["redundancy_method"];
+    for (key, label) in [
+        ("metric", "redundancy_metric"),
+        ("tuple_design", "redundancy_tuple_design"),
+        ("row_count", "redundancy_row_count"),
+        ("tuple_count", "redundancy_tuple_count"),
+        ("seed_hex", "redundancy_seed_hex"),
+        ("tuple_plan_blake3", "redundancy_tuple_plan_blake3"),
+        ("exact", "redundancy_exact"),
+        ("uncertainty_method", "redundancy_uncertainty_method"),
+        ("uncertainty_blocks", "redundancy_uncertainty_blocks"),
+        ("gate_score_method", "redundancy_gate_score_method"),
+    ] {
+        push_value(out, method, key, label);
+    }
+    let pairs = ensemble["pair_values"].as_array();
+    push(out, "pair_values_total", pairs.map_or(0, Vec::len));
+    push(
+        out,
+        "pair_values_shown",
+        pairs.map_or(0, |rows| rows.len().min(limit_pairs)),
+    );
+    if let Some(rows) = pairs {
+        for pair in rows.iter().take(limit_pairs) {
+            let redundancy = &pair["redundancy"];
+            out.push(format!(
+                "pair slot_a={} slot_b={} a={} b={} corr={} nmi={} raw_signed_point={} redundancy_point={} mc_standard_error={} mc_gate_upper_estimate={}",
+                scalar(&pair["slot_a"]),
+                scalar(&pair["slot_b"]),
+                scalar(&pair["a"]),
+                scalar(&pair["b"]),
+                scalar(&pair["corr"]),
+                scalar(&pair["nmi"]),
+                scalar(&redundancy["raw_signed_point"]),
+                scalar(&redundancy["redundancy_point"]),
+                scalar(&redundancy["mc_standard_error"]),
+                scalar(&redundancy["mc_gate_upper_estimate"]),
+            ));
+        }
+    }
 }
 
 fn render_latency(out: &mut Vec<String>, report: &Value) {
@@ -284,7 +340,7 @@ fn scalar(value: &Value) -> String {
         Value::Null => "null".to_string(),
         Value::Bool(value) => value.to_string(),
         Value::Number(value) => value.to_string(),
-        Value::String(value) => value.clone(),
+        Value::String(value) => one_line(value),
         Value::Array(values) => format!("array_len:{}", values.len()),
         Value::Object(values) => format!("object_keys:{}", values.len()),
     }
@@ -308,120 +364,5 @@ fn parse_positive(value: &str, flag: &str) -> CliResult<usize> {
 }
 
 #[cfg(test)]
-mod tests {
-    use std::fs;
-    use std::time::{SystemTime, UNIX_EPOCH};
-
-    use serde_json::json;
-
-    use super::*;
-
-    #[test]
-    fn report_readback_renders_bounded_scalar_lines() {
-        let root = temp_root("partitioned-rrf-report-readback");
-        let report = sample_report();
-        let written = partitioned_rrf_report_store::write(&root, "unit-report", &report).unwrap();
-        let (record, loaded) = partitioned_rrf_report_store::read(&root, "unit-report").unwrap();
-        let args = Args {
-            cf_root: root.clone(),
-            report_key: "unit-report".to_string(),
-            limit_slots: 1,
-        };
-
-        let rendered = render(&record.report, &record.format, &record.mode, &loaded, &args);
-        let text = rendered.join("\n");
-
-        assert_eq!(written.value_sha256, loaded.value_sha256);
-        assert!(text.contains("partitioned_rrf_report_readback\n"));
-        assert!(text.contains("readback_matches=true\n"));
-        assert!(text.contains("recall_at_k=0.91\n"));
-        assert!(text.contains("latency_p99_us=24000\n"));
-        assert!(text.contains("lens_roster_len=2\n"));
-        assert!(text.contains("slots_shown=1\n"));
-        assert!(text.contains("slot slot=0 name=semantic dim=768 n_regions=12 query_start_row=9"));
-        assert!(text.contains("a37_gate_passed=true\n"));
-        assert!(text.contains("temporal_active_count=1000\n"));
-        assert!(!text.contains('{'));
-        assert!(!text.contains('['));
-        let _ = fs::remove_dir_all(root);
-    }
-
-    fn sample_report() -> Value {
-        json!({
-            "trigger": "calyx bench partitioned-rrf",
-            "mode": "real_multi_slot_rrf",
-            "metric_class": "ann_correctness",
-            "metric_scope": "multi_slot_rrf",
-            "plan_source": {
-                "mode": "aster_graph_cf",
-                "cf_root": "/tmp/plan-cf",
-                "association_key": "plan",
-                "db_readback": {
-                    "readback_matches": true,
-                    "value_sha256": "a".repeat(64)
-                }
-            },
-            "lens_roster": [{"slot": 0}, {"slot": 1}],
-            "per_lens_bits": [{"slot": 0}, {"slot": 1}],
-            "slots": [
-                {"slot": 0, "name": "semantic", "dim": 768, "n_regions": 12, "query_start_row": 9},
-                {"slot": 1, "name": "lexical", "dim": 512, "n_regions": 9, "query_start_row": 9}
-            ],
-            "queries": 1000,
-            "k": 10,
-            "n_probe": 64,
-            "region_beam": 1152,
-            "truth_depth": 64,
-            "ground_truth_queries": 1000,
-            "ground_truth_source": {
-                "mode": "precomputed_slot_rrf_aster_cf",
-                "scale_suitable": true,
-                "query_count": 1000,
-                "truth_depth": 64,
-                "db_readback": {
-                    "readback_matches": true,
-                    "value_bytes": 1234,
-                    "value_sha256": "b".repeat(64)
-                }
-            },
-            "latency_us": {"p50": 18000, "p99": 24000, "p999": 25000, "max": 70000},
-            "fused_ground_truth_recall_at_k": 0.91,
-            "recall_floor": 0.85,
-            "a37_admission": {
-                "mode": "assay_multi_anchor_a37_admission_db",
-                "status": "gate_passed",
-                "gate_passed": true,
-                "lens_count": 10,
-                "association_family_count": 4,
-                "db_readback": {
-                    "readback_matches": true,
-                    "value_sha256": "c".repeat(64)
-                }
-            },
-            "temporal": {
-                "mode": "aster_graph_cf",
-                "row_count": 1000,
-                "active_count": 1000,
-                "inactive_count": 0,
-                "duplicate_event_time_rows": 0,
-                "out_of_order_event_time_rows": 0,
-                "db_readback": {
-                    "readback_matches": true,
-                    "value_sha256": "d".repeat(64)
-                }
-            },
-            "best_single_lens_recall_vs_fused_truth": 0.82,
-            "fusion_matches_or_beats_best_single": true
-        })
-    }
-
-    fn temp_root(name: &str) -> PathBuf {
-        let nanos = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_nanos();
-        let root = std::env::temp_dir().join(format!("{name}-{}-{nanos}", std::process::id()));
-        fs::create_dir_all(&root).unwrap();
-        root
-    }
-}
+#[path = "report_readback/tests.rs"]
+mod tests;
