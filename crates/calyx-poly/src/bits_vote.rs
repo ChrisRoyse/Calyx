@@ -176,6 +176,7 @@ pub fn bits_vote(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use calyx_core::CalyxErrorCode;
     use rand::{Rng, SeedableRng};
     use rand_chacha::ChaCha8Rng;
 
@@ -228,6 +229,65 @@ mod tests {
         );
         assert_eq!(sig.direction, 1, "higher signal points YES");
         assert!(sig.votes_yes);
+    }
+
+    fn forecast_regression_rows() -> (Vec<SlotVoteInput>, Vec<bool>) {
+        let mut rng = ChaCha8Rng::seed_from_u64(21_085);
+        let mut labels = Vec::with_capacity(160);
+        let mut signal = Vec::with_capacity(160);
+        let mut noise = Vec::with_capacity(160);
+        for i in 0..160 {
+            let up = i % 2 == 0;
+            let flip = (i / 2) % 10 == 0;
+            labels.push(if up { !flip } else { flip });
+            signal.push(if up { 2.0 } else { -2.0 } + 0.4 * gaussian(&mut rng));
+            let _neighbor_sidecar = 0.3 * gaussian(&mut rng);
+            noise.push(gaussian(&mut rng));
+        }
+        (
+            vec![
+                SlotVoteInput {
+                    key: "signal".into(),
+                    train_values: signal,
+                    query_value: 2.2,
+                },
+                SlotVoteInput {
+                    key: "noise".into(),
+                    train_values: noise,
+                    query_value: 0.0,
+                },
+            ],
+            labels,
+        )
+    }
+
+    #[test]
+    fn low_signal_noise_is_parked_while_informative_slot_votes() {
+        let (slots, labels) = forecast_regression_rows();
+        let vote = bits_vote(&slots, &labels, 1.0, 3)
+            .expect("one low-signal slot must not erase an informative panel vote");
+        assert!(vote.p_yes > 0.65, "informative YES slot must still vote");
+        let signal = vote.slots.iter().find(|slot| slot.key == "signal").unwrap();
+        let noise = vote.slots.iter().find(|slot| slot.key == "noise").unwrap();
+        assert!(signal.bits > 0.0);
+        assert_eq!(noise.bits, 0.0);
+        let noise_json = serde_json::to_value(noise).unwrap();
+        assert_eq!(
+            noise_json
+                .get("measurement_error_code")
+                .and_then(serde_json::Value::as_str),
+            Some(CalyxErrorCode::AssayLowSignal.code())
+        );
+    }
+
+    #[test]
+    fn all_low_signal_slots_fail_closed_as_no_signal() {
+        let (mut slots, labels) = forecast_regression_rows();
+        let noise = slots.remove(1);
+        assert_eq!(
+            bits_vote(&[noise], &labels, 1.0, 3).unwrap_err().code(),
+            ERR_BV_NO_SIGNAL
+        );
     }
 
     #[test]
