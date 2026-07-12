@@ -1,3 +1,4 @@
+use calyx_assay::EstimateBound;
 use serde::{Deserialize, Serialize};
 
 pub const KALSHI_EXTERNAL_API_BASE_URL: &str = "https://external-api.kalshi.com/trade-api/v2";
@@ -125,6 +126,8 @@ pub struct ExternalSignalAdmissionReport {
     pub bits: f32,
     pub ci_low_bits: f32,
     pub ci_high_bits: f32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub estimate_bound: Option<EstimateBound>,
     pub threshold_bits: f32,
     pub admitted: bool,
     pub code: String,

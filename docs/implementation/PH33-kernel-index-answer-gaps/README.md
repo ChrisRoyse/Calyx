@@ -58,7 +58,7 @@ Real-corpus anchor-search bound readback #630 is signed off under
 loads hash-checked corpus/qrels bytes, the selected grounded anchor is rank
 `76` outside the old top-10 window, the current exhaustive fallback is bounded
 by the tuned kernel's `158` candidates, and the test passes the full real
-anchored set through production `kernel_answer`.
+anchored set through `kernel_answer_with_ledger`.
 T06 (#239) adds PH35-backed Lodestar provenance APIs:
 `build_kernel_pipeline_with_ledger` writes one `kind=Kernel` entry and
 `kernel_answer_with_ledger` writes one `kind=Answer` entry per hop plus a final
@@ -75,7 +75,7 @@ Full PH36 reproduce remains closed in #252-#255.
 | File | Responsibility |
 |---|---|
 | `crates/calyx-lodestar/src/kernel_index.rs` | write/load `idx/kernel/`; ANN over kernel `CxId` embeddings; `kernel_search(query_vec) -> Vec<(CxId, f32)>` |
-| `crates/calyx-lodestar/src/kernel_answer.rs` | `kernel_answer(query, anchor_kind) -> AnswerPath`; ground at nearest anchored kernel node → bounded `reach` to the query → hop-attenuate with `0.9^hop` → provenance-stamp each hop |
+| `crates/calyx-lodestar/src/kernel_answer.rs` | `kernel_answer_with_ledger(...) -> AnswerPath`; ground at nearest anchored kernel node → bounded `reach` to the query → hop-attenuate with `0.9^hop` → persist and verify hop/completion provenance. Ledger-less `kernel_answer` performs path selection but fails every answerable path closed. |
 | `crates/calyx-lodestar/src/loom_assoc.rs` | read Loom XTerm CF agreement rows through `LoomStore`, require slot→CxId bindings + directional confidence, and emit CxId `AgreementEdge` inputs for Mincut/Lodestar |
 | `crates/calyx-lodestar/src/grounding_gaps.rs` | `grounding_gaps(kernel, anchors) -> Vec<CxId>`; BFS from each kernel member; members not reaching any anchor are the gaps |
 | `crates/calyx-lodestar/src/recall_test.rs` | `kernel_recall_test(...) -> RecallReport` for report-only warning bytes; `kernel_recall_gate(...) -> RecallReport` for fail-closed acceptance when ratio < 0.95 |
@@ -134,8 +134,8 @@ Full PH36 reproduce remains closed in #252-#255.
   evidence requirements.
 - **Provenance stamp per hop:** `kernel_answer_with_ledger` now appends real
   Ledger rows per hop and a final complete Answer row (#239/#631). The legacy
-  `kernel_answer` stub path is compatibility-only and must not be counted as
-  real Stage 6 exit provenance. Direct-hit ledger answers must append a durable
+  ledger-less `kernel_answer` entry point fails every answerable path closed with
+  `CALYX_KERNEL_ANSWER_LEDGER_REQUIRED`. Direct-hit ledger answers append a durable
   complete `kind=Answer` row with `expected_hops=0` before returning (#647);
   FSV root:
   `/home/croyse/calyx/data/fsv-issue647-direct-hit-ledger-20260611T073538Z`;

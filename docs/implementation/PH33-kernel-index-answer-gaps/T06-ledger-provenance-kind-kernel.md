@@ -33,7 +33,8 @@ Full audit query and reproduce surfaces were later closed in PH36 work
 - [x] `kernel_answer_with_ledger` appends the final complete `kind=Answer` row
   even for direct-hit zero-hop answers (#647).
 - [x] The existing pure `kernel_answer` compatibility path remains deterministic,
-  but is not valid Stage 6 exit evidence for real provenance.
+  but every answerable path fails closed with `CALYX_KERNEL_ANSWER_LEDGER_REQUIRED`;
+  it never returns an unprovenanced `AnswerPath`.
 - [x] Missing/corrupt Ledger integration fails closed with the underlying
   `CALYX_LEDGER_*` code surfaced through `LodestarError`.
 - [x] PH36 `get_answer_trace` returns kernel and hop entries in order (#254).

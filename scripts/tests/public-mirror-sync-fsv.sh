@@ -405,6 +405,198 @@ grep -Fq "scripts/secret-scan.sh\" --staged" "$githook_precommit" \
   || bad ".githooks/pre-commit staged/cached hook parity missing"
 
 echo
+echo "=================================================================="
+echo "SCENARIO 11 - tracked dev file beneath an ignored directory must"
+echo "still be staged; ignored status must not hide it from the commit."
+echo "=================================================================="
+dev11="$work/dev11"; pub11="$work/pub11"
+make_dev  "$dev11" "pub fn demo() -> u32 { 13 }"
+make_public "$pub11" "pub fn demo() -> u32 { 5 }"
+mkdir -p "$dev11/crates/demo/src/storage"
+printf 'storage/\n' >> "$dev11/.gitignore"
+printf 'pub fn persisted_source() -> u32 { 21 }\n' \
+  > "$dev11/crates/demo/src/storage/new.rs"
+git -C "$dev11" add .gitignore
+git -C "$dev11" add -f crates/demo/src/storage/new.rs
+git -C "$dev11" commit -qm "add tracked source beneath ignored directory"
+
+set +e
+out11="$( cd "$dev11" && bash scripts/public-mirror-sync.sh --public-dir "$pub11" 2>&1 )"
+rc11=$?
+set -e
+echo "-- sync exit code: $rc11 --"
+echo "$out11" | sed 's/^/   /'
+[[ $rc11 -eq 0 ]] \
+  && pass "sync exits 0 when tracked source collides with an ignore rule" \
+  || bad "sync should stage tracked ignored source (got $rc11)"
+git -C "$pub11" diff --cached --name-only | \
+  grep -qx "crates/demo/src/storage/new.rs" \
+  && pass "tracked ignored source is STAGED" \
+  || bad "tracked ignored source was omitted from the public index"
+staged11="$(git -C "$pub11" show :crates/demo/src/storage/new.rs 2>/dev/null || true)"
+[[ "$staged11" == "pub fn persisted_source() -> u32 { 21 }" ]] \
+  && pass "staged ignored-source bytes match dev" \
+  || bad "staged ignored-source bytes do not match dev: [$staged11]"
+ignored11="$(
+  git -C "$pub11" ls-files --others --ignored --exclude-standard -- \
+    crates/demo/src/storage
+)"
+[[ -z "$ignored11" ]] \
+  && pass "no copied allowlist file remains hidden in ignored state" \
+  || bad "ignored copied files remain outside the index:"$'\n'"$ignored11"
+
+echo
+echo "=================================================================="
+echo "SCENARIO 12 - dev git ls-files failure must fail before mutating"
+echo "the public checkout; process substitution must not mask it."
+echo "=================================================================="
+dev12="$work/dev12"; pub12="$work/pub12"
+make_dev  "$dev12" "pub fn demo() -> u32 { 34 }"
+make_public "$pub12" "pub fn demo() -> u32 { 8 }"
+fake_git_sync="$work/fake-git-sync"
+mkdir -p "$fake_git_sync"
+cat >"$fake_git_sync/git" <<FAKE_GIT_SYNC
+#!/usr/bin/env bash
+if [[ "\${1:-}" == "-C" \
+  && "\${2:-}" == "$dev12" \
+  && "\${3:-}" == "ls-files" ]]; then
+  echo "fatal: simulated dev git ls-files failure" >&2
+  exit 128
+fi
+exec "$real_git" "\$@"
+FAKE_GIT_SYNC
+chmod +x "$fake_git_sync/git"
+before12="$(git -C "$pub12" status --porcelain)"
+set +e
+out12="$(
+  cd "$dev12" && PATH="$fake_git_sync:$PATH" \
+    bash scripts/public-mirror-sync.sh --public-dir "$pub12" 2>&1
+)"
+rc12=$?
+set -e
+echo "-- sync exit code: $rc12 --"
+echo "$out12" | sed 's/^/   /'
+[[ $rc12 -eq 2 ]] \
+  && pass "dev git ls-files failure exits as environment failure" \
+  || bad "dev git ls-files failure should exit 2 (got $rc12)"
+echo "$out12" | grep -q "git ls-files failed while reading the dev allowlist" \
+  && pass "dev allowlist plumbing failure reason reported" \
+  || bad "dev allowlist plumbing failure reason missing"
+echo "$out12" | grep -q "staged public allowlist sync" \
+  && bad "sync claimed success after dev allowlist plumbing failure" \
+  || pass "sync did NOT claim success after dev allowlist plumbing failure"
+after12="$(git -C "$pub12" status --porcelain)"
+[[ -z "$before12" && -z "$after12" ]] \
+  && pass "public checkout remains byte-clean after producer failure" \
+  || bad "producer failure mutated public checkout:"$'\n'"$after12"
+body12="$(git -C "$pub12" show HEAD:crates/demo/src/lib.rs)"
+[[ "$body12" == "pub fn demo() -> u32 { 8 }" ]] \
+  && pass "public source bytes remain at the pre-trigger value" \
+  || bad "public source bytes changed after producer failure: [$body12]"
+
+echo
+echo "=================================================================="
+echo "SCENARIO 13 - public git status failure must fail before overwrite,"
+echo "preserving dirty operator worktree bytes and the original index."
+echo "=================================================================="
+dev13="$work/dev13"; pub13="$work/pub13"
+make_dev  "$dev13" "pub fn demo() -> u32 { 55 }"
+make_public "$pub13" "pub fn demo() -> u32 { 10 }"
+printf 'operator dirty bytes\n' > "$pub13/crates/demo/src/lib.rs"
+fake_git_status="$work/fake-git-status"
+mkdir -p "$fake_git_status"
+cat >"$fake_git_status/git" <<FAKE_GIT_STATUS
+#!/usr/bin/env bash
+if [[ "\${1:-}" == "-C" \
+  && "\${2:-}" == "$pub13" \
+  && "\${3:-}" == "status" \
+  && "\${4:-}" == "--porcelain" ]]; then
+  echo "fatal: simulated public git status failure" >&2
+  exit 128
+fi
+exec "$real_git" "\$@"
+FAKE_GIT_STATUS
+chmod +x "$fake_git_status/git"
+set +e
+out13="$(
+  cd "$dev13" && PATH="$fake_git_status:$PATH" \
+    bash scripts/public-mirror-sync.sh --public-dir "$pub13" 2>&1
+)"
+rc13=$?
+set -e
+echo "-- sync exit code: $rc13 --"
+echo "$out13" | sed 's/^/   /'
+[[ $rc13 -eq 2 ]] \
+  && pass "public git status failure exits as environment failure" \
+  || bad "public git status failure should exit 2 (got $rc13)"
+echo "$out13" | grep -q "git status failed while inspecting the public checkout" \
+  && pass "public preflight status failure reason reported" \
+  || bad "public preflight status failure reason missing"
+echo "$out13" | grep -q "staged public allowlist sync" \
+  && bad "sync claimed success after public preflight status failure" \
+  || pass "sync did NOT claim success after public preflight status failure"
+worktree13="$(sed -n '1p' "$pub13/crates/demo/src/lib.rs")"
+index13="$(git -C "$pub13" show :crates/demo/src/lib.rs)"
+status13="$(git -C "$pub13" status --porcelain)"
+[[ "$worktree13" == "operator dirty bytes" \
+  && "$index13" == "pub fn demo() -> u32 { 10 }" \
+  && "$status13" == " M crates/demo/src/lib.rs" ]] \
+  && pass "dirty public worktree and original index remain byte-exact" \
+  || bad "public preflight failure changed worktree/index state: [$status13]"
+
+echo
+echo "=================================================================="
+echo "SCENARIO 14 - final public git status failure must fail closed"
+echo "instead of claiming that staged output is commit-ready."
+echo "=================================================================="
+dev14="$work/dev14"; pub14="$work/pub14"
+make_dev  "$dev14" "pub fn demo() -> u32 { 89 }"
+make_public "$pub14" "pub fn demo() -> u32 { 12 }"
+fake_git_final_status="$work/fake-git-final-status"
+status_count_file="$work/final-status-count"
+mkdir -p "$fake_git_final_status"
+cat >"$fake_git_final_status/git" <<FAKE_GIT_FINAL_STATUS
+#!/usr/bin/env bash
+if [[ "\${1:-}" == "-C" \
+  && "\${2:-}" == "$pub14" \
+  && "\${3:-}" == "status" \
+  && "\${4:-}" == "--porcelain" ]]; then
+  count=0
+  [[ -f "$status_count_file" ]] && count="\$(sed -n '1p' "$status_count_file")"
+  count="\$((count + 1))"
+  printf '%s\n' "\$count" > "$status_count_file"
+  if [[ "\$count" -ge 2 ]]; then
+    echo "fatal: simulated final public git status failure" >&2
+    exit 128
+  fi
+fi
+exec "$real_git" "\$@"
+FAKE_GIT_FINAL_STATUS
+chmod +x "$fake_git_final_status/git"
+set +e
+out14="$(
+  cd "$dev14" && PATH="$fake_git_final_status:$PATH" \
+    bash scripts/public-mirror-sync.sh --public-dir "$pub14" 2>&1
+)"
+rc14=$?
+set -e
+echo "-- sync exit code: $rc14 --"
+echo "$out14" | sed 's/^/   /'
+[[ $rc14 -eq 2 ]] \
+  && pass "final public git status failure exits as environment failure" \
+  || bad "final public git status failure should exit 2 (got $rc14)"
+echo "$out14" | grep -q "git status failed after staging the public checkout" \
+  && pass "public final status failure reason reported" \
+  || bad "public final status failure reason missing"
+echo "$out14" | grep -q "staged public allowlist sync" \
+  && bad "sync claimed commit-ready state after final status failure" \
+  || pass "sync did NOT claim commit-ready state after final status failure"
+staged14="$(git -C "$pub14" diff --cached --name-only)"
+[[ -n "$staged14" ]] \
+  && pass "failed final read leaves explicit staged evidence, not a false clean claim" \
+  || bad "expected staged sync evidence after final-read failure"
+
+echo
 if [[ $fail -eq 0 ]]; then
   echo "ALL SCENARIOS PASSED"
 else

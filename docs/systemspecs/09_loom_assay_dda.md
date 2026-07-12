@@ -15,7 +15,7 @@ Every claim below is traced to a file path plus the function/type that implement
 `lib.rs`, `cross_term.rs`, `agreement_graph.rs`, `abundance.rs`, `materialization.rs`, `blind_spot.rs`, `lru_cache.rs`, `error.rs`, `reactive/{mod,engine,signals,subscription,durable}.rs`, `recurrence/{mod,periodic,cross_terms,series_store,signature}.rs`.
 
 **calyx-assay** (`crates/calyx-assay/src/`):
-`lib.rs`, `ksg.rs`, `nmi.rs`, `logistic.rs`, `estimate.rs`, `contract.rs`, `n_eff.rs`, `sufficiency.rs`, `attribution.rs`, `stratified.rs`, `formulas.rs`, `gate.rs`, `bootstrap.rs`, `samples.rs`, `projection.rs`, `store.rs`, `bayesian.rs`, `mmd.rs`, `transfer_entropy.rs`, `total_correlation.rs`, `periodicity.rs`, `recurrence_hazard.rs`, `recurrence_anchor.rs`, `loom_adapter.rs`, `formula_catalog.rs`, `special_fn.rs`.
+`lib.rs`, `ksg/{mod,math,mixed_ci,tests,coverage_tests}.rs`, `nmi.rs`, `logistic.rs`, `estimate.rs`, `contract.rs`, `n_eff.rs`, `sufficiency.rs`, `attribution.rs`, `stratified.rs`, `formulas.rs`, `gate.rs`, `bootstrap.rs`, `samples.rs`, `projection.rs`, `store.rs`, `bayesian.rs`, `mmd.rs`, `transfer_entropy.rs`, `total_correlation.rs`, `periodicity.rs`, `recurrence_hazard.rs`, `recurrence_anchor.rs`, `loom_adapter.rs`, `formula_catalog.rs`, `special_fn.rs`.
 
 ---
 
@@ -270,12 +270,14 @@ Constants: `SECS_PER_HOUR=3600`, `SECS_PER_DAY=86_400`, `UNIX_EPOCH_DAY_OF_WEEK_
 | Type | Variants / Fields | File |
 | --- | --- | --- |
 | `TrustTag` | `Trusted`, `Provisional` | `estimate.rs:8` |
-| `EstimatorKind` | `Ksg`, `HistogramNmi`, `LogisticProbe`, `Bootstrap`, `PanelSufficiency`, `OutcomeEntropy`, `PairGain` | `estimate.rs:15` |
-| `MiEstimate` | `bits`, `ci_low`, `ci_high: f32`, `n_samples`, `estimator: EstimatorKind`, `trust: TrustTag` | `estimate.rs:26` |
+| `EstimatorKind` | `Ksg`, `HistogramNmi`, `LogisticProbe`, `Bootstrap`, `PanelSufficiency`, `OutcomeEntropy`, `PairGain` | `estimate.rs:22` |
+| `MiEstimate` | `bits`, `ci_low`, `ci_high: f32`, `n_samples`, `estimator: EstimatorKind`, `trust: TrustTag`, `bound: EstimateBound`, optional power/reliability metadata | `estimate.rs:68` |
 
-`MiEstimate::new` clamps `bits = max(bits,0)`, `ci_low = clamp(ci_low, 0..=bits)`, `ci_high = max(ci_high, bits)` (`estimate.rs:36`). `point(...)` builds a band `±max(|bits|·0.15, 0.02)` (`:57`).
+`MiEstimate::new` clamps `bits = max(bits,0)`, `ci_low = clamp(ci_low, 0..=bits)`, `ci_high = max(ci_high, bits)` (`estimate.rs:84,93-95`). `point(...)` builds a band `±max(|bits|·0.15, 0.02)` (`:109-112`).
 
-**Trust gating** (`:63`): `trust_for_anchor(Some(anchor))` returns `Trusted` only when `is_grounded_anchor` holds — `source` non-empty after trim, `confidence` finite and in `(0,1]`. Otherwise `Provisional`. `provisional_without_anchor(_) -> Provisional` always demotes. `require_grounded_anchor` errors `assay_insufficient_samples` if the anchor is not grounded. This is the crate's central provenance/trust rule: **no anchor ⇒ Provisional**.
+**Bound and trust gating:** `EstimateBound` is `LowerBound` (serde/default), `Point`, or `UpperBound`; consumers must respect the tag. `trust_for_anchor(Some(anchor))` returns `Trusted` only for resolved UMA sources (`uma`, `uma-onchain`, or prefix `uma:`) with confidence exactly `1.0`. Proxy-prefixed and all other sources remain `Provisional`. `provisional_without_anchor(_) -> Provisional` always demotes, and `require_grounded_anchor` fails closed when this predicate is not met.
+
+Bound metadata is preserved through Poly `SlotAssayBits`, `ExternalSignalAdmissionReport`, and `LensCandidateMeasurement` and is included in versioned provenance/decision hashes. New measured rows use `Some(bound)`; missing legacy metadata remains unknown `None`. External admission refuses mixed `Point` evidence with `CALYX_POLY_EXTERNAL_SIGNAL_REFUSED_UNCALIBRATED_BOUND`, and lens autobuild rejects it as `uncalibrated_estimate_bound`; only `LowerBound` may clear either gate.
 
 ## B2. Sample validation (`samples.rs`)
 
@@ -283,20 +285,20 @@ Constants: `SECS_PER_HOUR=3600`, `SECS_PER_DAY=86_400`, `UNIX_EPOCH_DAY_OF_WEEK_
 
 ## B3. Mutual-information estimators
 
-### B3.1 KSG continuous & continuous–discrete (`ksg.rs`)
+### B3.1 KSG continuous & continuous–discrete (`ksg/`)
 
-`MIN_ASSAY_SAMPLES = 50` (`ksg.rs:13`). Bootstrap config: `(DEFAULT_BOOTSTRAP_RESAMPLES=200, DEFAULT_BOOTSTRAP_SEED=0)`.
+`MIN_ASSAY_SAMPLES = 50` (`ksg/mod.rs`). The continuous path uses its existing deterministic 200-draw no-replacement scaled-percentile interval and currently inherits `EstimateBound::LowerBound` (#1449 tracks its calibration gap); the mixed path has a separate 999-root `Point` contract.
 
 | Function | Inputs → Output |
 | --- | --- |
 | `ksg_mi_continuous(x,y,k)` | two `&[Vec<f32>]` + `k` → `MiEstimate` (KSG), trust `Provisional` |
 | `ksg_mi_continuous_with_anchor(x,y,k,anchor)` | trust from anchor |
-| `ksg_mi_continuous_discrete(x, labels, k)` | continuous `x` + `&[usize]` labels → one-hot encodes labels into `y`, then KSG |
-| `ksg_mi_continuous_discrete_with_anchor(...)` | as above with trust |
+| `ksg_mi_continuous_discrete(x, labels, k)` | continuous `x` + `&[usize]` labels → Ross mixed continuous-discrete estimate, `EstimateBound::Point` |
+| `ksg_mi_continuous_discrete_with_anchor(...)` | same mixed estimator with trust from the anchor |
 
-**Validation** (`validate_sample_counts`, `ksg.rs:121`): fail `assay_insufficient_samples` unless `left==right`, `left ≥ 50`, `0 < k < left`.
+**Validation** (`validate_sample_counts`, `ksg/mod.rs`): fail `assay_insufficient_samples` unless lengths match, `n ≥ 50`, and `0 < k < n`. After rectangular/finite validation, each continuous dimension must have a finite f32 `max-min` span so every derived Chebyshev distance is representable; otherwise both paths fail `assay_degenerate_input` before estimation. Continuous KSG also rejects a zero k-th joint radius. Mixed KSG requires every class size to exceed `k` and rejects a zero k-th same-class radius.
 
-**KSG estimator core** (`ksg_bits_from_validated_samples`, `ksg.rs:58`):
+**KSG estimator core** (`ksg_bits_from_validated_samples`, `ksg/mod.rs:60`):
 
 ```rust
 for i in 0..n {
@@ -310,7 +312,9 @@ for i in 0..n {
 mean(local_bits).max(0.0)                            // KSG-1 estimator, floored at 0
 ```
 
-`kth_joint_radius` = the `k`-th smallest of `max(chebyshev(x_i,x_j), chebyshev(y_i,y_j))`, floored at `f32::EPSILON`. `chebyshev` is the L∞ distance. `digamma(x)` uses an upward-recurrence-then-asymptotic series (`ksg.rs:156`). The CI comes from `bootstrap_paired_ci` re-running the point estimator on resampled pairs.
+`kth_joint_radius` is the exact `k`-th smallest `max(chebyshev(x_i,x_j), chebyshev(y_i,y_j))`; the explicit degeneracy guard replaces the former epsilon floor. `chebyshev` is the L∞ distance. `digamma(x)` uses an upward-recurrence-then-asymptotic series.
+
+**Ross mixed core** (`ksg/mixed_ci.rs`): for each row i, find the k-th same-label positive Chebyshev radius; let `q_i` count other same-class rows at distance `≤` that radius, `m_i` count all other rows within it inclusively, and `n_{y_i}` be the class size. The f64 local term is `psi(n) + psi(q_i) - psi(n_{y_i}) - psi(m_i)`, so positive-radius boundary ties use observed same-class boundary mass while zero radius fails closed. The CI plan selects the smallest `m` from `max(k+2, ceil(n^(2/3)))..=floor(n/2)` with an exact hypergeometric class-support union bound `≤ 0.01`. Each proposal is uniform SRSWOR; rejection sampling accepts exactly 999 support-valid roots with at most eight proposals per root, so accepted roots are uniform conditional on class-support validity, not unconditional uniform draws. Roots use `sqrt(m/(1-m/n)) * (I_m-I_n)`. No feasible `m` or exhausted proposals fail `assay_insufficient_samples`. Reverse root tails form a basic interval. Non-finite/misordered evidence fails closed; an interval wholly below zero fails `assay_low_signal`; otherwise the interval is hulled with the point, mapped into the non-negative MI domain, and reported as `EstimateBound::Point`. A four-seed balanced/imbalanced null-and-disjoint-support regression is a smoke audit, not a 95% coverage claim.
 
 ### B3.2 Histogram NMI (`nmi.rs`)
 
@@ -409,15 +413,15 @@ The admission gate that decides whether a lens earns a slot.
 
 ## B7. Effective rank / n_eff (`n_eff.rs`, plus TC variant)
 
-`NeffReport { n_eff, trace, frobenius_sq }`. **`stable_rank(matrix) -> NeffReport`** (`n_eff.rs:12`):
+`NeffReport { n_eff, trace, frobenius_sq }`. **`stable_rank(matrix) -> calyx_core::Result<NeffReport>`** (`n_eff.rs`):
 
 ```
 trace        = Σ_i matrix[i][i]
 frobenius_sq = Σ_{i,j} matrix[i][j]^2
-n_eff        = trace^2 / frobenius_sq   (0 if frobenius_sq == 0)
+n_eff        = trace^2 / frobenius_sq
 ```
 
-This is the stable-rank / participation-ratio measure of panel redundancy. A second, distinct `n_eff_from_tc` (Part B11) derives effective rank from total correlation.
+The input must be square and finite. The empty 0x0 matrix retains rank zero; a non-empty zero-Frobenius, ragged/non-square, non-finite, or numerically unrepresentable matrix fails closed with structured `CALYX_ASSAY_DEGENERATE_INPUT`. A37 propagates the error instead of substituting missing cells or a zero rank. This is the stable-rank / participation-ratio measure of panel redundancy. A second, distinct `n_eff_from_tc` (Part B11) derives effective rank from total correlation.
 
 ## B8. Per-sensor attribution (`attribution.rs`)
 

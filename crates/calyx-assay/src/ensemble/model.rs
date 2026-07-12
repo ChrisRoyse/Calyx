@@ -5,7 +5,7 @@ use crate::sufficiency::PanelSufficiency;
 
 use super::a37::A37DiversityGate;
 
-pub const ENSEMBLE_CARD_SCHEMA_VERSION: u32 = 1;
+pub const ENSEMBLE_CARD_SCHEMA_VERSION: u32 = 2;
 pub const ENSEMBLE_CARD_PID_METHOD: &str = "bounded_decision_surrogate_v1";
 pub const MIN_ENSEMBLE_PANEL_LENSES: usize = 3;
 pub const DEFAULT_GATE_PANEL_LENSES: usize = 10;
@@ -86,6 +86,8 @@ pub struct EnsembleCard {
     pub sufficient: bool,
     pub deficit_bits: f32,
     pub a37_diversity: A37DiversityGate,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub redundancy_method: Option<EnsembleRedundancyMethod>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub deficit_proposal: Option<DeficitProposal>,
     pub sufficiency: PanelSufficiency,
@@ -120,11 +122,52 @@ pub struct EnsemblePairValue {
     pub b: String,
     pub slot_a: SlotId,
     pub slot_b: SlotId,
+    /// Compatibility alias for `redundancy.mc_gate_upper_estimate` on schema v2 cards.
     pub corr: f32,
     pub nmi: f32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub redundancy: Option<LinearCkaEstimate>,
     pub pair_bits: f32,
     pub pair_ci: [f32; 2],
     pub synergy_gain_bits: f32,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct EnsembleRedundancyMethod {
+    pub metric: String,
+    pub tuple_design: String,
+    pub row_count: usize,
+    pub tuple_count: usize,
+    pub seed_hex: String,
+    pub tuple_plan_blake3: String,
+    pub exact: bool,
+    pub uncertainty_method: String,
+    pub uncertainty_blocks: usize,
+    pub gate_score_method: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct LinearCkaEstimate {
+    pub raw_signed_point: f32,
+    pub redundancy_point: f32,
+    pub mc_standard_error: f32,
+    pub mc_gate_upper_estimate: f32,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct EnsemblePairRedundancyEvidence {
+    pub a: String,
+    pub b: String,
+    pub slot_a: SlotId,
+    pub slot_b: SlotId,
+    pub linear_cka: LinearCkaEstimate,
+    pub nmi: f32,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct EnsembleRedundancyEvidence {
+    pub method: EnsembleRedundancyMethod,
+    pub pairs: Vec<EnsemblePairRedundancyEvidence>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

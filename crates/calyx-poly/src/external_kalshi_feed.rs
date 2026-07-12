@@ -3,7 +3,7 @@
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use calyx_assay::{MIN_ASSAY_SAMPLES, TrustTag, ksg_mi_continuous_discrete};
+use calyx_assay::{EstimateBound, MIN_ASSAY_SAMPLES, TrustTag, ksg_mi_continuous_discrete};
 use calyx_core::Clock;
 use serde_json::Value;
 use sha2::{Digest, Sha256};
@@ -22,7 +22,7 @@ use crate::lens_autobuild::LensCandidateMeasurement;
 
 pub const KALSHI_FEED_SCHEMA_VERSION: &str = "poly.external_kalshi_feed.v1";
 pub const KALSHI_FEED_ARTIFACT_KIND: &str = "poly_external_kalshi_feed";
-pub const EXTERNAL_SIGNAL_ADMISSION_SCHEMA_VERSION: &str = "poly.external_signal_admission.v1";
+pub const EXTERNAL_SIGNAL_ADMISSION_SCHEMA_VERSION: &str = "poly.external_signal_admission.v2";
 pub const EXTERNAL_SIGNAL_ADMISSION_ARTIFACT_KIND: &str = "poly_external_signal_admission";
 pub const KALSHI_SIGNAL_ADMIT_BITS_THRESHOLD: f32 = 0.05;
 pub const DEFAULT_EXTERNAL_SIGNAL_K: usize = 3;
@@ -40,6 +40,8 @@ pub const ERR_EXTERNAL_SIGNAL_ADMISSION_INVALID: &str =
 pub const EXTERNAL_SIGNAL_ADMITTED: &str = "CALYX_POLY_EXTERNAL_SIGNAL_ADMITTED";
 pub const EXTERNAL_SIGNAL_REFUSED_BELOW_THRESHOLD: &str =
     "CALYX_POLY_EXTERNAL_SIGNAL_REFUSED_BELOW_THRESHOLD";
+pub const EXTERNAL_SIGNAL_REFUSED_UNCALIBRATED_BOUND: &str =
+    "CALYX_POLY_EXTERNAL_SIGNAL_REFUSED_UNCALIBRATED_BOUND";
 pub const EXTERNAL_SIGNAL_REFUSED_UNDERPOWERED: &str =
     "CALYX_POLY_EXTERNAL_SIGNAL_REFUSED_UNDERPOWERED";
 pub const EXTERNAL_SIGNAL_REFUSED_SINGLE_CLASS: &str =
@@ -125,7 +127,13 @@ pub fn measure_external_signal_admission(
     let n = observations.len();
     let positive_count = observations.iter().filter(|row| row.outcome).count();
     let negative_count = n.saturating_sub(positive_count);
-    let base = |code: &str, reason: String, bits: f32, low: f32, high: f32, admitted: bool| {
+    let base = |code: &str,
+                reason: String,
+                bits: f32,
+                low: f32,
+                high: f32,
+                estimate_bound: Option<EstimateBound>,
+                admitted: bool| {
         ExternalSignalAdmissionReport {
             schema_version: EXTERNAL_SIGNAL_ADMISSION_SCHEMA_VERSION.to_string(),
             artifact_kind: EXTERNAL_SIGNAL_ADMISSION_ARTIFACT_KIND.to_string(),
@@ -138,6 +146,7 @@ pub fn measure_external_signal_admission(
             bits,
             ci_low_bits: low,
             ci_high_bits: high,
+            estimate_bound,
             threshold_bits: KALSHI_SIGNAL_ADMIT_BITS_THRESHOLD,
             admitted,
             code: code.to_string(),
@@ -152,6 +161,7 @@ pub fn measure_external_signal_admission(
             0.0,
             0.0,
             0.0,
+            None,
             false,
         ));
     }
@@ -162,6 +172,7 @@ pub fn measure_external_signal_admission(
             0.0,
             0.0,
             0.0,
+            None,
             false,
         ));
     }
@@ -174,6 +185,7 @@ pub fn measure_external_signal_admission(
             0.0,
             0.0,
             0.0,
+            None,
             false,
         ));
     }
@@ -187,8 +199,17 @@ pub fn measure_external_signal_admission(
         labels.push(usize::from(row.outcome));
     }
     let estimate = ksg_mi_continuous_discrete(&x, &labels, k)?;
-    let admitted = estimate.bits >= KALSHI_SIGNAL_ADMIT_BITS_THRESHOLD;
-    let (code, reason) = if admitted {
+    let admitted = estimate.bound == EstimateBound::LowerBound
+        && estimate.bits >= KALSHI_SIGNAL_ADMIT_BITS_THRESHOLD;
+    let (code, reason) = if estimate.bound != EstimateBound::LowerBound {
+        (
+            EXTERNAL_SIGNAL_REFUSED_UNCALIBRATED_BOUND,
+            format!(
+                "estimator returned {:?} evidence; external-signal admission requires a calibrated lower bound",
+                estimate.bound
+            ),
+        )
+    } else if admitted {
         (
             EXTERNAL_SIGNAL_ADMITTED,
             format!(
@@ -211,6 +232,7 @@ pub fn measure_external_signal_admission(
         estimate.bits,
         estimate.ci_low,
         estimate.ci_high,
+        Some(estimate.bound),
         admitted,
     ))
 }
@@ -245,6 +267,7 @@ pub fn kalshi_lens_candidate_from_admission(
         ci_high_bits: report.ci_high_bits,
         n_samples: report.n_samples,
         trust,
+        estimate_bound: report.estimate_bound,
         evidence_artifact: evidence_artifact.into(),
         requested_action: "append_lens_spec".to_string(),
     })

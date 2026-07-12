@@ -5,6 +5,9 @@ use super::engine::{enforce_a37_mode, evaluate};
 use super::metrics::write_outputs;
 use super::request::{A37CardMode, I8binEnsembleRequest};
 
+#[path = "tests_redundancy.rs"]
+mod redundancy;
+
 const DIM: usize = 4;
 
 #[test]

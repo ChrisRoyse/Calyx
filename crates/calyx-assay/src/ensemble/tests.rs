@@ -53,6 +53,43 @@ fn ten_lens_card_reports_marginal_redundancy_synergy_and_sufficiency() {
 }
 
 #[test]
+fn orthogonal_sign_flip_preserves_ensemble_redundancy() {
+    let (mut lenses, labels) = fixture_panel(160);
+    let real_a = lenses
+        .iter()
+        .find(|lens| lens.name == "real_a")
+        .unwrap()
+        .vectors
+        .clone();
+    lenses
+        .iter_mut()
+        .find(|lens| lens.name == "redundant_a")
+        .unwrap()
+        .vectors = real_a
+        .into_iter()
+        .map(|row| {
+            row.into_iter()
+                .enumerate()
+                .map(|(dim, value)| if dim % 2 == 0 { value } else { -value })
+                .collect()
+        })
+        .collect();
+
+    let card = ensemble_card(&lenses, &labels, None, &EnsembleConfig::default()).unwrap();
+    let pair = card
+        .pairs
+        .iter()
+        .find(|pair| pair.a == "real_a" && pair.b == "redundant_a")
+        .unwrap();
+
+    assert!(
+        pair.corr > 0.99,
+        "orthogonally equivalent lenses must remain redundant, got {}",
+        pair.corr
+    );
+}
+
+#[test]
 fn panels_below_theoretical_floor_fail_closed() {
     let (lenses, labels) = fixture_panel(80);
     let error = ensemble_card(&lenses[..2], &labels, None, &EnsembleConfig::default()).unwrap_err();

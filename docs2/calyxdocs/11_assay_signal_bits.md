@@ -2,7 +2,7 @@
 
 **Source files covered:**
 - `crates/calyx-assay/src/lib.rs`
-- `crates/calyx-assay/src/ksg.rs`
+- `crates/calyx-assay/src/ksg/`
 - `crates/calyx-assay/src/logistic.rs`
 - `crates/calyx-assay/src/nmi.rs`
 - `crates/calyx-assay/src/contract.rs`
@@ -37,7 +37,7 @@ This crate depends on `calyx-aster`, `calyx-core`, `calyx-loom`, `blake3`, `rand
 
 ## 1. Information-theoretic core: bits per lens
 
-Assay measures information in **bits** (base-2 logs throughout). Three estimators produce a per-lens / per-pair / per-panel mutual-information (MI) number, each wrapped in an `MiEstimate` with a bootstrap CI, sample count, estimator kind, and trust tag.
+Assay measures information in **bits** (base-2 logs throughout). Three estimators produce a per-lens / per-pair / per-panel mutual-information (MI) number, each wrapped in an `MiEstimate` with an uncertainty interval, sample count, estimator kind, bound role, and trust tag.
 
 ### 1.1 Shared estimate type (`estimate.rs`)
 
@@ -51,31 +51,38 @@ Assay measures information in **bits** (base-2 logs throughout). Three estimator
 | `n_samples` | `usize` | Paired-sample count the estimate was computed on. |
 | `estimator` | `EstimatorKind` | Which method produced it. |
 | `trust` | `TrustTag` | `Trusted` or `Provisional`. |
+| `bound` | `EstimateBound` | Inferential role: `LowerBound`, `Point`, or `UpperBound`. |
+| `power_calibration` | `Option<PowerCalibration>` | Optional calibrated power metadata. |
+| `reliability` | `Option<EstimateReliability>` | Optional multi-seed reliability metadata. |
 
 `MiEstimate::point(bits, n, est, trust)` builds an estimate with a synthetic band of `(|bits|*0.15).max(0.02)` either side (used when no bootstrap is available, e.g. outcome-entropy rows).
 
 `EstimatorKind` variants (serde `snake_case`): `Ksg`, `HistogramNmi`, `LogisticProbe`, `Bootstrap`, `PanelSufficiency`, `OutcomeEntropy`, `PairGain`.
 
-`TrustTag` variants: `Trusted`, `Provisional`. Trust is set by `trust_for_anchor(Option<&Anchor>)`: an anchor is **grounded** (and hence `Trusted`) iff `is_grounded_anchor` holds — `anchor.source` is non-blank, and `anchor.confidence` is finite, `> 0.0`, and `<= 1.0`. Otherwise `Provisional`. `require_grounded_anchor(&Anchor)` returns `Trusted` or errors `CALYX_ASSAY_INSUFFICIENT_SAMPLES`. `provisional_without_anchor(_)` always downgrades to `Provisional` (used by the non-anchor sufficiency/attribution entry points so they never claim trust).
+`EstimateBound` variants are `LowerBound` (the serde/default value), `Point`, and `UpperBound`. Callers must not infer a lower-bound gate from a `Point` estimate.
 
-### 1.2 KSG estimator (`ksg.rs`) — production default
+The bound is preserved through `SlotAssayBits`, `ExternalSignalAdmissionReport`, and `LensCandidateMeasurement` and participates in versioned provenance/decision hashing. New measured records carry `Some(bound)`; an absent legacy field remains unknown `None` rather than being upgraded to `LowerBound`. Mixed `Point` evidence is refused for external admission with `CALYX_POLY_EXTERNAL_SIGNAL_REFUSED_UNCALIBRATED_BOUND`, and lens autobuild rejects it as `uncalibrated_estimate_bound`. Only `LowerBound` evidence may clear those gates.
 
-This is the **Kraskov–Stögbauer–Grassberger** k-nearest-neighbor MI estimator, KSG estimator **1** (the joint-radius / count-in-each-marginal form). It is the default for vector↔outcome MI.
+`TrustTag` variants: `Trusted`, `Provisional`. `trust_for_anchor` returns `Trusted` only for resolved UMA evidence: the trimmed source is `uma` or `uma-onchain`, or starts with `uma:`, and confidence is exactly `1.0`. Proxy-prefixed and all other sources remain `Provisional`, even when nonblank with finite confidence. `require_grounded_anchor(&Anchor)` returns `Trusted` or errors `CALYX_ASSAY_INSUFFICIENT_SAMPLES`. `provisional_without_anchor(_)` always downgrades to `Provisional`.
+
+### 1.2 KSG estimators (`ksg/`) — production defaults
+
+Assay has two distinct nearest-neighbor MI paths. Continuous↔continuous uses **Kraskov–Stögbauer–Grassberger estimator 1** (joint radius with marginal counts). Continuous↔discrete uses the **Ross mixed estimator** directly; discrete labels are never represented as continuous one-hot coordinates.
 
 Constant: `MIN_ASSAY_SAMPLES: usize = 50` — the hard sample floor used across KSG, NMI, logistic and TC quorum checks.
 
 Public entry points:
 - `ksg_mi_continuous(x, y, k)` — continuous↔continuous; trust defaults to `Provisional`.
 - `ksg_mi_continuous_with_anchor(x, y, k, anchor)` — same, trust from anchor.
-- `ksg_mi_continuous_discrete(x, labels, k)` — continuous↔discrete; labels `&[usize]` are **one-hot encoded** into `y` rows (one column per distinct label, ordered by first appearance via a `BTreeMap`), then routed through the continuous path.
-- `ksg_mi_continuous_discrete_with_anchor(x, labels, k, anchor)` — same, trust from anchor.
+- `ksg_mi_continuous_discrete(x, labels, k)` — Ross continuous↔discrete estimate; trust defaults to `Provisional`.
+- `ksg_mi_continuous_discrete_with_anchor(x, labels, k, anchor)` — same mixed estimator, trust from anchor.
 
-`x` and `y` are `&[Vec<f32>]` (n rows, each a vector). Both must be rectangular and finite (`validate_rectangular_finite`).
+Continuous inputs `x` and `y` are `&[Vec<f32>]`; mixed inputs pair rectangular finite `x` with `&[usize]` labels.
 
-**Validation / fail-closed (`validate_sample_counts`):** errors `CALYX_ASSAY_INSUFFICIENT_SAMPLES` if `x.len() != y.len()`, or `len < MIN_ASSAY_SAMPLES (50)`, or `k == 0`, or `k >= n`.
+**Common validation / fail-closed (`validate_sample_counts`):** errors `CALYX_ASSAY_INSUFFICIENT_SAMPLES` on a length mismatch, fewer than 50 full-sample rows, `k == 0`, or `k >= n`. After rectangular/finite coordinate validation, every continuous dimension must also have a finite f32 `max-min` span so all derived Chebyshev distances are representable; otherwise `CALYX_ASSAY_DEGENERATE_INPUT` is returned before either estimator kernel. Continuous KSG additionally rejects any point with at least `k` exact joint-coordinate duplicates, because its k-th radius would be zero. Mixed KSG requires every discrete class to contain more than `k` rows and rejects at least `k` exact same-class continuous duplicates with the same degeneracy code.
 
 **Exact per-point computation (`ksg_bits_from_validated_samples`), for each sample i over n points:**
-1. `eps = kth_joint_radius(x, y, i, k)` — the distance to the k-th nearest neighbor of point i in the **joint** space, where the joint distance between i and j is `max(chebyshev(x_i, x_j), chebyshev(y_i, y_j))` (Chebyshev / L∞ in each marginal, max across the two marginals). The k-th value is taken (`distances[k-1]`), floored at `f32::EPSILON`.
+1. `eps = kth_joint_radius(x, y, i, k)` — the exact distance to the k-th nearest neighbor of point i in the **joint** space, where the joint distance between i and j is `max(chebyshev(x_i, x_j), chebyshev(y_i, y_j))` (Chebyshev / L∞ in each marginal, max across the two marginals). The preceding degeneracy guard makes `eps > 0`; the radius is not silently floored.
 2. `nx = neighbor_count(x, i, eps)` — count of j ≠ i with `chebyshev(x_i, x_j) < eps` (strict).
 3. `ny = neighbor_count(y, i, eps)` — likewise in the y marginal.
 4. Local term (in nats):
@@ -87,9 +94,11 @@ The estimate is `mean(local_bits).max(0.0)` — the average over all points, cla
 
 `digamma(x)` is computed by upward recurrence to `x >= 7` then the asymptotic series `ln(x) - 1/(2x) - 1/(12x²) + 1/(120x⁴)`.
 
-**Complexity:** O(n²·dim) per estimate (brute-force pairwise distances, no ANN index despite the plan's claim of "k-NN via the same ANN graphs").
+**Mixed Ross computation:** for each row i, take the k-th same-label Chebyshev radius in `x`; let `q_i` be the number of other same-class rows at distance `<=` that positive radius, `m_i` the count of all other rows within it inclusively, and `n_{y_i}` the full class count. The raw f64 local term is `psi(n) + psi(q_i) - psi(n_{y_i}) - psi(m_i)`, averaged and divided by `ln(2)`. Thus positive-radius boundary ties use all observed same-class boundary mass; zero radius still fails closed. Negative raw values are preserved through interval construction and only the final reported MI domain is clamped non-negative.
 
-A **bootstrap paired CI** (see §1.5) is computed by resampling `(x_i, y_i)` pairs and re-running the point estimator; if the bootstrap yields nothing the call errors `CALYX_ASSAY_INSUFFICIENT_SAMPLES`.
+**Intervals:** both paths sample rows without replacement, but their contracts differ. Continuous KSG retains its deterministic 200-resample scaled-percentile interval, `point + (percentile - point) * sqrt(m/n)`, and currently inherits the default `EstimateBound::LowerBound` tag; #1449 tracks that uncalibrated bound contract separately. Mixed KSG chooses the smallest `m` in `max(k+2, ceil(n^(2/3)))..=floor(n/2)` whose exact hypergeometric union bound for any class falling to `<= k` is at most 0.01. Each proposal is uniform SRSWOR. Rejection sampling accepts exactly 999 support-valid roots, with at most eight proposals per root; accepted roots are therefore uniform conditional on class-support validity, not unconditional uniform SRSWOR draws. Roots use `sqrt(m/(1-m/n)) * (I_m - I_n)`. No feasible `m` or exhausted proposals fail `CALYX_ASSAY_INSUFFICIENT_SAMPLES`. Reverse 2.5%/97.5% root tails produce the basic interval; every probability/root/bound must be finite and ordered. An interval wholly below zero fails `CALYX_ASSAY_LOW_SIGNAL`; otherwise it is conservatively hulled with its generating point and mapped into the non-negative MI domain. Mixed results are explicitly `EstimateBound::Point`, not calibrated lower bounds. A four-seed balanced/imbalanced repeated-dataset regression checks null compatibility and known disjoint-support truths, but deliberately makes no 95% coverage claim.
+
+**Complexity:** O(n²·dim) for each full or subsample estimate (brute-force pairwise distances; no ANN index).
 
 `ksg_mi_continuous_point(x, y, k) -> f32` is a crate-internal point-only variant reused by total-correlation / transfer-entropy.
 
@@ -241,7 +250,7 @@ Routing: `PanelSufficiency::route_to(sink)` pushes each deficit into a `Sufficie
 
 ### 4.2 Effective rank (`n_eff.rs`)
 
-`stable_rank(matrix) -> NeffReport { n_eff, trace, frobenius_sq }` where `n_eff = trace² / Σ a_ij²` (the stable rank of a redundancy/Gram matrix, 0 if Frobenius² is 0). This is the A9 "non-redundant lens count" used for sizing/cost budgets.
+`stable_rank(matrix) -> calyx_core::Result<NeffReport>` where `NeffReport { n_eff, trace, frobenius_sq }` and `n_eff = trace² / Σ a_ij²`. Inputs must be square and finite. The empty 0x0 matrix retains rank zero; a non-empty zero-Frobenius, ragged/non-square, non-finite, or numerically unrepresentable matrix fails closed with structured `CALYX_ASSAY_DEGENERATE_INPUT`, which A37 propagates. This is the A9 "non-redundant lens count" used for sizing/cost budgets.
 
 ### 4.3 Transfer entropy (`transfer_entropy.rs`)
 

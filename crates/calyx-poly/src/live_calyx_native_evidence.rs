@@ -1,7 +1,7 @@
 //! Aster-backed measurement evidence for live CalyxNative forecast admission.
 
 use calyx_anneal::{GoodhartReport, HeldOutSet, RegressionReport};
-use calyx_assay::MIN_ASSAY_SAMPLES;
+use calyx_assay::{MIN_ASSAY_SAMPLES, validate_ensemble_card_redundancy};
 use calyx_aster::cf::{ColumnFamily, ledger_key};
 use calyx_aster::vault::AsterVault;
 use calyx_core::{Clock, LedgerRef};

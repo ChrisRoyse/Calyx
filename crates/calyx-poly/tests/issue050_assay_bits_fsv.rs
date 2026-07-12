@@ -8,14 +8,14 @@
 
 use std::path::Path;
 
-use calyx_assay::{AssayStore, AssaySubject, TrustTag};
+use calyx_assay::{AssayStore, AssaySubject, EstimateBound, TrustTag};
 use calyx_aster::cf::ColumnFamily;
 use calyx_aster::vault::{AsterVault, VaultOptions};
 use calyx_core::{AnchorKind, AnchorValue, FixedClock, SlotId, VaultId};
 use calyx_poly::assay_bits::{
     ASSAY_BITS_SCHEMA_VERSION, AssayBitsRequest, DEFAULT_ASSAY_BITS_K,
-    ERR_ASSAY_BITS_DEGENERATE_OUTCOME, ERR_ASSAY_BITS_NON_BOOL_ANCHOR, read_assay_bits_report,
-    run_assay_bits_to_vault,
+    ERR_ASSAY_BITS_DEGENERATE_OUTCOME, ERR_ASSAY_BITS_NON_BOOL_ANCHOR, SlotAssayBits,
+    read_assay_bits_report, run_assay_bits_to_vault,
 };
 use calyx_poly::panel_diagnostics::PanelMatrix;
 use serde_json::{Value, json};
@@ -115,6 +115,20 @@ fn happy_assay_bits_round_trip(root: &Path, clock: &FixedClock) -> Value {
     assert_eq!(run.report.n_samples, 50);
     assert_eq!(run.report.persisted_rows, 3, "two lens rows plus entropy");
     assert_eq!(run.report.trust, TrustTag::Trusted);
+    assert_eq!(
+        serde_json::to_value(&run.report.slot_bits[0]).expect("slot bits JSON")["bound"],
+        json!("point"),
+        "the public slot projection must retain the mixed estimator's Point contract"
+    );
+    assert_eq!(run.report.slot_bits[0].bound, Some(EstimateBound::Point));
+    let mut legacy_slot = serde_json::to_value(&run.report.slot_bits[0]).expect("legacy slot JSON");
+    legacy_slot
+        .as_object_mut()
+        .expect("slot object")
+        .remove("bound");
+    let legacy_slot: SlotAssayBits =
+        serde_json::from_value(legacy_slot).expect("legacy slot without bound");
+    assert_eq!(legacy_slot.bound, None);
     assert_eq!(assay_count(&vault), 3);
     assert_eq!(
         read_assay_bits_report(&run.report_path).expect("read report"),
@@ -142,6 +156,8 @@ fn happy_assay_bits_round_trip(root: &Path, clock: &FixedClock) -> Value {
     let entropy = store
         .get(&key, &AssaySubject::OutcomeEntropy)
         .expect("entropy row");
+    assert_eq!(signal.estimate.bound, EstimateBound::Point);
+    assert_eq!(noise.estimate.bound, EstimateBound::Point);
     assert!(
         signal.estimate.bits > noise.estimate.bits,
         "known signal slot must carry more bits than pseudo-noise"
@@ -224,7 +240,8 @@ fn matrix_with_rows(n: usize) -> PanelMatrix {
     let mut anchors = Vec::with_capacity(n);
     for i in 0..n {
         let won = i % 2 == 0;
-        signal.push(if won { 1.0 } else { -1.0 } + ((i % 5) as f32 - 2.0) * 0.01);
+        let signal_center = if won { 1.0 } else { -1.0 };
+        signal.push(signal_center + i as f32 * 0.001);
         noise.push(((i * 37) % 101) as f32 / 50.0 - 1.0);
         anchors.push(synthetic::resolved_anchor(won, i));
     }

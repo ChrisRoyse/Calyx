@@ -10,8 +10,9 @@ use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
 use calyx_assay::{
-    AssayCacheKey, AssayRow, AssayStore, AssaySubject, EstimatorKind, MIN_ASSAY_SAMPLES,
-    MiEstimate, TrustTag, entropy_bits, ksg_mi_continuous_discrete, pair_redundancy,
+    AssayCacheKey, AssayRow, AssayStore, AssaySubject, EstimateBound, EstimatorKind,
+    MIN_ASSAY_SAMPLES, MiEstimate, TrustTag, entropy_bits, ksg_mi_continuous_discrete,
+    pair_redundancy,
 };
 use calyx_aster::vault::AsterVault;
 use calyx_core::{Anchor, AnchorKind, AnchorValue, CalyxError, Clock, SlotId, VaultId};
@@ -22,7 +23,7 @@ use crate::error::{PolyError, Result};
 use crate::grounding::rollup_trust;
 use crate::panel_diagnostics::{ESTIMATOR_KSG, PanelMatrix};
 
-pub const ASSAY_BITS_SCHEMA_VERSION: &str = "poly.assay_bits.v1";
+pub const ASSAY_BITS_SCHEMA_VERSION: &str = "poly.assay_bits.v2";
 pub const ASSAY_BITS_ARTIFACT_KIND: &str = "poly_assay_bits";
 pub const DEFAULT_ASSAY_BITS_K: usize = 3;
 
@@ -50,6 +51,8 @@ pub struct SlotAssayBits {
     pub ci_high: f32,
     pub max_pairwise_corr: f32,
     pub trust: TrustTag,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bound: Option<EstimateBound>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -230,6 +233,7 @@ fn compute_store<C: Clock>(
             ci_high: estimate.ci_high,
             max_pairwise_corr,
             trust: estimate.trust,
+            bound: Some(estimate.bound),
         });
     }
 
@@ -443,6 +447,8 @@ fn assay_row_id(row: &AssayRow) -> String {
 
 fn provenance_hash(request: &AssayBitsRequest, matrix: &PanelMatrix, rows: &[AssayRow]) -> String {
     let mut hasher = blake3::Hasher::new();
+    hasher.update(ASSAY_BITS_SCHEMA_VERSION.as_bytes());
+    hasher.update(&[0]);
     hasher.update(request.domain.as_bytes());
     hasher.update(&request.panel_version.to_le_bytes());
     hasher.update(request.corpus_shard.as_bytes());
@@ -456,8 +462,18 @@ fn provenance_hash(request: &AssayBitsRequest, matrix: &PanelMatrix, rows: &[Ass
         hasher.update(&row.estimate.bits.to_le_bytes());
         hasher.update(&row.estimate.ci_low.to_le_bytes());
         hasher.update(&row.estimate.ci_high.to_le_bytes());
+        hasher.update(&[estimate_bound_tag(Some(row.estimate.bound))]);
     }
     hasher.finalize().to_hex().to_string()
+}
+
+fn estimate_bound_tag(bound: Option<EstimateBound>) -> u8 {
+    match bound {
+        None => 0,
+        Some(EstimateBound::LowerBound) => 1,
+        Some(EstimateBound::Point) => 2,
+        Some(EstimateBound::UpperBound) => 3,
+    }
 }
 
 fn sanitize(domain: &str) -> String {

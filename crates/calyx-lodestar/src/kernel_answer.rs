@@ -75,12 +75,9 @@ pub fn kernel_answer(
         anchored_kernel_nodes,
         max_hops,
     )?;
-    if path.len() == 1 {
-        return AnswerPath::checked(query_cx, anchor, Vec::new(), 1.0);
-    }
     Err(LodestarError::KernelAnswerLedgerRequired {
         detail: format!(
-            "kernel_answer found a {}-hop path from anchor {anchor} to query {query_cx}, but multi-hop answer provenance requires kernel_answer_with_ledger",
+            "kernel_answer found a {}-hop path from anchor {anchor} to query {query_cx}, but answer provenance requires kernel_answer_with_ledger",
             path.len().saturating_sub(1)
         ),
     })

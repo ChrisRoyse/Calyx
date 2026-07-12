@@ -7,15 +7,15 @@ use crate::estimate::TrustTag;
 use crate::formulas::marginal_value;
 use crate::ksg::MIN_ASSAY_SAMPLES;
 use crate::logistic::{logistic_probe_mi_multiseed, logistic_probe_mi_multiseed_calibrated};
-use crate::nmi::partitioned_histogram_nmi;
 use crate::sufficiency::{PanelSufficiency, entropy_bits, panel_sufficiency_from_estimate};
 
 use super::a37::a37_diversity_gate;
 use super::model::{
     DeficitProposal, ENSEMBLE_CARD_PID_METHOD, ENSEMBLE_CARD_SCHEMA_VERSION, EnsembleCard,
     EnsembleConfig, EnsembleDecision, EnsembleLensInput, EnsembleLensValue, EnsemblePairValue,
-    MIN_ENSEMBLE_PANEL_LENSES, PidBits,
+    EnsembleRedundancyEvidence, MIN_ENSEMBLE_PANEL_LENSES, PidBits,
 };
+use super::redundancy::{ensemble_redundancy_from_lenses, validate_evidence};
 
 pub const CALYX_ASSAY_PANEL_TOO_SMALL: &str = "CALYX_ASSAY_PANEL_TOO_SMALL";
 
@@ -26,10 +26,34 @@ pub fn ensemble_card(
     config: &EnsembleConfig,
 ) -> Result<EnsembleCard> {
     validate_inputs(lenses, labels, groups, config)?;
+    let redundancy = ensemble_redundancy_from_lenses(lenses, config.nmi_bins)?;
+    validate_evidence(lenses, &redundancy)?;
+    build_card(lenses, labels, groups, config, &redundancy)
+}
+
+pub fn ensemble_card_with_redundancy(
+    lenses: &[EnsembleLensInput],
+    labels: &[bool],
+    groups: Option<&[String]>,
+    config: &EnsembleConfig,
+    redundancy: &EnsembleRedundancyEvidence,
+) -> Result<EnsembleCard> {
+    validate_inputs(lenses, labels, groups, config)?;
+    validate_evidence(lenses, redundancy)?;
+    build_card(lenses, labels, groups, config, redundancy)
+}
+
+fn build_card(
+    lenses: &[EnsembleLensInput],
+    labels: &[bool],
+    groups: Option<&[String]>,
+    config: &EnsembleConfig,
+    redundancy: &EnsembleRedundancyEvidence,
+) -> Result<EnsembleCard> {
     let groups = groups.map(|value| value as &[String]);
     let solo = lens_estimates(lenses, labels, groups)?;
     let panel = estimate_panel(lenses, labels, groups)?;
-    let mut pairs = pair_values(lenses, labels, groups, &solo, config.nmi_bins)?;
+    let mut pairs = pair_values(lenses, labels, groups, &solo, redundancy)?;
     pairs.sort_by(|left, right| {
         left.a
             .cmp(&right.a)
@@ -80,7 +104,7 @@ pub fn ensemble_card(
         .iter()
         .map(|lens| (lens.slot, lens.marginal_bits))
         .collect::<Vec<_>>();
-    let a37_diversity = a37_diversity_gate(&lens_values, &pairs, config);
+    let a37_diversity = a37_diversity_gate(&lens_values, &pairs, config)?;
     let n_eff = a37_diversity.n_eff;
     let sufficiency = panel_sufficiency_from_estimate(
         &panel.estimate,
@@ -102,6 +126,7 @@ pub fn ensemble_card(
         sufficient: sufficiency.sufficient,
         deficit_bits: sufficiency.deficit_bits,
         a37_diversity,
+        redundancy_method: Some(redundancy.method.clone()),
         deficit_proposal: deficit_proposal(&sufficiency, &lens_values),
         sufficiency,
         lenses: lens_values,
@@ -248,24 +273,34 @@ fn pair_values(
     labels: &[bool],
     groups: Option<&[String]>,
     solo: &[crate::LogisticProbeReport],
-    bins: usize,
+    redundancy: &EnsembleRedundancyEvidence,
 ) -> Result<Vec<EnsemblePairValue>> {
     let mut pairs = Vec::new();
     for a in 0..lenses.len() {
         for b in (a + 1)..lenses.len() {
             let pair_rows = concat_pair(&lenses[a], &lenses[b]);
             let pair = logistic_probe_mi_multiseed(&pair_rows, labels, groups)?;
-            let sig_a = row_signature(&lenses[a].vectors);
-            let sig_b = row_signature(&lenses[b].vectors);
-            let nmi = partitioned_histogram_nmi(&sig_a, &sig_b, bins)?.nmi;
-            let corr = pearson_abs(&sig_a, &sig_b);
+            let evidence = redundancy
+                .pairs
+                .iter()
+                .find(|evidence| {
+                    (evidence.slot_a == lenses[a].slot && evidence.slot_b == lenses[b].slot)
+                        || (evidence.slot_a == lenses[b].slot && evidence.slot_b == lenses[a].slot)
+                })
+                .ok_or_else(|| {
+                    CalyxError::assay_degenerate_input(format!(
+                        "missing redundancy evidence for slots {} and {}",
+                        lenses[a].slot, lenses[b].slot
+                    ))
+                })?;
             pairs.push(EnsemblePairValue {
                 a: lenses[a].name.clone(),
                 b: lenses[b].name.clone(),
                 slot_a: lenses[a].slot,
                 slot_b: lenses[b].slot,
-                corr,
-                nmi,
+                corr: evidence.linear_cka.mc_gate_upper_estimate,
+                nmi: evidence.nmi,
+                redundancy: Some(evidence.linear_cka.clone()),
                 pair_bits: pair.estimate.bits,
                 pair_ci: [pair.estimate.ci_low, pair.estimate.ci_high],
                 synergy_gain_bits: (pair.estimate.bits
@@ -297,36 +332,6 @@ fn concat_pair(a: &EnsembleLensInput, b: &EnsembleLensInput) -> Vec<Vec<f32>> {
         .zip(&b.vectors)
         .map(|(left, right)| left.iter().chain(right).copied().collect())
         .collect()
-}
-
-fn row_signature(rows: &[Vec<f32>]) -> Vec<f32> {
-    rows.iter()
-        .map(|row| row.iter().sum::<f32>() / row.len().max(1) as f32)
-        .collect()
-}
-
-fn pearson_abs(a: &[f32], b: &[f32]) -> f32 {
-    let n = a.len().min(b.len());
-    if n == 0 {
-        return 0.0;
-    }
-    let mean_a = a.iter().take(n).sum::<f32>() / n as f32;
-    let mean_b = b.iter().take(n).sum::<f32>() / n as f32;
-    let mut num = 0.0;
-    let mut den_a = 0.0;
-    let mut den_b = 0.0;
-    for idx in 0..n {
-        let da = a[idx] - mean_a;
-        let db = b[idx] - mean_b;
-        num += da * db;
-        den_a += da * da;
-        den_b += db * db;
-    }
-    if den_a <= f32::EPSILON || den_b <= f32::EPSILON {
-        0.0
-    } else {
-        (num / (den_a.sqrt() * den_b.sqrt())).abs().min(1.0)
-    }
 }
 
 fn max_pairwise<F>(lenses: &[EnsembleLensInput], pairs: &[EnsemblePairValue], value: F) -> Vec<f32>

@@ -21,6 +21,11 @@ fn validate_panel(report: &PolyPanelSufficiencyReport) -> Result<()> {
     {
         return invalid("panel-sufficiency report is malformed or internally inconsistent");
     }
+    validate_ensemble_card_redundancy(&report.assay_card).map_err(|error| {
+        invalid_error(format!(
+            "panel-sufficiency redundancy evidence is invalid: {error}"
+        ))
+    })?;
     Ok(())
 }
 

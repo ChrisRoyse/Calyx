@@ -16,7 +16,7 @@ Changed file:
 
 | File | Change |
 |---|---|
-| `crates/calyx-assay/src/ksg.rs` | Continuous KSG now computes CI from deterministic m-out-of-n no-replacement subsamples instead of paired replacement bootstrap |
+| `crates/calyx-assay/src/ksg/mod.rs` | Continuous KSG computes CI from deterministic m-out-of-n no-replacement subsamples instead of paired replacement bootstrap |
 
 Behavior now enforced:
 
@@ -24,15 +24,34 @@ Behavior now enforced:
 - The duplicate-index invariant is checked at runtime and fails closed if it is
   ever violated.
 - Subsample size is `floor(4n/5)`.
-- The interval is widened by a deterministic coarse-grain allowance
-  `abs(point_bits) * (1 - m/n)` so the reduced-size subsample does not become an
-  over-tight safety bound.
+- The interval transforms empirical 2.5%/97.5% subsample percentiles as
+  `point + (percentile - point) * sqrt(m/n)`.
 - If the subsample cannot still satisfy the assay quorum
   (`m >= MIN_ASSAY_SAMPLES` and `0 < k < m`), KSG returns
   `CALYX_ASSAY_INSUFFICIENT_SAMPLES`.
 - The generic paired bootstrap helper remains available for non-KSG estimators.
-- The #1207 mixed continuous-discrete path remains on its local-term CI; it does
-  not reintroduce replacement-bootstrap duplicate points.
+- The mixed continuous-discrete path is separate in `ksg/mixed_ci.rs`. Each
+  proposal is uniform SRSWOR; rejection sampling accepts exactly 999
+  support-valid roots with at most eight proposals per root. Accepted roots are
+  therefore uniform conditional on class-support validity, not unconditional
+  uniform SRSWOR draws. The exact hypergeometric class-support bound rejects
+  rather than forcing class quotas. No feasible plan or exhausted root fails
+  `CALYX_ASSAY_INSUFFICIENT_SAMPLES`; a wholly negative interval fails
+  `CALYX_ASSAY_LOW_SIGNAL`. The result is explicit `EstimateBound::Point` and
+  does not reuse this continuous-path interval.
+
+The continuous path still inherits the default `EstimateBound::LowerBound`
+metadata even though this scaled-percentile interval is not calibrated as a
+one-sided lower bound; #1449 tracks that separate contract gap.
+
+Both KSG paths reject finite input coordinates whose per-dimension `max-min`
+span cannot produce finite f32 Chebyshev distances. Mixed bound metadata is
+preserved through `SlotAssayBits`, `ExternalSignalAdmissionReport`, and
+`LensCandidateMeasurement` and participates in versioned hashes; missing legacy
+metadata remains unknown `None`. External admission and lens autobuild refuse
+mixed `Point` evidence, and only `LowerBound` may clear those gates. A four-seed
+balanced/imbalanced repeated-dataset regression is a smoke audit, not a 95%
+coverage claim.
 
 Primary method reference used:
 
@@ -45,6 +64,11 @@ fine-scale/high-information artifacts and recommends subsampling rather than
 ordinary bootstrap for KSG error bars.
 
 ## Verification
+
+The readbacks below are the historical #1208 evidence captured on 2026-07-04.
+They predate the current scaled-percentile implementation and the separate #1380
+mixed root interval, so their numeric bounds are not current calibration
+evidence.
 
 FSV root:
 
@@ -117,7 +141,8 @@ Edge case:
 
 ## Conclusion
 
-#1208 is complete for the continuous KSG CI path. The CI no longer creates
-duplicate rows, the duplicate invariant is asserted, planted-signal intervals
-cover the known value on the tested seeds, and small subsamples fail closed
-instead of emitting a bound from a degenerate resample.
+#1208 removed replacement duplicates from the continuous KSG CI path. Its
+historical fixtures showed the expected behavior at that revision. The current
+continuous scaled-percentile interval remains no-replacement but is not a
+calibrated lower bound (#1449); the current mixed path is the separately
+fail-closed `Point` interval described above.

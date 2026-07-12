@@ -8,10 +8,13 @@
 //!
 //! Note: `calyx-assay`'s logistic probe reports unsigned bits only — it discards the fitted
 //! direction — so the per-slot sign is computed here from the difference of class-conditional means
-//! (a well-defined discriminant direction). The magnitude is the engine-measured bit value. Fail
+//! (a well-defined discriminant direction). The magnitude is the engine-measured bit value. A slot
+//! classified by Assay as low-signal is retained with zero weight and an explicit diagnostic so an
+//! informative peer can still vote. All other estimator errors remain fatal, and the vote fails
 //! closed below the MI sample floor, on a single-class outcome, or when no slot carries any bits.
 
 use calyx_assay::{MIN_ASSAY_SAMPLES, ksg_mi_continuous_discrete};
+use calyx_core::CalyxErrorCode;
 use serde::{Deserialize, Serialize};
 
 use crate::error::{PolyError, Result};
@@ -47,6 +50,9 @@ pub struct SlotVote {
     pub direction: i8,
     /// Whether the query fell on the YES side of this slot's class boundary.
     pub votes_yes: bool,
+    /// Stable Assay code when measurement classified this slot as zero-weight low signal.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub measurement_error_code: Option<String>,
 }
 
 /// The bits-weighted vote result.
@@ -114,11 +120,19 @@ pub fn bits_vote(
             ));
         }
         let x: Vec<Vec<f32>> = slot.train_values.iter().map(|v| vec![*v]).collect();
-        let bits = ksg_mi_continuous_discrete(&x, &labels_usize, k_neighbors)
-            .map_err(|err| {
-                PolyError::diagnostics(ERR_BV_SLOT, format!("slot '{}' MI: {err}", slot.key))
-            })?
-            .bits as f64;
+        let (bits, measurement_error_code) =
+            match ksg_mi_continuous_discrete(&x, &labels_usize, k_neighbors) {
+                Ok(estimate) => (estimate.bits as f64, None),
+                Err(error) if error.code == CalyxErrorCode::AssayLowSignal.code() => {
+                    (0.0, Some(error.code.to_string()))
+                }
+                Err(error) => {
+                    return Err(PolyError::diagnostics(
+                        ERR_BV_SLOT,
+                        format!("slot '{}' MI: {error}", slot.key),
+                    ));
+                }
+            };
 
         let (mut sum_yes, mut sum_no) = (0.0f64, 0.0f64);
         for (v, y) in slot.train_values.iter().zip(labels) {
@@ -144,6 +158,7 @@ pub fn bits_vote(
             bits: bits as f32,
             direction,
             votes_yes,
+            measurement_error_code,
         });
     }
 
@@ -228,6 +243,65 @@ mod tests {
         );
         assert_eq!(sig.direction, 1, "higher signal points YES");
         assert!(sig.votes_yes);
+    }
+
+    fn forecast_regression_rows() -> (Vec<SlotVoteInput>, Vec<bool>) {
+        let mut rng = ChaCha8Rng::seed_from_u64(21_085);
+        let mut labels = Vec::with_capacity(160);
+        let mut signal = Vec::with_capacity(160);
+        let mut noise = Vec::with_capacity(160);
+        for i in 0..160 {
+            let up = i % 2 == 0;
+            let flip = (i / 2) % 10 == 0;
+            labels.push(if up { !flip } else { flip });
+            signal.push(if up { 2.0 } else { -2.0 } + 0.4 * gaussian(&mut rng));
+            let _neighbor_sidecar = 0.3 * gaussian(&mut rng);
+            noise.push(gaussian(&mut rng));
+        }
+        (
+            vec![
+                SlotVoteInput {
+                    key: "signal".into(),
+                    train_values: signal,
+                    query_value: 2.2,
+                },
+                SlotVoteInput {
+                    key: "noise".into(),
+                    train_values: noise,
+                    query_value: 0.0,
+                },
+            ],
+            labels,
+        )
+    }
+
+    #[test]
+    fn low_signal_noise_is_parked_while_informative_slot_votes() {
+        let (slots, labels) = forecast_regression_rows();
+        let vote = bits_vote(&slots, &labels, 1.0, 3)
+            .expect("one low-signal slot must not erase an informative panel vote");
+        assert!(vote.p_yes > 0.65, "informative YES slot must still vote");
+        let signal = vote.slots.iter().find(|slot| slot.key == "signal").unwrap();
+        let noise = vote.slots.iter().find(|slot| slot.key == "noise").unwrap();
+        assert!(signal.bits > 0.0);
+        assert_eq!(noise.bits, 0.0);
+        let noise_json = serde_json::to_value(noise).unwrap();
+        assert_eq!(
+            noise_json
+                .get("measurement_error_code")
+                .and_then(serde_json::Value::as_str),
+            Some(CalyxErrorCode::AssayLowSignal.code())
+        );
+    }
+
+    #[test]
+    fn all_low_signal_slots_fail_closed_as_no_signal() {
+        let (mut slots, labels) = forecast_regression_rows();
+        let noise = slots.remove(1);
+        assert_eq!(
+            bits_vote(&[noise], &labels, 1.0, 3).unwrap_err().code(),
+            ERR_BV_NO_SIGNAL
+        );
     }
 
     #[test]

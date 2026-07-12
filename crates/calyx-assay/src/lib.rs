@@ -98,10 +98,17 @@ pub use distance_correlation::{
 pub use ensemble::{
     A37_DIVERSITY_DIAGNOSTIC_ONLY, A37_DIVERSITY_GATE_PASSED, A37_DIVERSITY_SCHEMA_VERSION,
     A37DiversityGate, CALYX_ASSAY_PANEL_TOO_SMALL, DEFAULT_GATE_PANEL_LENSES,
-    DEFAULT_MAX_REDUNDANCY, DEFAULT_MIN_MARGINAL_BITS, DeficitProposal, ENSEMBLE_CARD_PID_METHOD,
-    ENSEMBLE_CARD_SCHEMA_VERSION, EnsembleCard, EnsembleConfig, EnsembleDecision,
-    EnsembleLensInput, EnsembleLensRole, EnsembleLensValue, EnsemblePairValue,
-    MIN_ENSEMBLE_PANEL_LENSES, PidBits, a37_association_family, a37_diversity_gate, ensemble_card,
+    DEFAULT_LINEAR_CKA_SEED, DEFAULT_MAX_REDUNDANCY, DEFAULT_MIN_MARGINAL_BITS, DeficitProposal,
+    ENSEMBLE_CARD_PID_METHOD, ENSEMBLE_CARD_SCHEMA_VERSION, EnsembleCard, EnsembleConfig,
+    EnsembleDecision, EnsembleLensInput, EnsembleLensRole, EnsembleLensValue,
+    EnsemblePairRedundancyEvidence, EnsemblePairValue, EnsembleRedundancyEvidence,
+    EnsembleRedundancyMethod, EnsembleRedundancySketchInput, LINEAR_CKA_JACKKNIFE_BLOCKS,
+    LINEAR_CKA_REDUNDANCY_METHOD, LINEAR_CKA_TUPLES_PER_ROW, LinearCkaEstimate, LinearCkaSketch,
+    LinearCkaTuplePlan, MAX_LINEAR_CKA_TUPLES, MIN_ENSEMBLE_PANEL_LENSES, MIN_LINEAR_CKA_TUPLES,
+    PidBits, a37_association_family, a37_diversity_gate, ensemble_card,
+    ensemble_card_with_redundancy, ensemble_redundancy_from_lenses,
+    ensemble_redundancy_from_sketches, linear_cka_sketch_from_row_fn, linear_cka_sketch_from_rows,
+    linear_cka_tuple_plan, validate_ensemble_card_redundancy, validate_redundancy_method_metadata,
 };
 pub use estimate::{
     EstimateBound, EstimateReliability, EstimatorKind, MiEstimate, TrustTag,

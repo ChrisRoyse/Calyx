@@ -17,7 +17,7 @@ anchored** kernel node via an exhaustive kernel-index candidate scan bounded by
 `index.rows().len()`, continuing past unreachable anchored candidates, (2)
 traverse association edges from that kernel node toward the query region using
 bounded `reach`, (3) compose the answer path with `0.9^hop` hop-attenuation and
-stamp every hop with a provenance reference (Ledger stub until PH35). This
+stamp every hop and completed answer with a durable Ledger reference. This
 implements the "retrieval that reasons over the grounded skeleton" from
 `08 §4.2`.
 
@@ -33,27 +33,31 @@ implements the "retrieval that reasons over the grounded skeleton" from
   3. Return the first anchored candidate with a valid bounded path; if no
      anchored candidate can answer, fail closed with the no-anchor/no-path/max-
      hops error instead of returning a truncated or ungrounded answer.
-  4. Build `hops` list from the full bounded path; `ledger_ref` is a deterministic stub until PH35.
-  5. Return `AnswerPath` with all hops and `total_score = Σ hop_scores`.
+  4. Without a Ledger appender, fail every answerable path closed with
+     `CALYX_KERNEL_ANSWER_LEDGER_REQUIRED`, including the zero-hop direct hit.
+  5. The ledger-backed API builds the full `hops` list, appends each real hop
+     reference plus the complete-answer reference, and returns `AnswerPath` with
+     `total_score = Σ hop_scores`.
 - [x] `max_hops` is fail-closed: if the query path exists only beyond the bound,
   return `CALYX_PATHS_MAX_HOPS` instead of a truncated `AnswerPath`.
 - [x] `total_score` is finite and ≥ 0.0; NaN/Inf → `CALYX_KERNEL_SCORE_INVALID`.
-- [x] Provenance: each stub `LedgerRef` hashes `(src_cx, dst_cx, hop_index)` and uses `seq = hop_index + 1`
-  so PH35 can back-fill real entries.
+- [x] Provenance: every returned `LedgerRef` is re-read from Ledger storage and
+  verified for sequence, `EntryKind::Answer`, and entry hash before success.
 
 ## Tests (synthetic, deterministic — known input → known bytes/number)
 
 - [x] unit: chain graph `K→A→B→C` where K is anchored kernel node, query_cx = C;
-  `kernel_answer` returns path `[K→A→B→C]`; hop scores = `[0.9^0, 0.9^1, 0.9^2]`
+  `kernel_answer_with_ledger` returns path `[K→A→B→C]`; hop scores = `[0.9^0, 0.9^1, 0.9^2]`
   times edge weights; total_score correct to ε=1e-5.
 - [x] unit: `kernel_answer` with `max_hops=2` on a depth-3 chain →
   `CALYX_PATHS_MAX_HOPS`; no truncated answer is returned.
 - [x] unit: kernel with 0 anchored nodes → `CALYX_KERNEL_NO_ANCHORED_NODE`.
-- [x] unit: every hop in `hops` has a non-None `ledger_ref` (even the stub) — stub
-  carries non-zero `hop_index` field.
+- [x] unit: every hop in `hops` has a readable, hash-matching Ledger reference,
+  followed by the complete-answer reference.
 - [x] edge: `query_cx` == `anchor_kernel_node` (query is already a kernel node) →
-  `hops = []`; `total_score = 1.0`; the ledger-backed API still appends a
-  complete `kind=Answer` row with `expected_hops=0` before returning (#647).
+  ledger-less `kernel_answer` returns `CALYX_KERNEL_ANSWER_LEDGER_REQUIRED`;
+  the ledger-backed API returns `hops = []`, `total_score = 1.0`, and appends a
+  complete `kind=Answer` row with `expected_hops=0` (#647, #1380).
 - [x] edge: missing query node propagates the `CALYX_PATHS_NODE_NOT_FOUND` graph error.
 - [x] edge: a nearer anchored candidate with no bounded path is skipped; the next
   reachable anchored candidate is selected and produces the full answer path.
@@ -62,22 +66,24 @@ implements the "retrieval that reasons over the grounded skeleton" from
 
 ## FSV (read the bytes on aiwonder — the truth gate)
 
-- **SoT:** PH33 T02 JSON readback files under the explicit `CALYX_FSV_ROOT` on
-  aiwonder, plus the test stdout that names each file.
-- **Readback:** run `CALYX_FSV_ROOT=/home/croyse/calyx/data/fsv-issue292-kernel-answer-max-hops-20260608 cargo test -p calyx-lodestar kernel_answer -- --nocapture`,
-  then separately `cat` `chain/kernel-answer-chain.json`,
-  `edges/kernel-answer-max-hops.json`, and `edges/kernel-answer-errors.json`.
-- **Prove:** chain test prints hop scores `[1.0, 0.9, 0.81]` (unit-weight edges);
-  max-hop test prints `CALYX_PATHS_MAX_HOPS` and no `AnswerPath` prefix;
-  no-anchor test prints `CALYX_KERNEL_NO_ANCHORED_NODE`; all hops show non-None
-  ledger_ref stubs; output attached to the PH33 GitHub issue.
+- **SoT:** physical Ledger row bytes under the explicit retained FSV root on
+  aiwonder. Trigger output and JSON reports are diagnostic only; absence/count of
+  `.ledger` rows is the verdict for fail-closed paths.
+- **Readback:** use the exact retained Calyx binary to read each physical row with
+  `calyx readback --hex`, then independently list/count/hash the row files and
+  verify the decoded sequence, `EntryKind::Answer`, entry hash, and chain links.
+- **Prove:** ledger-less direct self-hit returns
+  `CALYX_KERNEL_ANSWER_LEDGER_REQUIRED` without writing a row; the ledger-backed
+  direct self-hit writes a complete Answer row with `expected_hops=0` and
+  `path=[]`; no-anchor, dimension-mismatch, and bounded non-self paths leave the
+  Ledger byte count unchanged. Attach the bounded byte readbacks to the issue.
 - **#630 real-corpus bound:** aiwonder readback root
   `/home/croyse/calyx/data/fsv-issue630-real-anchor-search-20260610` proves the
   fallback on real SciFact bytes: candidate bound `158`, old window `10`, anchor
   rank `76`, answer path `8` hops, decoded answer JSON read back from disk, and
   source hashes `28f4c3e5cdc276b03d4605ea63d3ac19` /
   `193519c60f28c755ee2252d544f5885e`. The FSV passes the full real anchored set
-  through `kernel_answer`, not a preselected one-anchor shortcut.
+  through `kernel_answer_with_ledger`, not a preselected one-anchor shortcut.
 - **#631 real-corpus Ledger trace:** aiwonder readback root
   `/home/croyse/calyx/data/fsv-issue631-real-ledger-answer-20260610` proves
   `kernel_answer_with_ledger` on real SciFact bytes: before ledger rows `0`,

@@ -133,6 +133,31 @@ fn mismatched_rosters_fail_closed() {
 }
 
 #[test]
+fn current_schema_report_missing_redundancy_evidence_fails_closed() {
+    let root = temp_root("multi-anchor-missing-redundancy");
+    fs::create_dir_all(&root).unwrap();
+    let names = lens_names(false);
+    let report_a = root.join("target0.json");
+    let report_b = root.join("target1.json");
+    write_report(&report_a, 0, &names, |_| 0.06);
+    write_report(&report_b, 1, &names, |_| 0.06);
+    let mut first: serde_json::Value =
+        serde_json::from_slice(&fs::read(&report_a).unwrap()).unwrap();
+    first["card"]
+        .as_object_mut()
+        .unwrap()
+        .remove("redundancy_method");
+    fs::write(&report_a, serde_json::to_vec_pretty(&first).unwrap()).unwrap();
+    let request = request_for(&root, &[report_a, report_b], Mode::Diagnostic);
+
+    let error = evaluate(&request).unwrap_err();
+
+    assert!(error.starts_with(CODE_INVALID_REPORT));
+    assert!(error.contains("missing redundancy method"));
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
 fn existing_output_dir_fails_closed() {
     let root = temp_root("multi-anchor-output-exists");
     fs::create_dir_all(root.join("out")).unwrap();
@@ -180,85 +205,7 @@ fn write_report(
     names: &[String],
     marginal: impl Fn(usize) -> f32,
 ) {
-    let lenses = names
-        .iter()
-        .enumerate()
-        .map(|(idx, name)| {
-            let bits = marginal(idx);
-            serde_json::json!({
-                "name": name,
-                "slot": idx,
-                "solo_bits": 0.2,
-                "solo_ci": [0.1, 0.3],
-                "panel_without_bits": 0.3,
-                "marginal_bits": bits,
-                "marginal_ci": [bits, bits],
-                "pid": {"unique_bits": bits, "redundant_bits": 0.1, "synergistic_bits": 0.0},
-                "max_pairwise_corr": 0.1,
-                "max_pairwise_nmi": 0.1,
-                "decision": if bits >= 0.05 { "keep" } else { "park" },
-                "decision_reason": "test"
-            })
-        })
-        .collect::<Vec<_>>();
-    let report = serde_json::json!({
-        "target_class": target_class,
-        "domain": "unit",
-        "card": {
-            "schema_version": 1,
-            "source": "unit",
-            "pid_method": "unit",
-            "panel_lens_count": names.len(),
-            "n_samples": 80,
-            "anchor_entropy_bits": 1.0,
-            "panel_bits": 0.5,
-            "panel_ci": [0.4, 0.6],
-            "n_eff": 9.0,
-            "sufficient": false,
-            "deficit_bits": 0.5,
-            "a37_diversity": {
-                "schema_version": calyx_assay::A37_DIVERSITY_SCHEMA_VERSION,
-                "role": "a37_associational_diversity_gate",
-                "status": "diagnostic_only",
-                "content_lens_count": names.len(),
-                "temporal_sidecar_count": 0,
-                "temporal_counts_toward_content_floor": false,
-                "temporal_lane_role": "time_manipulation_walk_forward_backward_as_of_sidecar",
-                "association_family_count": 3,
-                "association_families": {},
-                "temporal_sidecar_slots": [],
-                "family_span_pass": true,
-                "content_pair_count": 45,
-                "expected_content_pair_count": 45,
-                "pair_evidence_pass": true,
-                "redundancy_bound_pass": true,
-                "no_collapse_pass": false,
-                "n_eff": 9.0,
-                "n_eff_floor": 6.0,
-                "mean_pairwise_corr": 0.1,
-                "mean_pairwise_nmi": 0.1,
-                "max_redundancy": 0.6,
-                "sum_unique_pid_bits": 0.0,
-                "min_marginal_bits": 0.05,
-                "verdict": "unit"
-            },
-            "sufficiency": {
-                "panel_bits": 0.5,
-                "sufficiency_basis_bits": 1.0,
-                "anchor_entropy_bits": 1.0,
-                "sufficient": false,
-                "deficit_bits": 0.5,
-                "deficits": [],
-                "trust": "provisional",
-                "estimate_bound": "lower_bound"
-            },
-            "lenses": lenses,
-            "pairs": [],
-            "keep_count": 0,
-            "park_count": names.len(),
-            "retire_count": 0
-        }
-    });
+    let report = report_value(target_class, names, marginal);
     fs::write(path, serde_json::to_vec_pretty(&report).unwrap()).unwrap();
 }
 
@@ -325,11 +272,12 @@ fn report_value(
             })
         })
         .collect::<Vec<_>>();
+    let pairs = pair_values(names);
     serde_json::json!({
         "target_class": target_class,
         "domain": "unit",
         "card": {
-            "schema_version": 1,
+            "schema_version": calyx_assay::ENSEMBLE_CARD_SCHEMA_VERSION,
             "source": "unit",
             "pid_method": "unit",
             "panel_lens_count": names.len(),
@@ -366,6 +314,18 @@ fn report_value(
                 "min_marginal_bits": 0.05,
                 "verdict": "unit"
             },
+            "redundancy_method": {
+                "metric": calyx_assay::LINEAR_CKA_REDUNDANCY_METHOD,
+                "tuple_design": "blake3_counter_uniform_four_distinct_with_replacement_v1",
+                "row_count": 80,
+                "tuple_count": 4096,
+                "seed_hex": "0xca1acafe4c4b4131",
+                "tuple_plan_blake3": "abababababababababababababababababababababababababababababababab",
+                "exact": false,
+                "uncertainty_method": "delete_32_group_jackknife_ratio_v1",
+                "uncertainty_blocks": 32,
+                "gate_score_method": "max_0_raw_plus_4_mc_se_clamped_1_fail_closed_v1"
+            },
             "sufficiency": {
                 "panel_bits": 0.5,
                 "sufficiency_basis_bits": 1.0,
@@ -377,12 +337,38 @@ fn report_value(
                 "estimate_bound": "lower_bound"
             },
             "lenses": lenses,
-            "pairs": [],
+            "pairs": pairs,
             "keep_count": 0,
             "park_count": names.len(),
             "retire_count": 0
         }
     })
+}
+
+fn pair_values(names: &[String]) -> Vec<serde_json::Value> {
+    let mut pairs = Vec::new();
+    for (slot_a, name_a) in names.iter().enumerate() {
+        for (slot_b, name_b) in names.iter().enumerate().skip(slot_a + 1) {
+            pairs.push(serde_json::json!({
+                "a": name_a,
+                "b": name_b,
+                "slot_a": slot_a,
+                "slot_b": slot_b,
+                "corr": 0.1,
+                "nmi": 0.1,
+                "redundancy": {
+                    "raw_signed_point": 0.1,
+                    "redundancy_point": 0.1,
+                    "mc_standard_error": 0.0,
+                    "mc_gate_upper_estimate": 0.1
+                },
+                "pair_bits": 0.3,
+                "pair_ci": [0.2, 0.4],
+                "synergy_gain_bits": 0.0
+            }));
+        }
+    }
+    pairs
 }
 
 fn deterministic_vault_id(domain: &str) -> VaultId {

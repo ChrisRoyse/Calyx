@@ -16,6 +16,27 @@ fn check_payload_allows_hash_and_ids() {
 }
 
 #[test]
+fn check_payload_allows_only_exact_hex_blake3_digests() {
+    let valid = serde_json::to_vec(&json!({
+        "tuple_plan_blake3": "ab".repeat(32),
+    }))
+    .unwrap();
+    assert!(RedactionPolicy::check_payload(&valid).is_ok());
+
+    let non_hex = serde_json::to_vec(&json!({
+        "tuple_plan_blake3": "g".repeat(64),
+    }))
+    .unwrap();
+    assert_secret(non_hex);
+
+    let overlong = serde_json::to_vec(&json!({
+        "tuple_plan_blake3": "ab".repeat(33),
+    }))
+    .unwrap();
+    assert_secret(overlong);
+}
+
+#[test]
 fn check_payload_allows_public_checkpoint_signature_fields() {
     let payload = json!({
         "tag": "checkpoint_v1",

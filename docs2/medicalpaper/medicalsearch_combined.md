@@ -8433,17 +8433,42 @@ Changed files:
 
 | File | Change |
 |---|---|
-| `crates/calyx-assay/src/ksg.rs` | `ksg_mi_continuous_discrete*` now uses a Ross-style mixed estimator: same-label kth continuous radius, all-sample continuous neighbor count, and class-size digamma correction |
+| `crates/calyx-assay/src/ksg/` | `ksg_mi_continuous_discrete*` uses a Ross-style mixed estimator; #1380 added explicit zero-radius refusal and a class-support-aware no-replacement root interval |
 | `crates/calyx-assay/tests/ksg_mixed_discrete_fsv.rs` | Added planted-signal, fail-closed small-class, and manual real-labeled dataset FSV coverage |
 
 Behavior now enforced:
 
 - Class labels are not converted to fake continuous one-hot vectors.
 - Each point gets its kth-neighbor radius from same-class continuous samples.
+  At a positive radius, `q_i` counts every other same-class row on or inside
+  that boundary, and the local term uses `psi(q_i)` rather than fixed `psi(k)`.
 - The estimator fails closed with `CALYX_ASSAY_INSUFFICIENT_SAMPLES` when any
   discrete label has `class_size <= k`.
+- The estimator fails closed with `CALYX_ASSAY_DEGENERATE_INPUT` when a point
+  has at least `k` exact same-class continuous duplicates, rather than
+  continuing with an undefined zero-radius estimate.
+- Finite coordinates whose per-dimension `max-min` span cannot produce finite
+  f32 Chebyshev distances fail the same degeneracy code before estimation.
+- Each interval proposal is uniform SRSWOR. Rejection sampling accepts exactly
+  999 support-valid roots, with at most eight proposals per root; accepted roots
+  are uniform conditional on class-support validity, not unconditional uniform
+  SRSWOR draws. The exact hypergeometric class-support admission bound and
+  finite-population correction remain part of the contract. The interval is
+  `EstimateBound::Point`, not a calibrated sufficiency lower bound.
+- No feasible subsample plan or eight exhausted support-validity proposals for
+  any root fails `CALYX_ASSAY_INSUFFICIENT_SAMPLES`. A raw interval wholly below
+  the non-negative MI domain fails `CALYX_ASSAY_LOW_SIGNAL`.
 - Grounded-anchor callers keep the public API and receive the same trust tag
   semantics as before.
+
+The bound is preserved through `SlotAssayBits`,
+`ExternalSignalAdmissionReport`, and `LensCandidateMeasurement` and is included
+in versioned provenance/decision hashes. Missing legacy metadata remains unknown
+`None`. Mixed `Point` evidence is refused by external admission as
+`CALYX_POLY_EXTERNAL_SIGNAL_REFUSED_UNCALIBRATED_BOUND` and by lens autobuild as
+`uncalibrated_estimate_bound`; only `LowerBound` may clear those gates. A
+four-seed balanced/imbalanced null-and-disjoint-support regression is a small
+repeated-dataset smoke audit, not a 95% coverage claim.
 
 Primary method references used for the estimator:
 
@@ -8519,17 +8544,18 @@ Source and CF readback:
 }
 ```
 
-The real-data readback shows why the fix matters: the old one-hot path reports a
-point estimate above the 3-class entropy, while the Ross lower bound does not
-clear entropy. Any sufficiency decision consuming this path is now grounded on
-the mixed estimator, not on the over-optimistic one-hot value.
+The historical real-data readback shows why the estimator replacement mattered:
+the old one-hot path reported a point estimate above the 3-class entropy, while
+the Ross point estimate did not. Its recorded historical CI predates the #1380
+root-interval hardening and must not be interpreted as a calibrated lower bound.
+Current callers receive an explicit `Point` interval from the mixed estimator.
 
 ## Conclusion
 
-#1207 is complete for the assay estimator boundary. Discrete anchors now use a
-mixed continuous-discrete estimator, deficient classes fail closed with a named
-label/class size, and both synthetic and real-labeled readbacks persist the
-evidence for the estimator delta.
+#1207 replaced the one-hot estimator boundary; #1380 subsequently hardened it.
+Discrete anchors now use a mixed continuous-discrete estimator, deficient
+classes and zero radii fail closed, and the no-replacement uncertainty output is
+honestly tagged `Point`.
 
 ---
 
@@ -8553,7 +8579,7 @@ Changed file:
 
 | File | Change |
 |---|---|
-| `crates/calyx-assay/src/ksg.rs` | Continuous KSG now computes CI from deterministic m-out-of-n no-replacement subsamples instead of paired replacement bootstrap |
+| `crates/calyx-assay/src/ksg/mod.rs` | Continuous KSG computes CI from deterministic m-out-of-n no-replacement subsamples instead of paired replacement bootstrap |
 
 Behavior now enforced:
 
@@ -8561,15 +8587,34 @@ Behavior now enforced:
 - The duplicate-index invariant is checked at runtime and fails closed if it is
   ever violated.
 - Subsample size is `floor(4n/5)`.
-- The interval is widened by a deterministic coarse-grain allowance
-  `abs(point_bits) * (1 - m/n)` so the reduced-size subsample does not become an
-  over-tight safety bound.
+- The interval transforms empirical 2.5%/97.5% subsample percentiles as
+  `point + (percentile - point) * sqrt(m/n)`.
 - If the subsample cannot still satisfy the assay quorum
   (`m >= MIN_ASSAY_SAMPLES` and `0 < k < m`), KSG returns
   `CALYX_ASSAY_INSUFFICIENT_SAMPLES`.
 - The generic paired bootstrap helper remains available for non-KSG estimators.
-- The #1207 mixed continuous-discrete path remains on its local-term CI; it does
-  not reintroduce replacement-bootstrap duplicate points.
+- The mixed continuous-discrete path is separate in `ksg/mixed_ci.rs`. Each
+  proposal is uniform SRSWOR; rejection sampling accepts exactly 999
+  support-valid roots with at most eight proposals per root. Accepted roots are
+  therefore uniform conditional on class-support validity, not unconditional
+  uniform SRSWOR draws. The exact hypergeometric class-support bound rejects
+  rather than forcing class quotas. No feasible plan or exhausted root fails
+  `CALYX_ASSAY_INSUFFICIENT_SAMPLES`; a wholly negative interval fails
+  `CALYX_ASSAY_LOW_SIGNAL`. The result is explicit `EstimateBound::Point` and
+  does not reuse this continuous-path interval.
+
+The continuous path still inherits the default `EstimateBound::LowerBound`
+metadata even though this scaled-percentile interval is not calibrated as a
+one-sided lower bound; #1449 tracks that separate contract gap.
+
+Both KSG paths reject finite input coordinates whose per-dimension `max-min`
+span cannot produce finite f32 Chebyshev distances. Mixed bound metadata is
+preserved through `SlotAssayBits`, `ExternalSignalAdmissionReport`, and
+`LensCandidateMeasurement` and participates in versioned hashes; missing legacy
+metadata remains unknown `None`. External admission and lens autobuild refuse
+mixed `Point` evidence, and only `LowerBound` may clear those gates. A four-seed
+balanced/imbalanced repeated-dataset regression is a smoke audit, not a 95%
+coverage claim.
 
 Primary method reference used:
 
@@ -8582,6 +8627,11 @@ fine-scale/high-information artifacts and recommends subsampling rather than
 ordinary bootstrap for KSG error bars.
 
 ## Verification
+
+The readbacks below are the historical #1208 evidence captured on 2026-07-04.
+They predate the current scaled-percentile implementation and the separate #1380
+mixed root interval, so their numeric bounds are not current calibration
+evidence.
 
 FSV root:
 
@@ -8654,10 +8704,11 @@ Edge case:
 
 ## Conclusion
 
-#1208 is complete for the continuous KSG CI path. The CI no longer creates
-duplicate rows, the duplicate invariant is asserted, planted-signal intervals
-cover the known value on the tested seeds, and small subsamples fail closed
-instead of emitting a bound from a degenerate resample.
+#1208 removed replacement duplicates from the continuous KSG CI path. Its
+historical fixtures showed the expected behavior at that revision. The current
+continuous scaled-percentile interval remains no-replacement but is not a
+calibrated lower bound (#1449); the current mixed path is the separately
+fail-closed `Point` interval described above.
 
 ---
 
@@ -17324,4 +17375,3 @@ still requires experimental confirmation.
 | (added as work proceeds) | | |
 
 ---
-

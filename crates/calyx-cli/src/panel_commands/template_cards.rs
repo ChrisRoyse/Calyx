@@ -108,6 +108,16 @@ fn a37_admission_from_assay_card(
             "pass the JSON produced by calyx assay i8bin-ensemble-card",
         )
     })?;
+    calyx_assay::validate_ensemble_card_redundancy(&card).map_err(|error| {
+        template_error(
+            TEMPLATE_INVALID,
+            format!(
+                "A37 assay card {} has invalid redundancy evidence: {error}",
+                path.display()
+            ),
+            "regenerate the Assay EnsembleCard with current redundancy evidence",
+        )
+    })?;
     ensure_a37_card_matches_template(template, &card, path)?;
     let gate = &card.a37_diversity;
     let admission = TemplateA37Admission {
@@ -339,4 +349,104 @@ fn mean_ms(template: &SavedPanelTemplate) -> f32 {
         .map(|lens| lens.cost.ms_per_input)
         .sum::<f32>()
         / template.lenses.len() as f32
+}
+
+#[cfg(test)]
+mod tests {
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    use super::super::template_model::OBJECT_VERSION;
+    use super::*;
+
+    #[test]
+    fn current_assay_card_missing_redundancy_evidence_fails_closed() {
+        let root = std::env::temp_dir().join(format!(
+            "template-card-missing-redundancy-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&root).unwrap();
+        let path = root.join("ensemble_card.json");
+        fs::write(
+            &path,
+            serde_json::to_vec_pretty(&current_card_without_method()).unwrap(),
+        )
+        .unwrap();
+        let template = SavedPanelTemplate {
+            schema_version: OBJECT_VERSION,
+            name: "missing-redundancy".to_string(),
+            version: 1,
+            notes: String::new(),
+            min_content_lenses: 10,
+            lenses: Vec::new(),
+            time_controls: Vec::new(),
+            ensemble_card: None,
+        };
+
+        let error = a37_admission_from_assay_card(&template, Some(&path)).unwrap_err();
+
+        assert_eq!(error.code(), TEMPLATE_INVALID);
+        assert!(error.message().contains("missing redundancy method"));
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    fn current_card_without_method() -> serde_json::Value {
+        serde_json::json!({
+            "schema_version": calyx_assay::ENSEMBLE_CARD_SCHEMA_VERSION,
+            "source": "unit",
+            "pid_method": "unit",
+            "panel_lens_count": 0,
+            "n_samples": 50,
+            "anchor_entropy_bits": 1.0,
+            "panel_bits": 0.0,
+            "panel_ci": [0.0, 0.0],
+            "n_eff": 0.0,
+            "sufficient": false,
+            "deficit_bits": 1.0,
+            "a37_diversity": {
+                "schema_version": calyx_assay::A37_DIVERSITY_SCHEMA_VERSION,
+                "role": "a37_associational_diversity_gate",
+                "status": "diagnostic_only",
+                "content_lens_count": 0,
+                "temporal_sidecar_count": 0,
+                "temporal_counts_toward_content_floor": false,
+                "temporal_lane_role": "time_manipulation_walk_forward_backward_as_of_sidecar",
+                "association_family_count": 0,
+                "association_families": {},
+                "temporal_sidecar_slots": [],
+                "family_span_pass": false,
+                "content_pair_count": 0,
+                "expected_content_pair_count": 0,
+                "pair_evidence_pass": false,
+                "redundancy_bound_pass": false,
+                "no_collapse_pass": false,
+                "n_eff": 0.0,
+                "n_eff_floor": 6.0,
+                "mean_pairwise_corr": 0.0,
+                "mean_pairwise_nmi": 0.0,
+                "max_redundancy": 0.6,
+                "sum_unique_pid_bits": 0.0,
+                "min_marginal_bits": 0.05,
+                "verdict": "unit"
+            },
+            "sufficiency": {
+                "panel_bits": 0.0,
+                "sufficiency_basis_bits": 0.0,
+                "anchor_entropy_bits": 1.0,
+                "sufficient": false,
+                "deficit_bits": 1.0,
+                "deficits": [],
+                "trust": "provisional",
+                "estimate_bound": "point"
+            },
+            "lenses": [],
+            "pairs": [],
+            "keep_count": 0,
+            "park_count": 0,
+            "retire_count": 0
+        })
+    }
 }

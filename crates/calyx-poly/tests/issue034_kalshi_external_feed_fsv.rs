@@ -8,12 +8,13 @@ mod support;
 use std::fs;
 use std::path::Path;
 
-use calyx_assay::{MIN_ASSAY_SAMPLES, TrustTag};
+use calyx_assay::{EstimateBound, MIN_ASSAY_SAMPLES, TrustTag};
 use calyx_core::FixedClock;
 use calyx_poly::external_kalshi_feed::{
     DEFAULT_EXTERNAL_SIGNAL_K, ERR_EXTERNAL_SIGNAL_ADMISSION_INVALID, ERR_KALSHI_ENCODE_INVALID,
-    ERR_KALSHI_MARKET_INVALID, EXTERNAL_SIGNAL_ADMITTED, EXTERNAL_SIGNAL_REFUSED_SINGLE_CLASS,
-    EXTERNAL_SIGNAL_REFUSED_UNDERPOWERED, ExternalSignalOutcomeObservation, KalshiFeedClient,
+    ERR_KALSHI_MARKET_INVALID, EXTERNAL_SIGNAL_REFUSED_SINGLE_CLASS,
+    EXTERNAL_SIGNAL_REFUSED_UNCALIBRATED_BOUND, EXTERNAL_SIGNAL_REFUSED_UNDERPOWERED,
+    ExternalSignalAdmissionReport, ExternalSignalOutcomeObservation, KalshiFeedClient,
     KalshiFeedClientConfig, KalshiMarketsPage, KalshiMarketsRequest, encode_kalshi_market_signal,
     kalshi_lens_candidate_from_admission, kalshi_market_signal_observations,
     measure_external_signal_admission, parse_kalshi_market, parse_kalshi_markets_value,
@@ -67,8 +68,22 @@ fn issue034_kalshi_external_feed_fsv() {
         DEFAULT_EXTERNAL_SIGNAL_K,
     )
     .expect("admission measurement");
-    assert_eq!(admission.code, EXTERNAL_SIGNAL_ADMITTED);
-    assert!(admission.admitted);
+    assert_eq!(
+        serde_json::to_value(&admission).expect("admission JSON")["estimate_bound"],
+        json!("point"),
+        "external-signal evidence must retain the mixed estimator's Point contract"
+    );
+    assert_eq!(admission.estimate_bound, Some(EstimateBound::Point));
+    assert_eq!(admission.code, EXTERNAL_SIGNAL_REFUSED_UNCALIBRATED_BOUND);
+    assert!(!admission.admitted);
+    let mut legacy_admission = serde_json::to_value(&admission).expect("legacy admission JSON");
+    legacy_admission
+        .as_object_mut()
+        .expect("admission object")
+        .remove("estimate_bound");
+    let legacy_admission: ExternalSignalAdmissionReport =
+        serde_json::from_value(legacy_admission).expect("legacy admission without bound");
+    assert_eq!(legacy_admission.estimate_bound, None);
     assert!(
         admission.bits >= 0.05,
         "known-truth Kalshi signal must clear the 0.05-bit floor"
@@ -84,15 +99,15 @@ fn issue034_kalshi_external_feed_fsv() {
     collect_files(&root, &mut files);
     let report = json!({
         "issue": 34,
-        "proof_claim": "A read-only Kalshi external feed page is captured as raw bytes, parsed from disk readback into typed markets, encoded into finite numeric signal vectors, and measured by the real Assay KSG continuous/discrete admission gate with the 0.05-bit floor.",
+        "proof_claim": "A read-only Kalshi external feed page is captured as raw bytes, parsed from disk readback into typed markets, encoded into finite numeric signal vectors, and measured by the real Assay mixed KSG estimator. Point-bound evidence is preserved and refused by admission and lens autobuild instead of being treated as a calibrated lower bound.",
         "minimum_sufficient_proof_corpus": {
             "raw_kalshi_market_rows": page.markets.len(),
             "known_outcome_admission_rows": observations.len(),
             "lens_autobuild_candidates": 1,
             "edge_cases": 9,
-            "why_this_is_sufficient": "Two market rows are the smallest fixture that proves both tight bid/ask midpoint encoding and settled wide-spread last-price fallback while exercising yes/no labels. Exactly 50 known-outcome rows is the calyx-assay KSG sample floor, so it is the smallest corpus that can prove a real admission measurement. One trusted lens-autobuild candidate is the smallest #110 handoff. Nine edges cover missing markets array, missing price signal, missing spread, missing liquidity/volume/open-interest evidence, non-finite signal refusal, single-class refusal, and below-floor refusal.",
+            "why_this_is_sufficient": "Two market rows are the smallest fixture that proves both tight bid/ask midpoint encoding and settled wide-spread last-price fallback while exercising yes/no labels. Exactly 50 known-outcome rows is the calyx-assay KSG sample floor, so it is the smallest corpus that can prove a real mixed-estimator measurement. One Point-bound lens-autobuild candidate is the smallest #110 handoff that proves fail-closed rejection. Nine edges cover missing markets array, missing price signal, missing spread, missing liquidity/volume/open-interest evidence, non-finite signal refusal, single-class refusal, and below-floor refusal.",
             "why_smaller_is_insufficient": "One market row would not prove both encoding branches or both outcome labels. Fewer than 50 known-outcome rows cannot satisfy the Assay KSG sample floor. Removing the edge cases would not prove fail-closed behavior.",
-            "why_larger_is_wasteful": "More market rows or more than 50 known-outcome rows repeat the same raw readback, parser, encoder, and KSG admission paths without adding a #34 invariant."
+            "why_larger_is_wasteful": "More market rows or more than 50 known-outcome rows repeat the same raw readback, parser, encoder, mixed-estimator, and bound-refusal paths without adding a #34 invariant."
         },
         "source_of_truth": "Kalshi-compatible raw body bytes persisted under this FSV root and parsed only after disk readback",
         "persisted_feed": persisted,
@@ -113,7 +128,7 @@ fn issue034_kalshi_external_feed_fsv() {
     assert_eq!(readback["passed"], json!(true));
     assert_eq!(
         readback["admission"]["code"],
-        json!(EXTERNAL_SIGNAL_ADMITTED)
+        json!(EXTERNAL_SIGNAL_REFUSED_UNCALIBRATED_BOUND)
     );
     assert_eq!(readback["persisted_feed"], report["persisted_feed"]);
     write_blake3sums(&root);
@@ -229,21 +244,20 @@ fn lens_autobuild_handoff(
         .expect("lens autobuild handoff");
     let readback = read_lens_autobuild_report(&run.report_path).expect("read lens autobuild");
     assert_eq!(readback, run.report);
-    assert_eq!(run.report.status, LensAutobuildStatus::Admitted);
-    assert_eq!(run.report.admitted_count, 1);
-    let spec = &run.report.admitted[0];
-    assert_eq!(spec.lens_key, "external_kalshi_yes_price_signal");
-    assert!(spec.expected_gain_bits >= LENS_AUTOBUILD_MIN_GAIN_BITS);
-    assert!(spec.ci_low_bits > 0.0);
+    assert_eq!(run.report.status, LensAutobuildStatus::Rejected);
+    assert_eq!(run.report.admitted_count, 0);
+    assert_eq!(run.report.rejected_count, 1);
+    let rejection = &run.report.rejected[0];
+    assert_eq!(rejection.lens_key, "external_kalshi_yes_price_signal");
+    assert_eq!(rejection.code, "uncalibrated_estimate_bound");
     json!({
         "report_path": run.report_path.display().to_string(),
         "status": run.report.status,
         "admitted_count": run.report.admitted_count,
-        "lens_key": spec.lens_key,
-        "encoder_kind": spec.encoder_kind,
-        "source_fields": spec.source_fields,
-        "expected_gain_bits": spec.expected_gain_bits,
-        "ci_low_bits": spec.ci_low_bits,
+        "rejected_count": run.report.rejected_count,
+        "lens_key": rejection.lens_key,
+        "rejection_code": rejection.code,
+        "estimate_bound": admission.estimate_bound,
         "decision_hash": run.report.decision_hash
     })
 }

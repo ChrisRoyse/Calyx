@@ -156,6 +156,9 @@ fn load_db_report(input: &DbReportRef) -> Result<LoadedReport, String> {
 }
 
 fn validate_card(source: &str, card: &EnsembleCard) -> Result<(), String> {
+    calyx_assay::validate_ensemble_card_redundancy(card).map_err(|error| {
+        format!("{CODE_INVALID_REPORT}: {source} redundancy evidence is invalid: {error}")
+    })?;
     if card.lenses.is_empty() {
         return Err(format!(
             "{CODE_INVALID_REPORT}: {source} card has no lenses"
