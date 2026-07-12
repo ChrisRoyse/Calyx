@@ -386,6 +386,33 @@ fn gaussian_mi_bits(x: &[Vec<f32>], y: &[Vec<f32>]) -> f32 {
     -0.5 * (1.0 - r2).log2()
 }
 
+#[test]
+fn continuous_ksg_rejects_finite_inputs_with_infinite_derived_distance() {
+    let mut x: Vec<_> = (0..80).map(|i| vec![i as f32 * 0.01]).collect();
+    let y: Vec<_> = (0..80).map(|i| vec![i as f32 * 0.02]).collect();
+    x[0][0] = f32::MAX;
+    x[1][0] = -f32::MAX;
+
+    let err = ksg_mi_continuous(&x, &y, 3).expect_err("infinite derived distance fails");
+    assert_eq!(err.code, "CALYX_ASSAY_DEGENERATE_INPUT");
+    assert!(err.message.contains("finite f32 Chebyshev distance"));
+    assert!(err.message.contains("x dimension 0"));
+}
+
+#[test]
+fn mixed_ksg_rejects_finite_inputs_with_infinite_derived_distance() {
+    let mut x: Vec<_> = (0..80).map(|i| vec![i as f32 * 0.01]).collect();
+    let labels: Vec<_> = (0..80).map(|i| i % 2).collect();
+    x[0][0] = f32::MAX;
+    x[1][0] = -f32::MAX;
+
+    let err =
+        ksg_mi_continuous_discrete(&x, &labels, 3).expect_err("infinite derived distance fails");
+    assert_eq!(err.code, "CALYX_ASSAY_DEGENERATE_INPUT");
+    assert!(err.message.contains("finite f32 Chebyshev distance"));
+    assert!(err.message.contains("x dimension 0"));
+}
+
 fn maybe_write_issue1208_fsv(readback: serde_json::Value) {
     let Some(root) = calyx_fsv::fsv_root("CALYX_FSV_ROOT") else {
         return;
