@@ -371,9 +371,14 @@ fn finalize_estimate(
             "mixed continuous-discrete KSG interval lies outside the non-negative MI domain",
         ));
     }
-    let bits = raw_point_estimate.max(0.0) as f32;
-    let ci_low = ci.interval.ci_low.max(0.0);
-    let ci_high = ci.interval.ci_high.max(0.0);
+    let raw_point = raw_point_estimate as f32;
+    let bits = raw_point.max(0.0);
+    // A reverse-tail basic interval can exclude its generating point under finite-sample bias.
+    // MiEstimate represents a point-containing uncertainty band, so take the conservative hull
+    // explicitly after validating the raw root interval rather than relying on its constructor to
+    // pad the bounds silently.
+    let ci_low = ci.interval.ci_low.min(raw_point).max(0.0);
+    let ci_high = ci.interval.ci_high.max(raw_point).max(0.0);
     if !bits.is_finite()
         || !ci_low.is_finite()
         || !ci_high.is_finite()
