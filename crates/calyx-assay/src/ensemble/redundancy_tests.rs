@@ -254,18 +254,22 @@ fn current_card() -> super::model::EnsembleCard {
         .map(|lens| {
             let vectors = base_rows(rows)
                 .into_iter()
-                .map(|row| {
-                    row.into_iter()
-                        .enumerate()
-                        .map(|(dimension, value)| {
-                            let sign = if (lens + dimension) % 2 == 0 {
-                                1.0
-                            } else {
-                                -1.0
-                            };
-                            sign * value * (1.0 + lens as f32 * 0.01) + lens as f32
-                        })
-                        .collect::<Vec<_>>()
+                .enumerate()
+                .map(|(row_index, row)| {
+                    let scale = 1.0 + lens as f32 * 0.01;
+                    let mut vector = Vec::with_capacity(row.len() + 1);
+                    let planted_label = if labels[row_index] { 4.0 } else { -4.0 };
+                    vector.push(planted_label * scale + lens as f32);
+                    vector.extend(row.into_iter().enumerate().map(|(dimension, value)| {
+                        let dimension = dimension + 1;
+                        let sign = if (lens + dimension) % 2 == 0 {
+                            1.0
+                        } else {
+                            -1.0
+                        };
+                        sign * value * scale + lens as f32
+                    }));
+                    vector
                 })
                 .collect::<Vec<_>>();
             EnsembleLensInput::new(

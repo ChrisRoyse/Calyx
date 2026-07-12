@@ -35,10 +35,10 @@ fn valid_ten_lens_card_reports_complete_redundancy_decomposition() {
         report["redundancy_method"]["metric"],
         LINEAR_CKA_REDUNDANCY_METHOD
     );
-    assert_eq!(
-        report["pair_values"][0]["redundancy"]["mc_gate_upper_estimate"],
-        0.2
-    );
+    let gate_score = report["pair_values"][0]["redundancy"]["mc_gate_upper_estimate"]
+        .as_f64()
+        .unwrap();
+    assert!((gate_score - 0.2).abs() < 1.0e-6);
     let synergy = report["pair_values"][0]["synergy_gain_bits"]
         .as_f64()
         .unwrap();
