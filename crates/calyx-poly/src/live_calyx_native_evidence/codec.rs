@@ -146,7 +146,7 @@ fn encode_redundancy_method(evidence: &mut Value) -> Result<()> {
     else {
         return Ok(());
     };
-    encode_method_fields(method).map_err(invalid_error)
+    encode_method_fields(method)
 }
 
 fn decode_redundancy_method(evidence: &mut Value, ledger_seq: u64) -> Result<()> {
