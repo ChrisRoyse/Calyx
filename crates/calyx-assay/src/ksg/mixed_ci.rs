@@ -75,7 +75,7 @@ pub(super) fn validate_radius_defined(x: &[Vec<f32>], labels: &[usize], k: usize
     Ok(())
 }
 
-fn raw_bits_from_validated_samples(
+pub(super) fn raw_bits_from_validated_samples(
     x: &[Vec<f32>],
     labels: &[usize],
     k: usize,

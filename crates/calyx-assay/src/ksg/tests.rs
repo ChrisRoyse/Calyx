@@ -213,6 +213,20 @@ fn mixed_ksg_duplicate_guard_uses_the_exact_k_threshold_and_label_scope() {
 }
 
 #[test]
+fn mixed_ksg_positive_boundary_ties_use_observed_same_class_mass() {
+    let x = (0..60).map(|index| vec![index as f32]).collect::<Vec<_>>();
+    let labels = vec![0; x.len()];
+    let counts = mixed_ci::validate_classes(&labels, 3).unwrap();
+
+    let raw = mixed_ci::raw_bits_from_validated_samples(&x, &labels, 3, &counts);
+
+    assert!(
+        raw.abs() < 1e-12,
+        "one constant label has exactly zero MI even when the kth distance has positive ties; got {raw}"
+    );
+}
+
+#[test]
 fn mixed_ksg_support_plan_uses_exact_hypergeometric_tail_math() {
     let probability = mixed_ci::hypergeometric_cdf_at_most(10, 4, 5, 1).unwrap();
     assert!((probability - 66.0 / 252.0).abs() < 1e-12);
