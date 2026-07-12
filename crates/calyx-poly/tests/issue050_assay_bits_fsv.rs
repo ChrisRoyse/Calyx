@@ -240,7 +240,8 @@ fn matrix_with_rows(n: usize) -> PanelMatrix {
     let mut anchors = Vec::with_capacity(n);
     for i in 0..n {
         let won = i % 2 == 0;
-        signal.push(if won { 1.0 } else { -1.0 } + ((i % 5) as f32 - 2.0) * 0.01);
+        let signal_center = if won { 1.0 } else { -1.0 };
+        signal.push(signal_center + i as f32 * 0.001);
         noise.push(((i * 37) % 101) as f32 / 50.0 - 1.0);
         anchors.push(synthetic::resolved_anchor(won, i));
     }
