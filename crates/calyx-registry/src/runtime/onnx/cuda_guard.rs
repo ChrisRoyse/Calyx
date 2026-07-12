@@ -19,6 +19,12 @@ impl<T> CudaDropGuard<T> {
             .expect("CudaDropGuard value is present until into_inner")
     }
 
+    pub(super) fn as_mut(&mut self) -> &mut T {
+        self.value
+            .as_mut()
+            .expect("CudaDropGuard value is present until into_inner")
+    }
+
     pub(super) fn into_inner(mut self) -> T {
         self.value
             .take()
@@ -31,9 +37,9 @@ impl<T> Drop for CudaDropGuard<T> {
         if self.leak_on_drop
             && let Some(value) = self.value.take()
         {
-            // ORT CUDA provider teardown can corrupt glibc heap in a manual verification run.
-            // Successful lenses leak in OnnxLens::drop; this guard applies the
-            // same policy to construction errors after a CUDA session exists.
+            // ORT CUDA teardown can corrupt the glibc heap after either a failed
+            // session commit or a successfully built lens. Keep guarded CUDA
+            // owners process-resident; CPU-explicit owners still drop normally.
             std::mem::forget(value);
         }
     }
@@ -56,6 +62,12 @@ mod tests {
         }
     }
 
+    impl DropProbe {
+        fn commit(&mut self) -> Result<(), &'static str> {
+            Err("commit refused")
+        }
+    }
+
     #[test]
     fn cuda_guard_leaks_cuda_fail_loud_error_path() {
         let drops = Arc::new(AtomicUsize::new(0));
@@ -65,6 +77,21 @@ mod tests {
                 DropProbe(Arc::clone(&drops)),
                 OnnxProviderPolicy::CudaFailLoud,
             );
+        }
+
+        assert_eq!(drops.load(Ordering::SeqCst), 0);
+    }
+
+    #[test]
+    fn cuda_guard_leaks_cuda_fail_loud_builder_after_commit_error() {
+        let drops = Arc::new(AtomicUsize::new(0));
+
+        {
+            let mut guard = CudaDropGuard::new(
+                DropProbe(Arc::clone(&drops)),
+                OnnxProviderPolicy::CudaFailLoud,
+            );
+            assert_eq!(guard.as_mut().commit(), Err("commit refused"));
         }
 
         assert_eq!(drops.load(Ordering::SeqCst), 0);

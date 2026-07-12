@@ -2,6 +2,7 @@ use calyx_core::{CalyxError, Result};
 use ort::session::Session;
 
 use super::cpu_fallback_audit::{configured_audit_mode, profiling_file_path};
+use super::cuda_guard::CudaDropGuard;
 use super::green_context::GreenContextHandle;
 use super::{OnnxProviderPolicy, config_invalid};
 
@@ -119,12 +120,22 @@ pub(super) fn build_session(
                 config_invalid(format!("ONNX profiling enable failed for {label}: {err}"))
             })?;
     }
-    let session = builder.commit_from_file(model_file).map_err(|err| {
-        config_invalid(format!(
-            "load ONNX model failed for {label} (policy={} device_id={device_id}): {err}",
-            policy.as_str()
-        ))
-    })?;
+    // ORT 1.26 may abort at process teardown after a refused CUDA session
+    // commit. Keep the configured builder's SessionOptions and Environment
+    // owner process-resident on that error path (#1150).
+    let mut builder = CudaDropGuard::new(builder, policy);
+    let session = match builder.as_mut().commit_from_file(model_file) {
+        Ok(session) => {
+            drop(builder.into_inner());
+            session
+        }
+        Err(err) => {
+            return Err(config_invalid(format!(
+                "load ONNX model failed for {label} (policy={} device_id={device_id}): {err}",
+                policy.as_str()
+            )));
+        }
+    };
     Ok(ManagedOnnxSession {
         session,
         _green_context: green_context,
