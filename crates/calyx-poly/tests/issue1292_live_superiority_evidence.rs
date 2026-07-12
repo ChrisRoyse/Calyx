@@ -13,9 +13,10 @@ use calyx_poly::crypto_forecast_registration::{
     register_crypto_pending_from_calyx_native_artifact,
 };
 use calyx_poly::live_calyx_native_evidence::{
-    ERR_LIVE_CALYX_NATIVE_EVIDENCE_MISSING, ERR_LIVE_CALYX_NATIVE_EVIDENCE_STALE,
-    LIVE_CALYX_NATIVE_EVIDENCE_MAX_AGE_MILLIS, StoredLiveCalyxNativeEvidence,
-    read_latest_live_calyx_native_evidence,
+    ERR_LIVE_CALYX_NATIVE_EVIDENCE_INVALID, ERR_LIVE_CALYX_NATIVE_EVIDENCE_MISSING,
+    ERR_LIVE_CALYX_NATIVE_EVIDENCE_STALE, LIVE_CALYX_NATIVE_EVIDENCE_MAX_AGE_MILLIS,
+    LiveCalyxNativeEvidenceRequest, StoredLiveCalyxNativeEvidence,
+    read_latest_live_calyx_native_evidence, record_live_calyx_native_evidence,
 };
 use calyx_poly::model::{Book, MarketSnapshot, OracleRiskEvidence};
 use calyx_poly::pending_forecast_register::PendingForecastRegister;
@@ -160,6 +161,24 @@ fn assert_measured_tier_failures(
     snapshot: &MarketSnapshot,
     evidence_at_millis: u64,
 ) {
+    let mut missing_pair =
+        strong_evidence_parts(DOMAIN, HORIZON, PANEL_VERSION, evidence_at_millis);
+    missing_pair.panel.assay_card.pairs[0].redundancy = None;
+    let error = record_live_calyx_native_evidence(
+        vault,
+        LiveCalyxNativeEvidenceRequest {
+            panel: &missing_pair.panel,
+            kernel_recall: &missing_pair.kernel_recall,
+            calibration: &missing_pair.calibration,
+            goodhart: &missing_pair.goodhart,
+            goodhart_held_out: &missing_pair.held_out,
+            mistake_replay: &missing_pair.mistakes,
+        },
+    )
+    .expect_err("current panel card missing pair redundancy must fail before Ledger write");
+    assert_eq!(error.code(), ERR_LIVE_CALYX_NATIVE_EVIDENCE_INVALID);
+    assert!(error.message().contains("missing redundancy evidence"));
+
     let mut kernel = strong_evidence_parts(DOMAIN, HORIZON, PANEL_VERSION, evidence_at_millis);
     kernel.kernel_recall.measured_ratio = 0.80;
     kernel.kernel_recall.recall.ratio = 0.80;

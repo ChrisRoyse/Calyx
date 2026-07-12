@@ -1,9 +1,10 @@
 use calyx_core::SlotId;
 
-use super::model::EnsembleLensInput;
+use super::model::{EnsembleConfig, EnsembleLensInput};
 use super::redundancy::{
     LINEAR_CKA_REDUNDANCY_METHOD, ensemble_redundancy_from_lenses, linear_cka_sketch_from_rows,
-    linear_cka_tuple_plan, test_pair_estimate, test_tuple_z, test_tuples, validate_evidence,
+    linear_cka_tuple_plan, test_pair_estimate, test_tuple_z, test_tuples,
+    validate_ensemble_card_redundancy, validate_evidence,
 };
 
 #[test]
@@ -169,6 +170,112 @@ fn redundancy_method_metadata_tampering_fails_closed() {
         let error = validate_evidence(&lenses, &tampered).unwrap_err();
         assert_eq!(error.code, "CALYX_ASSAY_DEGENERATE_INPUT");
     }
+}
+
+#[test]
+fn current_card_missing_redundancy_method_fails_closed() {
+    let mut card = current_card();
+    card.redundancy_method = None;
+
+    let error = validate_ensemble_card_redundancy(&card).unwrap_err();
+
+    assert_eq!(error.code, "CALYX_ASSAY_DEGENERATE_INPUT");
+    assert!(error.message.contains("missing redundancy method"));
+}
+
+#[test]
+fn current_card_missing_pair_redundancy_fails_closed() {
+    let mut card = current_card();
+    card.pairs[0].redundancy = None;
+
+    let error = validate_ensemble_card_redundancy(&card).unwrap_err();
+
+    assert_eq!(error.code, "CALYX_ASSAY_DEGENERATE_INPUT");
+    assert!(error.message.contains("missing redundancy evidence"));
+}
+
+#[test]
+fn current_card_tampered_method_or_compatibility_score_fails_closed() {
+    let card = current_card();
+    validate_ensemble_card_redundancy(&card).unwrap();
+
+    let mut method_tampered = card.clone();
+    method_tampered
+        .redundancy_method
+        .as_mut()
+        .unwrap()
+        .tuple_plan_blake3 = "not-a-digest".to_string();
+    let method_error = validate_ensemble_card_redundancy(&method_tampered).unwrap_err();
+    assert_eq!(method_error.code, "CALYX_ASSAY_DEGENERATE_INPUT");
+
+    let mut score_tampered = card;
+    score_tampered.pairs[0].corr = 0.0;
+    let score_error = validate_ensemble_card_redundancy(&score_tampered).unwrap_err();
+    assert_eq!(score_error.code, "CALYX_ASSAY_DEGENERATE_INPUT");
+    assert!(score_error.message.contains("corr"));
+
+    score_tampered.pairs[0].corr = f32::NAN;
+    let non_finite_error = validate_ensemble_card_redundancy(&score_tampered).unwrap_err();
+    assert_eq!(non_finite_error.code, "CALYX_ASSAY_DEGENERATE_INPUT");
+    assert!(non_finite_error.message.contains("corr"));
+}
+
+#[test]
+fn legacy_card_remains_decodable_but_cannot_cross_an_evidence_boundary() {
+    let mut legacy = current_card();
+    legacy.schema_version = super::model::ENSEMBLE_CARD_SCHEMA_VERSION - 1;
+    legacy.redundancy_method = None;
+    for pair in &mut legacy.pairs {
+        pair.redundancy = None;
+    }
+    let bytes = serde_json::to_vec(&legacy).unwrap();
+    let decoded: super::model::EnsembleCard = serde_json::from_slice(&bytes).unwrap();
+    assert!(decoded.redundancy_method.is_none());
+    assert!(decoded.pairs.iter().all(|pair| pair.redundancy.is_none()));
+
+    let legacy_error = validate_ensemble_card_redundancy(&decoded).unwrap_err();
+    assert_eq!(legacy_error.code, "CALYX_ASSAY_DEGENERATE_INPUT");
+    assert!(
+        legacy_error
+            .message
+            .contains("unsupported EnsembleCard schema")
+    );
+
+    legacy.schema_version = super::model::ENSEMBLE_CARD_SCHEMA_VERSION + 1;
+    let error = validate_ensemble_card_redundancy(&legacy).unwrap_err();
+    assert_eq!(error.code, "CALYX_ASSAY_DEGENERATE_INPUT");
+    assert!(error.message.contains("unsupported EnsembleCard schema"));
+}
+
+fn current_card() -> super::model::EnsembleCard {
+    let rows = 60;
+    let labels = (0..rows).map(|index| index % 2 == 0).collect::<Vec<_>>();
+    let lenses = (0..10)
+        .map(|lens| {
+            let vectors = base_rows(rows)
+                .into_iter()
+                .map(|row| {
+                    row.into_iter()
+                        .enumerate()
+                        .map(|(dimension, value)| {
+                            let sign = if (lens + dimension) % 2 == 0 {
+                                1.0
+                            } else {
+                                -1.0
+                            };
+                            sign * value * (1.0 + lens as f32 * 0.01) + lens as f32
+                        })
+                        .collect::<Vec<_>>()
+                })
+                .collect::<Vec<_>>();
+            EnsembleLensInput::new(
+                format!("validator-lens-{lens}"),
+                SlotId::new(lens as u16),
+                vectors,
+            )
+        })
+        .collect::<Vec<_>>();
+    super::compute::ensemble_card(&lenses, &labels, None, &EnsembleConfig::default()).unwrap()
 }
 
 fn base_rows(rows: usize) -> Vec<Vec<f32>> {

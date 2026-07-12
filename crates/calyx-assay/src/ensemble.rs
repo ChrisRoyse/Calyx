@@ -20,7 +20,7 @@ pub use redundancy::{
     LINEAR_CKA_REDUNDANCY_METHOD, LINEAR_CKA_TUPLES_PER_ROW, LinearCkaSketch, LinearCkaTuplePlan,
     MAX_LINEAR_CKA_TUPLES, MIN_LINEAR_CKA_TUPLES, ensemble_redundancy_from_lenses,
     ensemble_redundancy_from_sketches, linear_cka_sketch_from_row_fn, linear_cka_sketch_from_rows,
-    linear_cka_tuple_plan, validate_redundancy_method_metadata,
+    linear_cka_tuple_plan, validate_ensemble_card_redundancy, validate_redundancy_method_metadata,
 };
 
 #[cfg(test)]

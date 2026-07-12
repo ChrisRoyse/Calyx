@@ -9,8 +9,8 @@ use crate::ksg::MIN_ASSAY_SAMPLES;
 use crate::nmi::partitioned_histogram_nmi;
 
 use super::model::{
-    EnsembleLensInput, EnsemblePairRedundancyEvidence, EnsembleRedundancyEvidence,
-    EnsembleRedundancyMethod,
+    ENSEMBLE_CARD_SCHEMA_VERSION, EnsembleCard, EnsembleLensInput, EnsemblePairRedundancyEvidence,
+    EnsembleRedundancyEvidence, EnsembleRedundancyMethod,
 };
 
 pub use plan::{
@@ -109,19 +109,79 @@ pub(super) fn validate_evidence(
     lenses: &[EnsembleLensInput],
     evidence: &EnsembleRedundancyEvidence,
 ) -> Result<()> {
-    let method = &evidence.method;
-    validate_redundancy_method_metadata(method)?;
-    let expected_pairs = lenses.len().saturating_sub(1) * lenses.len() / 2;
+    let roster = lenses
+        .iter()
+        .map(|lens| (lens.slot, lens.name.as_str()))
+        .collect::<BTreeMap<_, _>>();
+    validate_evidence_for_roster(&roster, evidence)
+}
+
+/// Validates the redundancy provenance required at persisted-card trust boundaries.
+///
+/// Serde keeps legacy cards decodable for diagnostic migration, but evidence consumers must require
+/// the current schema so relabeling malformed evidence as legacy cannot bypass validation.
+pub fn validate_ensemble_card_redundancy(card: &EnsembleCard) -> Result<()> {
+    if card.schema_version != ENSEMBLE_CARD_SCHEMA_VERSION {
+        return Err(CalyxError::assay_degenerate_input(format!(
+            "unsupported EnsembleCard schema {}; expected {ENSEMBLE_CARD_SCHEMA_VERSION}",
+            card.schema_version
+        )));
+    }
+    let method = card.redundancy_method.clone().ok_or_else(|| {
+        CalyxError::assay_degenerate_input(
+            "current-schema EnsembleCard is missing redundancy method metadata",
+        )
+    })?;
+    let mut roster = BTreeMap::new();
+    let mut names = BTreeSet::new();
+    for lens in &card.lenses {
+        if roster.insert(lens.slot, lens.name.as_str()).is_some()
+            || !names.insert(lens.name.as_str())
+        {
+            return Err(CalyxError::assay_degenerate_input(
+                "EnsembleCard lens names and slots must be unique",
+            ));
+        }
+    }
+    let mut pairs = Vec::with_capacity(card.pairs.len());
+    for pair in &card.pairs {
+        let linear_cka = pair.redundancy.clone().ok_or_else(|| {
+            CalyxError::assay_degenerate_input(format!(
+                "current-schema EnsembleCard pair {}:{} is missing redundancy evidence",
+                pair.slot_a, pair.slot_b
+            ))
+        })?;
+        if !pair.corr.is_finite() || (pair.corr - linear_cka.mc_gate_upper_estimate).abs() > 1.0e-6
+        {
+            return Err(CalyxError::assay_degenerate_input(format!(
+                "EnsembleCard pair {}:{} corr {} != redundancy gate {}",
+                pair.slot_a, pair.slot_b, pair.corr, linear_cka.mc_gate_upper_estimate
+            )));
+        }
+        pairs.push(EnsemblePairRedundancyEvidence {
+            a: pair.a.clone(),
+            b: pair.b.clone(),
+            slot_a: pair.slot_a,
+            slot_b: pair.slot_b,
+            linear_cka,
+            nmi: pair.nmi,
+        });
+    }
+    validate_evidence_for_roster(&roster, &EnsembleRedundancyEvidence { method, pairs })
+}
+
+fn validate_evidence_for_roster(
+    roster: &BTreeMap<SlotId, &str>,
+    evidence: &EnsembleRedundancyEvidence,
+) -> Result<()> {
+    validate_redundancy_method_metadata(&evidence.method)?;
+    let expected_pairs = roster.len().saturating_sub(1) * roster.len() / 2;
     if evidence.pairs.len() != expected_pairs {
         return Err(CalyxError::assay_degenerate_input(format!(
             "ensemble redundancy pairs {} != expected {expected_pairs}",
             evidence.pairs.len()
         )));
     }
-    let roster = lenses
-        .iter()
-        .map(|lens| (lens.slot, lens.name.as_str()))
-        .collect::<BTreeMap<_, _>>();
     let mut pair_keys = BTreeSet::new();
     for pair in &evidence.pairs {
         let Some(expected_a) = roster.get(&pair.slot_a) else {
