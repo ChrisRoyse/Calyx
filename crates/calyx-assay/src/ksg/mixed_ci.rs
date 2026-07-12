@@ -84,24 +84,34 @@ pub(super) fn raw_bits_from_validated_samples(
     let n = x.len();
     let mut total = 0.0;
     for i in 0..n {
-        let radius = kth_same_class_radius(x, labels, i, k);
+        let (radius, same_class_count) = kth_same_class_radius_and_count(x, labels, i, k);
         let full_count = neighbor_count_inclusive(x, i, radius);
         let class_count = class_counts[&labels[i]];
-        total += digamma(n as f64) + digamma(k as f64)
+        total += digamma(n as f64) + digamma(same_class_count as f64)
             - digamma(class_count as f64)
             - digamma(full_count as f64);
     }
     total / n as f64 / std::f64::consts::LN_2
 }
 
-fn kth_same_class_radius(x: &[Vec<f32>], labels: &[usize], i: usize, k: usize) -> f32 {
+fn kth_same_class_radius_and_count(
+    x: &[Vec<f32>],
+    labels: &[usize],
+    i: usize,
+    k: usize,
+) -> (f32, usize) {
     let mut distances = Vec::with_capacity(x.len().saturating_sub(1));
     for j in 0..x.len() {
         if i != j && labels[i] == labels[j] {
             distances.push(chebyshev(&x[i], &x[j]));
         }
     }
-    *kth_distance(&mut distances, k)
+    let radius = *kth_distance(&mut distances, k);
+    let same_class_count = distances
+        .iter()
+        .filter(|distance| **distance <= radius)
+        .count();
+    (radius, same_class_count)
 }
 
 fn neighbor_count_inclusive(values: &[Vec<f32>], i: usize, radius: f32) -> usize {
