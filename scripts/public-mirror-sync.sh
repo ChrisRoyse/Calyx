@@ -60,7 +60,11 @@ if [[ "$origin_url" != *"ChrisRoyse/Calyx"* ]]; then
   exit 2
 fi
 
-if [[ -n "$(git -C "$public_root" status --porcelain)" ]]; then
+if ! public_status="$(git -C "$public_root" status --porcelain)"; then
+  echo "public-mirror-sync: ERROR: git status failed while inspecting the public checkout." >&2
+  exit 2
+fi
+if [[ -n "$public_status" ]]; then
   echo "public-mirror-sync: ERROR: public checkout is dirty; commit/stash/reset before sync." >&2
   exit 2
 fi
@@ -72,21 +76,33 @@ allow_paths=(
   Cargo.lock Cargo.toml LICENSE README.md rust-toolchain.toml
 )
 
+# Resolve the authoritative dev file list before mutating the public checkout.
+# Bash does not propagate failures from process substitutions under `set -e`;
+# consuming `git ls-files` directly with `< <(...)` could therefore turn a
+# producer error into an empty/partial copy followed by staged deletions.
+tracked_list="$(mktemp "${TMPDIR:-/tmp}/calyx-public-mirror-tracked.XXXXXX")"
+cleanup_tracked_list() {
+  rm -f -- "$tracked_list"
+}
+trap cleanup_tracked_list EXIT
+if ! git -C "$dev_root" ls-files -z -- "${allow_paths[@]}" >"$tracked_list"; then
+  echo "public-mirror-sync: ERROR: git ls-files failed while reading the dev allowlist." >&2
+  exit 2
+fi
+
 for path in "${allow_paths[@]}"; do
   rm -rf "$public_root/$path"
 done
 
 # Copy only tracked source bytes from Calyx-Dev. Directory-level `cp -a` would
 # also mirror untracked scratch output under allowlisted trees such as crates/.
-tracked_files=()
 while IFS= read -r -d '' rel; do
   src="$dev_root/$rel"
   dst="$public_root/$rel"
   [[ -f "$src" ]] || continue
   mkdir -p "$(dirname "$dst")"
   cp -p "$src" "$dst"
-  tracked_files+=("$rel")
-done < <(git -C "$dev_root" ls-files -z -- "${allow_paths[@]}")
+done <"$tracked_list"
 
 # Stage the full allowlist sync (issue #1195). The copy loop above only touches
 # the working tree; without an explicit `git add` the copied/modified files stay
@@ -113,10 +129,13 @@ fi
 # ignore pattern (for example `storage/`), remain only as an ignored worktree
 # file, and disappear from the commit while the ordinary status check stays
 # clean. The dev index is the allowlist authority, so force-add exactly the
-# tracked files copied above. This cannot admit untracked dev scratch bytes.
-if [[ ${#tracked_files[@]} -gt 0 ]]; then
-  git -C "$public_root" add -f -- "${tracked_files[@]}"
-fi
+# tracked files copied above. Passing the NUL manifest directly also avoids a
+# command-line-size ceiling as the public surface grows. This cannot admit
+# untracked dev scratch bytes.
+git -C "$public_root" add -f \
+  --pathspec-from-file="$tracked_list" --pathspec-file-nul
+rm -f -- "$tracked_list"
+trap - EXIT
 
 mapfile -t forbidden_docs < <(
   git -C "$public_root" ls-files 'docs/*' |
@@ -138,7 +157,11 @@ bash "$dev_root/scripts/public-leak-scan.sh" --public-tree "$public_root"
 # unstaged/untracked path under the working tree here means the sync did not
 # fully stage what it copied, so we refuse rather than repeat the #1195 bug of
 # claiming a staged sync that isn't.
-unstaged="$(git -C "$public_root" status --porcelain | grep -E '^(.[^ ]|\?\?)' || true)"
+if ! final_public_status="$(git -C "$public_root" status --porcelain)"; then
+  echo "public-mirror-sync: ERROR: git status failed after staging the public checkout." >&2
+  exit 2
+fi
+unstaged="$(printf '%s\n' "$final_public_status" | grep -E '^(.[^ ]|\?\?)' || true)"
 if [[ -n "$unstaged" ]]; then
   echo "public-mirror-sync: ERROR: allowlist sync left unstaged/untracked paths:" >&2
   echo "$unstaged" | sed 's/^/  /' >&2
@@ -149,10 +172,13 @@ fi
 # Ordinary porcelain status omits ignored files. Read that hidden namespace
 # separately so a future staging regression cannot recreate the ignored-file
 # variant of #1195 while still claiming a commit-ready mirror.
-ignored_copies="$(
+if ! ignored_copies="$(
   git -C "$public_root" ls-files --others --ignored --exclude-standard -- \
     "${allow_paths[@]}"
-)"
+)"; then
+  echo "public-mirror-sync: ERROR: git ls-files failed while checking ignored public paths." >&2
+  exit 2
+fi
 if [[ -n "$ignored_copies" ]]; then
   echo "public-mirror-sync: ERROR: copied allowlist files remain ignored and untracked:" >&2
   echo "$ignored_copies" | sed 's/^/  /' >&2
