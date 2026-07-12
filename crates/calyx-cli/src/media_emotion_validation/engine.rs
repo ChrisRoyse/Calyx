@@ -53,7 +53,7 @@ pub(crate) fn evaluate_emotion(
         panel_version: MEDIA_PANEL_VERSION,
         audio_emotion_slot: AUDIO_EMOTION_SLOT.get(),
         trigger: "calyx media emotion-validate on verified audio-emotion samples".to_string(),
-        intended_outcome: "persist trusted audio-emotion lens bits against emotion labels"
+        intended_outcome: "persist audio-emotion lens bits and panel sufficiency against emotion labels with explicit trust metadata"
             .to_string(),
     })
 }

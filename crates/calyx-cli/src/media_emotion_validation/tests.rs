@@ -1,5 +1,6 @@
 use std::fs;
 
+use calyx_assay::TrustTag;
 use calyx_aster::vault::{AsterVault, VaultOptions};
 use calyx_core::VaultStore;
 
@@ -17,6 +18,11 @@ fn synthetic_emotion_bits_persist_assay_rows() {
     let report = evaluate_emotion(&data, &request).unwrap();
     assert!(report.emotion_bits.bits >= 0.05);
     assert_eq!(report.emotion_label_count, 3);
+    assert_eq!(report.emotion_bits.trust, TrustTag::Provisional);
+    assert_eq!(
+        report.intended_outcome,
+        "persist audio-emotion lens bits and panel sufficiency against emotion labels with explicit trust metadata"
+    );
 
     let vault = vault_for(&request);
     let evidence = write_metric_outputs(&vault, &request, report).unwrap();
