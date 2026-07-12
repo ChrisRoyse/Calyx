@@ -202,7 +202,7 @@ fn assay_estimators_contracts_sufficiency_and_store_work() {
     assert!(admitted.stratified_override);
     assert!(strata.no_frequency_multiplier);
 
-    let rank = stable_rank(&block_redundancy_matrix(9, 3));
+    let rank = stable_rank(&block_redundancy_matrix(9, 3)).unwrap();
     assert!((2.5..=4.0).contains(&rank.n_eff));
 
     let attributions = per_sensor_attribution(&[(slot(1), 0.04), (slot(2), 0.42)], 0.10);
@@ -374,7 +374,7 @@ fn stage5_full_stack_fsv() {
         }],
     );
     let stratified_admission = admit_lens_with_strata(&strata, 0.2).unwrap();
-    let rank = stable_rank(&block_redundancy_matrix(9, 3));
+    let rank = stable_rank(&block_redundancy_matrix(9, 3)).unwrap();
     let attributions = per_sensor_attribution(&[(slot(1), 0.04), (slot(2), 0.42)], 0.10);
     let bits = bits_report(attributions.clone(), TrustTag::Provisional);
     let sufficiency = panel_sufficiency_with_context(

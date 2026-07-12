@@ -409,7 +409,8 @@ mod tests {
                 pairs.push(pair_value(a + slot_offset, b + slot_offset));
             }
         }
-        let a37_diversity = a37_diversity_gate(&lenses, &pairs, &EnsembleConfig::default());
+        let a37_diversity =
+            a37_diversity_gate(&lenses, &pairs, &EnsembleConfig::default()).unwrap();
         EnsembleCard {
             schema_version: ENSEMBLE_CARD_SCHEMA_VERSION,
             source: "unit-test".to_string(),

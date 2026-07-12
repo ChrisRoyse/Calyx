@@ -84,7 +84,7 @@ pub fn constellation(
     }
 }
 
-pub fn neff_for_active(n: usize) -> calyx_assay::NeffReport {
+pub fn neff_for_active(n: usize) -> calyx_core::Result<calyx_assay::NeffReport> {
     let mut matrix = vec![vec![0.08; n]; n];
     for (idx, row) in matrix.iter_mut().enumerate() {
         row[idx] = 1.0;

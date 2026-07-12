@@ -1,6 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use calyx_core::SlotId;
+use calyx_core::{Result, SlotId};
 use serde::{Deserialize, Serialize};
 
 use super::model::{
@@ -48,7 +48,7 @@ pub fn a37_diversity_gate(
     lenses: &[EnsembleLensValue],
     pairs: &[EnsemblePairValue],
     config: &EnsembleConfig,
-) -> A37DiversityGate {
+) -> Result<A37DiversityGate> {
     let mut families = BTreeMap::<String, Vec<SlotId>>::new();
     let mut temporal_sidecar_slots = Vec::new();
     for lens in lenses {
@@ -110,7 +110,7 @@ pub fn a37_diversity_gate(
     let association_family_count = families.len();
     let n_eff_floor = content_lens_count.max(DEFAULT_GATE_PANEL_LENSES) as f32 * 0.6;
     let family_span_pass = association_family_count >= 2;
-    let n_eff = content_stable_rank(&content_slots, &content_pairs);
+    let n_eff = content_stable_rank(&content_slots, &content_pairs)?;
     let mean_pairwise_corr = mean_pairwise(&content_pairs, |pair| pair.corr).unwrap_or(0.0);
     let mean_pairwise_nmi = mean_pairwise(&content_pairs, |pair| pair.nmi).unwrap_or(0.0);
     let redundancy_bound_pass = pair_evidence_pass
@@ -131,7 +131,7 @@ pub fn a37_diversity_gate(
     } else {
         A37_DIVERSITY_DIAGNOSTIC_ONLY
     };
-    A37DiversityGate {
+    Ok(A37DiversityGate {
         schema_version: A37_DIVERSITY_SCHEMA_VERSION,
         role: "a37_associational_diversity_gate".to_string(),
         status: status.to_string(),
@@ -158,7 +158,7 @@ pub fn a37_diversity_gate(
         verdict: format!(
             "A37 status={status}; family_span={family_span_pass}; pair_evidence={pair_evidence_pass}; redundancy_bound={redundancy_bound_pass}; no_collapse={no_collapse_pass}"
         ),
-    }
+    })
 }
 
 pub fn a37_association_family(name: &str) -> &'static str {
@@ -203,7 +203,10 @@ pub fn a37_association_family(name: &str) -> &'static str {
     }
 }
 
-fn content_stable_rank(content_slots: &BTreeSet<SlotId>, pairs: &[&EnsemblePairValue]) -> f32 {
+fn content_stable_rank(
+    content_slots: &BTreeSet<SlotId>,
+    pairs: &[&EnsemblePairValue],
+) -> Result<f32> {
     let positions = content_slots
         .iter()
         .enumerate()
@@ -228,7 +231,7 @@ fn content_stable_rank(content_slots: &BTreeSet<SlotId>, pairs: &[&EnsemblePairV
             matrix[b][a] = point;
         }
     }
-    stable_rank(&matrix).n_eff
+    stable_rank(&matrix).map(|report| report.n_eff)
 }
 
 fn ordered_pair(a: SlotId, b: SlotId) -> (SlotId, SlotId) {
@@ -259,7 +262,7 @@ mod tests {
             lens("semantic-general", 0),
             sidecar_lens("plain-control", 1),
         ];
-        let gate = a37_diversity_gate(&lenses, &[], &EnsembleConfig::default());
+        let gate = a37_diversity_gate(&lenses, &[], &EnsembleConfig::default()).unwrap();
 
         assert_eq!(
             gate.temporal_lane_role,
@@ -302,7 +305,7 @@ mod tests {
         assert!(all_lens_n_eff >= 6.0, "all-lens n_eff={all_lens_n_eff}");
         assert!(all_lens_mean < 0.6, "all-lens mean={all_lens_mean}");
 
-        let gate = a37_diversity_gate(&lenses, &pairs, &EnsembleConfig::default());
+        let gate = a37_diversity_gate(&lenses, &pairs, &EnsembleConfig::default()).unwrap();
 
         assert_eq!(gate.status, A37_DIVERSITY_DIAGNOSTIC_ONLY);
         assert_eq!(gate.content_lens_count, 10);
@@ -326,7 +329,7 @@ mod tests {
             .map(|slot| lens(if slot == 0 { "sparse" } else { "semantic" }, slot))
             .collect::<Vec<_>>();
 
-        let gate = a37_diversity_gate(&lenses, &[], &EnsembleConfig::default());
+        let gate = a37_diversity_gate(&lenses, &[], &EnsembleConfig::default()).unwrap();
 
         assert_eq!(gate.expected_content_pair_count, 45);
         assert_eq!(gate.content_pair_count, 0);
@@ -348,7 +351,7 @@ mod tests {
             })
             .collect::<Vec<_>>();
 
-        let gate = a37_diversity_gate(&lenses, &pairs, &EnsembleConfig::default());
+        let gate = a37_diversity_gate(&lenses, &pairs, &EnsembleConfig::default()).unwrap();
 
         assert!(!gate.pair_evidence_pass);
         assert!(!gate.redundancy_bound_pass);
@@ -363,7 +366,7 @@ mod tests {
             sidecar_lens("opaque-control", 2),
         ];
 
-        let gate = a37_diversity_gate(&lenses, &[], &EnsembleConfig::default());
+        let gate = a37_diversity_gate(&lenses, &[], &EnsembleConfig::default()).unwrap();
 
         assert_eq!(gate.content_lens_count, 2);
         assert_eq!(gate.temporal_sidecar_slots, vec![SlotId::new(2)]);
@@ -439,6 +442,6 @@ mod tests {
             matrix[a][b] = pair.corr;
             matrix[b][a] = pair.corr;
         }
-        stable_rank(&matrix).n_eff
+        stable_rank(&matrix).unwrap().n_eff
     }
 }

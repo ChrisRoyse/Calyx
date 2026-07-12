@@ -104,7 +104,7 @@ fn build_card(
         .iter()
         .map(|lens| (lens.slot, lens.marginal_bits))
         .collect::<Vec<_>>();
-    let a37_diversity = a37_diversity_gate(&lens_values, &pairs, config);
+    let a37_diversity = a37_diversity_gate(&lens_values, &pairs, config)?;
     let n_eff = a37_diversity.n_eff;
     let sufficiency = panel_sufficiency_from_estimate(
         &panel.estimate,

@@ -6401,7 +6401,7 @@ Routing: `PanelSufficiency::route_to(sink)` pushes each deficit into a `Sufficie
 
 ### 4.2 Effective rank (`n_eff.rs`)
 
-`stable_rank(matrix) -> NeffReport { n_eff, trace, frobenius_sq }` where `n_eff = trace² / Σ a_ij²` (the stable rank of a redundancy/Gram matrix, 0 if Frobenius² is 0). This is the A9 "non-redundant lens count" used for sizing/cost budgets.
+`stable_rank(matrix) -> calyx_core::Result<NeffReport>` where `NeffReport { n_eff, trace, frobenius_sq }` and `n_eff = trace² / Σ a_ij²`. Inputs must be square and finite. The empty 0x0 matrix retains rank zero; a non-empty zero-Frobenius, ragged/non-square, non-finite, or numerically unrepresentable matrix fails closed with structured `CALYX_ASSAY_DEGENERATE_INPUT`, which A37 propagates. This is the A9 "non-redundant lens count" used for sizing/cost budgets.
 
 ### 4.3 Transfer entropy (`transfer_entropy.rs`)
 

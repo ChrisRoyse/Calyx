@@ -413,15 +413,15 @@ The admission gate that decides whether a lens earns a slot.
 
 ## B7. Effective rank / n_eff (`n_eff.rs`, plus TC variant)
 
-`NeffReport { n_eff, trace, frobenius_sq }`. **`stable_rank(matrix) -> NeffReport`** (`n_eff.rs:12`):
+`NeffReport { n_eff, trace, frobenius_sq }`. **`stable_rank(matrix) -> calyx_core::Result<NeffReport>`** (`n_eff.rs`):
 
 ```
 trace        = Σ_i matrix[i][i]
 frobenius_sq = Σ_{i,j} matrix[i][j]^2
-n_eff        = trace^2 / frobenius_sq   (0 if frobenius_sq == 0)
+n_eff        = trace^2 / frobenius_sq
 ```
 
-This is the stable-rank / participation-ratio measure of panel redundancy. A second, distinct `n_eff_from_tc` (Part B11) derives effective rank from total correlation.
+The input must be square and finite. The empty 0x0 matrix retains rank zero; a non-empty zero-Frobenius, ragged/non-square, non-finite, or numerically unrepresentable matrix fails closed with structured `CALYX_ASSAY_DEGENERATE_INPUT`. A37 propagates the error instead of substituting missing cells or a zero rank. This is the stable-rank / participation-ratio measure of panel redundancy. A second, distinct `n_eff_from_tc` (Part B11) derives effective rank from total correlation.
 
 ## B8. Per-sensor attribution (`attribution.rs`)
 

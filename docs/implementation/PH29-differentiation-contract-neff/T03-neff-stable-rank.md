@@ -41,7 +41,7 @@ described in A9 and `06 §2`.
 - [x] unit: planted panel with N=5, 5 orthogonal lenses (corr ≈ 0.0) → `n_eff ≈ 5.0 ± 0.5` (all independent → rank = N)
 - [x] unit: planted panel with 5 near-identical + 3 independent lenses (N=8) → `n_eff ≈ 3.0 ± 0.8` (known rank ≈ 3+1 = ~4 but stable rank ≈ 3 due to partial redundancy overlap)
 - [x] proptest: `1.0 ≤ n_eff ≤ N` always (stable rank is bounded by 1 and N)
-- [x] edge: N=1 → `n_eff = 1.0` exactly (trivially); N=0 → `n_eff = 0.0`, no panic; all pairs with agreement = 0.0 → `n_eff = N` (fully independent)
+- [x] edge: N=1 → `n_eff = 1.0` exactly (trivially); N=0 → `n_eff = 0.0`, no panic; all pairs with agreement = 0.0 → `n_eff = N` (fully independent); ragged/non-square, non-finite, and non-empty zero-Frobenius matrices fail closed with structured `CALYX_ASSAY_DEGENERATE_INPUT`
 
 ## FSV (read the bytes on aiwonder — the truth gate)
 

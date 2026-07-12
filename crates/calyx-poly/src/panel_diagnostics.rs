@@ -242,7 +242,7 @@ pub fn compute_panel_diagnostics(
     let n_samples = matrix.n_samples();
 
     let tc = total_correlation_with_config(&matrix.columns, clock, &config.tc)?;
-    let effective_rank = stable_rank(&pearson_matrix(&matrix.columns));
+    let effective_rank = stable_rank(&pearson_matrix(&matrix.columns))?;
 
     let mut synergistic = Vec::new();
     let mut redundant = 0usize;

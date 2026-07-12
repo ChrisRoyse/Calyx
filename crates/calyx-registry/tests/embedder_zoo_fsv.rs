@@ -131,7 +131,7 @@ fn ph74_embedder_zoo_stage_exit_fsv() {
 
     let (assay_rows, loaded_assay, raw_assay_rows) = persist_and_read_assay(&vault, &assay);
     let (xterm_rows, loaded_xterms) = persist_and_read_xterms(&xterm_dir, &loom);
-    let rank = samples::neff_for_active(active_slots.len());
+    let rank = samples::neff_for_active(active_slots.len()).unwrap();
     assert_eq!(rank.n_eff, 0.0);
 
     let abundance = AbundanceReport::new(
