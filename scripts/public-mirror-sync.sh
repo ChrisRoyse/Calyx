@@ -78,12 +78,14 @@ done
 
 # Copy only tracked source bytes from Calyx-Dev. Directory-level `cp -a` would
 # also mirror untracked scratch output under allowlisted trees such as crates/.
+tracked_files=()
 while IFS= read -r -d '' rel; do
   src="$dev_root/$rel"
   dst="$public_root/$rel"
   [[ -f "$src" ]] || continue
   mkdir -p "$(dirname "$dst")"
   cp -p "$src" "$dst"
+  tracked_files+=("$rel")
 done < <(git -C "$dev_root" ls-files -z -- "${allow_paths[@]}")
 
 # Stage the full allowlist sync (issue #1195). The copy loop above only touches
@@ -104,6 +106,16 @@ for path in "${allow_paths[@]}"; do
 done
 if [[ ${#stage_paths[@]} -gt 0 ]]; then
   git -C "$public_root" add -A -- "${stage_paths[@]}"
+fi
+
+# `git add -A` intentionally respects ignore rules. That is unsafe for a
+# mirror, because a newly tracked dev file can collide with a broad public
+# ignore pattern (for example `storage/`), remain only as an ignored worktree
+# file, and disappear from the commit while the ordinary status check stays
+# clean. The dev index is the allowlist authority, so force-add exactly the
+# tracked files copied above. This cannot admit untracked dev scratch bytes.
+if [[ ${#tracked_files[@]} -gt 0 ]]; then
+  git -C "$public_root" add -f -- "${tracked_files[@]}"
 fi
 
 mapfile -t forbidden_docs < <(
@@ -131,6 +143,20 @@ if [[ -n "$unstaged" ]]; then
   echo "public-mirror-sync: ERROR: allowlist sync left unstaged/untracked paths:" >&2
   echo "$unstaged" | sed 's/^/  /' >&2
   echo "public-mirror-sync: this is the #1195 failure mode; not claiming a staged sync." >&2
+  exit 1
+fi
+
+# Ordinary porcelain status omits ignored files. Read that hidden namespace
+# separately so a future staging regression cannot recreate the ignored-file
+# variant of #1195 while still claiming a commit-ready mirror.
+ignored_copies="$(
+  git -C "$public_root" ls-files --others --ignored --exclude-standard -- \
+    "${allow_paths[@]}"
+)"
+if [[ -n "$ignored_copies" ]]; then
+  echo "public-mirror-sync: ERROR: copied allowlist files remain ignored and untracked:" >&2
+  echo "$ignored_copies" | sed 's/^/  /' >&2
+  echo "public-mirror-sync: refusing to claim a staged sync." >&2
   exit 1
 fi
 

@@ -405,6 +405,47 @@ grep -Fq "scripts/secret-scan.sh\" --staged" "$githook_precommit" \
   || bad ".githooks/pre-commit staged/cached hook parity missing"
 
 echo
+echo "=================================================================="
+echo "SCENARIO 11 - tracked dev file beneath an ignored directory must"
+echo "still be staged; ignored status must not hide it from the commit."
+echo "=================================================================="
+dev11="$work/dev11"; pub11="$work/pub11"
+make_dev  "$dev11" "pub fn demo() -> u32 { 13 }"
+make_public "$pub11" "pub fn demo() -> u32 { 5 }"
+mkdir -p "$dev11/crates/demo/src/storage"
+printf 'storage/\n' >> "$dev11/.gitignore"
+printf 'pub fn persisted_source() -> u32 { 21 }\n' \
+  > "$dev11/crates/demo/src/storage/new.rs"
+git -C "$dev11" add .gitignore
+git -C "$dev11" add -f crates/demo/src/storage/new.rs
+git -C "$dev11" commit -qm "add tracked source beneath ignored directory"
+
+set +e
+out11="$( cd "$dev11" && bash scripts/public-mirror-sync.sh --public-dir "$pub11" 2>&1 )"
+rc11=$?
+set -e
+echo "-- sync exit code: $rc11 --"
+echo "$out11" | sed 's/^/   /'
+[[ $rc11 -eq 0 ]] \
+  && pass "sync exits 0 when tracked source collides with an ignore rule" \
+  || bad "sync should stage tracked ignored source (got $rc11)"
+git -C "$pub11" diff --cached --name-only | \
+  grep -qx "crates/demo/src/storage/new.rs" \
+  && pass "tracked ignored source is STAGED" \
+  || bad "tracked ignored source was omitted from the public index"
+staged11="$(git -C "$pub11" show :crates/demo/src/storage/new.rs 2>/dev/null || true)"
+[[ "$staged11" == "pub fn persisted_source() -> u32 { 21 }" ]] \
+  && pass "staged ignored-source bytes match dev" \
+  || bad "staged ignored-source bytes do not match dev: [$staged11]"
+ignored11="$(
+  git -C "$pub11" ls-files --others --ignored --exclude-standard -- \
+    crates/demo/src/storage
+)"
+[[ -z "$ignored11" ]] \
+  && pass "no copied allowlist file remains hidden in ignored state" \
+  || bad "ignored copied files remain outside the index:"$'\n'"$ignored11"
+
+echo
 if [[ $fail -eq 0 ]]; then
   echo "ALL SCENARIOS PASSED"
 else

@@ -78,6 +78,10 @@ data/
 *.db
 db/
 storage/
+# Keep the Leapable storage engine's Rust source visible even though runtime
+# storage directories are ignored everywhere else.
+!crates/calyx-leapable/src/engine/storage/
+!crates/calyx-leapable/src/engine/storage/**
 
 # ── Logs / temp / scratch (sitrep writes ./tmp) ──────────────────────
 *.log
