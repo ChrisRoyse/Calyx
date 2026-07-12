@@ -111,6 +111,17 @@ fn kernel_answer_without_ledger_fails_for_multi_hop_path() {
 }
 
 #[test]
+fn kernel_answer_without_ledger_fails_for_zero_hop_path() {
+    let graph = chain_graph();
+    let index = build_kernel_index(&kernel(vec![cx(10)]), &embeddings()).unwrap();
+    let error = kernel_answer(&index, &graph, cx(10), &[1.0, 0.0], &[cx(10)], 0).unwrap_err();
+
+    assert_eq!(error.code(), "CALYX_KERNEL_ANSWER_LEDGER_REQUIRED");
+    assert!(error.to_string().contains("0-hop path"));
+    assert!(error.to_string().contains("kernel_answer_with_ledger"));
+}
+
+#[test]
 fn kernel_answer_with_ledger_verifies_returned_refs_are_readable() {
     let graph = chain_graph();
     let index = build_kernel_index(&kernel(vec![cx(9), cx(10)]), &embeddings()).unwrap();
@@ -176,29 +187,28 @@ fn kernel_answer_chain_scores_and_real_ledger_provenance_are_deterministic() {
 }
 
 #[test]
-fn kernel_answer_max_hops_fails_closed_and_anchor_self_path_works() {
+fn kernel_answer_max_hops_and_anchor_self_path_fail_closed_without_ledger() {
     let graph = chain_graph();
     let index = build_kernel_index(&kernel(vec![cx(10)]), &embeddings()).unwrap();
     let max_hops = kernel_answer(&index, &graph, cx(13), &[1.0, 0.0], &[cx(10)], 2).unwrap_err();
-    let anchored = kernel_answer(&index, &graph, cx(10), &[1.0, 0.0], &[cx(10)], 3).unwrap();
+    let anchor_self = kernel_answer(&index, &graph, cx(10), &[1.0, 0.0], &[cx(10)], 3).unwrap_err();
 
     println!(
-        "KERNEL_ANSWER_MAX_HOPS error={} anchored_total={}",
+        "KERNEL_ANSWER_MAX_HOPS error={} anchor_self={}",
         max_hops.code(),
-        anchored.total_score
+        anchor_self.code()
     );
     write_readback(
         "edges",
         "kernel-answer-max-hops.json",
         json!({
             "max_hops_error": max_hops.code(),
-            "anchored": anchored,
+            "anchor_self_error": anchor_self.code(),
         }),
     );
 
     assert_eq!(max_hops.code(), "CALYX_PATHS_MAX_HOPS");
-    assert_eq!(anchored.hops, Vec::new());
-    assert_eq!(anchored.total_score, 1.0);
+    assert_eq!(anchor_self.code(), "CALYX_KERNEL_ANSWER_LEDGER_REQUIRED");
 }
 
 #[test]

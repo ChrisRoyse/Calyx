@@ -333,10 +333,10 @@ Traits: `EmbeddingStore::embedding(cx_id) -> Option<Vec<f32>>` (blanket-impl'd f
 
 `kernel_answer(index, graph, query_cx, query_vec, anchored_kernel_nodes, max_hops)`:
 1. `nearest_answerable_anchored_path`: HNSW-search the kernel index for all rows, keep candidates that are in `anchored_kernel_nodes`, and for each (best-scored first) attempt `reach(graph, anchor, query_cx, max_hops)`. The first anchor with a path wins. No anchored candidate at all → `KernelNoAnchoredNode`; anchored but unreachable → first recorded error (`KernelAnswerNoPath` or a propagated `CALYX_PATHS_MAX_HOPS`).
-2. If the path is just the anchor itself (`len == 1`), return an empty-hop path with `total_score = 1.0`.
-3. Otherwise `answer_hops_with` builds one `AnswerHop` per consecutive pair: `edge_weight` looked up from the graph, `hop_index = idx`, and `hop_score = attenuate(edge_weight, hop_index)` (i.e. `edge_weight * 0.9^hop_index`, reusing the paths constant). `total_score = sum(hop_score)`. Scores validated finite and `>= 0`.
+2. The ledger-less `kernel_answer` never returns an answerable path: a direct self-hit (`len == 1`) and every longer path fail closed with `CALYX_KERNEL_ANSWER_LEDGER_REQUIRED`.
+3. `kernel_answer_with_ledger` handles a direct hit by appending a complete zero-hop Answer entry. For longer paths, `answer_hops_with` builds one `AnswerHop` per consecutive pair: `edge_weight` looked up from the graph, `hop_index = idx`, and `hop_score = attenuate(edge_weight, hop_index)` (i.e. `edge_weight * 0.9^hop_index`, reusing the paths constant). `total_score = sum(hop_score)`. Scores are validated finite and `>= 0`.
 
-`kernel_answer_with_ledger` does the same but appends a per-hop ledger entry (`append_answer_hop_entry`) and a final complete-answer entry (`append_answer_complete_entry`). `kernel_answer` (no ledger) uses `stub_ledger_ref` — a BLAKE3 hash of `"ph33-kernel-answer-ledger-stub"` + from/to/hop_index — as a placeholder `LedgerRef`.
+`kernel_answer_with_ledger` appends a per-hop ledger entry (`append_answer_hop_entry`) and a final complete-answer entry (`append_answer_complete_entry`), then re-reads and verifies every returned reference. No ledger-less placeholder or zero-provenance answer is returned.
 
 ## C.8 Scope materialization (`scope.rs`)
 
@@ -426,7 +426,7 @@ Traits: `AnnIndex::search(query_vec, top_k)` (impl'd for `InMemoryAnnIndex` via 
 
 `mark_ungrounded_scope`: if `groundedness.reached_anchor < UNGROUNDED_EPSILON` (0.01), append a `CALYX_KERNEL_UNGROUNDED: scoped kernel is provisional` warning and append `; CALYX_KERNEL_UNGROUNDED` / `; trust=provisional` to provenance (idempotently).
 
-`bridges(store, scope_a, scope_b, …)`: build both kernels and return their shared members, ordered by full-graph node weight descending (`bridge_members_by_frequency`). `kernel_answer_scoped`: materialize the scope, restrict anchors and the kernel index to scoped nodes (`filter_to_nodes`; empty → `KernelNoAnchoredNode`), then `kernel_answer`. `anchors_for_scope` exposes anchor resolution standalone.
+`bridges(store, scope_a, scope_b, …)`: build both kernels and return their shared members, ordered by full-graph node weight descending (`bridge_members_by_frequency`). `kernel_answer_scoped`: materialize the scope, restrict anchors and the kernel index to scoped nodes (`filter_to_nodes`; empty → `KernelNoAnchoredNode`), then call ledger-less `kernel_answer`, so every answerable path fails closed with `CALYX_KERNEL_ANSWER_LEDGER_REQUIRED`. `kernel_answer_scoped_with_ledger` applies the same scope restriction and returns the ledger-backed answer. `anchors_for_scope` exposes anchor resolution standalone.
 
 ## C.14 Provenance writers (`provenance.rs`)
 
@@ -530,7 +530,7 @@ Builds an `AssocGraph` from Loom cross-terms (see [09_loom_assay_dda.md](09_loom
 | Greedy max-degree FVS + local-search shrink | lodestar · dfvs.rs · `greedy_fvs`/`local_search_shrink` | O(V·(V+E)) | graph → `Vec<CxId>` |
 | Kernel pipeline | lodestar · kernel.rs · `build_kernel_pipeline` | dominated by betweenness + DFVS | graph, anchors, params → `Kernel` |
 | HNSW kernel build/search | lodestar · kernel_index.rs · `build_kernel_index`/`kernel_search` | HNSW (delegated to sextant) | kernel + embeddings → `KernelIndex`; query → hits |
-| Kernel answer path | lodestar · kernel_answer.rs · `kernel_answer` | search + per-anchor `reach` | index, graph, query → `AnswerPath` |
+| Kernel answer path | lodestar · kernel_answer.rs · `kernel_answer_with_ledger` | search + per-anchor `reach` + Ledger append/verify | index, graph, query, ledger → provenanced `AnswerPath` |
 | Scope materialization (recursive, depth ≤5) | lodestar · scope.rs · `materialize_scope` | O(V+E) per node-set op | scope, store → `AssocGraph` |
 | Deterministic recall hold-out + recall@k | lodestar · recall_test.rs · `kernel_recall_test_with_clock` | O(corpus · top_k) | indices, corpus, params → `RecallReport` |
 | Harmonic label propagation | lodestar · label_propagation.rs · `propagate_labels_with_decay` | O(iter·E) | graph, kernel_labels → `[PropagatedLabel]` |

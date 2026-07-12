@@ -105,7 +105,7 @@ ContextGraph). **Living-system role:** identity.
   #630 adds the real-corpus bounded fallback readback: SciFact anchor rank `76`
   is outside the old top-10 window while the current scan is bounded at `158`
   tuned-kernel candidates, with the full real anchored set passed through
-  production `kernel_answer`.
+  `kernel_answer_with_ledger`.
   #631 signs off real SciFact `kernel_answer_with_ledger`: before ledger rows
   `0`, after rows `6`, kernel seq `0`, hop seqs `[1,2,3,4]`, complete Answer
   seq `5`, and `get_answer_trace` returns `trace_trusted=true`.
@@ -114,7 +114,7 @@ ContextGraph). **Living-system role:** identity.
 - **Objective.** Use the kernel as a real index + answer-path; surface the
   cheapest grounding plan.
 - **Deps.** PH32, PH33 needs anchors (PH09) + search (PH24).
-- **Deliverables.** `idx/kernel` (dedicated ANN over kernel cx), `kernel_answer`
+- **Deliverables.** `idx/kernel` (dedicated ANN over kernel cx), `kernel_answer_with_ledger`
   (ground at nearest anchored kernel → traverse association edges, hop-
   attenuated, provenanced), `grounding_gaps` (kernel members not reaching an
   anchor), recall test.

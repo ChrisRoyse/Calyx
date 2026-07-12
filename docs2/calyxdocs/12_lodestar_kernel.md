@@ -311,9 +311,10 @@ routes a query through the kernel then walks association edges. Steps:
      other path errors propagate immediately.
    - If no anchored candidate was even seen → `KernelNoAnchoredNode`; if seen but none
      reachable → the recorded `KernelAnswerNoPath` (or max-hops) error.
-2. **Direct hit:** if the path is length 1 (anchor == query), return an `AnswerPath`
-   with no hops and `total_score = 1.0`.
-3. **Walk the path** (`answer_hops_with`): for each consecutive `(from, to)` pair,
+2. **Require durable provenance:** the ledger-less `kernel_answer` never returns an
+   `AnswerPath`; once an answerable path is found, even a zero-hop direct hit fails
+   closed with `CALYX_KERNEL_ANSWER_LEDGER_REQUIRED`.
+3. **Walk the ledger-backed path** (`answer_hops_with`): for each consecutive `(from, to)` pair,
    look up the directed `edge_weight`, set `hop_index`, and compute
    `hop_score = attenuate(edge_weight, hop_index)` = `edge_weight * 0.9^hop_index`
    (`calyx_paths::attenuate`, `HOP_DECAY = 0.9`). Each hop is score-validated
@@ -325,8 +326,8 @@ routes a query through the kernel then walks association edges. Steps:
 `total_score: f32`, `provenance: Vec<LedgerRef>` (hop refs followed by the final
 complete-answer ref when using `kernel_answer_with_ledger`).
 
-`kernel_answer` only returns direct self-hits without ledger provenance; multi-hop answers
-fail closed with `CALYX_KERNEL_ANSWER_LEDGER_REQUIRED`. The provenanced variant
+`kernel_answer` performs bounded path selection but every answerable path, including a
+direct self-hit, fails closed with `CALYX_KERNEL_ANSWER_LEDGER_REQUIRED`. The provenanced variant
 `kernel_answer_with_ledger` writes real entries: per-hop `append_answer_hop_entry`
 plus a final `append_answer_complete_entry`, and returns that completion ref in
 `AnswerPath.provenance` (see §6).
@@ -414,7 +415,9 @@ that ground two domains at once.
 
 `kernel_answer_scoped(...)`: restrict the kernel index and graph to the scope's nodes
 (`filter_to_nodes`; empty → `KernelNoAnchoredNode`), filter anchored nodes to the scope,
-then call `kernel_answer`.
+then call ledger-less `kernel_answer`, which fails every answerable path closed with
+`CALYX_KERNEL_ANSWER_LEDGER_REQUIRED`. `kernel_answer_scoped_with_ledger` applies the
+same restriction and calls the ledger-backed variant to return a provenanced answer.
 
 ### 5.3 Hierarchical (kernel-of-regions) (`src/hierarchical.rs`)
 
@@ -601,8 +604,9 @@ upstream code, e.g. `CALYX_PATHS_MAX_HOPS`).
   `O(log τ* log log τ*)`" approximation is therefore **not implemented** as an automatic step.
 - **The build pipeline does not measure recall.** `Kernel.recall.kernel_only/full/ratio`
   are 0 until a separate `kernel_recall_test` runs (and is fed back, e.g. via `summarize_with_recall`).
-- **`kernel_answer` requires ledger wiring for multi-hop provenance**; callers must use
-  `kernel_answer_with_ledger` for multi-hop answers so hop and complete-answer refs are persisted.
+- **Every answerable path requires ledger-backed provenance, including direct self-hits.**
+  Ledger-less `kernel_answer` fails closed; callers must use `kernel_answer_with_ledger` so
+  hop and complete-answer refs are persisted and verified.
 - **Incremental rebuild is whole-graph.** `rebuild_dirty` re-runs the full pipeline;
   dirty-SCC tracking decides *whether* to rebuild, not a localized recompute.
 - **Aster time-travel summarization is partial.** Per the `summarize.rs` module docs, a

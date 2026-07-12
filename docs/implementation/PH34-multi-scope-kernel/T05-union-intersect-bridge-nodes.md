@@ -21,7 +21,7 @@ bridge nodes when available. This completes the composable-answering model.
 ## Status
 
 Implemented and FSV-signed-off on aiwonder on 2026-06-08 for #237. The
-implementation adds `bridges`, `kernel_answer_scoped`, `bridge_count` in
+implementation adds `bridges`, `kernel_answer_scoped_with_ledger`, `bridge_count` in
 `ScopeKernelReport`, and a call-site invariant comment making `Union` kernels
 run MFVS over the materialized union graph instead of returning
 `members_a ∪ members_b`.
@@ -34,7 +34,11 @@ run MFVS over the materialized union graph instead of returning
   3. `bridges = kernel_a.members ∩ kernel_b.members` (intersection by `CxId`).
   4. Sort by descending frequency weight (A29: high-frequency bridge = highest value).
   5. Return sorted bridge list.
-- [x] `pub fn kernel_answer_scoped(kernel_index: &KernelIndex, store: &dyn AssocStore, query_cx: CxId, query_vec: &[f32], scope: &Scope, anchored_kernel_nodes: &[CxId], max_hops: usize) -> Result<AnswerPath>` — wraps `kernel_answer` (PH33-T02) but first filters both `KernelIndex` rows and anchored candidates to the materialized scope's node set, then restricts traversal to scoped edges (#646).
+- [x] `kernel_answer_scoped` first filters both `KernelIndex` rows and anchored
+  candidates to the materialized scope's node set, then delegates to ledger-less
+  `kernel_answer` and therefore fails every answerable path closed. The matching
+  `kernel_answer_scoped_with_ledger` performs the same restriction and returns the
+  provenanced `AnswerPath` (#646).
 - [x] Bridge nodes appear in `ScopeKernelReport` as a `bridge_count: usize` field (count of nodes
   appearing in multiple scope kernels) — added to the existing report struct from T03.
 - [x] Empty bridge list (disjoint scopes) → return `vec![]` without error; no `CALYX_*` for empty bridges.
@@ -47,9 +51,9 @@ run MFVS over the materialized union graph instead of returning
   both shared nodes in result; sorted by frequency weight descending.
 - [x] unit: disjoint collections with no overlapping kernel members →
   `bridges(...)` = `[]`; no error.
-- [x] unit: `kernel_answer_scoped` on a `Subgraph` scope → only traverses edges within
+- [x] unit: `kernel_answer_scoped_with_ledger` on a `Subgraph` scope → only traverses edges within
   the subgraph; does not leak into the full graph.
-- [x] unit: `kernel_answer_scoped` with an out-of-scope high-score anchor and an
+- [x] unit: `kernel_answer_scoped_with_ledger` with an out-of-scope high-score anchor and an
   in-scope lower-score reachable anchor → global top candidate is excluded from
   `scoped_index_rows`, and the in-scope anchor is selected (#646).
 - [x] unit: `ScopeKernelReport.bridge_count` for the union scope = 2 (the 2 shared nodes).

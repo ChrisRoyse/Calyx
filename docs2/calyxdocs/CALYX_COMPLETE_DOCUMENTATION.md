@@ -6533,9 +6533,10 @@ routes a query through the kernel then walks association edges. Steps:
      other path errors propagate immediately.
    - If no anchored candidate was even seen → `KernelNoAnchoredNode`; if seen but none
      reachable → the recorded `KernelAnswerNoPath` (or max-hops) error.
-2. **Direct hit:** if the path is length 1 (anchor == query), return an `AnswerPath`
-   with no hops and `total_score = 1.0`.
-3. **Walk the path** (`answer_hops_with`): for each consecutive `(from, to)` pair,
+2. **Require durable provenance:** the ledger-less `kernel_answer` never returns an
+   `AnswerPath`; once an answerable path is found, even a zero-hop direct hit fails
+   closed with `CALYX_KERNEL_ANSWER_LEDGER_REQUIRED`.
+3. **Walk the ledger-backed path** (`answer_hops_with`): for each consecutive `(from, to)` pair,
    look up the directed `edge_weight`, set `hop_index`, and compute
    `hop_score = attenuate(edge_weight, hop_index)` = `edge_weight * 0.9^hop_index`
    (`calyx_paths::attenuate`, `HOP_DECAY = 0.9`). Each hop is score-validated
@@ -6547,8 +6548,8 @@ routes a query through the kernel then walks association edges. Steps:
 `total_score: f32`, `provenance: Vec<LedgerRef>` (hop refs followed by the final
 complete-answer ref when using `kernel_answer_with_ledger`).
 
-`kernel_answer` only returns direct self-hits without ledger provenance; multi-hop answers
-fail closed with `CALYX_KERNEL_ANSWER_LEDGER_REQUIRED`. The provenanced variant
+`kernel_answer` performs bounded path selection but every answerable path, including a
+direct self-hit, fails closed with `CALYX_KERNEL_ANSWER_LEDGER_REQUIRED`. The provenanced variant
 `kernel_answer_with_ledger` writes real entries: per-hop `append_answer_hop_entry`
 plus a final `append_answer_complete_entry`, and returns that completion ref in
 `AnswerPath.provenance` (see §6).
@@ -6636,7 +6637,9 @@ that ground two domains at once.
 
 `kernel_answer_scoped(...)`: restrict the kernel index and graph to the scope's nodes
 (`filter_to_nodes`; empty → `KernelNoAnchoredNode`), filter anchored nodes to the scope,
-then call `kernel_answer`.
+then call ledger-less `kernel_answer`, which fails every answerable path closed with
+`CALYX_KERNEL_ANSWER_LEDGER_REQUIRED`. `kernel_answer_scoped_with_ledger` applies the
+same restriction and calls the ledger-backed variant to return a provenanced answer.
 
 ### 5.3 Hierarchical (kernel-of-regions) (`src/hierarchical.rs`)
 
@@ -6823,8 +6826,9 @@ upstream code, e.g. `CALYX_PATHS_MAX_HOPS`).
   `O(log τ* log log τ*)`" approximation is therefore **not implemented** as an automatic step.
 - **The build pipeline does not measure recall.** `Kernel.recall.kernel_only/full/ratio`
   are 0 until a separate `kernel_recall_test` runs (and is fed back, e.g. via `summarize_with_recall`).
-- **`kernel_answer` requires ledger wiring for multi-hop provenance**; callers must use
-  `kernel_answer_with_ledger` for multi-hop answers so hop and complete-answer refs are persisted.
+- **Every answerable path requires ledger-backed provenance, including direct self-hits.**
+  Ledger-less `kernel_answer` fails closed; callers must use `kernel_answer_with_ledger` so
+  hop and complete-answer refs are persisted and verified.
 - **Incremental rebuild is whole-graph.** `rebuild_dirty` re-runs the full pipeline;
   dirty-SCC tracking decides *whether* to rebuild, not a localized recompute.
 - **Aster time-travel summarization is partial.** Per the `summarize.rs` module docs, a
@@ -12035,7 +12039,7 @@ distinct from open-issue work and from aspirations. Source doc in the last colum
 | calyx-sextant | GPU parity unimplemented (`cpu_gpu_delta` always returns `CALYX_SEXTANT_GPU_PARITY_UNAVAILABLE`); DiskANN prefetch is Unix-only (no-op on Windows); DiskANN/token-DiskANN inserts are **non-incremental** (full rebuild); planner cost model is a heuristic, not measured latency. | 09_sextant_search.md |
 | calyx-loom | Interaction is **Hadamard only** (no low-rank `vₐᵀW vᵦ`); only `StaticPairGainGate` (constant) — no live Assay/Sextant integration; `mean_agreement` == `raw_mean_agreement`; `n_eff`/DPI are carried inputs, not computed; `SignatureResult::NewContent` never produced; graph recomputed per call (no persisted adjacency). | 10_loom_associations.md |
 | calyx-assay | No Forge/GPU execution (`project_gpu` is a stub; all math CPU, O(n²)); thresholds hard-coded consts (not per-vault config); logistic "probe" is a mean-difference linear classifier, not fitted regression; no auto park/retire loop; `n_eff` reports but does not prune; `admit_lens` never returns `admitted:false` (rejects via `Err`). | 11_assay_signal_bits.md |
-| calyx-lodestar | **LP relaxation not wired to a solver** — direct LP-round requests fail closed with `CALYX_KERNEL_LP_UNAVAILABLE` unless a valid external solution is supplied; build pipeline does not measure recall (fields 0 until separate test); multi-hop `kernel_answer` requires the ledger-backed variant; incremental rebuild is whole-graph; time-travel summarization partial. | 12_lodestar_kernel.md |
+| calyx-lodestar | **LP relaxation not wired to a solver** — direct LP-round requests fail closed with `CALYX_KERNEL_LP_UNAVAILABLE` unless a valid external solution is supplied; build pipeline does not measure recall (fields 0 until separate test); every answerable `kernel_answer` path, including a direct self-hit, requires the ledger-backed variant; incremental rebuild is whole-graph; time-travel summarization partial. | 12_lodestar_kernel.md |
 | calyx-mincut / calyx-paths | **No min-cut / max-flow / FVS solver** despite the crate name — `lp_scaffold` only formulates the LP (missing cycle-elim constraints); `LpSolution`/`SolveStatus` are data carriers until an external solver supplies validated values; `reach` ignores edge weights; in-edge access O(E); `gft_project/reconstruct` panic on mismatch; spectral routines treat directed graph as undirected, dense O(n²)/O(n³); recursive Tarjan SCC (stack-overflow risk). | 17_graph_mincut_paths.md |
 | calyx-ward | `AnnealHook` is an interim object-safe seam ("until Anneal's PH48 queue is live"); ONNX needs real model files + CUDA (no CPU fallback); novelty classification fails closed when recurrence data absent; Polis civic guard is a synthetic-persona proof surface. | 13_ward_guard.md |
 | calyx-ledger | Payload schemas are conventions, not types (`payload: Vec<u8>` opaque, enforced only by readers); no key management (caller supplies `[u8;32]`); `DirectoryLedgerStore` is "manual FSV before Aster group-commit"; `LedgerGroupCommitHook::on_commit` is a **disabled stub**; plan API name drift (`verify_chain` returns enum). | 14_ledger_provenance.md |
