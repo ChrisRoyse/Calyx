@@ -7,7 +7,9 @@ use calyx_core::{Anchor, CalyxError, Result};
 use rand::SeedableRng;
 use rand_chacha::ChaCha8Rng;
 
-use self::math::{chebyshev, digamma, kth_distance, mean, percentile_index};
+use self::math::{
+    chebyshev, digamma, kth_distance, mean, percentile_index, validate_finite_chebyshev_domain,
+};
 use crate::bootstrap::{
     BootstrapCi, BootstrapConfig, DEFAULT_BOOTSTRAP_RESAMPLES, DEFAULT_BOOTSTRAP_SEED,
 };
@@ -143,6 +145,7 @@ fn ksg_mi_continuous_discrete_with_anchor_opt(
 ) -> Result<MiEstimate> {
     validate_sample_counts(x.len(), labels.len(), k)?;
     validate_rectangular_finite("x", x)?;
+    validate_finite_chebyshev_domain("x", x)?;
     mixed_ci::estimate(x, labels, k, trust_for_anchor(anchor))
 }
 
@@ -150,6 +153,8 @@ fn validate_samples(x: &[Vec<f32>], y: &[Vec<f32>], k: usize) -> Result<()> {
     validate_sample_counts(x.len(), y.len(), k)?;
     validate_rectangular_finite("x", x)?;
     validate_rectangular_finite("y", y)?;
+    validate_finite_chebyshev_domain("x", x)?;
+    validate_finite_chebyshev_domain("y", y)?;
     validate_joint_radius_defined(x, y, k)?;
     Ok(())
 }
