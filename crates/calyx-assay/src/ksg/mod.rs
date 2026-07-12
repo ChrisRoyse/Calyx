@@ -201,4 +201,6 @@ fn neighbor_count(values: &[Vec<f32>], i: usize, radius: f32) -> usize {
 }
 
 #[cfg(test)]
+mod coverage_tests;
+#[cfg(test)]
 mod tests;
