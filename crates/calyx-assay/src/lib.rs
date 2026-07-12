@@ -108,7 +108,7 @@ pub use ensemble::{
     PidBits, a37_association_family, a37_diversity_gate, ensemble_card,
     ensemble_card_with_redundancy, ensemble_redundancy_from_lenses,
     ensemble_redundancy_from_sketches, linear_cka_sketch_from_row_fn, linear_cka_sketch_from_rows,
-    linear_cka_tuple_plan,
+    linear_cka_tuple_plan, validate_redundancy_method_metadata,
 };
 pub use estimate::{
     EstimateBound, EstimateReliability, EstimatorKind, MiEstimate, TrustTag,

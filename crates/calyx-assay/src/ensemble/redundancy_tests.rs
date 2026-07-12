@@ -3,7 +3,7 @@ use calyx_core::SlotId;
 use super::model::EnsembleLensInput;
 use super::redundancy::{
     LINEAR_CKA_REDUNDANCY_METHOD, ensemble_redundancy_from_lenses, linear_cka_sketch_from_rows,
-    linear_cka_tuple_plan, test_pair_estimate, test_tuple_z, test_tuples,
+    linear_cka_tuple_plan, test_pair_estimate, test_tuple_z, test_tuples, validate_evidence,
 };
 
 #[test]
@@ -141,6 +141,34 @@ fn sampled_panel_evidence_persists_point_uncertainty_and_gate_score() {
     assert!(estimate.redundancy_point > 0.99999);
     assert!(estimate.mc_standard_error.is_finite());
     assert!(estimate.mc_gate_upper_estimate >= estimate.redundancy_point);
+}
+
+#[test]
+fn redundancy_method_metadata_tampering_fails_closed() {
+    let base = base_rows(50);
+    let transformed = transformed_rows(&base, 2.0, [3.0, -5.0, 7.0, 9.0]);
+    let lenses = vec![
+        EnsembleLensInput::new("base", SlotId::new(1), base),
+        EnsembleLensInput::new("orthogonal", SlotId::new(2), transformed),
+    ];
+    let evidence = ensemble_redundancy_from_lenses(&lenses, 10).unwrap();
+
+    for mutate in [
+        |evidence: &mut super::model::EnsembleRedundancyEvidence| {
+            evidence.method.tuple_design = "unverified_design".to_string();
+        },
+        |evidence: &mut super::model::EnsembleRedundancyEvidence| {
+            evidence.method.tuple_plan_blake3 = "not-a-digest".to_string();
+        },
+        |evidence: &mut super::model::EnsembleRedundancyEvidence| {
+            evidence.method.gate_score_method = "unverified_gate".to_string();
+        },
+    ] {
+        let mut tampered = evidence.clone();
+        mutate(&mut tampered);
+        let error = validate_evidence(&lenses, &tampered).unwrap_err();
+        assert_eq!(error.code, "CALYX_ASSAY_DEGENERATE_INPUT");
+    }
 }
 
 fn base_rows(rows: usize) -> Vec<Vec<f32>> {

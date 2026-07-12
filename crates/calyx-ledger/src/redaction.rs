@@ -213,6 +213,9 @@ fn allowed_stable_identifier(token: &str, field: Option<&str>) -> bool {
     if field == "git_sha" {
         return matches!(token.len(), 7..=40) && is_hex(token);
     }
+    if field == "blake3" || field.ends_with("_blake3") {
+        return token.len() == MAX_HASH_OR_ID_LEN && is_hex(token);
+    }
     if field_allows_manifest_slug(&field) && is_manifest_slug(token) {
         return true;
     }

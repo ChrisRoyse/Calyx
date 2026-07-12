@@ -20,6 +20,11 @@ pub use plan::{
 pub use sketch::{LinearCkaSketch, linear_cka_sketch_from_row_fn, linear_cka_sketch_from_rows};
 
 pub const LINEAR_CKA_REDUNDANCY_METHOD: &str = "debiased_linear_cka_hsic1_u4_v1";
+const EXACT_TUPLE_DESIGN: &str = "complete_four_subset_enumeration_v1";
+const SAMPLED_TUPLE_DESIGN: &str = "blake3_counter_uniform_four_distinct_with_replacement_v1";
+const EXACT_UNCERTAINTY_METHOD: &str = "none_complete_tuple_population";
+const SAMPLED_UNCERTAINTY_METHOD: &str = "delete_32_group_jackknife_ratio_v1";
+const GATE_SCORE_METHOD: &str = "max_0_raw_plus_4_mc_se_clamped_1_fail_closed_v1";
 
 #[derive(Clone, Debug)]
 pub struct EnsembleRedundancySketchInput {
@@ -105,16 +110,7 @@ pub(super) fn validate_evidence(
     evidence: &EnsembleRedundancyEvidence,
 ) -> Result<()> {
     let method = &evidence.method;
-    if method.metric != LINEAR_CKA_REDUNDANCY_METHOD
-        || method.row_count < MIN_ASSAY_SAMPLES
-        || method.tuple_count == 0
-        || method.seed_hex.trim().is_empty()
-        || method.tuple_plan_blake3.len() != 64
-    {
-        return Err(CalyxError::assay_degenerate_input(
-            "ensemble redundancy method metadata is incomplete or unsupported",
-        ));
-    }
+    validate_redundancy_method_metadata(method)?;
     let expected_pairs = lenses.len().saturating_sub(1) * lenses.len() / 2;
     if evidence.pairs.len() != expected_pairs {
         return Err(CalyxError::assay_degenerate_input(format!(
@@ -158,6 +154,42 @@ pub(super) fn validate_evidence(
         validate_pair(pair)?;
     }
     Ok(())
+}
+
+pub fn validate_redundancy_method_metadata(method: &EnsembleRedundancyMethod) -> Result<()> {
+    let (tuple_design, uncertainty_method, uncertainty_blocks) = if method.exact {
+        (EXACT_TUPLE_DESIGN, EXACT_UNCERTAINTY_METHOD, 0)
+    } else {
+        (
+            SAMPLED_TUPLE_DESIGN,
+            SAMPLED_UNCERTAINTY_METHOD,
+            LINEAR_CKA_JACKKNIFE_BLOCKS,
+        )
+    };
+    let valid = method.metric == LINEAR_CKA_REDUNDANCY_METHOD
+        && method.tuple_design == tuple_design
+        && method.row_count >= MIN_ASSAY_SAMPLES
+        && method.tuple_count > 0
+        && valid_seed_hex(&method.seed_hex)
+        && valid_blake3(&method.tuple_plan_blake3)
+        && method.uncertainty_method == uncertainty_method
+        && method.uncertainty_blocks == uncertainty_blocks
+        && method.gate_score_method == GATE_SCORE_METHOD;
+    if !valid {
+        return Err(CalyxError::assay_degenerate_input(
+            "ensemble redundancy method metadata is incomplete or unsupported",
+        ));
+    }
+    Ok(())
+}
+
+fn valid_seed_hex(seed: &str) -> bool {
+    seed.strip_prefix("0x")
+        .is_some_and(|hex| hex.len() == 16 && hex.bytes().all(|byte| byte.is_ascii_hexdigit()))
+}
+
+fn valid_blake3(digest: &str) -> bool {
+    digest.len() == 64 && digest.bytes().all(|byte| byte.is_ascii_hexdigit())
 }
 
 fn validate_pair(pair: &EnsemblePairRedundancyEvidence) -> Result<()> {
@@ -223,9 +255,9 @@ fn redundancy_method(plan: &LinearCkaTuplePlan) -> EnsembleRedundancyMethod {
     EnsembleRedundancyMethod {
         metric: LINEAR_CKA_REDUNDANCY_METHOD.to_string(),
         tuple_design: if plan.is_exact() {
-            "complete_four_subset_enumeration_v1"
+            EXACT_TUPLE_DESIGN
         } else {
-            "blake3_counter_uniform_four_distinct_with_replacement_v1"
+            SAMPLED_TUPLE_DESIGN
         }
         .to_string(),
         row_count: plan.row_count(),
@@ -234,9 +266,9 @@ fn redundancy_method(plan: &LinearCkaTuplePlan) -> EnsembleRedundancyMethod {
         tuple_plan_blake3: plan.digest_hex(),
         exact: plan.is_exact(),
         uncertainty_method: if plan.is_exact() {
-            "none_complete_tuple_population"
+            EXACT_UNCERTAINTY_METHOD
         } else {
-            "delete_32_group_jackknife_ratio_v1"
+            SAMPLED_UNCERTAINTY_METHOD
         }
         .to_string(),
         uncertainty_blocks: if plan.is_exact() {
@@ -244,7 +276,7 @@ fn redundancy_method(plan: &LinearCkaTuplePlan) -> EnsembleRedundancyMethod {
         } else {
             LINEAR_CKA_JACKKNIFE_BLOCKS
         },
-        gate_score_method: "max_0_raw_plus_4_mc_se_clamped_1_fail_closed_v1".to_string(),
+        gate_score_method: GATE_SCORE_METHOD.to_string(),
     }
 }
 

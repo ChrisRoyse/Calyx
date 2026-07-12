@@ -21,6 +21,17 @@ fn validate_panel(report: &PolyPanelSufficiencyReport) -> Result<()> {
     {
         return invalid("panel-sufficiency report is malformed or internally inconsistent");
     }
+    match &report.assay_card.redundancy_method {
+        Some(method) => validate_redundancy_method_metadata(method).map_err(|error| {
+            invalid_error(format!(
+                "panel-sufficiency redundancy metadata is invalid: {error}"
+            ))
+        })?,
+        None if report.assay_card.schema_version >= ENSEMBLE_CARD_SCHEMA_VERSION => {
+            return invalid("panel-sufficiency report is missing schema-v2 redundancy metadata");
+        }
+        None => {}
+    }
     Ok(())
 }
 
