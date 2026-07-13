@@ -81,12 +81,12 @@ suites), and `issue<NNN>_*` (per-issue regression suites).
 
 | Category | Where | Evidence / count |
 |----------|-------|------------------|
-| Unit tests | `#[cfg(test)] mod tests` inside `src/` | 1515 `#[test]` in `src/`; e.g. `crates/calyx-testkit/src/lib.rs`, `crates/calyx-cli/src/fsv.rs` |
-| Integration tests | crate `tests/` dirs | 1103 `#[test]` across 17 crates' `tests/` dirs |
-| Property tests (proptest) | `proptest!` macro | `proptest` is a workspace dependency (`Cargo.toml`); 162 files use the `proptest!` macro; 162 macro invocations across `crates/` |
+| Unit tests | `#[cfg(test)] mod tests` inside `src/` | 3182 `#[test]` in `src/`; e.g. `crates/calyx-testkit/src/lib.rs`, `crates/calyx-cli/src/fsv.rs` |
+| Integration tests | crate `tests/` dirs | 1597 `#[test]` across 22 crates' `tests/` dirs |
+| Property tests (proptest) | `proptest!` macro | `proptest` is a workspace dependency (`Cargo.toml`); 172 files use the `proptest!` macro; 175 macro invocations across `crates/` |
 | Fuzz targets | `fuzz/` at repo root | `fuzz/Cargo.toml` (cargo-fuzz, `libfuzzer-sys = "0.4"`) with 6 targets in `fuzz/fuzz_targets/`: `aster_sst_decode`, `aster_wal_replay`, `aster_manifest_decode`, `query_parse`, `lens_output_decode`, `mcp_jsonrpc_decode`; a `corpus/` dir is present |
-| Criterion benchmarks | `benches/` | Two crates: `crates/calyx-aster/benches/bench_arena_reset.rs` and `crates/calyx-forge/benches/bench_admission_overhead.rs`. Both declared `[[bench]]` with `harness = false`; `criterion = "0.5"` is the workspace dep |
-| FSV (full-system-verification) | `*_fsv.rs` integration tests + `scripts/fsv_*.sh` | 130 `tests/*_fsv.rs` files; see section 3 |
+| Criterion benchmarks | `benches/` | Four declared `[[bench]]` targets with `harness = false`: `calyx-aster/bench_arena_reset`, `calyx-forge/bench_admission_overhead`, `calyx-hazard-soak/bench_hazard_soak_throughput`, and `calyx-sextant/bench_diskann_1e6`; `criterion = "0.5"` is the workspace dep |
+| FSV (full-system-verification) | `*_fsv.rs` integration tests + `scripts/fsv_*.sh` | 296 `tests/*_fsv.rs` files; see section 3 |
 
 Doctests are also run as a separate category (`cargo test --workspace --doc`),
 since nextest does not execute them — see `scripts/check.sh`.
@@ -189,9 +189,14 @@ cargo test --workspace --doc       # doctests (nextest does not run these)
   unique `TMPDIR` under the Calyx-home `tmp/` directory; nested fuzz inherits
   the validated outer state. Every stage and nested test uses that directory. The gate validates that
   the resolved run root is a current-user-owned direct `check.*` child of a
-  group/world-nonwritable stable parent. Creation publishes the opened root and
-  entry device/inode identities through a private unlinked FD before the parent
-  exposes ownership. Cleanup passes those identities to the FD-anchored remover,
+  group/world-nonwritable stable parent. A pinned descriptor-relative creator
+  blocks terminating signals before its first mutation, creates a deterministic
+  private staging child, and publishes its root/entry device/inode identity as a
+  PREPARED record through an anonymous kernel pipe. It then opens and verifies
+  that entry, publishes it with `renameat2(RENAME_NOREPLACE)`, and emits the
+  final identity record before unmasking signals. The parent can therefore
+  remove the exact staging or final inode even if creation fails or times out.
+  Cleanup passes the final identities to the FD-anchored remover,
   which uses `openat2` beneath the authorization root, `renameat2(RENAME_NOREPLACE)`
   quarantine, and descriptor-relative traversal without crossing symlinks,
   magic links, or mount points. Cargo targets use the same create/publication and
@@ -203,9 +208,10 @@ cargo test --workspace --doc       # doctests (nextest does not run these)
   owner PID start identity and physical membership beneath that same slice, so
   `setsid` and double-fork descendants cannot escape HUP/INT/TERM or normal-exit
   draining. Cleanup and exact slice-release failures return containment status
-  125. Destructive target enumeration uses private verified NUL snapshots;
-  cleanup prediagnostics sample at most one top-level entry, and producer errors
-  fail closed. The shared-`/tmp` baseline is bound by device/inode, byte size,
+  125. Destructive target enumeration captures bounded NUL records in memory,
+  with time, entry-count, and byte caps; cleanup prediagnostics sample at most
+  one top-level entry, and pipeline producer errors fail closed. The shared-`/tmp`
+  baseline is bound by device/inode, byte size,
   and SHA-256; that guard remains recovery, not primary lifecycle.
 - FSV / ignored tests run explicitly, e.g.
   `cargo test -p <crate> --test <name> -- --ignored --nocapture`, usually with

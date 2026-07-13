@@ -29,6 +29,10 @@ tmp_root="${CALYX_TMP_ROOT:-/tmp}"
 stale_minutes="${CALYX_TMP_STALE_MINUTES:-360}"
 min_free_inode_percent="${CALYX_TMP_MIN_FREE_INODE_PERCENT:-5}"
 min_free_block_percent="${CALYX_TMP_MIN_FREE_BLOCK_PERCENT:-1}"
+readonly ENUMERATION_TIMEOUT_SECONDS=300
+readonly SORT_TIMEOUT_SECONDS=60
+readonly MAX_ENUMERATION_ENTRIES=16384
+readonly MAX_ENUMERATION_BYTES=67108864
 current_uid="$(id -u)"
 current_user="$(id -un 2>/dev/null || printf '%s' "$current_uid")"
 if [[ -n "${CALYX_GATE_LOCK_PATH:-}" || -n "${CALYX_GATE_LOCK_FD:-}" ]]; then
@@ -108,17 +112,47 @@ current_user_owns_path() {
 }
 
 snapshot_owned() {
-  local outvar="$1" label="$2" snapshot_path status
+  local outvar="$1" label="$2" snapshot_path raw_path status sort_status
+  local had_errexit=0
+  local -a pipeline_status=()
   shift 2
   snapshot_path="$(mktemp -- "$snapshot_dir/.tmp-guard-enum.XXXXXXXX")" || return 1
-  snapshot_files+=("$snapshot_path")
-  if find "$tmp_root" -mindepth 1 -maxdepth 1 "${owned_find_expr[@]}" \
-    "$@" -print0 | sort -z >"$snapshot_path"; then
-    :
-  else
-    status=$?
+  raw_path="$(mktemp -- "$snapshot_dir/.tmp-guard-raw.XXXXXXXX")" || return 1
+  snapshot_files+=("$snapshot_path" "$raw_path")
+  [[ "$-" == *e* ]] && had_errexit=1
+  set +e
+  timeout "$ENUMERATION_TIMEOUT_SECONDS" find "$tmp_root" -mindepth 1 -maxdepth 1 \
+    "${owned_find_expr[@]}" "$@" -print0 | (
+      LC_ALL=C
+      count=0
+      bytes=0
+      while IFS= read -r -d '' path; do
+        count=$((count + 1))
+        bytes=$((bytes + ${#path} + 1))
+        if ((count > MAX_ENUMERATION_ENTRIES || bytes > MAX_ENUMERATION_BYTES)); then
+          echo "CALYX_TMP_GUARD_ENUMERATION_LIMIT: label=$label entries=$count bytes=$bytes" >&2
+          exit 75
+        fi
+        printf '%s\0' "$path"
+      done
+    ) >"$raw_path"
+  pipeline_status=("${PIPESTATUS[@]}")
+  [[ "$had_errexit" -eq 0 ]] || set -e
+  if [[ "${pipeline_status[0]:-125}" -ne 0 || "${pipeline_status[1]:-125}" -ne 0 ]]; then
+    status="${pipeline_status[0]:-125}"
+    [[ "${pipeline_status[1]:-125}" -eq 0 ]] || status="${pipeline_status[1]}"
     echo "CALYX_TMP_GUARD_ENUMERATION_FAILED: label=$label status=$status root=$tmp_root" >&2
-    return "$status"
+    return 125
+  fi
+  if timeout "$SORT_TIMEOUT_SECONDS" env LC_ALL=C sort -z -- "$raw_path" >"$snapshot_path"; then
+    sort_status=0
+  else
+    sort_status=$?
+  fi
+  if [[ "$sort_status" -ne 0 \
+    || "$(stat -c '%s' -- "$snapshot_path")" -gt "$MAX_ENUMERATION_BYTES" ]]; then
+    echo "CALYX_TMP_GUARD_SORT_FAILED: label=$label status=$sort_status root=$tmp_root" >&2
+    return 125
   fi
   printf -v "$outvar" '%s' "$snapshot_path"
 }
@@ -193,24 +227,30 @@ cleanup_new_owned() {
   # it under $tmp_root with an owned-pattern name; removing entries while
   # re-reading such a baseline can delete the reference mid-sweep and make
   # every remaining entry look "new". Full gates now keep it in private TMPDIR.
-  local removed=0 skipped_unowned=0 snapshot grep_status
+  local removed=0 skipped_unowned=0 snapshot diff_snapshot compare_status
   snapshot_owned snapshot new || return $?
+  diff_snapshot="$(mktemp -- "$snapshot_dir/.tmp-guard-diff.XXXXXXXX")" || return 125
+  snapshot_files+=("$diff_snapshot")
+  if timeout "$SORT_TIMEOUT_SECONDS" env LC_ALL=C comm -z -13 -- \
+    "$baseline_read_file" "$snapshot" >"$diff_snapshot"; then
+    compare_status=0
+  else
+    compare_status=$?
+  fi
+  if [[ "$compare_status" -ne 0 \
+    || "$(stat -c '%s' -- "$diff_snapshot")" -gt "$MAX_ENUMERATION_BYTES" ]]; then
+    echo "CALYX_TMP_GUARD_BASELINE_COMPARE_FAILED: status=$compare_status path=$baseline_file" >&2
+    return 125
+  fi
   while IFS= read -r -d '' path; do
-    grep_status=0
-    grep -Fzxq -- "$path" "$baseline_read_file" || grep_status=$?
-    if [[ "$grep_status" -eq 1 ]]; then
-      if ! current_user_owns_path "$path"; then
-        echo "calyx_tmp_guard_new_unowned_skipped: path=$path $(path_stat_summary "$path")" >&2
-        skipped_unowned=$((skipped_unowned + 1))
-        continue
-      fi
-      remove_owned_path "$path"
-      removed=$((removed + 1))
-    elif [[ "$grep_status" -ne 0 ]]; then
-      echo "CALYX_TMP_GUARD_BASELINE_READ_FAILED: status=$grep_status path=$baseline_file" >&2
-      return "$grep_status"
+    if ! current_user_owns_path "$path"; then
+      echo "calyx_tmp_guard_new_unowned_skipped: path=$path $(path_stat_summary "$path")" >&2
+      skipped_unowned=$((skipped_unowned + 1))
+      continue
     fi
-  done <"$snapshot"
+    remove_owned_path "$path"
+    removed=$((removed + 1))
+  done <"$diff_snapshot"
   echo "calyx_tmp_guard_new_removed=$removed"
   echo "calyx_tmp_guard_new_unowned_skipped=$skipped_unowned"
 }
@@ -238,6 +278,7 @@ assert_bound_baseline() {
 }
 
 open_bound_baseline() {
+  local baseline_entries=0 baseline_entry=""
   [[ "$baseline_expected_identity" =~ ^[0-9]+:[0-9]+$ \
     && "$baseline_expected_bytes" =~ ^[0-9]+$ \
     && "$baseline_expected_sha" =~ ^[0-9a-f]{64}$ ]] || {
@@ -252,6 +293,21 @@ open_bound_baseline() {
   [[ "$(stat -Lc '%u:%a' -- "$baseline_read_file")" == "$current_uid:600" ]] || {
     echo "CALYX_TMP_GUARD_UNSAFE_BASELINE: $baseline_file" >&2
     return 1
+  }
+  if ((baseline_expected_bytes > MAX_ENUMERATION_BYTES)); then
+    echo "CALYX_TMP_GUARD_BASELINE_LIMIT: bytes=$baseline_expected_bytes" >&2
+    return 125
+  fi
+  while IFS= read -r -d '' baseline_entry; do
+    baseline_entries=$((baseline_entries + 1))
+    if ((baseline_entries > MAX_ENUMERATION_ENTRIES)); then
+      echo "CALYX_TMP_GUARD_BASELINE_LIMIT: entries=$baseline_entries" >&2
+      return 125
+    fi
+  done <"$baseline_read_file"
+  [[ -z "$baseline_entry" ]] || {
+    echo "CALYX_TMP_GUARD_BASELINE_MALFORMED" >&2
+    return 125
   }
   assert_bound_baseline open
 }

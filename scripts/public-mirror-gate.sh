@@ -38,6 +38,8 @@ tmp_guard_baseline_bytes=""
 tmp_guard_baseline_sha=""
 tmp_guard_started=0
 public_cleanup_ready=0
+public_root_fd=""
+public_root_pinned=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -79,9 +81,40 @@ if [[ "$dev_root" == "$public_root" ]]; then
   echo "public-mirror-gate: ERROR public checkout must be separate from Calyx-Dev" >&2
   exit 2
 fi
-public_root_identity="$(stat -c '%d:%i' -- "$public_root")" || exit 125
+[[ -d "$public_root" && ! -L "$public_root" ]] || exit 125
+exec {public_root_fd}<"$public_root" || exit 125
+public_root_pinned="/proc/$BASHPID/fd/$public_root_fd/."
+[[ "$(stat -Lc '%F' -- "$public_root_pinned")" == directory ]] || exit 125
+public_root_identity="$(stat -Lc '%d:%i' -- "$public_root_pinned")" || exit 125
 
-origin_url="$(git -C "$public_root" remote get-url origin 2>/dev/null || true)"
+assert_public_root_current() {
+  local phase="${1:-operation}" path_identity pinned_identity
+  path_identity="$(stat -c '%d:%i' -- "$public_root" 2>/dev/null)" || {
+    echo "public-mirror-gate: ERROR public checkout path is unavailable $phase" >&2
+    return 125
+  }
+  pinned_identity="$(stat -Lc '%d:%i' -- "$public_root_pinned" 2>/dev/null)" || {
+    echo "public-mirror-gate: ERROR pinned public checkout is unavailable $phase" >&2
+    return 125
+  }
+  [[ "$path_identity" == "$public_root_identity" \
+    && "$pinned_identity" == "$public_root_identity" ]] || {
+    echo "public-mirror-gate: ERROR public checkout identity changed $phase" >&2
+    return 125
+  }
+}
+
+run_public_operation() {
+  local status=0
+  assert_public_root_current "before operation" || return $?
+  if "$@"; then status=0; else status=$?; fi
+  assert_public_root_current "after operation" || return 125
+  return "$status"
+}
+
+origin_status=0
+origin_url="$(run_public_operation git -C "$public_root_pinned" remote get-url origin)" || origin_status=$?
+[[ "$origin_status" -ne 125 ]] || exit 125
 case "$origin_url" in
   https://github.com/ChrisRoyse/Calyx|https://github.com/ChrisRoyse/Calyx.git|\
   git@github.com:ChrisRoyse/Calyx|git@github.com:ChrisRoyse/Calyx.git|\
@@ -91,10 +124,6 @@ case "$origin_url" in
   exit 2
   ;;
 esac
-[[ "$(stat -c '%d:%i' -- "$public_root")" == "$public_root_identity" ]] || {
-  echo "public-mirror-gate: ERROR public checkout identity changed during origin validation" >&2
-  exit 125
-}
 
 if [[ -f "$HOME/.cargo/env" ]]; then
   # shellcheck source=/dev/null
@@ -129,7 +158,7 @@ fi
 
 reject_unstaged_public_changes() {
   local phase="$1" status_file="$TMPDIR/public-status-${2:?}" line prefix dirty=""
-  if calyx_gate_run git -C "$public_root" status --porcelain >"$status_file"; then
+  if run_public_operation calyx_gate_run git -C "$public_root_pinned" status --porcelain >"$status_file"; then
     :
   else
     local status=$?
@@ -151,41 +180,39 @@ reject_unstaged_public_changes() {
 
 cleanup_public_scratch() {
   local rel='crates/calyx-poly/C:\code\poly\target\fsv\issue029_ws_market_client_20260707'
-  local path="$public_root/$rel"
+  local path="$public_root_pinned/$rel" display_path="$public_root/$rel"
+  assert_public_root_current "before scratch cleanup" || return $?
   if [[ ! -e "$path" && ! -L "$path" ]]; then
-    echo "public-mirror-gate: scratch_absent path=$path"
+    assert_public_root_current "after absent scratch check" || return $?
+    echo "public-mirror-gate: scratch_absent path=$display_path"
     return 0
   fi
 
-  local lexical physical owner_uid identity relative
-  [[ "$(stat -c '%d:%i' -- "$public_root")" == "$public_root_identity" ]] || {
-    echo "public-mirror-gate: ERROR public checkout identity changed before scratch cleanup" >&2
-    return 125
-  }
-  relative="${path#"$public_root"/}"
+  local owner_uid identity relative="$rel"
   if [[ -L "$path" ]]; then
     owner_uid="$(stat -c '%u' -- "$path")" || return 125
     identity="$(stat -c '%d:%i' -- "$path")" || return 125
-    calyx_gate_safe_remove_entry "$public_root" "$public_root_identity" "$relative" \
+    calyx_gate_safe_remove_entry "$public_root_pinned" "$public_root_identity" "$relative" \
       "$identity" any public-scratch "$owner_uid" "$owner_uid" "" "" || return 125
     [[ ! -e "$path" && ! -L "$path" ]] || return 125
-    echo "public-mirror-gate: scratch_absent path=$path"
+    assert_public_root_current "after symlink scratch cleanup" || return $?
+    echo "public-mirror-gate: scratch_absent path=$display_path"
     return 0
   fi
-  calyx_gate_lexical_path lexical "public scratch" "$path" || return $?
-  physical="$(realpath -m -- "$path")" || return 125
-  [[ "$lexical" == "$physical" && "$lexical" == "$public_root/"* && -d "$path" ]] || {
-    echo "public-mirror-gate: ERROR refusing unstable public scratch cleanup: lexical=$lexical physical=$physical" >&2
+  [[ -d "$path" ]] || {
+    echo "public-mirror-gate: ERROR refusing non-directory public scratch cleanup: path=$display_path" >&2
     return 125
   }
   owner_uid="$(stat -c '%u' -- "$path")" || return 125
   [[ "$owner_uid" == "$(id -u)" ]] || return 125
-  calyx_gate_assert_no_mounts_at_or_below "$path" "public scratch" || return $?
+  calyx_gate_assert_no_mounts_at_or_below "$display_path" "public scratch" || return $?
+  assert_public_root_current "after scratch mount preflight" || return $?
   identity="$(stat -c '%d:%i' -- "$path")" || return 125
-  calyx_gate_safe_remove_entry "$public_root" "$public_root_identity" "$relative" \
+  calyx_gate_safe_remove_entry "$public_root_pinned" "$public_root_identity" "$relative" \
     "$identity" directory public-scratch "$owner_uid" "$owner_uid" "" "" || return 125
   [[ ! -e "$path" && ! -L "$path" ]] || return 125
-  echo "public-mirror-gate: scratch_absent path=$path"
+  assert_public_root_current "after directory scratch cleanup" || return $?
+  echo "public-mirror-gate: scratch_absent path=$display_path"
 }
 
 cleanup_gate() {
@@ -212,7 +239,7 @@ cleanup_gate() {
 
   if [[ "$scratch_cleanup_safe" -eq 1 && "$target_cleanup_ready" -eq 1 && -n "$target_dir" ]]; then
     calyx_gate_run bash "$dev_root/scripts/cargo-target-clean.sh" \
-      --repo-root "$public_root" \
+      --repo-root "$public_root_pinned" \
       --target-dir "$target_dir" \
       --expected-target-identity "$target_identity" \
       --gate-lock-fd "$gate_lock_fd" \
@@ -224,6 +251,11 @@ cleanup_gate() {
       echo "public-mirror-gate: ERROR target cleanup failed: status=$step_status target=$target_dir" >&2
       [[ "$cleanup_status" -ne 0 ]] || cleanup_status="$step_status"
     fi
+  fi
+
+  if [[ -n "$public_root_fd" ]]; then
+    eval "exec ${public_root_fd}>&-" || cleanup_status=125
+    public_root_fd=""
   fi
 
   if [[ "$scratch_cleanup_safe" -eq 1 && "$tmp_guard_started" -eq 1 ]]; then
@@ -280,7 +312,8 @@ trap 'handle_signal TERM 143' TERM
 calyx_gate_signals_defer
 calyx_gate_plan_owned_dir run_tmp_dir "$tmp_root" check
 if calyx_gate_create_owned_dir run_tmp_created run_tmp_root_identity run_tmp_identity \
-  "$calyx_home" bash "$dev_root/scripts/check-tmpdir.sh" create-at \
+  "$calyx_home" "$tmp_root" "$run_tmp_dir" \
+  bash "$dev_root/scripts/check-tmpdir.sh" create-at \
   "$tmp_root" "$run_tmp_dir" >/dev/null; then
   run_tmp_owned=1
   run_tmp_created=0
@@ -315,7 +348,8 @@ if [[ -z "$target_dir" ]]; then
   calyx_gate_signals_defer
   calyx_gate_plan_owned_dir target_dir "$scratch_root" public-mirror-gate
   if calyx_gate_create_owned_dir target_created target_root_identity target_identity \
-    "$calyx_home" bash "$dev_root/scripts/check-tmpdir.sh" create-target-at \
+    "$calyx_home" "$scratch_root" "$target_dir" \
+    bash "$dev_root/scripts/check-tmpdir.sh" create-target-at \
     "$scratch_root" public-mirror-gate "$target_dir" >/dev/null; then
     target_cleanup_ready=1
     target_created=0
@@ -335,8 +369,8 @@ else
     echo "public-mirror-gate: ERROR explicit target must be an immediate child of $scratch_root: $target_dir" >&2
     exit 2
   fi
-  if calyx_gate_run bash "$dev_root/scripts/cargo-target-clean.sh" \
-    --repo-root "$public_root" \
+  if run_public_operation calyx_gate_run bash "$dev_root/scripts/cargo-target-clean.sh" \
+    --repo-root "$public_root_pinned" \
     --target-dir "$target_dir" \
     --gate-lock-fd "$gate_lock_fd" \
     --also-workspace-target \
@@ -350,7 +384,8 @@ else
   fi
   calyx_gate_signals_defer
   if calyx_gate_create_owned_dir target_created target_root_identity target_identity \
-    "$calyx_home" bash "$dev_root/scripts/check-tmpdir.sh" create-target-path-at \
+    "$calyx_home" "$scratch_root" "$target_dir" \
+    bash "$dev_root/scripts/check-tmpdir.sh" create-target-path-at \
     "$scratch_root" "$target_dir" >/dev/null; then
     target_cleanup_ready=1
     target_created=0
@@ -381,22 +416,22 @@ echo "public-mirror-gate: target_dir=$CARGO_TARGET_DIR"
 
 cleanup_public_scratch
 reject_unstaged_public_changes "before gate" before
-calyx_gate_run_in "$public_root" bash "$dev_root/scripts/secret-scan.sh" --staged
-calyx_gate_run bash "$dev_root/scripts/public-leak-scan.sh" --public-tree "$public_root"
-if calyx_gate_run git -C "$public_root" diff --cached --check; then
+run_public_operation calyx_gate_run_in "$public_root_pinned" bash "$dev_root/scripts/secret-scan.sh" --staged
+run_public_operation calyx_gate_run bash "$dev_root/scripts/public-leak-scan.sh" --public-tree "$public_root_pinned"
+if run_public_operation calyx_gate_run git -C "$public_root_pinned" diff --cached --check; then
   :
 else
   setup_status=$?
   echo "public-mirror-gate: ERROR staged diff check failed: status=$setup_status" >&2
   exit "$setup_status"
 fi
-calyx_gate_run bash "$dev_root/scripts/cargo-fmt-workspace.sh" --check --repo-root "$public_root"
-calyx_gate_run_in "$public_root" cargo check --workspace --all-targets
-calyx_gate_run_in "$public_root" cargo clippy --workspace --all-targets -- -D warnings
-calyx_gate_run_in "$public_root" bash "$dev_root/scripts/fuzz-gate.sh" --repo-root "$public_root"
-calyx_gate_run_in "$public_root" cargo nextest run --workspace
-calyx_gate_run_in "$public_root" cargo test --workspace --doc
-calyx_gate_run bash "$dev_root/scripts/orphan_rs.sh" --repo-root "$public_root"
-calyx_gate_run bash "$dev_root/scripts/linecount.sh" --repo-root "$public_root"
+run_public_operation calyx_gate_run bash "$dev_root/scripts/cargo-fmt-workspace.sh" --check --repo-root "$public_root_pinned"
+run_public_operation calyx_gate_run_in "$public_root_pinned" cargo check --workspace --all-targets
+run_public_operation calyx_gate_run_in "$public_root_pinned" cargo clippy --workspace --all-targets -- -D warnings
+run_public_operation calyx_gate_run_in "$public_root_pinned" bash "$dev_root/scripts/fuzz-gate.sh" --repo-root "$public_root_pinned"
+run_public_operation calyx_gate_run_in "$public_root_pinned" cargo nextest run --workspace
+run_public_operation calyx_gate_run_in "$public_root_pinned" cargo test --workspace --doc
+run_public_operation calyx_gate_run bash "$dev_root/scripts/orphan_rs.sh" --repo-root "$public_root_pinned"
+run_public_operation calyx_gate_run bash "$dev_root/scripts/linecount.sh" --repo-root "$public_root_pinned"
 cleanup_public_scratch
 reject_unstaged_public_changes "after gate" after

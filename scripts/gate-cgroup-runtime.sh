@@ -15,20 +15,27 @@ calyx_gate_active_scope=""
 calyx_gate_active_invocation=""
 calyx_gate_active_control=""
 calyx_gate_active_control_identity=""
+calyx_gate_active_starttime=""
 calyx_gate_run_slice_control=""
 calyx_gate_run_slice_identity=""
 calyx_gate_run_slice_invocation=""
 calyx_gate_population=""
 calyx_gate_finish_status=125
+calyx_gate_handoff_timed_out=0
 
 calyx_gate_cgroup_error() {
   echo "${CALYX_GATE_STAGE_OWNER:-gate}: ERROR $*" >&2
 }
 
 calyx_gate_pid_starttime() {
-  local output_var="$1" pid="$2" value
-  value="$(awk '{print $22}' "/proc/$pid/stat" 2>/dev/null)" || return 125
-  [[ "$value" =~ ^[1-9][0-9]*$ ]] || return 125
+  local output_var="$1" pid="$2" raw tail value
+  local -a fields=()
+  IFS= read -r raw 2>/dev/null <"/proc/$pid/stat" || return 125
+  tail="${raw##*) }"
+  [[ "$tail" != "$raw" ]] || return 125
+  read -r -a fields <<<"$tail"
+  value="${fields[19]:-}"
+  [[ "${fields[0]:-}" =~ ^[RSDZTtXxKWPI]$ && "$value" =~ ^[1-9][0-9]*$ ]] || return 125
   printf -v "$output_var" '%s' "$value"
 }
 
@@ -52,7 +59,7 @@ calyx_gate_cgroup_init() {
   [[ "$calyx_gate_cgroup_initialized" -eq 0 ]] || return 0
   local cgroup_type self_group owner uid token command_name
   local owner_starttime actual_starttime slice_control slice_invocation slice_identity active
-  for command_name in systemd-run systemctl stat awk setsid; do
+  for command_name in systemd-run systemctl stat awk setsid python3; do
     command -v "$command_name" >/dev/null 2>&1 || {
       calyx_gate_cgroup_error "$command_name is required for stage containment"
       return 127
@@ -130,8 +137,21 @@ calyx_gate_prepare_scope() {
 }
 
 calyx_gate_launch_scope() {
-  local scope="$1" stage_dir="$2"
-  shift 2
+  local scope="$1" stage_dir="$2" launch_read_fd="$3" launch_write_fd="$4"
+  local raw tail starttime
+  local -a fields=()
+  shift 4
+  calyx_gate_close_numeric_fd "$launch_read_fd" || exit 125
+  IFS= read -r raw <"/proc/$BASHPID/stat" 2>/dev/null || exit 125
+  tail="${raw##*) }"
+  [[ "$tail" != "$raw" ]] || exit 125
+  read -r -a fields <<<"$tail"
+  starttime="${fields[19]:-}"
+  [[ "${fields[0]:-}" =~ ^[RSDZTtXxKWPI]$ && "$starttime" =~ ^[1-9][0-9]*$ ]] || exit 125
+  printf 'CALYX_GATE_LAUNCH_ID_V1 pid=%s starttime=%s\n' "$BASHPID" "$starttime" \
+    >&"$launch_write_fd" || exit 125
+  calyx_gate_close_numeric_fd "$launch_write_fd" || exit 125
+  kill -STOP "$BASHPID" || exit 125
   exec setsid -- systemd-run --user --scope --quiet --collect \
     --slice="$CALYX_GATE_RUN_SLICE" --unit="$scope" \
     --property=KillMode=control-group --property=SendSIGKILL=yes \
@@ -385,6 +405,7 @@ calyx_gate_clear_active_scope() {
   calyx_gate_active_invocation=""
   calyx_gate_active_control=""
   calyx_gate_active_control_identity=""
+  calyx_gate_active_starttime=""
 }
 
 calyx_gate_finish_active_scope() {

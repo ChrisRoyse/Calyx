@@ -222,6 +222,34 @@ set -e
   || bad "legacy classification failure rc=$classification_rc was destructive"
 rm -rf -- "$classification_target"
 
+enum_limit_target="$clean_repo/enumeration-limit/target"
+mkdir -p "$enum_limit_target"
+printf 'enumeration-limit-sentinel\n' >"$enum_limit_target/sentinel"
+enum_limit_sha="$(sha256sum "$enum_limit_target/sentinel" | awk '{print $1}')"
+cat >"$enum_bin/find" <<'STUB'
+#!/usr/bin/env bash
+set -euo pipefail
+for ((index = 0; index < 16385; index++)); do
+  printf '%s\0' "${FAKE_FIND_RECORD:?}"
+done
+STUB
+chmod +x "$enum_bin/find"
+set +e
+PATH="$enum_bin:$PATH" FAKE_FIND_RECORD="$enum_limit_target" \
+  env -u CALYX_GATE_LOCK_PATH -u CALYX_GATE_LOCK_FD \
+  bash "$target_clean_src" --repo-root "$clean_repo" \
+  --target-dir "$clean_scratch/absent-enumeration-limit" --also-repo-targets \
+  >"$work/target-clean/enumeration-limit.log" 2>&1
+enum_limit_rc=$?
+set -e
+[[ "$enum_limit_rc" -ne 0 \
+  && "$(sha256sum "$enum_limit_target/sentinel" | awk '{print $1}')" == "$enum_limit_sha" ]] \
+  && grep -Fq 'enumeration limit exceeded: label=repo-targets' \
+    "$work/target-clean/enumeration-limit.log" \
+  && pass "repo target enumeration is capped before sort and preserves candidate bytes" \
+  || bad "repo target enumeration limit rc=$enum_limit_rc was late or destructive"
+rm -rf -- "$clean_repo/enumeration-limit"
+
 scratch_enum_bin="$work/target-clean/scratch-enum-bin"
 scratch_real_find="$(command -v find)"
 mkdir -p "$scratch_enum_bin"

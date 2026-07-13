@@ -1,0 +1,78 @@
+schema_version = 1
+socket_path = "/run/calyx-gatebrokerd/control.sock"
+journal_path = "/var/lib/calyx-gatebrokerd/private/journal/journal.sqlite"
+worker_user = "calyx-gate-worker"
+client_group = "calyx-gate-clients"
+unit_prefix = "calyx-gate"
+max_active_runs = 1
+max_rpc_frame_bytes = 65536
+max_argv_entries = 256
+max_environment_entries = 256
+
+[state]
+anchor = "/var/lib/calyx-gatebrokerd"
+anchor_owner = "root"
+anchor_mode = "0711"
+private = "/var/lib/calyx-gatebrokerd/private"
+private_owner = "root"
+private_mode = "0700"
+journal_directory = "/var/lib/calyx-gatebrokerd/private/journal"
+journal_directory_owner = "root"
+journal_directory_mode = "0700"
+require_root_owned_path_chain = true
+require_no_symlinks = true
+
+[journal]
+mode = "wal"
+synchronous = "full"
+foreign_keys = true
+trusted_schema = false
+integrity_check_on_start = true
+
+[containment]
+system_manager = true
+cgroup_version = 2
+delegate = false
+bind_units_to_broker = true
+require_pidfd_owner = true
+require_held_cgroup_fd = true
+allow_user_manager = false
+allow_same_uid_stage = false
+
+[roots.tmp]
+common_ancestor = "/var/lib/calyx-gatebrokerd"
+shared = "/var/lib/calyx-gatebrokerd/objects/tmp"
+private = "/var/lib/calyx-gatebrokerd/private/quarantine/tmp"
+shared_owner = "root"
+shared_mode = "0711"
+private_owner = "root"
+private_mode = "0700"
+published_mode = "0700"
+require_same_mount = true
+require_rename_noreplace = true
+require_opaque_file_handles = true
+allow_existing_object_adoption = false
+
+[roots.target]
+common_ancestor = "/var/lib/calyx-gatebrokerd"
+shared = "/var/lib/calyx-gatebrokerd/objects/target"
+private = "/var/lib/calyx-gatebrokerd/private/quarantine/target"
+shared_owner = "root"
+shared_mode = "0711"
+private_owner = "root"
+private_mode = "0700"
+published_mode = "0700"
+require_same_mount = true
+require_rename_noreplace = true
+require_opaque_file_handles = true
+allow_existing_object_adoption = false
+
+[execution_roots.source]
+path = "/home/builder/calyx"
+expected_owner = "builder"
+expected_mode = "0755"
+read_only = true
+require_openat2 = true
+require_resolve_beneath = true
+require_no_symlinks = true
+require_no_magiclinks = true

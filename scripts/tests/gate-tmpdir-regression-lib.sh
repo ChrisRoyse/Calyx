@@ -40,6 +40,67 @@ gate_test_wait_ready() {
   return 1
 }
 
+gate_test_pid_starttime() {
+  local output_var="$1" pid="$2" raw tail value
+  local -a fields=()
+  IFS= read -r raw 2>/dev/null <"/proc/$pid/stat" || return 1
+  tail="${raw##*) }"
+  [[ "$tail" != "$raw" ]] || return 1
+  read -r -a fields <<<"$tail"
+  value="${fields[19]:-}"
+  [[ "$value" =~ ^[1-9][0-9]*$ ]] || return 1
+  printf -v "$output_var" '%s' "$value"
+}
+
+gate_test_pid_identity_gone() {
+  local pid="$1" expected="$2" actual=""
+  [[ "$pid" =~ ^[1-9][0-9]*$ && "$expected" =~ ^[1-9][0-9]*$ ]] || return 1
+  gate_test_pid_starttime actual "$pid" || return 0
+  [[ "$actual" != "$expected" ]]
+}
+
+gate_test_signal_exact_bounded() {
+  local pid="$1" expected="$2" signal_name="$3" wait_ms="$4"
+  [[ "$pid" =~ ^[1-9][0-9]*$ && "$expected" =~ ^[1-9][0-9]*$ \
+    && "$signal_name" =~ ^(HUP|INT|TERM|KILL|STOP)$ && "$wait_ms" =~ ^[0-9]+$ ]] || return 1
+  python3 - "$pid" "$expected" "$signal_name" "$wait_ms" <<'PY'
+import os
+import select
+import signal
+import sys
+
+pid = int(sys.argv[1])
+expected = sys.argv[2].encode("ascii")
+requested = getattr(signal, f"SIG{sys.argv[3]}")
+wait_ms = int(sys.argv[4])
+try:
+    pidfd = os.pidfd_open(pid)
+except ProcessLookupError:
+    raise SystemExit(0)
+try:
+    try:
+        raw = open(f"/proc/{pid}/stat", "rb").read(8192)
+    except FileNotFoundError:
+        raise SystemExit(0)
+    end = raw.rfind(b") ")
+    fields = raw[end + 2 :].split() if end >= 0 else []
+    if len(fields) <= 19 or fields[19] != expected:
+        raise SystemExit(3)
+    signal.pidfd_send_signal(pidfd, requested)
+    if wait_ms == 0:
+        raise SystemExit(0)
+    poller = select.poll()
+    poller.register(pidfd, select.POLLIN)
+    raise SystemExit(0 if poller.poll(wait_ms) else 125)
+finally:
+    os.close(pidfd)
+PY
+}
+
+gate_test_kill_exact_bounded() {
+  gate_test_signal_exact_bounded "$1" "$2" KILL 2000
+}
+
 gate_test_cgroup_absent() {
   local control="$1" identity="$2"
   [[ "$control" == /*/calyxgate-*.scope && "$identity" =~ ^[0-9]+:[0-9]+$ \

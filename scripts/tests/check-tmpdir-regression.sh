@@ -9,6 +9,7 @@ tmpdir_src="$repo_scripts/check-tmpdir.sh"
 guard_src="$repo_scripts/tmp_scratch_guard.sh"
 runner_src="$repo_scripts/gate-stage-runner.sh"
 runtime_src="$repo_scripts/gate-runtime-state.sh"
+capture_src="$repo_scripts/gate-identity-capture.sh" record_exec_src="$repo_scripts/gate_identity_record_exec.py"
 cgroup_src="$repo_scripts/gate-cgroup-runtime.sh"
 cgroup_scope_src="$repo_scripts/gate-cgroup-scope.sh"
 ofd_query_src="$repo_scripts/gate_ofd_lock_query.py"
@@ -21,21 +22,22 @@ test_lib="$script_dir/gate-tmpdir-regression-lib.sh"
 process_scenarios="$script_dir/check-tmpdir-process-regression.sh"
 boundary_scenarios="$script_dir/check-tmpdir-boundary-regression.sh"
 runner_contracts="$script_dir/gate-runner-contract-regression.sh"
+runner_handoff_contracts="$script_dir/gate-runner-handoff-regression.sh"
 target_clean_contracts="$script_dir/cargo-target-clean-regression.sh"
 lock_wait_scenario="$script_dir/gate-lock-wait-regression.sh"
-setup_publication_scenario="$script_dir/check-setup-publication-regression.sh"
+setup_publication_scenario="$script_dir/check-setup-publication-regression.sh" launch_handshake_contracts="$script_dir/gate-launch-handshake-regression.sh"
 final_contracts="$script_dir/gate-final-contracts-regression.sh" check_final_cleanup_contracts="$script_dir/gate-check-final-cleanup-regression.sh" cleanup_prediagnostic_contracts="$script_dir/check-cleanup-prediagnostic-regression.sh"
 for required in "$check_src" "$tmpdir_src" "$guard_src" "$runner_src" "$fuzz_src" \
-  "$target_clean_src" "$runtime_src" "$cgroup_src" "$cgroup_scope_src" "$ofd_query_src" \
+  "$target_clean_src" "$runtime_src" "$capture_src" "$record_exec_src" "$cgroup_src" "$cgroup_scope_src" "$ofd_query_src" \
   "$safe_helper_src" "$creator_src" "$safe_helper_regression" "$test_lib" "$process_scenarios" "$boundary_scenarios" \
-  "$runner_contracts" "$target_clean_contracts" "$lock_wait_scenario" \
-  "$setup_publication_scenario" "$final_contracts" "$check_final_cleanup_contracts" \
+  "$runner_contracts" "$runner_handoff_contracts" "$target_clean_contracts" "$lock_wait_scenario" \
+  "$setup_publication_scenario" "$final_contracts" "$launch_handshake_contracts" "$check_final_cleanup_contracts" \
   "$cleanup_prediagnostic_contracts"; do
   [[ -f "$required" ]] || { echo "REGRESSION SETUP ERROR: missing $required" >&2; exit 2; }
 done
 # shellcheck source=gate-tmpdir-regression-lib.sh
 source "$test_lib"
-for required_command in setsid flock timeout python3 systemd-run systemctl findmnt; do
+for required_command in setsid flock timeout python3 systemd-run systemctl busctl findmnt; do
   command -v "$required_command" >/dev/null 2>&1 || {
     echo "REGRESSION SETUP ERROR: $required_command is required" >&2; exit 2;
   }
@@ -74,7 +76,7 @@ bad()  { echo "  FAIL: $1" >&2; fail=1; }
 
 setup_repo() {
   local repo="$1" calyx_home stub
-  calyx_home="${2:-$(dirname "$repo")}" 
+  calyx_home="${2:-$(dirname "$repo")}"
   mkdir -p "$repo/scripts/tests" "$repo/fakebin" "$repo/home/.cargo" \
     "$repo/global-tmp" "$calyx_home/target-scratch" "$repo/fuzz"
   chmod 755 "$calyx_home" "$repo"
@@ -83,7 +85,7 @@ setup_repo() {
   cp "$tmpdir_src" "$repo/scripts/check-tmpdir.sh"
   cp "$guard_src" "$repo/scripts/tmp_scratch_guard.sh"
   cp "$runner_src" "$repo/scripts/gate-stage-runner.sh"
-  cp "$runtime_src" "$cgroup_src" "$cgroup_scope_src" "$ofd_query_src" \
+  cp "$runtime_src" "$capture_src" "$record_exec_src" "$cgroup_src" "$cgroup_scope_src" "$ofd_query_src" \
     "$safe_helper_src" "$creator_src" "$repo/scripts/"
   cp "$fuzz_src" "$repo/scripts/fuzz-gate.sh"
   chmod +x "$repo/scripts/check.sh" "$repo/scripts/check-tmpdir.sh" \
@@ -224,7 +226,7 @@ STUB
 run_gate() {
   local repo="$1" log="$2" stage_log="$3" fail_stage="${4:-}"
   local delete_baseline="${5:-0}" delay="${6:-}"
-  local calyx_home="${7:-$(dirname "$repo")}" 
+  local calyx_home="${7:-$(dirname "$repo")}"
   : >"$stage_log"
   set +e
   env -u CALYX_FSV_ROOT -u CALYX_GATE_RUN_SLICE -u CALYX_GATE_RUN_SLICE_OWNER_PID \
@@ -469,7 +471,7 @@ target6a="$(gate_target_from_log "$log6a")"
 target6b="$(gate_target_from_log "$log6b")"
 [[ "$rc6a" -eq 0 && "$rc6b" -eq 0 ]] \
   && pass "both concurrent gates exit 0" \
-  || bad "concurrent exits were $rc6a and $rc6b"
+  || { bad "concurrent exits were $rc6a and $rc6b"; tail -25 "$log6a" | sed 's/^/    gate-a: /'; tail -25 "$log6b" | sed 's/^/    gate-b: /'; }
 [[ -n "$run6a" && -n "$run6b" && "$run6a" != "$run6b" ]] \
   && pass "concurrent gates used distinct run roots" \
   || bad "concurrent run roots collided: '$run6a' '$run6b'"

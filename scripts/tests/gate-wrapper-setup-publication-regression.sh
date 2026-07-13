@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Source-only post-helper/pre-identity publication tests for fuzz/public gates.
+# Source-only post-rename identity-publication tests for fuzz/public gates.
 [[ "${BASH_SOURCE[0]}" != "$0" ]] || {
   echo "source this module from gate-wrapper-tmpdir-regression.sh" >&2
   exit 64
@@ -7,28 +7,56 @@
 
 echo
 echo "=================================================================="
-echo "WRAPPER SETUP PUBLICATION - identity failures and deferred signals"
+echo "WRAPPER SETUP PUBLICATION - post-rename rollback and deferred signals"
 echo "=================================================================="
 
-wrapper_setup_real_stat="$(command -v stat)"
-wrapper_setup_real_readlink="$(command -v readlink)"
-write_delayed_identity_stat() {
-  local path="$1"
-  cat >"$path" <<'STUB'
-#!/usr/bin/env bash
-set -euo pipefail
-last="${!#}"
-resolved="$("${WRAPPER_SETUP_REAL_READLINK:?}" -f -- "$last" 2>/dev/null || printf '%s' "$last")"
-if [[ "$*" == *%d:%i* \
-  && "$(dirname -- "$resolved")" == "${FAKE_IDENTITY_PARENT:?}" \
-  && "$(basename -- "$resolved")" == "${FAKE_IDENTITY_PREFIX:?}."* ]]; then
-  printf 'pid=%s path=%s\n' "$BASHPID" "$last" >"${FAKE_IDENTITY_READY:?}"
-  [[ "${FAKE_IDENTITY_ACTION:?}" != fail ]] || exit 66
-  sleep 30
-fi
-exec "${WRAPPER_SETUP_REAL_STAT:?}" "$@"
-STUB
-  chmod +x "$path"
+inject_wrapper_post_rename_hook() {
+  local creator="$1"
+  local signal_hook="$creator.signal-hook" post_hook="$creator.post-hook" patched="$creator.patched"
+  cat >"$signal_hook" <<'PY'
+        hook_parent = os.environ.get("CALYX_CREATOR_TEST_PARENT")
+        hook_prefix = os.environ.get("CALYX_CREATOR_TEST_PREFIX", "")
+        action = os.environ.get("CALYX_CREATOR_TEST_ACTION", "")
+        if hook_parent == root and name.startswith(f"{hook_prefix}.") and action in ("hup", "int", "term"):
+            import time
+
+            ready = os.environ["CALYX_CREATOR_TEST_READY"]
+            with open(ready, "w", encoding="ascii") as output:
+                output.write(f"pid={os.getpid()} path={os.path.join(root, staging)} phase=pre-rename\n")
+            release = os.environ["CALYX_CREATOR_TEST_RELEASE"]
+            while not os.path.exists(release):
+                time.sleep(0.01)
+PY
+  cat >"$post_hook" <<'PY'
+            hook_parent = os.environ.get("CALYX_CREATOR_TEST_PARENT")
+            hook_prefix = os.environ.get("CALYX_CREATOR_TEST_PREFIX", "")
+            action = os.environ.get("CALYX_CREATOR_TEST_ACTION", "")
+            if hook_parent == root and name.startswith(f"{hook_prefix}.") and action == "fail":
+                import time
+
+                ready = os.environ["CALYX_CREATOR_TEST_READY"]
+                with open(ready, "w", encoding="ascii") as output:
+                    output.write(f"pid={os.getpid()} path={os.path.join(root, name)}\n")
+                if action == "fail":
+                    raise CreateError("injected post-rename failure")
+                release = os.environ["CALYX_CREATOR_TEST_RELEASE"]
+                while not os.path.exists(release):
+                    time.sleep(0.01)
+PY
+  awk -v signal_hook="$signal_hook" -v post_hook="$post_hook" '
+    { print }
+    $0 == "        # From this point the parent can recover the exact staging identity." {
+      while ((getline line < signal_hook) > 0) print line
+      close(signal_hook)
+    }
+    $0 == "            rename_noreplace(root_fd, staging, name)" {
+      while ((getline line < post_hook) > 0) print line
+      close(post_hook)
+    }
+  ' "$creator" >"$patched"
+  mv -T -- "$patched" "$creator"
+  chmod 755 "$creator"
+  rm -- "$signal_hook" "$post_hook"
 }
 
 run_wrapper_setup_case() {
@@ -36,7 +64,8 @@ run_wrapper_setup_case() {
   key="$wrapper-$scope-$action"
   local home="$work/wrapper-setup-$key/calyx" root public="" prefix parent
   local log="$work/wrapper-setup-$key/gate.log" stages="$work/wrapper-setup-$key/stages.log"
-  local ready="$work/wrapper-setup-$key/identity-ready" expected_rc signal_name="" wrapper_helper_pid=""
+  local ready="$work/wrapper-setup-$key/identity-ready" release="$work/wrapper-setup-$key/identity-release"
+  local expected_rc signal_name="" wrapper_helper_pid="" helper_alive_before_release=1
   if [[ "$wrapper" == fuzz ]]; then
     root="$home/repo"
     mkdir -p "$root/scripts" "$root/fuzz" "$root/home/.cargo" "$home/target-scratch"
@@ -46,7 +75,8 @@ run_wrapper_setup_case() {
     cp "$fuzz_src" "$root/scripts/fuzz-gate.sh"
     cp "$runner_src" "$root/scripts/gate-stage-runner.sh"
     cp "$runtime_src" "$root/scripts/gate-runtime-state.sh"
-    cp "$safe_helper_src" "$creator_src" "$root/scripts/"
+    cp "$capture_src" "$root/scripts/gate-identity-capture.sh"
+    cp "$safe_helper_src" "$creator_src" "$record_exec_src" "$root/scripts/"
     cp "$cgroup_src" "$root/scripts/gate-cgroup-runtime.sh"
     cp "$cgroup_scope_src" "$root/scripts/gate-cgroup-scope.sh"
     cp "$ofd_query_src" "$root/scripts/gate_ofd_lock_query.py"
@@ -65,7 +95,7 @@ run_wrapper_setup_case() {
   parent="$home/tmp"
   [[ "$scope" != target ]] || parent="$home/target-scratch"
   [[ "$scope" != tmp ]] || prefix=check
-  write_delayed_identity_stat "$root/fakebin/stat"
+  inject_wrapper_post_rename_hook "$root/scripts/gate_owned_dir_create.py"
   case "$action" in
     fail) expected_rc=125 ;;
     HUP) expected_rc=129; signal_name=HUP ;;
@@ -83,16 +113,23 @@ run_wrapper_setup_case() {
     FAKE_DELETE_BASELINE=0 FAKE_FAIL_STAGE= FAKE_BLOCK_STAGE= FAKE_READY_FILE= \
     FAKE_REQUIRE_OWNED_MODE=1 FAKE_TARGET_CLEAN_FAIL_ONCE_FILE= \
     FAKE_TARGET_CLEAN_LOG= FAKE_DELAY_CREATE_PREFIX= FAKE_CREATE_READY= \
-    WRAPPER_SETUP_REAL_STAT="$wrapper_setup_real_stat" \
-    WRAPPER_SETUP_REAL_READLINK="$wrapper_setup_real_readlink" FAKE_IDENTITY_PARENT="$parent" \
-    FAKE_IDENTITY_PREFIX="$prefix" FAKE_IDENTITY_READY="$ready" \
-    FAKE_IDENTITY_ACTION="${action,,}" \
+    CALYX_CREATOR_TEST_PARENT="$parent" CALYX_CREATOR_TEST_PREFIX="$prefix" \
+    CALYX_CREATOR_TEST_READY="$ready" CALYX_CREATOR_TEST_RELEASE="$release" \
+    CALYX_CREATOR_TEST_ACTION="${action,,}" \
     "${wrapper_command[@]}" >"$log" 2>&1 &
   wrapper_setup_pid=$!
   owned_pids="$wrapper_setup_pid" owned_pgids="$wrapper_setup_pid"
   gate_test_wait_ready "$ready" || true
-  wrapper_helper_pid="$(sed -n 's/^pid=\([0-9]*\).*/\1/p' "$ready" | head -n1)"
-  [[ -z "$signal_name" || ! -s "$ready" ]] || kill -s "$signal_name" "$wrapper_setup_pid"
+  if [[ -s "$ready" ]]; then
+    wrapper_helper_pid="$(sed -n 's/^pid=\([0-9]*\).*/\1/p' "$ready" | head -n1)"
+  fi
+  if [[ -n "$signal_name" && -s "$ready" ]]; then
+    kill -s "$signal_name" "$wrapper_setup_pid"
+    helper_alive_before_release=0
+    sleep 0.25
+    kill -0 "$wrapper_helper_pid" 2>/dev/null && helper_alive_before_release=1
+    : >"$release"
+  fi
   wrapper_watchdog_marker="$work/wrapper-setup-$key/watchdog-fired"
   ( sleep 8; printf 'fired\n' >"$wrapper_watchdog_marker"; kill -KILL -- "-$wrapper_setup_pid" 2>/dev/null || true ) &
   wrapper_watchdog=$!
@@ -104,9 +141,11 @@ run_wrapper_setup_case() {
   owned_pids="" owned_pgids=""
   tmp_remain="$(find "$home/tmp" -mindepth 1 -maxdepth 1 -name 'check.*' -print -quit 2>/dev/null || true)"
   target_remain="$(find "$home/target-scratch" -mindepth 1 -print -quit 2>/dev/null || true)"
+  staging_remain="$(find "$home" -name '.calyx-create-*' -print -quit 2>/dev/null || true)"
   [[ -s "$ready" && "$wrapper_setup_rc" -eq "$expected_rc" \
     && ! -e "$wrapper_watchdog_marker" && "$wrapper_helper_pid" =~ ^[1-9][0-9]*$ \
-    && ! -e "/proc/$wrapper_helper_pid" && -z "$tmp_remain" && -z "$target_remain" \
+    && ! -e "/proc/$wrapper_helper_pid" && "$helper_alive_before_release" -eq 1 \
+    && -z "$tmp_remain" && -z "$target_remain" && -z "$staging_remain" \
     && ! -s "$stages" ]] \
     && ! gate_test_group_alive "$wrapper_setup_pid" \
     && pass "$wrapper $scope identity $action leaves no unpublished root" \

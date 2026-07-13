@@ -12,6 +12,8 @@ fuzz_src="$repo_scripts/fuzz-gate.sh"
 public_src="$repo_scripts/public-mirror-gate.sh"
 runner_src="$repo_scripts/gate-stage-runner.sh"
 runtime_src="$repo_scripts/gate-runtime-state.sh"
+capture_src="$repo_scripts/gate-identity-capture.sh"
+record_exec_src="$repo_scripts/gate_identity_record_exec.py"
 cgroup_src="$repo_scripts/gate-cgroup-runtime.sh"
 cgroup_scope_src="$repo_scripts/gate-cgroup-scope.sh"
 ofd_query_src="$repo_scripts/gate_ofd_lock_query.py"
@@ -28,7 +30,7 @@ fuzz_extra_signals="$script_dir/gate-wrapper-fuzz-extra-signals-regression.sh"
 nested_worktree_contracts="$script_dir/gate-nested-worktree-regression.sh"
 final_cleanup_contracts="$script_dir/gate-wrapper-final-cleanup-regression.sh"
 for required in "$helper_src" "$guard_src" "$fuzz_src" "$public_src" "$runner_src" \
-  "$runtime_src" "$cgroup_src" "$cgroup_scope_src" "$ofd_query_src" "$safe_helper_src" "$creator_src" \
+  "$runtime_src" "$capture_src" "$record_exec_src" "$cgroup_src" "$cgroup_scope_src" "$ofd_query_src" "$safe_helper_src" "$creator_src" \
   "$test_lib" "$public_scenarios" "$public_boundary" "$public_signal_variants" "$nested_contracts" "$cross_lock_contracts" \
   "$setup_publication_contracts" "$fuzz_extra_signals" "$nested_worktree_contracts" \
   "$final_cleanup_contracts"; do
@@ -196,7 +198,8 @@ cp "$helper_src" "$fuzz_repo/scripts/check-tmpdir.sh"
 cp "$fuzz_src" "$fuzz_repo/scripts/fuzz-gate.sh"
 cp "$runner_src" "$fuzz_repo/scripts/gate-stage-runner.sh"
 cp "$runtime_src" "$fuzz_repo/scripts/gate-runtime-state.sh"
-cp "$safe_helper_src" "$creator_src" "$fuzz_repo/scripts/"
+cp "$capture_src" "$fuzz_repo/scripts/gate-identity-capture.sh"
+cp "$safe_helper_src" "$creator_src" "$record_exec_src" "$fuzz_repo/scripts/"
 cp "$cgroup_src" "$fuzz_repo/scripts/gate-cgroup-runtime.sh"
 cp "$cgroup_scope_src" "$fuzz_repo/scripts/gate-cgroup-scope.sh"
 cp "$ofd_query_src" "$fuzz_repo/scripts/gate_ofd_lock_query.py"

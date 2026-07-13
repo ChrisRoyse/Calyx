@@ -636,6 +636,20 @@ name = "calyx-fsv"
 version = "0.1.0"
 
 [[package]]
+name = "calyx-gatebrokerd"
+version = "0.1.0"
+dependencies = [
+ "blake3",
+ "libc",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.18",
+ "toml",
+]
+
+[[package]]
 name = "calyx-hazard-soak"
 version = "0.1.0"
 dependencies = [

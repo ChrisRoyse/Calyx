@@ -421,7 +421,7 @@ PATH="$work/boundary/fakebin:$PATH" REAL_STAT_PATH="$real_stat" FAKE_FIND_RECORD
   >"$work/boundary/guard-enumeration-failure.log" 2>&1
 guard_enum_rc=$?
 set -e
-[[ "$guard_enum_rc" -eq 66 && -f "$guard_enum_path/sentinel" \
+[[ "$guard_enum_rc" -eq 125 && -f "$guard_enum_path/sentinel" \
   && "$(sha256sum "$guard_enum_path/sentinel" | awk '{print $1}')" == "$guard_enum_sha" ]] \
   && grep -Fq 'CALYX_TMP_GUARD_ENUMERATION_FAILED: label=baseline status=66' \
     "$work/boundary/guard-enumeration-failure.log" \
@@ -432,6 +432,9 @@ set -e
   }
 rm -- "$work/boundary/fakebin/find"
 rm -rf -- "$guard_enum_root" "$guard_enum_state"
+
+# shellcheck source=tmp-scratch-guard-bounds-regression.sh
+source "$script_dir/tmp-scratch-guard-bounds-regression.sh"
 
 real_mkdir="$(command -v mkdir)"
 cat >"$work/boundary/fakebin/mkdir" <<'STUB'

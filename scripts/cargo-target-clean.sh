@@ -45,6 +45,10 @@ also_repo_targets=0
 also_calyx_home_target=0
 expected_target_identity=""
 gate_lock_fd_arg=""
+readonly ENUMERATION_TIMEOUT_SECONDS=300
+readonly SORT_TIMEOUT_SECONDS=60
+readonly MAX_ENUMERATION_ENTRIES=16384
+readonly MAX_ENUMERATION_BYTES=67108864
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -205,10 +209,23 @@ snapshot_find() {
   shopt -s lastpipe
   set +e
   if [[ "$mode" == first ]]; then
-    timeout --signal=TERM 300s find "$@" -print0 -quit | \
+    timeout --signal=TERM "${ENUMERATION_TIMEOUT_SECONDS}s" find "$@" -print0 -quit | \
       mapfile -d '' -t -n 2 "$outvar"
   else
-    timeout --signal=TERM 300s find "$@" -print0 | sort -z | \
+    timeout --signal=TERM "${ENUMERATION_TIMEOUT_SECONDS}s" find "$@" -print0 | (
+      LC_ALL=C
+      count=0
+      bytes=0
+      while IFS= read -r -d '' entry; do
+        count=$((count + 1))
+        bytes=$((bytes + ${#entry} + 1))
+        if ((count > MAX_ENUMERATION_ENTRIES || bytes > MAX_ENUMERATION_BYTES)); then
+          echo "cargo-target-clean: ERROR enumeration limit exceeded: label=$label entries=$count bytes=$bytes" >&2
+          exit 75
+        fi
+        printf '%s\0' "$entry"
+      done
+    ) | timeout --signal=TERM "${SORT_TIMEOUT_SECONDS}s" env LC_ALL=C sort -z -- | \
       mapfile -d '' -t -n 16385 "$outvar"
   fi
   producer_status=("${PIPESTATUS[@]}")
@@ -219,14 +236,14 @@ snapshot_find() {
       return "$status"
     fi
   done
-  if [[ "$mode" == full && "${#result[@]}" -gt 16384 ]]; then
-    echo "cargo-target-clean: ERROR enumeration entry limit exceeded: label=$label limit=16384" >&2
+  if [[ "$mode" == full && "${#result[@]}" -gt MAX_ENUMERATION_ENTRIES ]]; then
+    echo "cargo-target-clean: ERROR enumeration entry limit exceeded: label=$label limit=$MAX_ENUMERATION_ENTRIES" >&2
     return 125
   fi
   for entry in "${result[@]}"; do
     bytes=$((bytes + ${#entry}))
-    if (( bytes > 67108864 )); then
-      echo "cargo-target-clean: ERROR enumeration byte limit exceeded: label=$label limit=67108864" >&2
+    if (( bytes > MAX_ENUMERATION_BYTES )); then
+      echo "cargo-target-clean: ERROR enumeration byte limit exceeded: label=$label limit=$MAX_ENUMERATION_BYTES" >&2
       return 125
     fi
   done

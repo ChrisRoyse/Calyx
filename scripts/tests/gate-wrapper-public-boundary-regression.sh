@@ -38,7 +38,14 @@ printf 'public-scratch-mount-sentinel\n' >"$public_scratch_path/sentinel"
 public_scratch_sha="$(sha256sum "$public_scratch_path/sentinel" | awk '{print $1}')"
 cat >"$public_dev/fakebin/findmnt" <<'STUB'
 #!/usr/bin/env bash
-printf '%s\n' "${FAKE_MOUNT_TARGET:?}"
+value="${FAKE_MOUNT_TARGET:?}"
+raw=""
+for ((i = 0; i < ${#value}; i++)); do
+  char="${value:i:1}"
+  [[ "$char" != '\' ]] || char='\x5c'
+  raw+="$char"
+done
+printf '%s\n' "$raw"
 STUB
 chmod +x "$public_dev/fakebin/findmnt"
 set +e
@@ -98,7 +105,7 @@ swap_replacement_sha="$(sha256sum <"$swap_public/$public_scratch_rel/sentinel" |
 [[ "$swap_rc" -eq 125 && -s "$swap_done" && ! -e "$swap_stages" \
   && -f "$swap_original/README.md" \
   && "$swap_replacement_sha" == "$(printf 'replacement-public-root-bytes\n' | sha256sum | awk '{print $1}')" ]] \
-  && grep -Fq 'public checkout identity changed during origin validation' "$swap_log" \
+  && grep -Fq 'public checkout identity changed after operation' "$swap_log" \
   && pass "whole public-root substitution is rejected before scratch or workload mutation" \
   || {
     bad "public-root substitution rc=$swap_rc changed original/replacement state or reached workload"
@@ -108,4 +115,63 @@ swap_replacement_sha="$(sha256sum <"$swap_public/$public_scratch_rel/sentinel" |
       "$(test -f "$swap_original/README.md" && echo present || echo absent)" \
       "$swap_replacement_sha"
     sed -n '1,25p' "$swap_log" | sed 's/^/    public-root-swap-log: /'
+  }
+
+late_dev="$work/public-root-late-swap/calyx/dev"
+late_public="$work/public-root-late-swap/calyx/public-mirror"
+late_original="$work/public-root-late-swap/calyx/public-original"
+late_replacement="$work/public-root-late-swap/calyx/public-replacement"
+setup_public_fixture "$late_dev" "$late_public"
+cp -a -- "$late_public" "$late_replacement"
+printf 'late-root-replacement-sentinel\n' >"$late_replacement/replacement-sentinel"
+"$real_git" -C "$late_replacement" add replacement-sentinel
+"$real_git" -C "$late_replacement" commit -q -m late-replacement
+late_sentinel_sha="$(sha256sum "$late_replacement/replacement-sentinel" | awk '{print $1}')"
+real_stat="$(command -v stat)"
+cat >"$late_dev/fakebin/stat" <<'STUB'
+#!/usr/bin/env bash
+set -euo pipefail
+last="${!#}"
+if [[ "$*" == *%d:%i* && "$last" == "${FAKE_PUBLIC:?}" ]]; then
+  count=0
+  [[ ! -f "${FAKE_STAT_COUNT:?}" ]] || read -r count <"$FAKE_STAT_COUNT"
+  count=$((count + 1))
+  printf '%s\n' "$count" >"$FAKE_STAT_COUNT"
+  if [[ "$count" -eq 2 ]]; then
+    value="$("${REAL_STAT:?}" "$@")"
+    printf '%s\n' "$value"
+    mv -- "$FAKE_PUBLIC" "${FAKE_ORIGINAL:?}"
+    mv -- "${FAKE_REPLACEMENT:?}" "$FAKE_PUBLIC"
+    printf 'swapped\n' >"${FAKE_SWAP_DONE:?}"
+    exit 0
+  fi
+fi
+exec "${REAL_STAT:?}" "$@"
+STUB
+chmod +x "$late_dev/fakebin/stat"
+late_count="$work/public-root-late-swap/stat-count"
+late_done="$work/public-root-late-swap/swap-done"
+late_log="$work/public-root-late-swap/gate.log"
+late_stages="$work/public-root-late-swap/stages.log"
+export REAL_STAT="$real_stat" FAKE_PUBLIC="$late_public" FAKE_ORIGINAL="$late_original" \
+  FAKE_REPLACEMENT="$late_replacement" FAKE_STAT_COUNT="$late_count" FAKE_SWAP_DONE="$late_done"
+set +e
+run_public_gate "$late_dev" "$late_public" "$late_log" "$late_stages" 0
+late_rc=$PUBLIC_RC
+set -e
+unset REAL_STAT FAKE_PUBLIC FAKE_ORIGINAL FAKE_REPLACEMENT FAKE_STAT_COUNT FAKE_SWAP_DONE
+late_after_sha="$(sha256sum "$late_public/replacement-sentinel" | awk '{print $1}')"
+[[ "$late_rc" -eq 125 && -s "$late_done" && ! -e "$late_stages" \
+  && -f "$late_original/README.md" && "$late_after_sha" == "$late_sentinel_sha" \
+  && -z "$(git -C "$late_public" status --porcelain)" \
+  && ! -e "$late_public/$public_scratch_rel" ]] \
+  && grep -Fq 'public checkout identity changed before scratch cleanup' "$late_log" \
+  && pass "post-origin public-root substitution is rejected before absent-leaf cleanup or workload" \
+  || {
+    bad "late public-root substitution rc=$late_rc touched replacement bytes or reached workload"
+    printf '    late-public-root-swap: done=%s stages=%s original=%s replacement_sha=%s\n' \
+      "$(test -s "$late_done" && echo yes || echo no)" \
+      "$(test -e "$late_stages" && wc -c <"$late_stages" || echo absent)" \
+      "$(test -f "$late_original/README.md" && echo present || echo absent)" "$late_after_sha"
+    sed -n '1,30p' "$late_log" | sed 's/^/    late-public-root-swap-log: /'
   }

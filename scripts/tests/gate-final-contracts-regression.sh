@@ -9,6 +9,8 @@
 source "$lock_wait_scenario"
 # shellcheck source=gate-runner-contract-regression.sh
 source "$runner_contracts"
+# shellcheck source=gate-launch-handshake-regression.sh
+source "$launch_handshake_contracts"
 echo
 echo "=================================================================="
 echo "SAFE REMOVAL CONTRACTS - FD identity, symlink, swap, and recovery"

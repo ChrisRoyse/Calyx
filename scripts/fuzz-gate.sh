@@ -205,7 +205,8 @@ else
   calyx_gate_signals_defer
   calyx_gate_plan_owned_dir owned_tmp_dir "$tmp_root" check
   if calyx_gate_create_owned_dir owned_tmp_created owned_tmp_root_identity owned_tmp_identity \
-    "$calyx_home" bash "$script_dir/check-tmpdir.sh" create-at \
+    "$calyx_home" "$tmp_root" "$owned_tmp_dir" \
+    bash "$script_dir/check-tmpdir.sh" create-at \
     "$tmp_root" "$owned_tmp_dir" >/dev/null; then
     owned_tmp_ready=1
     owned_tmp_created=0
@@ -235,7 +236,8 @@ if [[ -z "${CARGO_TARGET_DIR:-}" ]]; then
   calyx_gate_signals_defer
   calyx_gate_plan_owned_dir owned_target_dir "$scratch_root" fuzz-gate
   if calyx_gate_create_owned_dir owned_target_created owned_target_root_identity owned_target_identity \
-    "$calyx_home" bash "$script_dir/check-tmpdir.sh" create-target-at \
+    "$calyx_home" "$scratch_root" "$owned_target_dir" \
+    bash "$script_dir/check-tmpdir.sh" create-target-at \
     "$scratch_root" fuzz-gate "$owned_target_dir" >/dev/null; then
     owned_target_ready=1
     owned_target_created=0

@@ -1,0 +1,21 @@
+[Unit]
+Description=Calyx gate broker control socket
+Documentation=file:/home/croyse/calyx/repo/docs/implementation/issue1455-1457-calyx-gatebrokerd.md
+Before=calyx-gatebrokerd.service
+
+[Socket]
+ListenSequentialPacket=/run/calyx-gatebrokerd/control.sock
+FileDescriptorName=control
+Accept=no
+Backlog=128
+PassCredentials=no
+SocketUser=root
+SocketGroup=calyx-gate-clients
+SocketMode=0660
+DirectoryMode=0755
+RemoveOnStop=yes
+FlushPending=yes
+Service=calyx-gatebrokerd.service
+
+[Install]
+WantedBy=sockets.target

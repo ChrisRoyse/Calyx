@@ -79,15 +79,20 @@ calyx_gate_resolve_target_root() {
 }
 
 calyx_gate_mount_snapshot() {
-  local output_var="$1" mount_output
+  local output_var="$1" raw_output raw_target decoded_target mount_output=""
   command -v findmnt >/dev/null 2>&1 || {
     echo "${CALYX_GATE_STAGE_OWNER:-gate}: ERROR findmnt is required for mount-safe cleanup" >&2
     return 127
   }
-  if ! mount_output="$(findmnt -rn -o TARGET)"; then
+  if ! raw_output="$(findmnt -rn -o TARGET)"; then
     echo "${CALYX_GATE_STAGE_OWNER:-gate}: ERROR findmnt failed while proving cleanup boundaries" >&2
     return 125
   fi
+  while IFS= read -r raw_target; do
+    [[ -n "$raw_target" ]] || continue
+    decoded_target="$(printf '%b' "$raw_target")" || return 125
+    mount_output+="${mount_output:+$'\n'}$decoded_target"
+  done <<<"$raw_output"
   printf -v "$output_var" '%s' "$mount_output"
 }
 
@@ -121,126 +126,9 @@ calyx_gate_read_path_identity() {
   printf -v "$output_var" '%s' "$identity"
 }
 
-calyx_gate_close_numeric_fd() {
-  local fd="$1"
-  [[ "$fd" =~ ^[0-9]+$ ]] || return 125
-  eval "exec ${fd}>&-"
-}
-
-calyx_gate_discard_identity_capture() {
-  local read_fd="$1" write_fd="$2" pid="$3"
-  [[ -z "$write_fd" ]] || calyx_gate_close_numeric_fd "$write_fd" || true
-  [[ -z "$read_fd" ]] || calyx_gate_close_numeric_fd "$read_fd" || true
-  [[ ! "$pid" =~ ^[1-9][0-9]*$ ]] || kill -KILL "$pid" 2>/dev/null || true
-  [[ ! "$pid" =~ ^[1-9][0-9]*$ ]] || wait "$pid" 2>/dev/null || true
-}
-
-calyx_gate_open_identity_capture() {
-  local read_var="$1" write_var="$2" parent="$3"
-  local capture_read_fd capture_write_fd capture_pid read_identity write_identity
-  local read_uid write_uid read_mode write_mode read_type write_type read_meta write_meta owner_pid
-  calyx_gate_assert_stable_owned_dir "identity capture parent" "$parent" || return $?
-  [[ -x /usr/bin/cat ]] || return 127
-  coproc CALYX_GATE_ID_CAPTURE { exec /usr/bin/cat; }
-  capture_pid="$CALYX_GATE_ID_CAPTURE_PID"
-  exec {capture_read_fd}<&"${CALYX_GATE_ID_CAPTURE[0]}" || {
-    calyx_gate_close_numeric_fd "${CALYX_GATE_ID_CAPTURE[0]}" || true
-    calyx_gate_close_numeric_fd "${CALYX_GATE_ID_CAPTURE[1]}" || true
-    kill -KILL "$capture_pid" 2>/dev/null || true
-    wait "$capture_pid" 2>/dev/null || true
-    return 125
-  }
-  exec {capture_write_fd}>&"${CALYX_GATE_ID_CAPTURE[1]}" || {
-    calyx_gate_close_numeric_fd "$capture_read_fd" || true
-    calyx_gate_close_numeric_fd "${CALYX_GATE_ID_CAPTURE[0]}" || true
-    calyx_gate_close_numeric_fd "${CALYX_GATE_ID_CAPTURE[1]}" || true
-    kill -KILL "$capture_pid" 2>/dev/null || true
-    wait "$capture_pid" 2>/dev/null || true
-    return 125
-  }
-  calyx_gate_close_numeric_fd "${CALYX_GATE_ID_CAPTURE[0]}" || {
-    calyx_gate_discard_identity_capture "$capture_read_fd" "$capture_write_fd" "$capture_pid"
-    return 125
-  }
-  calyx_gate_close_numeric_fd "${CALYX_GATE_ID_CAPTURE[1]}" || {
-    calyx_gate_discard_identity_capture "$capture_read_fd" "$capture_write_fd" "$capture_pid"
-    return 125
-  }
-  unset CALYX_GATE_ID_CAPTURE CALYX_GATE_ID_CAPTURE_PID
-  owner_pid="$BASHPID"
-  read_meta="$(stat -Lc '%d:%i|%u|%a|%F' -- "/proc/$owner_pid/fd/$capture_read_fd")" || {
-    calyx_gate_discard_identity_capture "$capture_read_fd" "$capture_write_fd" "$capture_pid"
-    return 125
-  }
-  write_meta="$(stat -Lc '%d:%i|%u|%a|%F' -- "/proc/$owner_pid/fd/$capture_write_fd")" || {
-    calyx_gate_discard_identity_capture "$capture_read_fd" "$capture_write_fd" "$capture_pid"
-    return 125
-  }
-  IFS='|' read -r read_identity read_uid read_mode read_type <<<"$read_meta"
-  IFS='|' read -r write_identity write_uid write_mode write_type <<<"$write_meta"
-  if [[ ! "$read_identity" =~ ^[0-9]+:[0-9]+$ || ! "$write_identity" =~ ^[0-9]+:[0-9]+$ \
-    || "$read_uid" != "$(id -u)" || "$write_uid" != "$read_uid" \
-    || $((8#$read_mode & 0077)) -ne 0 \
-    || "$write_mode" != "$read_mode" || "$read_type" != fifo || "$write_type" != fifo ]]; then
-    calyx_gate_discard_identity_capture "$capture_read_fd" "$capture_write_fd" "$capture_pid"
-    return 125
-  fi
-  printf -v "$read_var" '%s' "$capture_read_fd"
-  printf -v "$write_var" '%s' "$capture_write_fd"
-  calyx_gate_identity_capture_pid="$capture_pid"
-}
-
-calyx_gate_read_create_identity() {
-  local read_fd="$1" root_var="$2" entry_var="$3" record extra
-  IFS= read -r record <&"$read_fd" || {
-    echo "${CALYX_GATE_STAGE_OWNER:-gate}: ERROR creator did not publish a complete identity record" >&2
-    return 125
-  }
-  if IFS= read -r extra <&"$read_fd"; then
-    echo "${CALYX_GATE_STAGE_OWNER:-gate}: ERROR creator published more than one identity record" >&2
-    return 125
-  fi
-  if [[ ! "$record" =~ ^CALYX_CREATE_ID_V1\ root=([0-9]+:[0-9]+)\ entry=([0-9]+:[0-9]+)$ ]]; then
-    echo "${CALYX_GATE_STAGE_OWNER:-gate}: ERROR creator identity record is malformed" >&2
-    return 125
-  fi
-  printf -v "$root_var" '%s' "${BASH_REMATCH[1]}"
-  printf -v "$entry_var" '%s' "${BASH_REMATCH[2]}"
-}
-
-calyx_gate_create_owned_dir() {
-  local ready_var="$1" root_var="$2" entry_var="$3" capture_parent="$4"
-  shift 4
-  local read_fd="" write_fd="" capture_pid="" create_status=0 record_status=0 capture_status=0
-  local captured_root="" captured_entry=""
-  printf -v "$ready_var" '%s' 0
-  printf -v "$root_var" '%s' ""
-  printf -v "$entry_var" '%s' ""
-  calyx_gate_identity_capture_pid=""
-  calyx_gate_open_identity_capture read_fd write_fd "$capture_parent" || return $?
-  capture_pid="$calyx_gate_identity_capture_pid"
-  if calyx_gate_run env CALYX_CREATE_ID_FD=1 "$@" >&"$write_fd"; then
-    create_status=0
-  else
-    create_status=$?
-  fi
-  calyx_gate_close_numeric_fd "$write_fd" || return 125
-  if calyx_gate_read_create_identity "$read_fd" captured_root captured_entry; then
-    record_status=0
-  else
-    record_status=$?
-  fi
-  calyx_gate_close_numeric_fd "$read_fd" || return 125
-  if wait "$capture_pid"; then capture_status=0; else capture_status=$?; fi
-  [[ "$capture_status" -eq 0 ]] || return 125
-  if [[ "$record_status" -eq 0 ]]; then
-    printf -v "$root_var" '%s' "$captured_root"
-    printf -v "$entry_var" '%s' "$captured_entry"
-    printf -v "$ready_var" '%s' 1
-  fi
-  [[ "$create_status" -eq 0 ]] || return "$create_status"
-  [[ "$record_status" -eq 0 ]] || return "$record_status"
-}
+gate_runtime_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+# shellcheck source=gate-identity-capture.sh
+source "$gate_runtime_dir/gate-identity-capture.sh"
 
 calyx_gate_safe_remove_entry() {
   local root="$1" root_id="$2" relative="$3" entry_id="$4" kind="$5" tag="$6"

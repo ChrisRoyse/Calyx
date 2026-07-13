@@ -11,8 +11,8 @@ setup_public_fixture() {
   cp "$public_src" "$dev/scripts/public-mirror-gate.sh"
   cp "$fuzz_src" "$dev/scripts/fuzz-gate.sh"
   cp "$runner_src" "$dev/scripts/gate-stage-runner.sh"
-  cp "$runtime_src" "$cgroup_src" "$cgroup_scope_src" "$ofd_query_src" \
-    "$safe_helper_src" "$creator_src" "$dev/scripts/"
+  cp "$runtime_src" "$capture_src" "$cgroup_src" "$cgroup_scope_src" "$ofd_query_src" \
+    "$safe_helper_src" "$creator_src" "$record_exec_src" "$dev/scripts/"
   write_target_clean_stub "$dev/scripts/cargo-target-clean.sh"
   write_fake_cargo "$dev"
   cat >"$dev/fakebin/mkdir" <<'STUB'

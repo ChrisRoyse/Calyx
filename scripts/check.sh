@@ -168,7 +168,8 @@ trap 'handle_signal TERM 143' TERM
 calyx_gate_signals_defer
 calyx_gate_plan_owned_dir check_tmp_dir "$calyx_tmp_root" check
 if calyx_gate_create_owned_dir check_tmp_created check_tmp_root_identity check_tmp_identity \
-  "$calyx_home" bash "$repo_root/scripts/check-tmpdir.sh" create-at \
+  "$calyx_home" "$calyx_tmp_root" "$check_tmp_dir" \
+  bash "$repo_root/scripts/check-tmpdir.sh" create-at \
   "$calyx_tmp_root" "$check_tmp_dir" >/dev/null; then
   check_tmp_owned=1
   check_tmp_created=0
@@ -198,7 +199,8 @@ export CALYX_GATE_LOCK_FD="$check_gate_lock_fd"
 calyx_gate_signals_defer
 calyx_gate_plan_owned_dir check_target_dir "$target_scratch_root" check
 if calyx_gate_create_owned_dir check_target_created check_target_root_identity check_target_identity \
-  "$calyx_home" bash "$repo_root/scripts/check-tmpdir.sh" create-target-at \
+  "$calyx_home" "$target_scratch_root" "$check_target_dir" \
+  bash "$repo_root/scripts/check-tmpdir.sh" create-target-at \
   "$target_scratch_root" check "$check_target_dir" >/dev/null; then
   check_target_owned=1
   check_target_created=0

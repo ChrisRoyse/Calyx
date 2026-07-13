@@ -129,11 +129,13 @@ arm_partial_create_traps() {
   created_root_identity=""
   created_identity=""
   created_by_helper=0
+  ownership_published=0
   pending_signal_status=0
   cleanup_partial_create() {
     local status=$?
     trap - EXIT HUP INT TERM
-    if [[ "$status" -ne 0 && "$created_by_helper" -eq 1 ]]; then
+    if [[ "$status" -ne 0 && "$created_by_helper" -eq 1 \
+      && "$ownership_published" -eq 0 ]]; then
       if [[ -z "$created_path" || -z "$created_root_path" \
         || ! "$created_root_identity" =~ ^[0-9]+:[0-9]+$ \
         || ! "$created_identity" =~ ^[0-9]+:[0-9]+$ ]] \
@@ -155,8 +157,10 @@ arm_partial_create_traps() {
 
 create_exact_directory() {
   local label="$1" path="$2" root_path="$3" expected_root="$4"
-  local creator="$script_dir/gate_owned_dir_create.py" creator_fd=""
+  local creator="$script_dir/gate_owned_dir_create.py" creator_fd="" publish_fd=""
   local creator_uid creator_mode creator_identity path_identity record create_status
+  local record_valid=0 publish_requested=0
+  local -a publish_args=()
   if [[ -e "$path" || -L "$path" ]]; then
     echo "CALYX_CHECK_TMPDIR_COLLISION: $label already exists: $path" >&2
     return 75
@@ -171,61 +175,65 @@ create_exact_directory() {
   if [[ "${create_status:-0}" -ne 0 || "$creator_uid" != "$current_uid" \
     || $((8#$creator_mode & 0022)) -ne 0 || "$creator_identity" != "$path_identity" ]]; then
     exec {creator_fd}>&-
-    fail 125 "owned-directory creator identity or policy check failed"
+    fail 125 "owned-directory creator identity or policy check failed: fd_uid=${creator_uid:-missing} expected_uid=$current_uid fd_mode=${creator_mode:-missing} fd_identity=${creator_identity:-missing} path_identity=${path_identity:-missing}"
+  fi
+  if [[ -n "${CALYX_CREATE_ID_FD:-}" ]]; then
+    [[ "$CALYX_CREATE_ID_FD" =~ ^[1-9][0-9]*$ ]] || {
+      exec {creator_fd}>&-
+      return 125
+    }
+    eval "exec {publish_fd}>&${CALYX_CREATE_ID_FD}" || {
+      exec {creator_fd}>&-
+      return 125
+    }
+    publish_requested=1
+    publish_args=(--publish-fd "$publish_fd")
   fi
   if record="$(python3 "/proc/$BASHPID/fd/$creator_fd" --root "$root_path" \
-    --root-id "$expected_root" --name "$(basename -- "$path")" --uid "$current_uid")"; then
+    --root-id "$expected_root" --name "$(basename -- "$path")" \
+    --uid "$current_uid" "${publish_args[@]}")"; then
     create_status=0
   else
     create_status=$?
   fi
+  [[ -z "$publish_fd" ]] || eval "exec ${publish_fd}>&-"
   exec {creator_fd}>&-
+  if [[ "$record" =~ ^CALYX_CREATED_V1\ root=([0-9]+:[0-9]+)\ entry=([0-9]+:[0-9]+)$ \
+    && "${BASH_REMATCH[1]:-}" == "$expected_root" ]]; then
+    created_root_path="$root_path"
+    created_root_identity="${BASH_REMATCH[1]}"
+    created_identity="${BASH_REMATCH[2]}"
+    created_by_helper=1
+    record_valid=1
+    if [[ "$publish_requested" -eq 1 \
+      && ( "$create_status" -eq 0 || "$create_status" -eq 129 \
+        || "$create_status" -eq 130 || "$create_status" -eq 143 ) ]]; then
+      ownership_published=1
+    fi
+  elif [[ "$create_status" -eq 0 || -n "$record" ]]; then
+    echo "CALYX_CHECK_TMPDIR_PARTIAL_CREATE_RECOVERY_REQUIRED: path=$path" >&2
+    return 125
+  fi
   if [[ "$create_status" -eq 75 ]]; then
     echo "CALYX_CHECK_TMPDIR_COLLISION: $label appeared during create: $path" >&2
     return 75
   fi
   [[ "$create_status" -eq 0 ]] || return "$create_status"
-  if [[ ! "$record" =~ ^CALYX_CREATED_V1\ root=([0-9]+:[0-9]+)\ entry=([0-9]+:[0-9]+)$ \
-    || "${BASH_REMATCH[1]:-}" != "$expected_root" ]]; then
+  if [[ "$record_valid" -ne 1 ]]; then
     echo "CALYX_CHECK_TMPDIR_PARTIAL_CREATE_RECOVERY_REQUIRED: path=$path" >&2
     return 125
   fi
-  created_root_path="$root_path"
-  created_root_identity="${BASH_REMATCH[1]}"
-  created_identity="${BASH_REMATCH[2]}"
-  created_by_helper=1
   trap 'exit 129' HUP
   trap 'exit 130' INT
   trap 'exit 143' TERM
   [[ "$pending_signal_status" -eq 0 ]] || exit "$pending_signal_status"
 }
 
-publish_create_identity() {
-  local root_path="$1" entry_path="$2" publish_fd="${CALYX_CREATE_ID_FD:-}"
-  local root_fd="" entry_fd="" root_id entry_id
-  [[ -n "$publish_fd" ]] || return 0
-  [[ "$publish_fd" =~ ^[0-9]+$ && -e "/proc/$BASHPID/fd/$publish_fd" ]] ||
-    fail 125 "creator identity publication fd is unavailable"
-  exec {root_fd}<"$root_path" || fail 125 "cannot open created root for identity publication: $root_path"
-  exec {entry_fd}<"$entry_path" || {
-    eval "exec ${root_fd}>&-"
-    fail 125 "cannot open created entry for identity publication: $entry_path"
-  }
-  root_id="$(stat -Lc '%d:%i' -- "/proc/$BASHPID/fd/$root_fd")" || fail 125 "cannot read opened root identity"
-  entry_id="$(stat -Lc '%d:%i' -- "/proc/$BASHPID/fd/$entry_fd")" || fail 125 "cannot read opened entry identity"
-  [[ "$root_id" == "$created_root_identity" && "$entry_id" == "$created_identity" ]] ||
-    fail 125 "created identities changed before publication"
-  printf 'CALYX_CREATE_ID_V1 root=%s entry=%s\n' "$root_id" "$entry_id" >&"$publish_fd" ||
-    fail 125 "cannot publish created identities"
-  eval "exec ${entry_fd}>&-"
-  eval "exec ${root_fd}>&-"
-}
-
 create_run_dir() {
   local root="$1" requested_path="${2:-}" root_resolved root_identity run_dir=""
   local run_resolved attempt create_status
   local created_path="" created_root_path="" created_root_identity=""
-  local created_identity="" created_by_helper=0 pending_signal_status=0
+  local created_identity="" created_by_helper=0 ownership_published=0 pending_signal_status=0
   root_resolved="$(prepare_root "$root" 1 tmp)"
   root_identity="$(path_identity "$root_resolved")"
   arm_partial_create_traps
@@ -244,8 +252,11 @@ create_run_dir() {
     fi
     [[ "$pending_signal_status" -eq 0 ]] || exit "$pending_signal_status"
     if [[ -n "$requested_path" || "$create_status" -ne 75 ]]; then
-      trap - EXIT HUP INT TERM
-      return "$create_status"
+      if [[ "$created_by_helper" -eq 0 || "$ownership_published" -eq 1 ]]; then
+        trap - EXIT HUP INT TERM
+      fi
+      # Keep the caller's identity-proof locals alive for the armed EXIT trap.
+      exit "$create_status"
     fi
   done
   [[ "$created_by_helper" -eq 1 ]] || fail 1 "exhausted run-dir collision budget"
@@ -258,10 +269,9 @@ create_run_dir() {
   [[ "$(path_identity "$root_resolved")" == "$root_identity" ]] ||
     fail 1 "tmp root identity changed during create: $root_resolved"
 
-  publish_create_identity "$root_resolved" "$run_resolved"
   [[ "$pending_signal_status" -eq 0 ]] || exit "$pending_signal_status"
   echo "calyx_check_tmpdir_created root=$root_resolved run=$run_resolved uid=$current_uid" >&2
-  [[ "${CALYX_CREATE_ID_FD:-}" == 1 ]] || printf '%s\n' "$run_resolved"
+  [[ -n "${CALYX_CREATE_ID_FD:-}" ]] || printf '%s\n' "$run_resolved"
   trap - EXIT HUP INT TERM
 }
 
@@ -270,7 +280,7 @@ create_target_dir() {
   local allow_unprefixed="${4:-0}"
   local root_resolved root_identity target_dir="" target_resolved attempt create_status
   local created_path="" created_root_path="" created_root_identity=""
-  local created_identity="" created_by_helper=0 pending_signal_status=0
+  local created_identity="" created_by_helper=0 ownership_published=0 pending_signal_status=0
   case "$prefix" in
     check | fuzz-gate | public-mirror-gate) ;;
     *) fail 1 "unsupported Cargo target prefix: $prefix" ;;
@@ -297,8 +307,11 @@ create_target_dir() {
     fi
     [[ "$pending_signal_status" -eq 0 ]] || exit "$pending_signal_status"
     if [[ -n "$requested_path" || "$create_status" -ne 75 ]]; then
-      trap - EXIT HUP INT TERM
-      return "$create_status"
+      if [[ "$created_by_helper" -eq 0 || "$ownership_published" -eq 1 ]]; then
+        trap - EXIT HUP INT TERM
+      fi
+      # Keep the caller's identity-proof locals alive for the armed EXIT trap.
+      exit "$create_status"
     fi
   done
   [[ "$created_by_helper" -eq 1 ]] || fail 1 "exhausted Cargo target collision budget"
@@ -310,10 +323,9 @@ create_target_dir() {
     fail 1 "Cargo target dir escaped scratch root: root=$root_resolved target=$target_resolved"
   [[ "$(path_identity "$root_resolved")" == "$root_identity" ]] ||
     fail 1 "Cargo target root identity changed during create: $root_resolved"
-  publish_create_identity "$root_resolved" "$target_resolved"
   [[ "$pending_signal_status" -eq 0 ]] || exit "$pending_signal_status"
   echo "calyx_gate_target_created root=$root_resolved target=$target_resolved uid=$current_uid" >&2
-  [[ "${CALYX_CREATE_ID_FD:-}" == 1 ]] || printf '%s\n' "$target_resolved"
+  [[ -n "${CALYX_CREATE_ID_FD:-}" ]] || printf '%s\n' "$target_resolved"
   trap - EXIT HUP INT TERM
 }
 
