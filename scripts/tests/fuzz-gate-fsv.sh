@@ -14,30 +14,12 @@ if [[ -f "$repo_root/env.sh" ]]; then
   source "$repo_root/env.sh"
 fi
 
-scratch_root="${CALYX_TARGET_SCRATCH_ROOT:-$(dirname "$repo_root")/target-scratch}"
-export CALYX_TARGET_SCRATCH_ROOT="$scratch_root"
-mkdir -p "$scratch_root"
-target_dir="$(mktemp -d "$scratch_root/issue1400-fuzz-gate-fsv.XXXXXX")"
-cleanup() {
-  local status=$?
-  local cleanup_status=0
-  bash "$repo_root/scripts/cargo-target-clean.sh" \
-    --repo-root "$repo_root" \
-    --target-dir "$target_dir" \
-    --also-workspace-target \
-    --also-repo-targets \
-    --also-calyx-home-target || cleanup_status=$?
-  if [[ "$status" -eq 0 && "$cleanup_status" -ne 0 ]]; then
-    exit "$cleanup_status"
-  fi
-  exit "$status"
-}
-trap cleanup EXIT
-
-export CARGO_INCREMENTAL=0
-export CARGO_TARGET_DIR="$target_dir"
+unset CALYX_GATE_TMPDIR CALYX_GATE_TMP_ROOT CALYX_GATE_TMP_ROOT_IDENTITY
+unset CALYX_GATE_TMP_IDENTITY CALYX_GATE_LOCK_PATH CALYX_GATE_LOCK_FD
+unset CALYX_GATE_TARGET_ROOT CALYX_GATE_TARGET_ROOT_IDENTITY
+unset CALYX_GATE_TARGET_DIR CALYX_GATE_TARGET_IDENTITY CARGO_TARGET_DIR TMPDIR
 echo "fuzz-gate-fsv: repo=$repo_root"
-echo "fuzz-gate-fsv: CARGO_TARGET_DIR=$CARGO_TARGET_DIR"
+echo "fuzz-gate-fsv: standalone gate owns TMPDIR and CARGO_TARGET_DIR"
 
 corpus_minimum() {
   local target="$1" minimum="$2"

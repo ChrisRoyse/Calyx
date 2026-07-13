@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # FSV regression test for scripts/cargo-target-clean.sh.
 set -euo pipefail
+umask 077
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 repo_scripts="$(cd "$script_dir/.." && pwd -P)"
@@ -19,6 +20,7 @@ scratch="$work/target-scratch"
 mkdir -p "$repo" "$scratch"
 printf '[workspace]\nmembers=[]\n' > "$repo/Cargo.toml"
 export CALYX_TARGET_SCRATCH_ROOT="$scratch"
+export CALYX_HOME="$work"
 
 echo "=================================================================="
 echo "SCENARIO 1 - workspace target is removed and read back absent"
@@ -102,8 +104,8 @@ mkdir -p "$scratch_target/debug" "$legacy_numbered/debug" "$legacy_named/release
 printf 'scratch\n' > "$scratch_target/debug/libdemo.rlib"
 printf 'numbered\n' > "$legacy_numbered/debug/libdemo.rlib"
 printf 'named\n' > "$legacy_named/release/demo"
-printf 'cargo target\n' > "$legacy_numbered/CACHEDIR.TAG"
-printf '{}\n' > "$legacy_named/.rustc_info.json"
+printf 'Signature: 8a477f597d28d172789f06886806bc55\n' > "$legacy_numbered/CACHEDIR.TAG"
+printf 'Signature: 8a477f597d28d172789f06886806bc55\n' > "$legacy_named/CACHEDIR.TAG"
 out5="$(bash "$clean_src" --repo-root "$repo" --target-dir "$scratch_target" --also-calyx-home-target 2>&1)"
 echo "$out5" | sed 's/^/   /'
 [[ ! -e "$scratch_target" && ! -e "$legacy_numbered" && ! -e "$legacy_named" ]] \
@@ -126,7 +128,7 @@ echo "=================================================================="
 legacy_unrequested="$work/target-unrequested"
 mkdir -p "$legacy_unrequested/debug"
 printf 'legacy\n' > "$legacy_unrequested/debug/libdemo.rlib"
-printf 'cargo target\n' > "$legacy_unrequested/CACHEDIR.TAG"
+printf 'Signature: 8a477f597d28d172789f06886806bc55\n' > "$legacy_unrequested/CACHEDIR.TAG"
 set +e
 out6="$(bash "$clean_src" --repo-root "$repo" --target-dir "$repo/target" 2>&1)"
 rc6=$?
