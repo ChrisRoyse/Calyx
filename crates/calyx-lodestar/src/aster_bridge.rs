@@ -4,16 +4,16 @@ use std::sync::OnceLock;
 use calyx_aster::plain_graph::PlainGraph;
 use calyx_aster::timetravel::TimeTravelSnapshot;
 use calyx_aster::vault::AsterVault;
-use calyx_core::{AnchorKind, CalyxError, Clock, CxId, LedgerRef, Seq, SlotId, Ts};
+use calyx_core::{AnchorKind, CalyxError, Clock, CxId, LedgerRef, Seq, SlotId, SlotVector, Ts};
 use calyx_ledger::{ActorId, EntryKind, SubjectId};
 use calyx_paths::AssocGraph;
 use serde::{Deserialize, Serialize};
 
-use crate::recall_test::{InMemoryAnnIndex, InMemoryCorpus, RecallQuery, RecallTestParams};
+use crate::recall_test::RecallTestParams;
 use crate::scope::{AssocStore, CollectionId, FilterExpr, Scope, TenantId};
 use crate::summarize::{
-    CALYX_TIMETRAVEL_BEFORE_HORIZON, SUMMARIZE_INVOKED_MARKER, SummarizeParams, SummarizeRecall,
-    SummarizeResult, summarize_with_ledger,
+    CALYX_TIMETRAVEL_BEFORE_HORIZON, SUMMARIZE_INVOKED_MARKER, SummarizeParams, SummarizeResult,
+    summarize_with_ledger,
 };
 use crate::{LodestarError, Result, ScopeCache};
 
@@ -22,6 +22,8 @@ pub const PANEL_ASTER_ASSOC_COLLECTION: &str = "kernel-panel-v3";
 pub const ASTER_ASSOC_METADATA_KEY: &str = "lodestar_assoc_v1";
 
 mod physical;
+mod recall;
+pub use recall::AsterRecallInputs;
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct AsterAssocMetadata {
@@ -62,6 +64,10 @@ pub struct AsterAssocNodeProps {
     /// Complete no-flatten panel measurement keyed by stable slot id.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub embeddings: BTreeMap<SlotId, Vec<f32>>,
+    /// Complete no-flatten typed panel. `fusion=typed_block_rrf` requires this
+    /// map and forbids both legacy vector fields.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub typed_embeddings: BTreeMap<SlotId, SlotVector>,
     pub ts: Option<Ts>,
     #[serde(default)]
     pub anchors: Vec<AnchorKind>,
@@ -81,16 +87,11 @@ pub struct AsterAssocSnapshot<'a, C: Clock> {
     _lease: Option<TimeTravelSnapshot<'a, C>>,
 }
 
-pub struct AsterRecallInputs {
-    embeddings: BTreeMap<CxId, Vec<f32>>,
-    corpus: InMemoryCorpus,
-    full_index: InMemoryAnnIndex,
-    params: RecallTestParams,
-}
-
 pub struct PhysicalAsterAssocSnapshot {
     graph: AssocGraph,
     props: BTreeMap<CxId, AsterAssocNodeProps>,
+    metadata: AsterAssocMetadata,
+    collection: String,
 }
 
 #[derive(Clone, Debug)]
@@ -99,17 +100,6 @@ pub struct AsterSummarizeRequest<'a> {
     pub scope: Scope,
     pub params: Option<SummarizeParams>,
     pub recall_params: RecallTestParams,
-}
-
-impl AsterRecallInputs {
-    pub fn measurement(&self) -> SummarizeRecall<'_> {
-        SummarizeRecall {
-            embeddings: &self.embeddings,
-            full_index: &self.full_index,
-            corpus: &self.corpus,
-            params: self.params.clone(),
-        }
-    }
 }
 
 impl<'a, C: Clock> AsterAssocSnapshot<'a, C> {
@@ -150,29 +140,44 @@ impl<'a, C: Clock> AsterAssocSnapshot<'a, C> {
         if graph.is_empty() {
             return Ok(None);
         }
-        let mut rows = Vec::new();
-        let mut embeddings = BTreeMap::new();
+        // Open the graph handle exactly once and read every node's props from it
+        // rather than reopening `PlainGraph` per node — the panel corpus already
+        // materializes every constellation's full multi-lane panel, so we must not
+        // amplify the vault-open surface on top of that.
+        let handle = self.graph().map_err(to_calyx)?;
+        let mut nodes = Vec::new();
         for cx_id in graph.node_ids() {
-            let props = self.node_props(cx_id).map_err(to_calyx)?;
-            let vector = props.embedding.ok_or_else(|| {
-                bridge_error(
-                    "CALYX_SUMMARIZE_RECALL_MISSING_EMBEDDING",
-                    format!("node {cx_id} has no embedding in Aster graph props"),
-                )
-            })?;
-            embeddings.insert(cx_id, vector.clone());
-            rows.push(RecallQuery { cx_id, vector });
+            nodes.push((
+                cx_id,
+                self.read_node_props(&handle, cx_id).map_err(to_calyx)?,
+            ));
         }
-        let full_index = InMemoryAnnIndex::new(rows.clone()).map_err(to_calyx)?;
-        Ok(Some(AsterRecallInputs {
-            embeddings,
-            corpus: InMemoryCorpus::new(
-                format!("aster:{}@{}", self.collection, self.snapshot),
-                rows,
-            ),
-            full_index,
+        recall::build_recall_inputs(
+            &self.metadata,
+            nodes,
+            format!("aster:{}@{}", self.collection, self.snapshot),
             params,
-        }))
+        )
+    }
+
+    /// Panel-native ledger provenance contract, if this snapshot is panel-native.
+    /// Returns the sealed lane ids, fusion, and rrf_k so the `SUMMARIZE_INVOKED`
+    /// payload can carry byte-auditable per-lane provenance.
+    fn ledger_panel_contract(&self) -> Option<PanelLedgerContract> {
+        if self.metadata.embedding_slots.len() >= 2 && self.metadata.embedding_slot.is_none() {
+            Some(PanelLedgerContract {
+                embedding_slots: self
+                    .metadata
+                    .embedding_slots
+                    .iter()
+                    .map(|slot| slot.get())
+                    .collect(),
+                fusion: self.metadata.fusion.clone().unwrap_or_default(),
+                rrf_k: self.metadata.rrf_k.unwrap_or(0),
+            })
+        } else {
+            None
+        }
     }
 
     fn from_seq(
@@ -224,6 +229,16 @@ impl<'a, C: Clock> AsterAssocSnapshot<'a, C> {
 
     fn node_props(&self, cx_id: CxId) -> Result<AsterAssocNodeProps> {
         let graph = self.graph()?;
+        self.read_node_props(&graph, cx_id)
+    }
+
+    /// Decodes one node's props from an already-open graph handle, so callers
+    /// that touch every node (recall corpus construction) open `PlainGraph` once.
+    fn read_node_props(
+        &self,
+        graph: &PlainGraph<'_, C>,
+        cx_id: CxId,
+    ) -> Result<AsterAssocNodeProps> {
         let Some(bytes) = graph.get_node(self.snapshot, cx_id)? else {
             return Err(LodestarError::KernelInvalidParams {
                 detail: format!("Aster graph node {cx_id} disappeared at snapshot"),
@@ -308,6 +323,13 @@ impl<C: Clock> AssocStore for AsterAssocSnapshot<'_, C> {
     }
 }
 
+/// Byte-auditable panel provenance recorded in the `SUMMARIZE_INVOKED` payload.
+struct PanelLedgerContract {
+    embedding_slots: Vec<u16>,
+    fusion: String,
+    rrf_k: u32,
+}
+
 pub fn write_assoc_metadata<C: Clock>(
     vault: &AsterVault<C>,
     collection: &str,
@@ -382,6 +404,7 @@ fn summarize_snapshot<C: Clock>(
 ) -> std::result::Result<SummarizeResult, CalyxError> {
     let recall_inputs = snapshot.recall_inputs(recall_params)?;
     let recall = recall_inputs.as_ref().map(AsterRecallInputs::measurement);
+    let panel = snapshot.ledger_panel_contract();
     summarize_with_ledger(
         snapshot,
         scope,
@@ -396,6 +419,7 @@ fn summarize_snapshot<C: Clock>(
                 kernel_size,
                 kernel_only_recall,
                 grounded_fraction,
+                panel.as_ref(),
             )
         },
     )
@@ -407,15 +431,24 @@ fn append_invoked_to_vault<C: Clock>(
     kernel_size: usize,
     kernel_only_recall: f32,
     grounded_fraction: f32,
+    panel: Option<&PanelLedgerContract>,
 ) -> std::result::Result<LedgerRef, CalyxError> {
-    let payload = serde_json::to_vec(&serde_json::json!({
+    let mut payload_json = serde_json::json!({
         "marker": SUMMARIZE_INVOKED_MARKER,
         "scope_hash": hex32(scope_h),
         "kernel_size": kernel_size,
         "kernel_only_recall": kernel_only_recall,
         "grounded_fraction": grounded_fraction,
-    }))
-    .map_err(|error| {
+    });
+    if let Some(panel) = panel {
+        // Additive per-lane provenance for panel-native recall; legacy graphs keep
+        // the historic payload shape untouched.
+        payload_json["embedding_slots"] = serde_json::json!(panel.embedding_slots);
+        payload_json["fusion"] = serde_json::json!(panel.fusion);
+        payload_json["rrf_k"] = serde_json::json!(panel.rrf_k);
+        payload_json["n_lanes"] = serde_json::json!(panel.embedding_slots.len());
+    }
+    let payload = serde_json::to_vec(&payload_json).map_err(|error| {
         bridge_error(
             "CALYX_SUMMARIZE_LEDGER_ENCODE",
             format!("failed to encode SUMMARIZE_INVOKED payload: {error}"),

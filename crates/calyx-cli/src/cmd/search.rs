@@ -8,6 +8,7 @@ mod parse;
 mod roster;
 
 pub(crate) use calyx_search::{PersistedSearchIndexes, load_docs};
+pub(crate) use engine::{open_vault, search_read_cfs};
 pub(crate) use kernel_citation_answer::rederive_kernel_citation_answer_hash;
 pub(crate) use kernel_reproduce::rederive_kernel_answer_hash;
 #[cfg(test)]
@@ -23,9 +24,10 @@ use crate::error::{CliError, CliResult};
 use calyx_aster::cf::ColumnFamily;
 use calyx_aster::vault::{AsterVault, VaultOptions};
 use calyx_core::SlotId;
-use calyx_registry::{load_vault_panel_state, require_vault_registry_contracts};
+use calyx_registry::{
+    load_vault_panel_state, load_vault_stored_vector_panel_state, require_vault_registry_contracts,
+};
 use serde_json::json;
-use std::fs;
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -36,7 +38,7 @@ pub(crate) fn measure_kernel_calibration_query(
     query: &str,
     resident_addr: SocketAddr,
     embedding_slots: &[SlotId],
-) -> CliResult<calyx_lodestar::PanelVectors> {
+) -> CliResult<calyx_lodestar::TypedPanelVectors> {
     let roster = roster::SearchTextRoster::derive(state);
     let vectors = kernel_answer::measure_kernel_query_vectors(
         state,
@@ -48,15 +50,7 @@ pub(crate) fn measure_kernel_calibration_query(
     let measured = vectors
         .into_iter()
         .filter(|(slot, _)| embedding_slots.contains(slot))
-        .map(|(slot, vector)| {
-            let dense = vector.as_dense().map(ToOwned::to_owned).ok_or_else(|| {
-                CliError::runtime(format!(
-                    "kernel admission graph slot {slot} returned a non-dense vector"
-                ))
-            })?;
-            Ok((slot, dense))
-        })
-        .collect::<CliResult<calyx_lodestar::PanelVectors>>()?;
+        .collect::<calyx_lodestar::TypedPanelVectors>();
     if measured.keys().copied().ne(embedding_slots.iter().copied()) {
         return Err(CliError::runtime(format!(
             "kernel admission measured slots {:?}, expected sealed graph slots {:?}",
@@ -83,7 +77,7 @@ pub(crate) fn run(command: Subcommand) -> CliResult {
 fn run_rebuild_search_index(args: VaultRefArgs) -> CliResult {
     calyx_search::validate_rebuild_config()?;
     let resolved = resolve_vault_info(&home_dir()?, &args.vault)?;
-    let state = load_vault_panel_state(&resolved.path)?;
+    let state = load_vault_stored_vector_panel_state(&resolved.path)?;
     let vault = AsterVault::open(
         &resolved.path,
         resolved.vault_id,
@@ -103,7 +97,7 @@ fn run_rebuild_search_index(args: VaultRefArgs) -> CliResult {
             "progress_artifact": progress_path.display().to_string(),
         }),
     )?;
-    let rebuild = calyx_search::rebuild_for_vault_with_panel_state_fallible_progress(
+    let rebuild = calyx_search::rebuild_for_vault_with_stored_panel_state_fallible_progress(
         &resolved.path,
         &vault,
         &state,
@@ -158,7 +152,7 @@ pub(crate) fn rebuild_persistent_indexes(vault_dir: &Path, vault: &AsterVault) -
 
 fn rebuild_progress_path(vault_dir: &Path) -> CliResult<PathBuf> {
     let root = vault_dir.join("idx").join("search");
-    fs::create_dir_all(&root).map_err(CliError::from)?;
+    crate::private_fs::create_private_dir_all(&root)?;
     let millis = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_err(|error| CliError::io(format!("system clock before UNIX_EPOCH: {error}")))?

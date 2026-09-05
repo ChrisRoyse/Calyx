@@ -88,6 +88,13 @@ pub fn readback_dedup_undo(vault: &Path, token: &str) -> crate::error::CliResult
 
 pub fn readback_cx_list_args(rest: &[String]) -> CliResult {
     let args = parse_cx_list_args(rest)?;
+    // Open-time fail-closed validation + deterministic migration (#1935): this
+    // readback path reads/rebuilds CF state directly (it does not go through
+    // `AsterVault::open`), so harden the vault tree to owner-only modes and
+    // reject any symlinked descendant before touching it. A pre-existing
+    // world-accessible tree is migrated to 0700/0600; a symlink swap fails
+    // closed with CALYX_VAULT_PERMISSIONS_UNSAFE.
+    calyx_aster::private_fs::harden_tree(&args.vault)?;
     let mut progress = ProgressSink::from_arg(args.progress_jsonl.as_deref())?;
     let deadline = Deadline::new(args.time_budget_ms);
     progress.emit(json!({
@@ -317,6 +324,7 @@ fn cx_list_rows(
                 "pointer": cx.input_ref.pointer.as_deref(),
                 "redacted": cx.input_ref.redacted,
             },
+            "scalars": &cx.scalars,
             "metadata": &cx.metadata,
             "provenance": {
                 "seq": cx.provenance.seq,

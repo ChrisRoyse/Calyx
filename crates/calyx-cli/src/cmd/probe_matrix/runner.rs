@@ -389,7 +389,7 @@ pub(crate) fn run_probe_matrix_with_home(home: &Path, args: ProbeMatrixArgs) -> 
                 return Err(error);
             }
         };
-        if let Err(error) = validate_response(&response) {
+        if let Err(error) = validate_response(variant, &response) {
             artifacts.persist_incomplete(
                 &records,
                 &query_cache,

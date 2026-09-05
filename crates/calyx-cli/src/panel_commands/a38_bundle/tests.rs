@@ -246,6 +246,7 @@ fn template_lens(idx: u8) -> TemplateLensRef {
     let runtime_contract = derive_runtime_contract_from_spec(&spec).unwrap();
     let manifest = fixture_manifest(idx);
     let snapshot = TemplateLensSnapshot {
+        derivation_version: Some(calyx_registry::derivation::LENS_DERIVATION_VERSION),
         schema_version: LENS_SNAPSHOT_VERSION,
         manifest_blake3: fixture_blake3(&manifest),
         spec_blake3: fixture_blake3(&spec),
@@ -320,6 +321,8 @@ fn fixture_manifest(idx: u8) -> LensForgeManifest {
         recall_delta: 0.0,
         max_batch: None,
         max_tokens: None,
+        representation: None,
+        special_tokens: None,
         batch_policy: None,
     }
 }

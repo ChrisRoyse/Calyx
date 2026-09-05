@@ -9,7 +9,7 @@ use super::encode::{WriteRow, decode_write_batch, encode_write_batch};
 use crate::cf::ColumnFamily;
 use crate::compaction::TieringPolicy;
 use crate::dedup::DedupPolicy;
-use crate::manifest::recover_vault;
+use crate::manifest::{recover_vault, recover_vault_metadata};
 use crate::pressure::DiskPressureGuard;
 use crate::resource::ResourceCounters;
 use crate::security::value_crypto::{SharedVaultContext, open_rows, seal_rows};
@@ -17,7 +17,6 @@ use crate::timetravel::RetentionHorizon;
 use crate::wal::{GroupCommitBatcher, ReplayRecord, WalOptions, replay_dir};
 use calyx_core::{CalyxError, Panel, Result, SystemClock, TemporalPolicy};
 use calyx_ledger::CheckpointConfig;
-use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 #[cfg(test)]
@@ -114,6 +113,47 @@ impl Default for VaultOptions {
     }
 }
 
+impl VaultOptions {
+    /// Write-capable open profile that serves reads from the mmap-backed CF
+    /// router (latest committed state) instead of materializing every MVCC row
+    /// of every column family into the heap on open.
+    ///
+    /// This is the additive, backward-compatible substrate for latest-state
+    /// read+write commands — weave-loom, kernel-build, kernel-answer — that only
+    /// need the latest committed state plus write/ledger-append capability, not
+    /// historical/time-travel MVCC snapshots. It is exactly the default profile
+    /// with `restore_mvcc_rows: false`:
+    ///
+    /// * `restore_mvcc_rows: false` — open takes the `router_latest_readback`
+    ///   path (see [`super::open`]), so durable SST rows stay demand-paged
+    ///   through `MmapColumn` rather than heap-copied into the in-memory
+    ///   [`crate::mvcc::store::VersionedCfStore`]. The working set becomes
+    ///   proportional to the pages the command actually touches, not the whole
+    ///   physical vault. Physical readback is preserved: latest reads
+    ///   (`read_cf_at`, `scan_cf_at`, snapshots at `latest_seq`) resolve through
+    ///   the router over memtable + SST + WAL-tail.
+    /// * `restore_ledger_hook: true`, `read_only: false` — the handle stays
+    ///   write-capable, so `write_cf_batch`, `flush`, and `append_ledger_entry`
+    ///   (with verified group-commit) all function and read-after-write on the
+    ///   same handle sees the just-written rows.
+    /// * `selected_cfs: None` — required, because [`Self::validate_options`]
+    ///   fails closed on `selected_cfs` for a non-`read_only` handle. CF
+    ///   narrowing remains a read-only-handle facility.
+    ///
+    /// Contract preserved: the open still fails closed with
+    /// `CALYX_ASTER_ROUTER_ONLY_ROWS` semantics are *not weakened* — the
+    /// router-only-rows full-restore coverage check only runs for full-restore
+    /// opens (it exists to catch rows visible to a restored MVCC snapshot but
+    /// not the router); latest-readback reads straight from the router, so the
+    /// check does not apply.
+    pub fn write_latest_readback() -> Self {
+        Self {
+            restore_mvcc_rows: false,
+            ..Self::default()
+        }
+    }
+}
+
 #[derive(Debug)]
 pub(super) struct DurableVault {
     root: PathBuf,
@@ -161,6 +201,10 @@ pub(super) struct RecoveredBatches {
     pub dedup_policy: Option<DedupPolicy>,
     pub retention_horizon: RetentionHorizon,
     pub router_latest_readback: bool,
+    /// When `Some(floor)`, the post-floor WAL tail was NOT materialized into
+    /// `batches`; the open path must stream-restore it from this floor in
+    /// bounded chunks (issue #1992). `None` keeps the collecting behavior.
+    pub wal_tail_stream_floor: Option<u64>,
 }
 
 impl DurableVault {
@@ -214,12 +258,10 @@ impl DurableVault {
     ) -> Result<Self> {
         let root = root.as_ref().to_path_buf();
         Self::validate_options(options)?;
-        fs::create_dir_all(root.join("cf"))
-            .map_err(|error| storage_error("create durable CF root", error))?;
+        crate::private_fs::create_private_dir_all(&root.join("cf"))?;
         if let Some(policy) = &options.tiering_policy {
             for tier_root in policy.tier_roots() {
-                fs::create_dir_all(tier_root.join("cf"))
-                    .map_err(|error| storage_error("create tiered durable CF root", error))?;
+                crate::private_fs::create_private_dir_all(&tier_root.join("cf"))?;
             }
         }
         let wal = crate::wal::Wal::open_after(
@@ -270,6 +312,38 @@ impl DurableVault {
         Self::validate_options(options)?;
         let root = root.as_ref();
         if root.join("CURRENT").exists() {
+            // Streaming-restore fast path (issue #1992): a write-capable
+            // latest-readback open (wal-prune / weave / kernel) with no value
+            // crypto does NOT materialize the post-floor WAL tail here. Recover
+            // manifest + tip header-only and let the open path stream-restore
+            // the tail in bounded chunks, so a multi-GB orphaned tail never
+            // lands in the heap at open. Crypto and full-restore opens keep the
+            // collecting path below (they need decrypted/whole-state batches).
+            if !options.restore_mvcc_rows && !options.read_only && options.value_crypto.is_none() {
+                let recovery = recover_vault_metadata(root)?;
+                if let Some(policy) = &recovery.manifest.dedup_policy {
+                    validate_dedup_policy(policy, options.panel.as_ref())?;
+                }
+                let migrate_derived_content_model =
+                    !recovery.manifest.uses_persistent_search_content_model();
+                return Ok(RecoveredBatches {
+                    batches: Vec::new(),
+                    last_recovered_seq: recovery.last_recovered_seq,
+                    wal_replay_floor_seq: recovery.manifest.durable_seq,
+                    derived_content_floor_seq: if migrate_derived_content_model {
+                        0
+                    } else {
+                        recovery.manifest.effective_derived_content_seq()
+                    },
+                    migrate_derived_content_model,
+                    torn_tail: recovery.torn_tail,
+                    temporal_policy: recovery.manifest.temporal_policy,
+                    dedup_policy: recovery.manifest.dedup_policy,
+                    retention_horizon: recovery.manifest.retention_horizon,
+                    router_latest_readback: true,
+                    wal_tail_stream_floor: Some(recovery.manifest.durable_seq),
+                });
+            }
             let recovery = recover_vault(root)?;
             if let Some(policy) = &recovery.manifest.dedup_policy {
                 validate_dedup_policy(policy, options.panel.as_ref())?;
@@ -313,6 +387,7 @@ impl DurableVault {
                 dedup_policy: recovery.manifest.dedup_policy,
                 retention_horizon: recovery.manifest.retention_horizon,
                 router_latest_readback,
+                wal_tail_stream_floor: None,
             });
         }
 
@@ -336,6 +411,7 @@ impl DurableVault {
             dedup_policy: options.dedup_policy.clone(),
             retention_horizon: options.retention_horizon.clone(),
             router_latest_readback: false,
+            wal_tail_stream_floor: None,
         })
     }
 

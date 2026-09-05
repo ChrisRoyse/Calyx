@@ -113,6 +113,8 @@ pub(super) fn write_algorithmic_manifests(root: &Path, names: &[String]) -> Vec<
                 recall_delta: calyx_registry::spec::default_recall_delta(),
                 max_batch: None,
                 max_tokens: None,
+                representation: None,
+                special_tokens: None,
                 batch_policy: None,
             };
             fs::write(&path, serde_json::to_vec_pretty(&manifest).unwrap()).unwrap();
@@ -253,6 +255,8 @@ fn write_manifests(root: &Path, names: &[String]) -> Vec<PathBuf> {
                 recall_delta: calyx_registry::spec::default_recall_delta(),
                 max_batch: None,
                 max_tokens: None,
+                representation: None,
+                special_tokens: None,
                 batch_policy: None,
             };
             fs::write(&path, serde_json::to_vec_pretty(&manifest).unwrap()).unwrap();

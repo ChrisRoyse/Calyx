@@ -297,7 +297,7 @@ fn local_cpu_slots_measure_in_process_like_ingest() {
 
     assert_eq!(vectors.len(), 1);
     assert_eq!(vectors[0].0, SlotId::new(1));
-    assert!(indexable(&vectors[0].1));
+    assert!(vectors[0].1.is_indexable());
 }
 
 #[test]

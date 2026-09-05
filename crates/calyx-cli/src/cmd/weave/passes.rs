@@ -15,33 +15,76 @@
 //! directed k-NN **edges** into the `graph` CF, returning the in-memory
 //! `AssocGraph` the acceptance report is measured over.
 //!
+//! Memory (issue #1991): neither pass holds the decoded corpus resident. The
+//! coverage scan streamed every measured vector's canonical bytes into an
+//! out-of-core [`WeaveVectorScratch`] store keyed by scan ordinal; both passes
+//! read one constellation's typed panel back on demand — within-doc per batched
+//! node, between-doc per query node plus its bounded candidate set — so anon RSS
+//! is `O(batch + per-node candidate set)`, never `O(corpus x slots)`. The bytes
+//! read back are byte-for-byte the vectors the old in-heap path held, so the
+//! persisted `SlotSimilarityEvidence` is unchanged (#1960).
+//!
 //! Every failure propagates (fail-closed): a constellation missing the content
 //! vector, a compressed slot row, an absent DiskANN slot index — all hard-error
 //! with the offending `cx_id`/slot named, never a silent skip or fabricated value.
 
-use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
+use std::collections::BTreeMap;
 
-use calyx_aster::cf::ColumnFamily;
+use calyx_aster::cf::{ColumnFamily, weave_xterm_generation_key};
 use calyx_aster::plain_graph::PlainGraph;
 use calyx_aster::vault::AsterVault;
-use calyx_core::{Clock, CxId, SlotId, SlotVector};
+use calyx_core::{Clock, CxId, SlotId, SlotVector, slot_ambient_dim};
 use calyx_lodestar::{
-    AsterAssocNodeProps, LodestarError, PANEL_RRF_K, PanelFusionLane, PanelVectors,
-    encode_assoc_node_props, rank_panel_candidate_refs,
+    AsterAssocNodeProps, LodestarError, PANEL_ASTER_ASSOC_COLLECTION, TypedPanelVectors,
+    encode_assoc_node_props,
 };
 use calyx_loom::LoomStore;
-use calyx_paths::AssocGraph;
 use serde::Serialize;
 
-use super::super::PersistedSearchIndexes;
-use super::coverage::DenseSlotPreflight;
-use crate::error::{CliError, CliResult};
+use super::coverage::WeaveNodeMeta;
+use super::scratch::WeaveVectorScratch;
+use crate::error::CliResult;
 
-pub(super) const EDGE_TYPE: &str = "knn";
 const LOOM_CACHE_CAP: usize = 16;
 const XTERM_WRITE_CHUNK: usize = 8192;
 const NODE_WRITE_CHUNK: usize = 4096;
-const EDGE_FLUSH_ROWS: usize = 8192;
+/// Cadence (in processed nodes) at which each pass emits a sub-phase
+/// CALYX_WEAVE_RUNTIME line and samples live RSS against the budget, so residual
+/// mid-pass growth is localized instead of dying silent between phase boundaries
+/// (#1991 round-4).
+pub(super) const WEAVE_PROGRESS_EVERY_NODES: usize = 4_096;
+/// Primary flush budget for one weave-loom commit, in accumulated encoded row
+/// bytes (key + value). v8 node rows embed full SegmentedMulti typed embeddings,
+/// so a fixed row count is not a memory bound; this byte budget caps single-commit
+/// memory (prod weave peaked at 54 GB RSS) and keeps one WAL commit comfortably
+/// under the 64 MiB record-fragment cap so the common case never fragments. Row
+/// counts remain as a secondary cap.
+pub(super) const WEAVE_COMMIT_BYTE_BUDGET: usize = 32 * 1024 * 1024;
+
+/// Flushes CF rows in commits bounded by both `WEAVE_COMMIT_BYTE_BUDGET`
+/// (primary, on accumulated key+value bytes) and `max_rows` (secondary). A single
+/// row larger than the budget becomes its own commit (and is fragmented by the
+/// WAL if it exceeds the record cap), so no row is ever dropped or split here.
+fn write_cf_byte_budgeted<C: Clock>(
+    vault: &AsterVault<C>,
+    rows: impl IntoIterator<Item = (ColumnFamily, Vec<u8>, Vec<u8>)>,
+    max_rows: usize,
+) -> CliResult<()> {
+    let mut batch: Vec<(ColumnFamily, Vec<u8>, Vec<u8>)> = Vec::new();
+    let mut batch_bytes = 0usize;
+    for row in rows {
+        batch_bytes += row.1.len() + row.2.len();
+        batch.push(row);
+        if batch.len() >= max_rows || batch_bytes >= WEAVE_COMMIT_BYTE_BUDGET {
+            vault.write_reconstructible_derived_cf_batch(std::mem::take(&mut batch))?;
+            batch_bytes = 0;
+        }
+    }
+    if !batch.is_empty() {
+        vault.write_reconstructible_derived_cf_batch(batch)?;
+    }
+    Ok(())
+}
 
 /// Per-corpus aggregate of one content-lens pair's agreement (mean cosine over
 /// every constellation that has both lenses, plus the observation count).
@@ -53,39 +96,24 @@ pub(super) struct SlotPairAgreement {
     pub n: usize,
 }
 
-/// Result of the within-doc weave pass.
+/// Result of the within-doc weave pass. The typed panel is **not** returned
+/// resident (that was the O(corpus) `panel_vectors` heap); between-doc re-reads
+/// each node's panel from the out-of-core scratch store instead.
 pub(super) struct WithinDocResult {
     pub constellations_in_vault: usize,
     pub constellations_processed: usize,
     pub xterm_rows_persisted: usize,
     pub agreement_pairs: Vec<SlotPairAgreement>,
     pub anchors: Vec<CxId>,
-    /// Complete no-flatten dense panel for every node, in scan order.
-    pub panel_vectors: Vec<(CxId, PanelVectors)>,
 }
 
+/// Sub-phase progress for the within-doc pass (#1991 round-4): drives mid-pass
+/// RSS sampling + live budget enforcement so a killed run localizes growth.
 #[derive(Clone, Copy, Debug, Serialize)]
-pub(super) struct BetweenDocProgress {
+pub(super) struct WithinDocProgress {
     pub nodes_total: usize,
     pub nodes_processed: usize,
-    pub edges_persisted: usize,
-}
-
-pub(super) struct BetweenDocGraphRequest<'a> {
-    pub indexes: &'a PersistedSearchIndexes,
-    pub embedding_slots: &'a [SlotId],
-    pub knn: usize,
-    pub edge_score_threshold: f32,
-    pub panel_vectors: &'a [(CxId, PanelVectors)],
-}
-
-#[derive(Serialize)]
-struct EdgeValue {
-    weight: f32,
-    fusion: &'static str,
-    rrf_k: u32,
-    fused_rank: usize,
-    lanes: Vec<PanelFusionLane>,
+    pub xterm_rows_persisted: usize,
 }
 
 fn data_error<T>(detail: String) -> CliResult<T> {
@@ -93,98 +121,105 @@ fn data_error<T>(detail: String) -> CliResult<T> {
 }
 
 /// Pass A: bulk-scan Base + content-slot CFs, weave within-doc agreement into the
-/// XTerm CF, write graph nodes, and collect the Pass-B k-NN query vectors.
+/// XTerm CF, and write graph nodes. Each node's typed panel is fetched from the
+/// out-of-core `scratch` store by its scan ordinal (#1991) rather than held
+/// resident, so the working set is bounded by `batch`, not the corpus.
+#[allow(clippy::too_many_arguments)]
 pub(super) fn weave_within_doc<C: Clock>(
     vault: &AsterVault<C>,
     graph: &PlainGraph<'_, C>,
-    preflight: &DenseSlotPreflight,
+    candidates: &[WeaveNodeMeta],
+    candidate_ordinals: &[u64],
+    scratch: &WeaveVectorScratch,
+    constellations_in_vault: usize,
     embedding_slots: &[SlotId],
+    xterm_generation: &str,
     batch: usize,
+    mut on_progress: Option<&mut dyn FnMut(WithinDocProgress) -> CliResult>,
 ) -> CliResult<WithinDocResult> {
-    let bases = &preflight.candidates;
-    let constellations_in_vault = preflight.constellations_in_vault;
-    if bases.len() < 2 {
+    if candidates.len() < 2 {
         return data_error(format!(
             "weave-loom needs >=2 candidate constellations; candidate set has {}",
-            bases.len()
+            candidates.len()
         ));
     }
-    let slot_maps = &preflight.slot_maps;
+    if candidate_ordinals.len() != candidates.len() {
+        return data_error(format!(
+            "weave-loom candidate/ordinal length mismatch: {} vs {}",
+            candidates.len(),
+            candidate_ordinals.len()
+        ));
+    }
     if embedding_slots.len() < 2 {
-        return data_error("panel-native weave needs at least two dense slots".to_string());
+        return data_error("panel-native weave needs at least two typed content slots".to_string());
     }
 
-    // Weave per constellation, batched for XTerm/node persistence.
     let mut xterm_rows_persisted = 0usize;
     let mut agreement_acc: BTreeMap<(u16, u16), (f64, usize)> = BTreeMap::new();
     let mut anchors: Vec<CxId> = Vec::new();
-    let mut panel_vectors: Vec<(CxId, PanelVectors)> = Vec::with_capacity(bases.len());
+    let mut processed = 0usize;
+    let mut last_progress = 0usize;
+    let nodes_total = candidates.len();
+    let batch = batch.max(1);
 
-    for chunk in bases.chunks(batch.max(1)) {
+    let mut chunk_start = 0usize;
+    while chunk_start < candidates.len() {
+        let chunk_end = (chunk_start + batch).min(candidates.len());
         let mut loom = LoomStore::new(LOOM_CACHE_CAP);
-        let mut node_rows: Vec<(ColumnFamily, Vec<u8>, Vec<u8>)> = Vec::with_capacity(chunk.len());
+        let mut node_rows: Vec<(ColumnFamily, Vec<u8>, Vec<u8>)> =
+            Vec::with_capacity(chunk_end - chunk_start);
 
-        for cx in chunk {
+        for index in chunk_start..chunk_end {
+            let cx = &candidates[index];
             let cx_id = cx.cx_id;
-            let vectors = embedding_slots
-                .iter()
-                .map(|slot| {
-                    let vector = slot_maps
-                        .get(slot)
-                        .and_then(|rows| rows.get(&cx_id))
-                        .cloned()
-                        .ok_or_else(|| LodestarError::KernelInvalidParams {
-                            detail: format!(
-                                "constellation {cx_id} has no dense vector in contracted slot {slot}; panel-native graph refuses partial constellations"
-                            ),
-                        })?;
-                    Ok((*slot, vector))
-                })
-                .collect::<Result<PanelVectors, LodestarError>>()?;
+            // Read this node's complete typed panel from the out-of-core store.
+            // `read_panel` fails closed if any contracted slot is absent, exactly
+            // like the old drain that refused partial constellations (#1991).
+            let vectors: TypedPanelVectors = scratch
+                .read_panel(candidate_ordinals[index], embedding_slots)
+                .map_err(|error| LodestarError::KernelInvalidParams {
+                    detail: format!(
+                        "constellation {cx_id} panel read from scratch failed: {}",
+                        error.message()
+                    ),
+                })?;
 
-            // Agreement is defined only between equal-dimension lenses; weave each
-            // dimension group independently.
-            let mut by_dim: BTreeMap<usize, BTreeMap<SlotId, Vec<f32>>> = BTreeMap::new();
-            for (&slot, map) in slot_maps {
-                if let Some(vector) = map.get(&cx_id) {
-                    by_dim
-                        .entry(vector.len())
-                        .or_default()
-                        .insert(slot, vector.clone());
-                }
+            // Agreement is defined only in a common ambient space. Preserve each
+            // typed slot/block and weave every compatible pair without pooling.
+            let mut by_dim: BTreeMap<u32, BTreeMap<SlotId, &SlotVector>> = BTreeMap::new();
+            for (&slot, vector) in &vectors {
+                by_dim
+                    .entry(slot_ambient_dim(vector)?)
+                    .or_default()
+                    .insert(slot, vector);
             }
             for group in by_dim.values() {
                 if group.len() < 2 {
                     continue;
                 }
-                loom.weave(cx_id, group)
-                    .map_err(|error| LodestarError::KernelInvalidParams {
+                loom.weave_typed_refs(cx_id, group).map_err(|error| {
+                    LodestarError::KernelInvalidParams {
                         detail: format!("weave agreement for {cx_id} failed: {error}"),
-                    })?;
+                    }
+                })?;
             }
 
             let props = AsterAssocNodeProps {
                 embedding: None,
-                embeddings: vectors.clone(),
+                embeddings: BTreeMap::new(),
+                typed_embeddings: vectors,
                 ts: Some(cx.created_at),
-                anchors: cx
-                    .anchors
-                    .iter()
-                    .map(|anchor| anchor.kind.clone())
-                    .collect(),
+                anchors: cx.anchor_kinds.clone(),
                 tenant: None,
                 named_filters: Vec::new(),
                 metadata: cx.metadata.clone(),
             };
-            node_rows.push((
-                ColumnFamily::Graph,
-                graph.node_key(cx_id),
-                encode_assoc_node_props(&props)?,
-            ));
-            if !cx.anchors.is_empty() {
+            let encoded = encode_assoc_node_props(&props)?;
+            node_rows.push((ColumnFamily::Graph, graph.node_key(cx_id), encoded));
+            if !cx.anchor_kinds.is_empty() {
                 anchors.push(cx_id);
             }
-            panel_vectors.push((cx_id, vectors));
+            processed += 1;
         }
 
         for edge in loom.agreement_graph()? {
@@ -196,20 +231,39 @@ pub(super) fn weave_within_doc<C: Clock>(
         }
 
         let kv = loom.xterm_kv_rows()?;
-        for rows in kv.chunks(XTERM_WRITE_CHUNK) {
-            vault.write_cf_batch(
-                rows.iter()
-                    .map(|(k, v)| (ColumnFamily::XTerm, k.clone(), v.clone())),
-            )?;
-        }
         xterm_rows_persisted += kv.len();
+        let xterm_rows = kv
+            .into_iter()
+            .map(|(key, value)| {
+                Ok((
+                    ColumnFamily::XTerm,
+                    weave_xterm_generation_key(
+                        PANEL_ASTER_ASSOC_COLLECTION,
+                        xterm_generation,
+                        &key,
+                    )?,
+                    value,
+                ))
+            })
+            .collect::<calyx_core::Result<Vec<_>>>()?;
+        write_cf_byte_budgeted(vault, xterm_rows, XTERM_WRITE_CHUNK)?;
 
-        for rows in node_rows.chunks(NODE_WRITE_CHUNK) {
-            vault.write_cf_batch(rows.iter().cloned())?;
+        write_cf_byte_budgeted(vault, node_rows, NODE_WRITE_CHUNK)?;
+        chunk_start = chunk_end;
+
+        // Emit a sub-phase runtime line + sample live RSS against the budget so
+        // any residual mid-pass growth is localized, not silent.
+        if processed - last_progress >= WEAVE_PROGRESS_EVERY_NODES
+            && let Some(callback) = on_progress.as_mut()
+        {
+            callback(WithinDocProgress {
+                nodes_total,
+                nodes_processed: processed,
+                xterm_rows_persisted,
+            })?;
+            last_progress = processed;
         }
     }
-
-    vault.flush()?;
 
     let agreement_pairs = agreement_acc
         .into_iter()
@@ -223,122 +277,9 @@ pub(super) fn weave_within_doc<C: Clock>(
 
     Ok(WithinDocResult {
         constellations_in_vault,
-        constellations_processed: panel_vectors.len(),
+        constellations_processed: processed,
         xterm_rows_persisted,
         agreement_pairs,
         anchors,
-        panel_vectors,
     })
-}
-
-/// Pass B: build the directed k-NN association graph over the persisted DiskANN
-/// index, persist its edges into the `graph` CF, and return the in-memory
-/// `AssocGraph` (cosine-weighted, clamped to `[0,1]`) for the acceptance report.
-pub(super) fn build_between_doc_graph<C: Clock>(
-    vault: &AsterVault<C>,
-    graph: &PlainGraph<'_, C>,
-    request: BetweenDocGraphRequest<'_>,
-    mut progress: Option<&mut dyn FnMut(BetweenDocProgress) -> CliResult>,
-) -> CliResult<(usize, AssocGraph)> {
-    let mut builder = AssocGraph::builder();
-    let node_set: HashSet<CxId> = request
-        .panel_vectors
-        .iter()
-        .map(|(cx_id, _)| *cx_id)
-        .collect();
-    for (cx_id, _) in request.panel_vectors {
-        builder.add_node(*cx_id, 1.0).map_err(LodestarError::from)?;
-    }
-
-    let mut edges_persisted = 0usize;
-    let mut edge_rows: Vec<(ColumnFamily, Vec<u8>, Vec<u8>)> = Vec::new();
-
-    let panel_lookup = request
-        .panel_vectors
-        .iter()
-        .map(|(id, vectors)| (*id, vectors))
-        .collect::<HashMap<_, _>>();
-    let candidate_k = request
-        .knn
-        .checked_mul(request.embedding_slots.len())
-        .and_then(|value| value.checked_add(1))
-        .ok_or_else(|| CliError::runtime("panel graph candidate k overflow"))?;
-    let nodes_total = request.panel_vectors.len();
-    for (node_index, (cx_id, vectors)) in request.panel_vectors.iter().enumerate() {
-        let mut candidate_ids = BTreeSet::new();
-        for slot in request.embedding_slots {
-            let vector = vectors.get(slot).ok_or_else(|| {
-                CliError::runtime(format!("graph source {cx_id} lost contracted slot {slot}"))
-            })?;
-            let query = SlotVector::Dense {
-                dim: vector.len() as u32,
-                data: vector.clone(),
-            };
-            for hit in request.indexes.search(*slot, &query, candidate_k)? {
-                if hit.cx_id != *cx_id && node_set.contains(&hit.cx_id) {
-                    candidate_ids.insert(hit.cx_id);
-                }
-            }
-        }
-        let candidates = candidate_ids
-            .into_iter()
-            .map(|id| {
-                let panel = panel_lookup.get(&id).ok_or_else(|| {
-                    CliError::runtime(format!("graph candidate {id} has no panel vectors"))
-                })?;
-                Ok((id, *panel))
-            })
-            .collect::<CliResult<BTreeMap<_, _>>>()?;
-        let hits =
-            rank_panel_candidate_refs(vectors, &candidates, request.embedding_slots, PANEL_RRF_K)?;
-        let mut kept = 0usize;
-        for (fused_offset, hit) in hits.into_iter().enumerate() {
-            // Skip self, sub-threshold, and any neighbour outside the processed
-            // node set (only possible under `--limit`; the full corpus run keeps
-            // every neighbour). Guarantees every edge endpoint has a graph node.
-            if hit.score < request.edge_score_threshold {
-                continue;
-            }
-            if kept >= request.knn {
-                break;
-            }
-            let weight = hit.score.clamp(0.0, 1.0);
-            let out_key = graph.edge_out_key(*cx_id, EDGE_TYPE, hit.cx_id)?;
-            let in_key = graph.edge_in_key(hit.cx_id, EDGE_TYPE, *cx_id)?;
-            let value = serde_json::to_vec(&EdgeValue {
-                weight,
-                fusion: "rrf",
-                rrf_k: PANEL_RRF_K,
-                fused_rank: fused_offset + 1,
-                lanes: hit.lanes,
-            })
-            .map_err(|error| CliError::runtime(format!("serialize edge value: {error}")))?;
-            edge_rows.push((ColumnFamily::Graph, out_key.clone(), value));
-            edge_rows.push((ColumnFamily::Graph, in_key, out_key));
-            builder
-                .add_edge(*cx_id, hit.cx_id, weight)
-                .map_err(LodestarError::from)?;
-            kept += 1;
-            edges_persisted += 1;
-        }
-        if edge_rows.len() >= EDGE_FLUSH_ROWS {
-            vault.write_cf_batch(std::mem::take(&mut edge_rows))?;
-        }
-        let nodes_processed = node_index + 1;
-        if (nodes_processed == nodes_total || nodes_processed % 128 == 0)
-            && let Some(callback) = progress.as_mut()
-        {
-            callback(BetweenDocProgress {
-                nodes_total,
-                nodes_processed,
-                edges_persisted,
-            })?;
-        }
-    }
-    if !edge_rows.is_empty() {
-        vault.write_cf_batch(edge_rows)?;
-    }
-    vault.flush()?;
-
-    Ok((edges_persisted, builder.build()))
 }

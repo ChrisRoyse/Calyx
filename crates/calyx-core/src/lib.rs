@@ -11,6 +11,8 @@ pub mod ids;
 pub mod media;
 pub mod model;
 pub mod security;
+pub mod slot_similarity;
+pub mod structured;
 pub mod temporal;
 pub mod time;
 pub mod traits;
@@ -49,13 +51,28 @@ pub use model::{
     Anchor, AnchorValue, CALYX_RECORD_SCHEMA_VIOLATION, ConfidenceInterval, Constellation, CxFlags,
     InputRef, LedgerRef, LensCost, METADATA_CHUNK_ID, METADATA_DATABASE_NAME,
     METADATA_SOURCE_EVENT_TIME_RAW, METADATA_SOURCE_EVENT_TIME_SECS, METADATA_SOURCE_SEQUENCE,
-    METADATA_TEMPORAL_INACTIVE_REASON, METADATA_TEMPORAL_LANE_STATE, Panel, Placement, Signal,
-    Slot, SlotResource, SlotVector, SparseEntry, TEMPORAL_LANE_ACTIVE, TEMPORAL_LANE_INACTIVE,
-    TEMPORAL_MISSING_CREATED_AT,
+    METADATA_TEMPORAL_INACTIVE_REASON, METADATA_TEMPORAL_LANE_STATE, Panel, Placement,
+    SegmentVector, SegmentationProvenance, Signal, Slot, SlotResource, SlotVector, SparseEntry,
+    TEMPORAL_LANE_ACTIVE, TEMPORAL_LANE_INACTIVE, TEMPORAL_MISSING_CREATED_AT,
 };
 pub use security::{
     AuthN, CALYX_AUTHN_REQUIRED, CALYX_TLS_CONFIG_INVALID, MtlsConfig, TlsConfig,
     no_anonymous_write,
+};
+pub use slot_similarity::{
+    CALYX_SLOT_SIMILARITY_ABSENT, CALYX_SLOT_SIMILARITY_NUMERICAL, CALYX_SLOT_SIMILARITY_SHAPE,
+    DirectionalBlockMatch, PreparedSlotSimilarity, SLOT_SIMILARITY_SCHEMA_VERSION,
+    SimilaritySlotShape, SlotBlockKind, SlotBlockRef, SlotBlockValues, SlotBlockView,
+    SlotSimilarityEvidence, prepare_slot_similarity, prepared_slot_similarity_score,
+    slot_ambient_dim, slot_blocks, slot_segmentation, slot_similarity, slot_similarity_shape,
+};
+pub use structured::{
+    CALYX_STRUCTURED_FIELD_MISSING, CALYX_STRUCTURED_NON_FINITE, CALYX_STRUCTURED_RECORD_INVALID,
+    CALYX_STRUCTURED_RESERVED_METADATA, CALYX_STRUCTURED_SCHEMA_INVALID,
+    CALYX_STRUCTURED_SCHEMA_MISMATCH, CALYX_STRUCTURED_SELECTOR_INVALID,
+    CALYX_STRUCTURED_TYPE_MISMATCH, METADATA_STRUCTURED_RECORD, METADATA_STRUCTURED_SCHEMA,
+    STRUCTURED_METADATA_PREFIX, StructuredRecord, StructuredValue, escape_json_pointer_token,
+    validate_json_field_pointer,
 };
 pub use temporal::{
     BoostConfig, CALYX_TEMPORAL_AP60_VIOLATION, CALYX_TEMPORAL_INVALID_BOOST_CONFIG,

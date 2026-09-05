@@ -1,11 +1,11 @@
 use std::collections::BTreeMap;
 
 use calyx_core::CxId;
-use calyx_lodestar::PanelVectors;
+use calyx_lodestar::TypedPanelVectors;
 
 pub(super) struct KernelBuildNodeProps {
     pub id: CxId,
-    pub embeddings: PanelVectors,
+    pub embeddings: TypedPanelVectors,
     pub anchored: bool,
     pub metadata: BTreeMap<String, String>,
 }

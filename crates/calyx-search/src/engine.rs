@@ -419,3 +419,6 @@ fn search_outcome_with_query_vectors_freshness_cached_ledger_view_impl(
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod topk_tests;

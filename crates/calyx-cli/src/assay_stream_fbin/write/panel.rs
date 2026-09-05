@@ -1,3 +1,4 @@
+use calyx_core::SlotShape;
 use calyx_registry::{LensSpec as RegistryLensSpec, lens_spec_from_manifest_path};
 
 use crate::error::CliResult;
@@ -11,6 +12,16 @@ pub(super) fn validate_floor_before_runtime(args: &Args) -> CliResult {
     let bits = load_bits(args)?;
     let mut selected = 0usize;
     for spec in panel_specs(args)? {
+        if matches!(spec.output, SlotShape::Multi { .. }) {
+            return Err(local_error(
+                "CALYX_FSV_ASSAY_MULTI_VECTOR_COLLAPSE_REFUSED",
+                format!(
+                    "lens {} declares {:?}; fixed-row FBIN/I8BIN would require pooling its token vectors and would change native MaxSim meaning",
+                    spec.name, spec.output
+                ),
+                "use a native dense or sparse lens for this fixed-row gate, or implement a typed multi-vector/MaxSim truth and index path before admitting this lens",
+            ));
+        }
         require_countable_content_signal_kind(
             &spec.name,
             lens_spec_signal_kind_name(&spec),

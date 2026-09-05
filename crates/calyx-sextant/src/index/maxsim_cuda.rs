@@ -8,6 +8,7 @@ use crate::error::CALYX_INDEX_IO;
 use crate::error::{CALYX_INDEX_INVALID_PARAMS, sextant_error};
 
 pub const MAXSIM_CUDA_MAX_K: usize = 1024;
+pub const MAXSIM_CUDA_MAX_BATCH: usize = 4096;
 
 mod imp;
 
@@ -18,6 +19,20 @@ pub struct MaxSimCudaRequest<'a> {
     pub total_tokens: usize,
     pub query_tokens: &'a [f32],
     pub query_token_count: usize,
+    pub k: usize,
+    pub chunk_rows: usize,
+    pub chunk_tokens: usize,
+}
+
+#[derive(Clone, Debug)]
+pub struct MaxSimCudaBatchRequest<'a> {
+    pub token_dim: usize,
+    pub total_rows: usize,
+    pub total_tokens: usize,
+    pub query_tokens: &'a [f32],
+    /// Token offsets for each logical query, with a terminal offset. Offsets
+    /// count tokens (not f32 components) and must be strictly increasing.
+    pub query_offsets: &'a [u32],
     pub k: usize,
     pub chunk_rows: usize,
     pub chunk_tokens: usize,
@@ -41,6 +56,7 @@ pub struct MaxSimCudaReport {
     pub total_rows: usize,
     pub total_tokens: usize,
     pub token_dim: usize,
+    pub query_rows: usize,
     pub query_tokens: usize,
     pub k: usize,
     pub chunk_rows: usize,
@@ -66,6 +82,19 @@ pub struct MaxSimCudaTopK {
     pub report: MaxSimCudaReport,
 }
 
+#[derive(Clone, Debug, PartialEq)]
+pub struct MaxSimCudaBatchRow {
+    pub id_hi: Vec<u64>,
+    pub id_lo: Vec<u64>,
+    pub scores: Vec<f32>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct MaxSimCudaBatchTopK {
+    pub rows: Vec<MaxSimCudaBatchRow>,
+    pub report: MaxSimCudaReport,
+}
+
 pub fn maxsim_cuda_topk<F>(
     request: MaxSimCudaRequest<'_>,
     mut load_chunk: F,
@@ -85,6 +114,31 @@ where
     imp::run(request, &mut load_chunk)
 }
 
+pub fn maxsim_cuda_topk_batch<F>(
+    request: MaxSimCudaBatchRequest<'_>,
+    mut load_chunk: F,
+) -> Result<MaxSimCudaBatchTopK>
+where
+    F: FnMut(usize, usize, usize) -> Result<Option<MaxSimCudaChunk>>,
+{
+    validate_batch_request(&request)?;
+    if request.total_rows == 0 || request.k == 0 {
+        let query_rows = request.query_offsets.len() - 1;
+        return Ok(MaxSimCudaBatchTopK {
+            rows: vec![
+                MaxSimCudaBatchRow {
+                    id_hi: Vec::new(),
+                    id_lo: Vec::new(),
+                    scores: Vec::new(),
+                };
+                query_rows
+            ],
+            report: empty_batch_report(&request, 0),
+        });
+    }
+    imp::run_batch(request, &mut load_chunk)
+}
+
 fn validate_request(request: &MaxSimCudaRequest<'_>) -> Result<()> {
     if request.token_dim == 0
         || request.k == 0
@@ -100,6 +154,44 @@ fn validate_request(request: &MaxSimCudaRequest<'_>) -> Result<()> {
     if request.query_tokens.iter().any(|value| !value.is_finite()) {
         return Err(invalid(
             "MaxSim CUDA query tokens contain non-finite values",
+        ));
+    }
+    Ok(())
+}
+
+fn validate_batch_request(request: &MaxSimCudaBatchRequest<'_>) -> Result<()> {
+    let query_rows = request.query_offsets.len().saturating_sub(1);
+    let query_tokens = request
+        .query_tokens
+        .len()
+        .checked_div(request.token_dim.max(1));
+    if request.token_dim == 0
+        || query_rows == 0
+        || query_rows > MAXSIM_CUDA_MAX_BATCH
+        || request.k == 0
+        || request.k > MAXSIM_CUDA_MAX_K
+        || request.chunk_rows == 0
+        || request.chunk_tokens == 0
+        || !request.query_tokens.len().is_multiple_of(request.token_dim)
+        || request.query_offsets.first().copied() != Some(0)
+        || request
+            .query_offsets
+            .last()
+            .copied()
+            .map(|value| value as usize)
+            != query_tokens
+        || request
+            .query_offsets
+            .windows(2)
+            .any(|pair| pair[0] >= pair[1])
+    {
+        return Err(invalid(format!(
+            "invalid batched MaxSim CUDA shape; require dim>0, 0<query_rows<={MAXSIM_CUDA_MAX_BATCH}, 0<k<={MAXSIM_CUDA_MAX_K}, nonempty query token ranges, and terminal offset == flattened token count"
+        )));
+    }
+    if request.query_tokens.iter().any(|value| !value.is_finite()) {
+        return Err(invalid(
+            "batched MaxSim CUDA query tokens contain non-finite values",
         ));
     }
     Ok(())
@@ -151,7 +243,33 @@ fn empty_report(request: &MaxSimCudaRequest<'_>, elapsed_us: u128) -> MaxSimCuda
         total_rows: request.total_rows,
         total_tokens: request.total_tokens,
         token_dim: request.token_dim,
+        query_rows: 1,
         query_tokens: request.query_token_count,
+        k: request.k,
+        chunk_rows: request.chunk_rows,
+        chunk_tokens: request.chunk_tokens,
+        chunks: 0,
+        score_kernel_launches: 0,
+        topk_kernel_launches: 0,
+        merge_kernel_launches: 0,
+        h2d_bytes: 0,
+        d2h_bytes: 0,
+        final_readback_pairs: 0,
+        candidate_mask_uploaded: false,
+        host_merge: false,
+        peak_device_bytes: 0,
+        elapsed_us,
+    }
+}
+
+fn empty_batch_report(request: &MaxSimCudaBatchRequest<'_>, elapsed_us: u128) -> MaxSimCudaReport {
+    MaxSimCudaReport {
+        backend: "cuda-maxsim-batched-chunked-v2",
+        total_rows: request.total_rows,
+        total_tokens: request.total_tokens,
+        token_dim: request.token_dim,
+        query_rows: request.query_offsets.len() - 1,
+        query_tokens: request.query_tokens.len() / request.token_dim,
         k: request.k,
         chunk_rows: request.chunk_rows,
         chunk_tokens: request.chunk_tokens,

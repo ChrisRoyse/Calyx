@@ -66,7 +66,7 @@ fn in_region_guard_rejects_orthogonal_dense_hit() {
     )];
 
     // Orthogonal query vs stored vector -> cosine 0 < GUARD_TAU -> filtered out.
-    let kept = apply_in_region_guard(vec![hit], &docs, &query_vectors);
+    let kept = apply_in_region_guard(vec![hit], &docs, &query_vectors).unwrap();
     assert!(kept.is_empty(), "orthogonal hit must be guard-rejected");
 }
 
@@ -84,7 +84,7 @@ fn in_region_guard_keeps_aligned_dense_hit() {
             data: vec![1.0, 0.0],
         },
     )];
-    let kept = apply_in_region_guard(vec![hit], &docs, &query_vectors);
+    let kept = apply_in_region_guard(vec![hit], &docs, &query_vectors).unwrap();
     assert_eq!(
         kept.len(),
         1,

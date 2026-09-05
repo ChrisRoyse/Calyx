@@ -2,12 +2,15 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 
-use calyx_core::{TEMPORAL_LANE_ACTIVE, TEMPORAL_LANE_INACTIVE, TEMPORAL_MISSING_CREATED_AT};
+use calyx_core::{
+    CALYX_STRUCTURED_SCHEMA_MISMATCH, StructuredRecord, TEMPORAL_LANE_ACTIVE,
+    TEMPORAL_LANE_INACTIVE, TEMPORAL_MISSING_CREATED_AT,
+};
 use serde::Deserialize;
 use serde_json::Value;
 
 use crate::error::{CliError, CliResult};
-use crate::migrate::temporal::parse_event_time_secs;
+use crate::temporal_parse::parse_event_time_secs;
 
 use super::args::Args;
 use super::{io_error, local_error};
@@ -23,6 +26,9 @@ pub(crate) struct Row {
     pub(crate) temporal_lane_state: String,
     pub(crate) temporal_inactive_reason: Option<String>,
     pub(crate) source_sequence_index: usize,
+    /// Canonical typed record measured by structured-modality lenses (batch-ingest
+    /// `record_schema`+`record` parity).
+    pub(crate) structured: Option<StructuredRecord>,
 }
 
 #[derive(Clone, Debug, Default, serde::Serialize)]
@@ -51,6 +57,10 @@ struct RawRow {
     #[serde(default)]
     row: Option<usize>,
     text: String,
+    #[serde(default)]
+    record_schema: Option<String>,
+    #[serde(default)]
+    record: Option<Value>,
     #[serde(default)]
     gdelt_action_geo_country: Option<String>,
     #[serde(default)]
@@ -150,6 +160,7 @@ fn parse(line_idx: usize, line: &str) -> CliResult<Row> {
     let id = row_id(line_idx, &raw)?;
     let label = row_label(line_idx, &raw.label)?;
     let temporal = row_temporal(line_idx, &raw)?;
+    let structured = row_structured(line_idx, &raw)?;
     Ok(Row {
         id,
         text: row_text(&raw),
@@ -159,7 +170,35 @@ fn parse(line_idx: usize, line: &str) -> CliResult<Row> {
         temporal_lane_state: temporal.lane_state,
         temporal_inactive_reason: temporal.inactive_reason,
         source_sequence_index: line_idx,
+        structured,
     })
+}
+
+/// Parses the optional canonical typed record, mirroring the batch-ingest
+/// `parse_structured_record` contract exactly: `record_schema` and `record` must
+/// appear together, and `StructuredRecord::from_json_value` validates the atoms,
+/// failing closed with the stable structured error codes.
+fn row_structured(line_idx: usize, row: &RawRow) -> CliResult<Option<StructuredRecord>> {
+    match (row.record_schema.as_deref(), row.record.as_ref()) {
+        (None, None) => Ok(None),
+        (Some(schema), Some(record)) => StructuredRecord::from_json_value(schema, record)
+            .map(Some)
+            .map_err(|error| {
+                local_error(
+                    error.code,
+                    format!(
+                        "line {line_idx} structured record is invalid: {}",
+                        error.message
+                    ),
+                    "provide one complete canonical typed record per row and retry",
+                )
+            }),
+        _ => Err(local_error(
+            CALYX_STRUCTURED_SCHEMA_MISMATCH,
+            format!("line {line_idx} must provide record_schema and record together"),
+            "supply both the exact stable schema id and its typed JSON object",
+        )),
+    }
 }
 
 fn row_text(row: &RawRow) -> String {

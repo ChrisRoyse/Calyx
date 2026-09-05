@@ -36,7 +36,13 @@ fn aggregates_lens_success_across_targets() {
     assert!(report.gate_passed);
     assert_eq!(report.status, calyx_assay::A37_DIVERSITY_GATE_PASSED);
     assert_eq!(report.passing_lens_count, 10);
-    assert!(evidence.db_readback.readback_matches);
+    assert!(
+        evidence
+            .db_readback
+            .as_ref()
+            .expect("gate-passing run must persist an A37 admission db readback")
+            .readback_matches
+    );
     assert!(
         Path::new(&evidence.cf_root)
             .join("cf")
@@ -83,7 +89,13 @@ fn aggregates_from_assay_cf_without_json_artifacts() {
 
     assert!(report.gate_passed);
     assert_eq!(evidence.artifact_mode, "db_only");
-    assert!(evidence.db_readback.readback_matches);
+    assert!(
+        evidence
+            .db_readback
+            .as_ref()
+            .expect("gate-passing run must persist an A37 admission db readback")
+            .readback_matches
+    );
     assert!(evidence.report_path.is_empty());
     assert!(!root.join("out").exists());
     assert!(
@@ -288,6 +300,7 @@ fn report_value(
             "n_eff": 9.0,
             "sufficient": false,
             "deficit_bits": 0.5,
+            "conditioning": conditioning_value(names, 80),
             "a37_diversity": {
                 "schema_version": calyx_assay::A37_DIVERSITY_SCHEMA_VERSION,
                 "role": "a37_associational_diversity_gate",
@@ -342,6 +355,39 @@ fn report_value(
             "park_count": names.len(),
             "retire_count": 0
         }
+    })
+}
+
+fn conditioning_value(names: &[String], n_samples: usize) -> serde_json::Value {
+    let blocks = names
+        .iter()
+        .enumerate()
+        .map(|(slot, name)| serde_json::json!({"name": name, "slot": slot, "dim": 1}))
+        .collect::<Vec<_>>();
+    let folds = calyx_assay::DEFAULT_ASSAY_SEEDS
+        .iter()
+        .map(|seed| {
+            serde_json::json!({
+                "seed": seed,
+                "train_rows": n_samples - 16,
+                "heldout_rows": 16,
+                "block_scales": names.iter().enumerate().map(|(slot, name)| {
+                    serde_json::json!({"name": name, "slot": slot, "scale": 1.0})
+                }).collect::<Vec<_>>()
+            })
+        })
+        .collect::<Vec<_>>();
+    serde_json::json!({
+        "schema_version": calyx_assay::LOGISTIC_CONDITIONING_SCHEMA_VERSION,
+        "method": calyx_assay::LOGISTIC_CONDITIONING_METHOD,
+        "fit_scope": "training_fold_only",
+        "transform": "x / sqrt(mean(per_coordinate_population_variance(training_fold_lens_block)))",
+        "centering": false,
+        "zero_variance_policy": "fail_closed:CALYX_ASSAY_DEGENERATE_INPUT",
+        "non_finite_policy": "fail_closed:CALYX_FORGE_NUMERICAL_INVARIANT",
+        "no_collapse": true,
+        "blocks": blocks,
+        "folds": folds
     })
 }
 

@@ -6,7 +6,7 @@ weave-loom domain-bridges materialize-bridge-corpus discovery-chain chain-walks 
 materialize-citation-overlay materialize-graph-csr materialize-molecular-vault materialize-evidence-substrate materialize-lincs-reversal \
 assemble-hypothesis-evidence association-validation-gates typed-association-miner hypothesis-falsification-sweep \
 biomedical-blindspot-audit bridge-falsification-evaluate bridge-evaluate-rank novelty-calibration-split \
-graph-collection-generations graph-collection-state";
+graph-collection-generations graph-collection-state graph-generation-reclaim weave-generation-verify-accept";
 
 pub(super) fn is_cmd(command: &str) -> bool {
     KNOWN_COMMANDS

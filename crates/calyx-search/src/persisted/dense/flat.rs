@@ -111,6 +111,43 @@ pub(super) fn search(
     Ok(ranked(scored))
 }
 
+/// Forced GPU flat-dense candidate search (#1963). Identical to the GPU branch
+/// of [`search`] but without the `cuda_min_rows` floor: weave candidate
+/// generation on the current-scale corpus (≤ `DEFAULT_MAX_ROWS` flat rows, e.g.
+/// the 12.6k canonical vault) must still run on the GPU when explicitly asked.
+/// The resident cuVS flat index fails closed on any platform without a compiled
+/// cuVS (`CuvsResidentFlatIndex::new` → `unavailable`), so there is no silent
+/// CPU fallback.
+#[cfg(feature = "cuda")]
+pub(super) fn search_gpu_forced(
+    vault_dir: &Path,
+    entry: &SearchIndexEntry,
+    slot: SlotId,
+    query: &SlotVector,
+    k: usize,
+) -> CliResult<Vec<IndexSearchHit>> {
+    if k == 0 {
+        return Ok(Vec::new());
+    }
+    let SlotVector::Dense { dim, data } = query else {
+        return Err(stale(format!(
+            "persistent flat dense GPU candidate search slot {slot} received non-dense query"
+        )));
+    };
+    let index = pinned_index(vault_dir, entry, slot)?;
+    if index.header.dim != *dim {
+        return Err(stale(format!(
+            "persistent flat dense slot {slot} index dim {} != query dim {dim}; reingest/backfill the vault",
+            index.header.dim
+        )));
+    }
+    crate::engine_slot_fanout::record_slot_serving_detail(format!(
+        "slot_backend=cuvs-resident-flat-forced slot_compute_placement=cuda:0 source_rows={} candidate_rows={}",
+        index.header.len, index.header.len
+    ));
+    gpu::search(vault_dir, entry, slot, &index, data, k, None)
+}
+
 fn cuda_min_rows() -> usize {
     env::var(CUDA_MIN_ROWS_ENV)
         .ok()

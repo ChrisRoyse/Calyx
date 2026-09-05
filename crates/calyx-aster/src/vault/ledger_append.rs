@@ -1,4 +1,4 @@
-use super::{AsterVault, encode, ledger_hook};
+use super::{AsterVault, DurableCommitIntent, NoopDurableCommitIntent, encode, ledger_hook};
 use crate::cf::{ColumnFamily, anchor_key, base_key, ledger_key};
 use crate::ledger_view::parse_aster_ledger_seq;
 use calyx_core::{Anchor, CalyxError, Clock, CxId, LedgerRef, Result, SystemClock, VaultStore};
@@ -8,11 +8,24 @@ use calyx_ledger::{
     reproduce_payload_bytes, reproduce_verdict_with_input_resolver, reproduce_with_input_resolver,
 };
 
-struct LedgerEntryInput {
+/// Provenance fields committed with a state mutation.
+#[derive(Clone, Debug)]
+pub struct LedgerEntryInput {
     kind: EntryKind,
     subject: SubjectId,
     payload: Vec<u8>,
     actor: ActorId,
+}
+
+impl LedgerEntryInput {
+    pub fn new(kind: EntryKind, subject: SubjectId, payload: Vec<u8>, actor: ActorId) -> Self {
+        Self {
+            kind,
+            subject,
+            payload,
+            actor,
+        }
+    }
 }
 
 impl<C> AsterVault<C>
@@ -64,44 +77,63 @@ where
         payload: Vec<u8>,
         actor: ActorId,
     ) -> Result<LedgerRef> {
-        let entry = LedgerEntryInput {
-            kind,
-            subject,
-            payload,
-            actor,
-        };
+        let mut intent = NoopDurableCommitIntent;
+        self.anchor_with_ledger_entry_and_commit_intent(
+            id,
+            anchor,
+            LedgerEntryInput::new(kind, subject, payload, actor),
+            &mut intent,
+        )
+    }
+
+    /// Adds an anchor while serializing an external derived-state intent with
+    /// the exact Base commit.
+    pub fn anchor_with_ledger_entry_and_commit_intent(
+        &self,
+        id: CxId,
+        anchor: Anchor,
+        entry: LedgerEntryInput,
+        intent: &mut dyn DurableCommitIntent,
+    ) -> Result<LedgerRef> {
         anchor.validate_schema()?;
         self.with_durable_commit_lock(|| {
-            let latest = self.snapshot();
-            let mut constellation = self.get(id, latest)?;
-            constellation.anchors.push(anchor.clone());
-            constellation.flags.ungrounded = constellation.anchors.is_empty();
-            let Some(hook) = &self.ledger_hook else {
-                return self.anchor_with_raw_ledger_entry(id, &mut constellation, anchor, entry);
-            };
-            let mut guard = ledger_hook::lock_hook(hook)?;
-            let staged = guard.stage_with_checkpoints(
-                entry.kind,
-                entry.subject,
-                entry.payload,
-                entry.actor,
-            )?;
-            let ledger_ref = staged
-                .first()
-                .ok_or_else(|| CalyxError::ledger_group_commit_failed("no staged ledger rows"))?
-                .ledger_ref();
-            constellation.provenance = ledger_ref.clone();
-            let mut rows = anchor_rows(id, &constellation, &anchor)?;
-            rows.extend(staged.iter().map(|row| encode::WriteRow {
-                cf: ColumnFamily::Ledger,
-                key: row.key().to_vec(),
-                value: row.value().to_vec(),
-            }));
-            self.commit_rows_locked(&rows)?;
-            for row in &staged {
-                guard.commit_staged(row)?;
-            }
-            Ok(ledger_ref)
+            self.run_with_commit_intent_locked(intent, || {
+                let latest = self.snapshot();
+                let mut constellation = self.get(id, latest)?;
+                constellation.anchors.push(anchor.clone());
+                constellation.flags.ungrounded = constellation.anchors.is_empty();
+                let Some(hook) = &self.ledger_hook else {
+                    return self.anchor_with_raw_ledger_entry(
+                        id,
+                        &mut constellation,
+                        anchor,
+                        entry,
+                    );
+                };
+                let mut guard = ledger_hook::lock_hook(hook)?;
+                let staged = guard.stage_with_checkpoints(
+                    entry.kind,
+                    entry.subject,
+                    entry.payload,
+                    entry.actor,
+                )?;
+                let ledger_ref = staged
+                    .first()
+                    .ok_or_else(|| CalyxError::ledger_group_commit_failed("no staged ledger rows"))?
+                    .ledger_ref();
+                constellation.provenance = ledger_ref.clone();
+                let mut rows = anchor_rows(id, &constellation, &anchor)?;
+                rows.extend(staged.iter().map(|row| encode::WriteRow {
+                    cf: ColumnFamily::Ledger,
+                    key: row.key().to_vec(),
+                    value: row.value().to_vec(),
+                }));
+                self.commit_rows_locked(&rows)?;
+                for row in &staged {
+                    guard.commit_staged(row)?;
+                }
+                Ok(ledger_ref)
+            })
         })
     }
 

@@ -16,7 +16,7 @@ mod progress;
 pub(crate) mod projection;
 mod runtime;
 mod stream;
-use projection::{project_multi, project_sparse};
+use projection::project_sparse;
 use runtime::build_lens;
 pub(crate) use stream::measure_text_batch;
 
@@ -104,6 +104,12 @@ fn load_unique_specs(
                 error.message
             )
         })?;
+        if matches!(spec.output, SlotShape::Multi { .. }) {
+            return Err(format!(
+                "CALYX_FSV_ASSAY_MULTI_VECTOR_COLLAPSE_REFUSED: lens={} shape={:?}; authoritative fixed-row assay export cannot preserve typed Multi/MaxSim semantics; use a native dense or sparse lens, or implement a typed multi-vector truth/index path",
+                spec.name, spec.output
+            ));
+        }
         if let Some(previous) = names.insert(spec.name.clone(), manifest.clone()) {
             return Err(format!(
                 "CALYX_FSV_ASSAY_CORPUS_BUILD_DUPLICATE_LENS: lens={} manifests={} and {}",
@@ -215,9 +221,14 @@ fn assay_vectors(
                     dim(lens.spec.output)
                 ));
             }
-            SlotVector::Multi { token_dim, tokens } if token_dim == dim(lens.spec.output) => {
-                projection.get_or_insert("multi_mean_dense");
-                vectors.push(project_multi(&lens.name, idx, token_dim, tokens)?);
+            SlotVector::Multi {
+                token_dim,
+                tokens: _,
+            } if token_dim == dim(lens.spec.output) => {
+                return Err(format!(
+                    "CALYX_FSV_ASSAY_MULTI_VECTOR_COLLAPSE_REFUSED: lens={} row={idx} shape=Multi{{token_dim:{token_dim}}}; averaging token vectors into one dense row would change MaxSim meaning; use a typed multi-vector truth/index path",
+                    lens.name
+                ));
             }
             SlotVector::Multi {
                 token_dim,

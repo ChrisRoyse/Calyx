@@ -1,4 +1,4 @@
-use std::fs::{self, File, OpenOptions};
+use std::fs::{self, File};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -79,12 +79,7 @@ pub(super) fn write_index(path: &Path, index: &LedgerQueryIndex) -> Result<()> {
     let parent = path.parent().ok_or_else(|| {
         CalyxError::disk_pressure("ledger query index path has no parent directory")
     })?;
-    fs::create_dir_all(parent).map_err(|error| {
-        CalyxError::disk_pressure(format!(
-            "create ledger query index directory {}: {error}",
-            parent.display()
-        ))
-    })?;
+    crate::private_fs::create_private_dir_all(parent)?;
     let payload = bincode::serde::encode_to_vec(index, config::standard()).map_err(|error| {
         CalyxError::ledger_corrupt(format!("encode ledger query index: {error}"))
     })?;
@@ -99,16 +94,7 @@ pub(super) fn write_index(path: &Path, index: &LedgerQueryIndex) -> Result<()> {
         NEXT_TEMP.fetch_add(1, Ordering::Relaxed)
     ));
     let result = (|| -> Result<()> {
-        let mut file = OpenOptions::new()
-            .create_new(true)
-            .write(true)
-            .open(&temp)
-            .map_err(|error| {
-                CalyxError::disk_pressure(format!(
-                    "create ledger query index temp {}: {error}",
-                    temp.display()
-                ))
-            })?;
+        let mut file = crate::private_fs::open_private_temp_file(&temp)?;
         file.write_all(&bytes).map_err(|error| {
             CalyxError::disk_pressure(format!(
                 "write ledger query index temp {}: {error}",

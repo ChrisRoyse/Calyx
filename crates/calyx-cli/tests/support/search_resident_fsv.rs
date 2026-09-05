@@ -81,6 +81,8 @@ where
                 recall_delta: calyx_registry::spec::default_recall_delta(),
                 max_batch: Some(4),
                 max_tokens: None,
+                representation: None,
+                special_tokens: None,
                 batch_policy: None,
             };
             fs::write(

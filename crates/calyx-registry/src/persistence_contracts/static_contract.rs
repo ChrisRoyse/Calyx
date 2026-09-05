@@ -15,7 +15,8 @@ use crate::frozen::{FrozenLensContract, LensDType, NormPolicy, sha256_digest};
 use crate::runtime::candle::{self, CandlePoolingPolicy, CandlePrecision};
 use crate::runtime::common::DEFAULT_MAX_TOKENS;
 use crate::runtime::onnx::{custom_contract_corpus_hash, custom_pooling_from_config};
-use crate::{AlgorithmicEncoder, LensRuntime, LensSpec, MultimodalAdapterLens, Qwen3ModelFiles};
+use crate::runtime::static_lookup::STATIC_LOOKUP_FULL_DOCUMENT_POLICY;
+use crate::{AlgorithmicLens, LensRuntime, LensSpec, MultimodalAdapterLens, Qwen3ModelFiles};
 
 const DEFAULT_COLBERT_ONNX: &str = "onnx/model_fp16.onnx";
 const DEFAULT_QWEN3_MODEL: &str = "Qwen/Qwen3-Embedding-0.6B";
@@ -32,6 +33,9 @@ pub fn derive_runtime_contract_from_spec(spec: &LensSpec) -> Result<FrozenLensCo
     match &spec.runtime {
         LensRuntime::Algorithmic { kind } => algorithmic_contract(spec, kind),
         LensRuntime::TeiHttp { endpoint } => tei_contract(spec, endpoint),
+        LensRuntime::TeiHttpSegmented { endpoint, policy } => {
+            tei_segmented_contract(spec, endpoint, *policy)
+        }
         LensRuntime::ExternalCmd { cmd, args } => external_contract(spec, cmd, args),
         LensRuntime::CandleLocal {
             model_id,
@@ -73,96 +77,11 @@ pub fn derive_runtime_contract_from_spec(spec: &LensSpec) -> Result<FrozenLensCo
 }
 
 fn algorithmic_contract(spec: &LensSpec, kind: &str) -> Result<FrozenLensContract> {
-    let encoder = algorithmic_encoder(kind, spec.output).ok_or_else(|| {
-        lens_config_invalid(format!(
-            "unsupported algorithmic lens kind {kind} for persisted lens {}",
-            spec.name
-        ))
-    })?;
-    if encoder == AlgorithmicEncoder::ByteFeatures {
-        return Ok(FrozenLensContract::algorithmic_byte_features(
-            &spec.name,
-            spec.modality,
-        ));
-    }
-    let encoder_text = format!("{encoder:?}:{}", encoder.dim());
-    Ok(FrozenLensContract::new(
-        spec.name.clone(),
-        sha256_digest(&[b"algorithmic-runtime-v2", encoder_text.as_bytes()]),
-        sha256_digest(&[b"algorithmic-data-oblivious"]),
-        encoder.shape(),
-        spec.modality,
-        LensDType::F32,
-        NormPolicy::None,
-    ))
-}
-
-fn algorithmic_encoder(kind: &str, shape: SlotShape) -> Option<AlgorithmicEncoder> {
-    match kind {
-        "byte_features" | "byte-features" | "byte" => Some(AlgorithmicEncoder::ByteFeatures),
-        "scalar" => Some(AlgorithmicEncoder::Scalar),
-        "ast_style" | "ast-style" => Some(AlgorithmicEncoder::AstStyle),
-        "gdelt_cameo" | "gdelt-cameo" => Some(AlgorithmicEncoder::GdeltCameo),
-        "gdelt_actor_geo" | "gdelt-actor-geo" => Some(AlgorithmicEncoder::GdeltActorGeo {
-            dim: sparse_dim(shape)?,
-        }),
-        "gdelt_source_domain" | "gdelt-source-domain" => {
-            Some(AlgorithmicEncoder::GdeltSourceDomain {
-                dim: sparse_dim(shape)?,
-            })
-        }
-        "gdelt_event_geo" | "gdelt-event-geo" => Some(AlgorithmicEncoder::GdeltEventGeo {
-            dim: sparse_dim(shape)?,
-        }),
-        "gdelt_actor_pair" | "gdelt-actor-pair" => Some(AlgorithmicEncoder::GdeltActorPair {
-            dim: sparse_dim(shape)?,
-        }),
-        "gdelt_event_actor" | "gdelt-event-actor" => Some(AlgorithmicEncoder::GdeltEventActor {
-            dim: sparse_dim(shape)?,
-        }),
-        "gdelt_tone_signal" | "gdelt-tone-signal" => Some(AlgorithmicEncoder::GdeltToneSignal {
-            dim: sparse_dim(shape)?,
-        }),
-        "gdelt_source_event" | "gdelt-source-event" => Some(AlgorithmicEncoder::GdeltSourceEvent {
-            dim: sparse_dim(shape)?,
-        }),
-        "sparse" | "sparse_keywords" | "sparse-keywords" => {
-            Some(AlgorithmicEncoder::SparseKeywords {
-                dim: sparse_dim(shape)?,
-            })
-        }
-        "token_hash" | "token-hash" | "multi_hash" | "multi-hash" => {
-            Some(AlgorithmicEncoder::TokenHash {
-                token_dim: token_dim(shape)?,
-            })
-        }
-        "one_hot" | "one-hot" => Some(AlgorithmicEncoder::OneHot {
-            buckets: dense_dim(shape)?,
-        }),
-        value => {
-            if let Some(dim) = value
-                .strip_prefix("sparse_keywords:")
-                .or_else(|| value.strip_prefix("sparse-keywords:"))
-                .and_then(|dim| dim.parse().ok())
-            {
-                return Some(AlgorithmicEncoder::SparseKeywords { dim });
-            }
-            if let Some(token_dim) = value
-                .strip_prefix("token_hash:")
-                .or_else(|| value.strip_prefix("token-hash:"))
-                .or_else(|| value.strip_prefix("multi_hash:"))
-                .or_else(|| value.strip_prefix("multi-hash:"))
-                .and_then(|dim| dim.parse().ok())
-            {
-                return Some(AlgorithmicEncoder::TokenHash { token_dim });
-            }
-            value
-                .strip_prefix("one_hot:")
-                .or_else(|| value.strip_prefix("one-hot:"))
-                .and_then(|buckets| buckets.parse().ok())
-                .map(|buckets| AlgorithmicEncoder::OneHot { buckets })
-        }
-    }
+    Ok(
+        AlgorithmicLens::from_runtime_kind(&spec.name, spec.modality, kind, spec.output)?
+            .contract()
+            .clone(),
+    )
 }
 
 fn tei_contract(spec: &LensSpec, endpoint: &str) -> Result<FrozenLensContract> {
@@ -177,6 +96,43 @@ fn tei_contract(spec: &LensSpec, endpoint: &str) -> Result<FrozenLensContract> {
         endpoint,
         spec.modality,
         dim,
+    ))
+}
+
+fn tei_segmented_contract(
+    spec: &LensSpec,
+    endpoint: &str,
+    policy: crate::TeiSegmentationPolicy,
+) -> Result<FrozenLensContract> {
+    policy.validate()?;
+    // A pooled lane emits one dense vector per document, so it must declare a
+    // dense output shape; a segment-preserving lane must declare multi (#1980).
+    let dim = match (policy.is_pooled(), spec.output) {
+        (false, SlotShape::Multi { token_dim }) => token_dim,
+        (true, SlotShape::Dense(dim)) => dim,
+        (pooled, other) => {
+            let expected = if pooled { "dense" } else { "multi" };
+            return Err(lens_config_invalid(format!(
+                "segmented TEI lens {} requires {expected} output shape, got {other:?}",
+                spec.name
+            )));
+        }
+    };
+    if policy.is_pooled() {
+        return Ok(FrozenLensContract::tei_http_segmented_pooled(
+            &spec.name,
+            endpoint,
+            spec.modality,
+            dim,
+            policy.fingerprint(),
+        ));
+    }
+    Ok(FrozenLensContract::tei_http_segmented(
+        &spec.name,
+        endpoint,
+        spec.modality,
+        dim,
+        policy.fingerprint(),
     ))
 }
 
@@ -349,7 +305,7 @@ fn static_lookup_contract(
         spec.name.clone(),
         spec.weights_sha256,
         sha256_digest(&[
-            b"static-lookup-model2vec-v1",
+            STATIC_LOOKUP_FULL_DOCUMENT_POLICY.as_bytes(),
             dim.to_string().as_bytes(),
             dtype.as_bytes(),
         ]),
@@ -447,20 +403,6 @@ fn dense_dim(shape: SlotShape) -> Option<u32> {
     match shape {
         SlotShape::Dense(dim) => Some(dim),
         SlotShape::Sparse(_) | SlotShape::Multi { .. } => None,
-    }
-}
-
-fn sparse_dim(shape: SlotShape) -> Option<u32> {
-    match shape {
-        SlotShape::Sparse(dim) => Some(dim),
-        SlotShape::Dense(_) | SlotShape::Multi { .. } => None,
-    }
-}
-
-fn token_dim(shape: SlotShape) -> Option<u32> {
-    match shape {
-        SlotShape::Multi { token_dim } => Some(token_dim),
-        SlotShape::Dense(_) | SlotShape::Sparse(_) => None,
     }
 }
 

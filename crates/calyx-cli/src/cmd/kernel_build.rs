@@ -11,18 +11,22 @@ use std::path::Path;
 use std::path::PathBuf;
 use std::time::Instant;
 
-use calyx_aster::ledger_view::AsterLedgerCfStore;
+use calyx_aster::ledger_view::read_ledger_seq;
 use calyx_aster::plain_graph::PhysicalPlainGraph;
+use calyx_aster::resource::heap_rss_bytes;
 use calyx_aster::vault::{AsterVault, VaultOptions};
-use calyx_core::CxId;
-use calyx_ledger::{ActorId, EntryKind, LedgerCfStore, SubjectId, decode};
+use calyx_core::{CalyxError, CxId};
+use calyx_ledger::{ActorId, EntryKind, SubjectId, decode};
 use calyx_lodestar::{
     ASTER_ASSOC_METADATA_KEY, AsterAssocMetadata, AsterAssocNodeProps, FsKernelStore, KernelParams,
-    LodestarError, PANEL_ASTER_ASSOC_COLLECTION, PANEL_RRF_K, PanelVectors, RecallTestParams,
-    build_kernel_pipeline, build_panel_kernel_index, kernel_health, kernel_members_hash,
-    load_panel_kernel_index, panel_kernel_recall_gate, panel_kernel_recall_test,
-    panel_rank_stabilization_support_set, read_kernel_artifact, refine_kernel_with_recall_support,
-    seal_completed_kernel_identity, write_kernel_artifact, write_panel_kernel_index,
+    LodestarError, PANEL_ASTER_ASSOC_COLLECTION, PANEL_RRF_K, RecallTestParams, TypedPanelVectors,
+    build_kernel_pipeline, build_typed_panel_kernel_index_owned, kernel_health,
+    kernel_members_hash, prepare_typed_panel_corpus, prepare_typed_panel_recall_reference,
+    read_kernel_artifact, refine_kernel_with_recall_support, seal_completed_kernel_identity,
+    typed_panel_kernel_recall_test_members_against_reference,
+    typed_panel_rank_stabilization_support_from_reference,
+    verify_typed_panel_kernel_index_physical, write_kernel_artifact,
+    write_typed_panel_kernel_index,
 };
 use calyx_registry::load_vault_panel_state;
 use rayon::prelude::*;
@@ -30,9 +34,10 @@ use serde_json::json;
 
 use super::Subcommand;
 use super::kernel_generation::{
-    KernelAdmissionContract, KernelGenerationManifest, KernelGraphContract, acquire_build_lock,
-    artifact_ref, hex32, ledger_hash, physical_graph_contract, publish_current_generation,
-    sha256_bytes,
+    KernelAdmissionContract, KernelGenerationManifest, KernelGraphContract,
+    KernelJurisdictionContract, acquire_build_lock, artifact_ref,
+    artifact_ref_from_physical_readback, hex32, ledger_hash, load_current_generation_reference,
+    physical_graph_contract, publish_current_generation, sha256_bytes,
 };
 use super::vault::{home_dir, now_ms, resolve_vault_info, vault_salt};
 use crate::error::{CliError, CliResult};
@@ -44,6 +49,169 @@ const DEFAULT_HELD_OUT_FRACTION: f32 = 0.005;
 const DEFAULT_TOP_K: usize = 10;
 const DEFAULT_MIN_RECALL: f32 = 0.95;
 const RNG_SEED: u64 = 871;
+
+/// Optional fail-closed peak-RSS budget for the whole kernel-build run, in
+/// bytes. When set, kernel-build refuses (fail closed, `CALYX_BACKPRESSURE`)
+/// before the corpus-resident index build and again before publication if the
+/// projected peak resident set would exceed it — instead of being OOM-killed
+/// mid-run at ~30 GB (issue #1863).
+const KERNEL_BUILD_RSS_BUDGET_ENV: &str = "CALYX_KERNEL_BUILD_RSS_BUDGET_BYTES";
+
+/// Phase-tagged peak-RSS + timing profiler for the kernel-build run. Samples the
+/// kernel's `VmRSS` (via [`heap_rss_bytes`], the in-repo `/proc` probe) at each
+/// milestone, tracks the running high-water mark, and emits the trail on stderr
+/// and into the build JSON so a killed run still leaves a memory/timing record.
+/// A probe failure is recorded verbatim (never silently dropped) and does not
+/// fail the build; the memory *contract* is enforced separately by the
+/// fail-closed budget guard ([`enforce_rss_budget`]).
+struct RssTracker {
+    start: Instant,
+    peak_bytes: u64,
+    samples: Vec<serde_json::Value>,
+}
+
+impl RssTracker {
+    fn new() -> Self {
+        Self {
+            start: Instant::now(),
+            peak_bytes: 0,
+            samples: Vec::new(),
+        }
+    }
+
+    fn sample(&mut self, phase: &str) {
+        let elapsed_ms = self.start.elapsed().as_millis();
+        let detail = match heap_rss_bytes() {
+            Ok(bytes) => {
+                self.peak_bytes = self.peak_bytes.max(bytes);
+                eprintln!(
+                    "kernel-build: rss phase={phase} rss_bytes={bytes} peak_rss_bytes={} elapsed_ms={elapsed_ms}",
+                    self.peak_bytes
+                );
+                json!({
+                    "phase": phase,
+                    "rss_bytes": bytes,
+                    "peak_rss_bytes": self.peak_bytes,
+                    "elapsed_ms": elapsed_ms,
+                })
+            }
+            Err(error) => {
+                eprintln!(
+                    "kernel-build: rss phase={phase} probe_error={} ({}) elapsed_ms={elapsed_ms}",
+                    error.code, error.message
+                );
+                json!({
+                    "phase": phase,
+                    "rss_bytes": serde_json::Value::Null,
+                    "peak_rss_bytes": self.peak_bytes,
+                    "elapsed_ms": elapsed_ms,
+                    "probe_error": error.code,
+                    "probe_error_message": error.message,
+                })
+            }
+        };
+        self.samples.push(detail);
+    }
+
+    fn report(&self) -> serde_json::Value {
+        json!({
+            "peak_rss_bytes": self.peak_bytes,
+            "elapsed_ms": self.start.elapsed().as_millis(),
+            "budget_env": KERNEL_BUILD_RSS_BUDGET_ENV,
+            "samples": &self.samples,
+        })
+    }
+}
+
+/// Reads the optional per-run peak-RSS budget from the environment. A malformed
+/// or zero value fails closed as a usage error rather than being ignored.
+fn configured_rss_budget() -> CliResult<Option<u64>> {
+    match std::env::var(KERNEL_BUILD_RSS_BUDGET_ENV) {
+        Ok(raw) => Ok(Some(parse_rss_budget(&raw)?)),
+        Err(std::env::VarError::NotPresent) => Ok(None),
+        Err(std::env::VarError::NotUnicode(_)) => Err(CliError::usage(format!(
+            "{KERNEL_BUILD_RSS_BUDGET_ENV} value is not valid UTF-8"
+        ))),
+    }
+}
+
+/// Parses a raw budget string into a positive byte count, failing closed on a
+/// non-numeric or zero value (pure, env-free, so the contract is unit-testable).
+fn parse_rss_budget(raw: &str) -> CliResult<u64> {
+    let bytes = raw.trim().parse::<u64>().map_err(|error| {
+        CliError::usage(format!(
+            "{KERNEL_BUILD_RSS_BUDGET_ENV}={raw:?} must be a positive byte count: {error}"
+        ))
+    })?;
+    if bytes == 0 {
+        return Err(CliError::usage(format!(
+            "{KERNEL_BUILD_RSS_BUDGET_ENV} must be a positive byte budget; got 0"
+        )));
+    }
+    Ok(bytes)
+}
+
+/// Pure budget decision: returns the projected peak RSS iff it exceeds `budget`.
+/// `None` means "within budget" (or no budget). Uses saturating arithmetic so a
+/// pathological additive estimate can never wrap the comparison.
+fn projected_peak_over_budget(
+    current_bytes: u64,
+    additional_bytes: u64,
+    budget: Option<u64>,
+) -> Option<u64> {
+    let budget = budget?;
+    let projected = current_bytes.saturating_add(additional_bytes);
+    (projected > budget).then_some(projected)
+}
+
+/// Fail-closed peak-RSS pre-flight. When a budget is configured, refuses (with
+/// `CALYX_BACKPRESSURE`) before `phase` if the current resident set plus the
+/// estimated additional working set would exceed the budget — instead of
+/// proceeding toward an OOM kill. With no budget configured it is a no-op. A
+/// probe failure fails closed (the budget cannot be proven honoured) rather than
+/// silently skipping the guard.
+fn enforce_rss_budget(
+    phase: &str,
+    budget: Option<u64>,
+    projected_additional_bytes: u64,
+) -> CliResult {
+    let Some(budget) = budget else {
+        return Ok(());
+    };
+    let current = heap_rss_bytes()?;
+    if let Some(projected_peak) =
+        projected_peak_over_budget(current, projected_additional_bytes, Some(budget))
+    {
+        return Err(CalyxError::backpressure(format!(
+            "kernel-build refused before {phase}: projected peak RSS {projected_peak} bytes \
+             (current {current} + estimated additional working set {projected_additional_bytes}) \
+             exceeds {KERNEL_BUILD_RSS_BUDGET_ENV}={budget} bytes; raise the budget or shard the corpus"
+        ))
+        .into());
+    }
+    Ok(())
+}
+
+/// Physical dense payload the given constellations hold resident: the summed
+/// byte size of their per-slot dense vectors, read straight from the
+/// materialized panel map (the source of truth), not an a-priori guess.
+fn panel_payload_bytes<'a>(rows: impl IntoIterator<Item = &'a TypedPanelVectors>) -> u64 {
+    rows.into_iter()
+        .flat_map(|vectors| vectors.values())
+        .map(|vector| {
+            let values = match vector {
+                calyx_core::SlotVector::Dense { data, .. } => data.len(),
+                calyx_core::SlotVector::Sparse { entries, .. } => entries.len() * 2,
+                calyx_core::SlotVector::Multi { tokens, .. } => tokens.iter().map(Vec::len).sum(),
+                calyx_core::SlotVector::SegmentedMulti { segments, .. } => {
+                    segments.iter().map(|segment| segment.data.len()).sum()
+                }
+                calyx_core::SlotVector::Absent { .. } => 0,
+            };
+            (values * std::mem::size_of::<f32>()) as u64
+        })
+        .sum()
+}
 
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct KernelBuildArgs {
@@ -79,6 +247,10 @@ pub(crate) fn run(command: Subcommand) -> CliResult {
 
 fn run_kernel_build_with_home(home: &Path, args: KernelBuildArgs) -> CliResult {
     let started = Instant::now();
+    // Fail fast on a malformed budget before any work is done.
+    let rss_budget = configured_rss_budget()?;
+    let mut rss = RssTracker::new();
+    rss.sample("run_start");
     let resolved = resolve_vault_info(home, &args.vault)?;
     let _generation_lock = acquire_build_lock(&resolved.path)?;
     eprintln!(
@@ -87,7 +259,8 @@ fn run_kernel_build_with_home(home: &Path, args: KernelBuildArgs) -> CliResult {
         resolved.vault_id,
         resolved.path.display()
     );
-    let plain = PhysicalPlainGraph::open_latest(&resolved.path, PANEL_ASTER_ASSOC_COLLECTION)?;
+    let plain =
+        PhysicalPlainGraph::open_latest_isolated(&resolved.path, PANEL_ASTER_ASSOC_COLLECTION)?;
     let metadata_bytes = plain
         .get_metadata(ASTER_ASSOC_METADATA_KEY)?
         .ok_or_else(|| {
@@ -105,11 +278,11 @@ fn run_kernel_build_with_home(home: &Path, args: KernelBuildArgs) -> CliResult {
     let embedding_slots = graph_metadata.embedding_slots.clone();
     if embedding_slots.len() < 2
         || !embedding_slots.windows(2).all(|pair| pair[0] < pair[1])
-        || graph_metadata.fusion.as_deref() != Some("rrf")
+        || graph_metadata.fusion.as_deref() != Some("typed_block_rrf")
         || graph_metadata.rrf_k != Some(PANEL_RRF_K)
     {
         return Err(CliError::usage(
-            "woven graph has no valid ordered no-flatten panel/RRF contract; re-run `calyx weave-loom`",
+            "woven graph has no valid ordered no-flatten typed-block/RRF contract; re-run `calyx weave-loom`",
         ));
     }
     let panel_version = graph_metadata.panel_version.ok_or_else(|| {
@@ -137,18 +310,14 @@ fn run_kernel_build_with_home(home: &Path, args: KernelBuildArgs) -> CliResult {
         .panel
         .slots
         .iter()
-        .filter(|slot| {
-            slot.state == calyx_core::SlotState::Active
-                && !slot.retrieval_only
-                && matches!(slot.shape, calyx_core::SlotShape::Dense(_))
-        })
+        .filter(|slot| slot.state == calyx_core::SlotState::Active && !slot.retrieval_only)
         .map(|slot| slot.slot_id)
         .collect::<Vec<_>>();
     expected_slots.sort();
     expected_slots.dedup();
     if embedding_slots != expected_slots {
         return Err(CliError::usage(format!(
-            "woven graph slots {:?} differ from every active dense content slot {:?}; re-run `calyx weave-loom`",
+            "woven graph slots {:?} differ from every active typed content slot {:?}; re-run `calyx weave-loom`",
             embedding_slots
                 .iter()
                 .map(|slot| slot.get())
@@ -158,6 +327,9 @@ fn run_kernel_build_with_home(home: &Path, args: KernelBuildArgs) -> CliResult {
                 .map(|slot| slot.get())
                 .collect::<Vec<_>>()
         )));
+    }
+    if let Some(resident_addr) = args.resident_addr {
+        preflight_kernel_resident(resident_addr, &resolved.path, &embedding_slots)?;
     }
     let stage = Instant::now();
     let graph = plain.assoc_graph()?;
@@ -175,7 +347,7 @@ fn run_kernel_build_with_home(home: &Path, args: KernelBuildArgs) -> CliResult {
     }
 
     // Complete per-node constellation panel + anchors from physical graph props.
-    let mut embeddings: BTreeMap<CxId, PanelVectors> = BTreeMap::new();
+    let mut embeddings: BTreeMap<CxId, TypedPanelVectors> = BTreeMap::new();
     let mut anchors: Vec<CxId> = Vec::new();
     let stage = Instant::now();
     let node_props = plain.node_props()?;
@@ -210,21 +382,26 @@ fn run_kernel_build_with_home(home: &Path, args: KernelBuildArgs) -> CliResult {
             let props: AsterAssocNodeProps = serde_json::from_slice(&bytes).map_err(|error| {
                 CliError::runtime(format!("parse graph node {id} props: {error}"))
             })?;
-            if props.embedding.is_some() {
+            if props.embedding.is_some() || !props.embeddings.is_empty() {
                 return Err(CliError::usage(format!(
-                    "graph node {id} contains a forbidden legacy single embedding; re-run weave-loom"
+                    "graph node {id} contains forbidden legacy dense embedding state; re-run weave-loom"
                 )));
             }
-            if props.embeddings.keys().copied().ne(embedding_slots.iter().copied()) {
+            if props
+                .typed_embeddings
+                .keys()
+                .copied()
+                .ne(embedding_slots.iter().copied())
+            {
                 return Err(CliError::usage(format!(
                     "graph node {id} slots {:?} differ from graph contract {:?}; re-run weave-loom",
-                    props.embeddings.keys().map(|slot| slot.get()).collect::<Vec<_>>(),
+                    props.typed_embeddings.keys().map(|slot| slot.get()).collect::<Vec<_>>(),
                     embedding_slots.iter().map(|slot| slot.get()).collect::<Vec<_>>()
                 )));
             }
             Ok(KernelBuildNodeProps {
                 id,
-                embeddings: props.embeddings,
+                embeddings: props.typed_embeddings,
                 anchored: !props.anchors.is_empty(),
                 metadata: props.metadata,
             })
@@ -275,6 +452,7 @@ fn run_kernel_build_with_home(home: &Path, args: KernelBuildArgs) -> CliResult {
         kernel.groundedness.reached_anchor,
         stage.elapsed().as_millis()
     );
+    rss.sample("kernel_built");
 
     let recall_params = RecallTestParams {
         held_out_fraction: args.held_out_fraction,
@@ -291,11 +469,36 @@ fn run_kernel_build_with_home(home: &Path, args: KernelBuildArgs) -> CliResult {
         &args,
     )?;
     admission::emit(&admission);
-    let corpus_name = format!("kernel-build:{}:panel-rrf", resolved.name);
-    let mut kernel_index = build_panel_kernel_index(&kernel, &embedding_slots, &embeddings)?;
+    let corpus_name = format!("kernel-build:{}:typed-block-rrf", resolved.name);
+    // Conservative fail-closed pre-flight for the prepared recall workspace.
+    // Its borrowed views/norms are bounded well below one selected-member
+    // payload copy, so that payload size is a safe upper bound.
+    let member_payload_bytes = panel_payload_bytes(
+        kernel
+            .members
+            .iter()
+            .filter_map(|member| embeddings.get(member)),
+    );
+    enforce_rss_budget("panel_index_build", rss_budget, member_payload_bytes)?;
+    let prepared_corpus = prepare_typed_panel_corpus(&embeddings, &embedding_slots)?;
+    rss.sample("recall_corpus_prepared");
     let stage = Instant::now();
-    let initial_recall =
-        panel_kernel_recall_test(&kernel_index, &embeddings, &recall_params, &corpus_name)?;
+    let mut recall_reference = prepare_typed_panel_recall_reference(
+        &prepared_corpus,
+        &recall_params,
+        recall_params.top_k,
+    )?;
+    let initial_recall = typed_panel_kernel_recall_test_members_against_reference(
+        &kernel,
+        &prepared_corpus,
+        &recall_reference,
+        &corpus_name,
+    )?;
+    eprintln!(
+        "kernel-build: sealed exact full-corpus recall reference queries={} lane_depth={}",
+        initial_recall.n_queries_tested, recall_params.top_k
+    );
+    let mut final_recall = initial_recall.clone();
     let mut refinement = None;
     if initial_recall.ratio < args.min_recall {
         eprintln!(
@@ -306,12 +509,14 @@ fn run_kernel_build_with_home(home: &Path, args: KernelBuildArgs) -> CliResult {
         let initial_kernel_graph = kernel.kernel_graph.len();
         let mut lane_depth = recall_params.top_k.min(embeddings.len());
         let (support, refined_recall, final_lane_depth) = loop {
-            let support = panel_rank_stabilization_support_set(
-                &embedding_slots,
-                &embeddings,
-                &recall_params,
-                lane_depth,
-            )?;
+            if lane_depth != recall_params.top_k {
+                recall_reference = prepare_typed_panel_recall_reference(
+                    &prepared_corpus,
+                    &recall_params,
+                    lane_depth,
+                )?;
+            }
+            let support = typed_panel_rank_stabilization_support_from_reference(&recall_reference)?;
             kernel = refine_kernel_with_recall_support(
                 kernel,
                 &support.members,
@@ -320,9 +525,12 @@ fn run_kernel_build_with_home(home: &Path, args: KernelBuildArgs) -> CliResult {
                 &kernel_params,
                 &format!("exact_panel_rank_support_depth_{lane_depth}"),
             )?;
-            kernel_index = build_panel_kernel_index(&kernel, &embedding_slots, &embeddings)?;
-            let refined =
-                panel_kernel_recall_test(&kernel_index, &embeddings, &recall_params, &corpus_name)?;
+            let refined = typed_panel_kernel_recall_test_members_against_reference(
+                &kernel,
+                &prepared_corpus,
+                &recall_reference,
+                &corpus_name,
+            )?;
             eprintln!(
                 "kernel-build: panel recall refinement lane_depth={} support_members={} candidate_hits={} ratio={:.6}",
                 lane_depth,
@@ -358,15 +566,27 @@ fn run_kernel_build_with_home(home: &Path, args: KernelBuildArgs) -> CliResult {
             initial_kernel_graph,
             kernel.kernel_graph.len()
         );
+        final_recall = refined_recall;
     }
-    let mut recall =
-        panel_kernel_recall_gate(&kernel_index, &embeddings, &recall_params, &corpus_name)?;
+    if final_recall.ratio < args.min_recall {
+        return Err(LodestarError::RecallBelowGate {
+            ratio: final_recall.ratio,
+            min: args.min_recall,
+        }
+        .into());
+    }
+    let mut recall = final_recall;
     recall.approx_factor = kernel.recall.approx_factor;
     recall.tau_star_estimate = kernel.recall.tau_star_estimate;
     recall.tau_star_exact = kernel.recall.tau_star_exact;
     kernel.recall = recall.clone();
+    // Wall-clock execution time belongs to the ledger and FSV log, not the
+    // immutable semantic artifact. Keeping it here would make an exact retry
+    // target the same semantic generation with different kernel.json bytes.
+    kernel.built_at_millis = 0;
     seal_completed_kernel_identity(&mut kernel, &physical_contract_hash)?;
-    kernel_index = build_panel_kernel_index(&kernel, &embedding_slots, &embeddings)?;
+    drop(prepared_corpus);
+    let kernel_index = build_typed_panel_kernel_index_owned(&kernel, &embedding_slots, embeddings)?;
     eprintln!(
         "kernel-build: recall ratio={:.6} kernel_only={:.6} full={:.6} queries={} elapsed_ms={}",
         recall.ratio,
@@ -375,11 +595,17 @@ fn run_kernel_build_with_home(home: &Path, args: KernelBuildArgs) -> CliResult {
         recall.n_queries_tested,
         stage.elapsed().as_millis()
     );
+    rss.sample("recall_gated");
+    // The terminal index took ownership of the selected member vectors and
+    // dropped all non-members, so the full corpus is not co-resident with the
+    // write/readback path.
+    rss.sample("corpus_freed");
 
     let store = FsKernelStore::new(&resolved.path);
     let stage = Instant::now();
-    write_panel_kernel_index(&kernel_index, &store)?;
+    write_typed_panel_kernel_index(&kernel_index, &store)?;
     write_kernel_artifact(&kernel, &store)?;
+    let expected_index_contracts = kernel_index.contracts().clone();
 
     let persisted_kernel = read_kernel_artifact(kernel.kernel_id, &store)?;
     if persisted_kernel != kernel {
@@ -391,25 +617,30 @@ fn run_kernel_build_with_home(home: &Path, args: KernelBuildArgs) -> CliResult {
         }
         .into());
     }
-    let persisted_index = load_panel_kernel_index(kernel.kernel_id, &store)?;
-    if persisted_index.rows().len() != kernel.members.len() {
+    // Streamed readback verification: parse and validate the on-disk index
+    // row-by-row (contract header + per-row slot/dim/finite checks) and count
+    // members, without materializing the whole multi-hundred-MB index a second
+    // time during publication (issue #1863).
+    let (persisted_index, persisted_index_bytes, persisted_index_sha256) =
+        verify_typed_panel_kernel_index_physical(kernel.kernel_id, &store)?;
+    if persisted_index.row_count != kernel.members.len()
+        || persisted_index.slots != embedding_slots
+        || persisted_index.contracts != expected_index_contracts
+    {
         return Err(LodestarError::KernelIndexCodec {
             detail: format!(
-                "readback mismatch for kernel {}; index rows {} did not match members {}",
+                "readback mismatch for typed kernel {}; index rows {} did not match members {} or its sealed contracts",
                 kernel.kernel_id,
-                persisted_index.rows().len(),
+                persisted_index.row_count,
                 kernel.members.len()
             ),
         }
         .into());
     }
+    let persisted_index_rows = persisted_index.row_count;
+    drop(kernel_index);
+    rss.sample("persisted_index_verified");
     let health = kernel_health(kernel.kernel_id, &store)?;
-    let vault = AsterVault::open(
-        &resolved.path,
-        resolved.vault_id,
-        vault_salt(resolved.vault_id, &resolved.name),
-        VaultOptions::default(),
-    )?;
     let admission_ledger = kernel_admission_ledger_payload(&admission);
     let build_payload = serde_json::to_vec_pretty(&json!({
         "type": "kernel_build_v3",
@@ -418,42 +649,25 @@ fn run_kernel_build_with_home(home: &Path, args: KernelBuildArgs) -> CliResult {
         "graph_source_seq": graph_source_seq,
         "physical_graph_contract_sha256": hex32(&physical_contract_hash),
         "embedding_slots": embedding_slots.iter().map(|slot| slot.get()).collect::<Vec<_>>(),
-        "fusion": "rrf",
+        "fusion": "typed_block_rrf",
         "rrf_k": PANEL_RRF_K,
         "kernel_json_sha256": super::kernel_generation::sha256_file(&store.kernel_file_path(kernel.kernel_id))?,
-        "index_json_sha256": super::kernel_generation::sha256_file(&store.index_file_path(kernel.kernel_id))?,
+        "index_json_sha256": persisted_index_sha256,
         "recall_ratio": recall.ratio,
         "groundedness_fraction": kernel.groundedness.reached_anchor,
         "admission": admission_ledger,
-        "jurisdiction": jurisdiction,
+        "jurisdiction": jurisdiction
+            .as_ref()
+            .map(kernel_jurisdiction_ledger_payload),
     }))
     .map_err(|error| CliError::runtime(format!("encode kernel build ledger payload: {error}")))?;
-    let build_ledger_ref = vault.append_ledger_entry(
-        EntryKind::Kernel,
-        SubjectId::Kernel(kernel.kernel_id.as_bytes().to_vec()),
-        build_payload.clone(),
-        ActorId::Service("calyx-kernel-build".to_string()),
-    )?;
-    let physical_ledger = AsterLedgerCfStore::open(&resolved.path)?;
-    let ledger_row = physical_ledger
-        .read_seq(build_ledger_ref.seq)?
-        .ok_or_else(|| CliError::runtime("kernel build ledger row missing after append"))?;
-    let ledger_entry = decode(&ledger_row.bytes)?;
-    if ledger_entry.entry_hash != build_ledger_ref.hash
-        || ledger_entry.kind != EntryKind::Kernel
-        || ledger_entry.payload != build_payload
-    {
-        return Err(CliError::runtime(
-            "kernel build ledger physical readback differs from the appended row",
-        ));
-    }
     let graph_contract = KernelGraphContract {
         collection: PANEL_ASTER_ASSOC_COLLECTION.to_string(),
         nodes: graph.node_count(),
         edges: graph.edge_count(),
         source_seq: graph_source_seq,
         embedding_slots: embedding_slots.clone(),
-        fusion: "rrf".to_string(),
+        fusion: "typed_block_rrf".to_string(),
         rrf_k: PANEL_RRF_K,
         panel_version,
         knn,
@@ -463,20 +677,101 @@ fn run_kernel_build_with_home(home: &Path, args: KernelBuildArgs) -> CliResult {
         csr_sha256: sha256_bytes(&csr_bytes),
         physical_contract_sha256: hex32(&physical_contract_hash),
     };
-    let published = publish_current_generation(
+    let kernel_json_ref = artifact_ref(&resolved.path, &store.kernel_file_path(kernel.kernel_id))?;
+    let index_json_ref = artifact_ref_from_physical_readback(
         &resolved.path,
-        KernelGenerationManifest {
-            schema_version: 3,
-            kernel_id: kernel.kernel_id,
-            kernel_json: artifact_ref(&resolved.path, &store.kernel_file_path(kernel.kernel_id))?,
-            index_json: artifact_ref(&resolved.path, &store.index_file_path(kernel.kernel_id))?,
-            graph: graph_contract,
-            admission: admission.clone(),
-            jurisdiction: jurisdiction.clone(),
-            build_ledger_seq: build_ledger_ref.seq,
-            build_ledger_hash: ledger_hash(&build_ledger_ref),
-        },
+        &store.index_file_path(kernel.kernel_id),
+        persisted_index_bytes,
+        persisted_index_sha256,
     )?;
+    let current_path = resolved.path.join("idx/kernel/CURRENT");
+    let exact_current = if current_path.exists() {
+        // The just-built bytes were compared against the immutable artifact,
+        // SHA-256 hashed, and row-stream validated above. Read only the
+        // content-addressed CURRENT contract here instead of cold-parsing the
+        // same 8+ GB index a second time.
+        let current = load_current_generation_reference(&resolved.path)?;
+        let same_contract = current.manifest.kernel_id == kernel.kernel_id
+            && current.manifest.kernel_json == kernel_json_ref
+            && current.manifest.index_json == index_json_ref
+            && current.manifest.graph == graph_contract
+            && current.manifest.admission == admission
+            && current.manifest.jurisdiction == jurisdiction;
+        if same_contract {
+            let ledger_row = read_ledger_seq(&resolved.path, current.manifest.build_ledger_seq)?
+                .ok_or_else(|| CliError::runtime("current kernel build ledger row is missing"))?;
+            let ledger_entry = decode(&ledger_row.bytes)?;
+            if ledger_entry.seq != current.manifest.build_ledger_seq
+                || ledger_entry.kind != EntryKind::Kernel
+                || ledger_entry.subject != SubjectId::Kernel(kernel.kernel_id.as_bytes().to_vec())
+                || ledger_entry.actor != ActorId::Service("calyx-kernel-build".to_string())
+                || ledger_entry.payload != build_payload
+                || hex32(&ledger_entry.entry_hash) != current.manifest.build_ledger_hash
+            {
+                return Err(CliError::runtime(
+                    "current kernel generation ledger readback differs from the exact retry",
+                ));
+            }
+            Some(current)
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+    let (published, build_ledger_seq, build_ledger_hash) = if let Some(current) = exact_current {
+        eprintln!(
+            "kernel-build: exact generation already current; verified artifacts and ledger, publication is an idempotent no-op"
+        );
+        let seq = current.manifest.build_ledger_seq;
+        let hash = current.manifest.build_ledger_hash.clone();
+        (current, seq, hash)
+    } else {
+        // Fail closed before opening write state and appending toward an OOM.
+        enforce_rss_budget("publication", rss_budget, 0)?;
+        let vault = AsterVault::open(
+            &resolved.path,
+            resolved.vault_id,
+            vault_salt(resolved.vault_id, &resolved.name),
+            VaultOptions::write_latest_readback(),
+        )?;
+        rss.sample("vault_opened");
+        let build_ledger_ref = vault.append_ledger_entry(
+            EntryKind::Kernel,
+            SubjectId::Kernel(kernel.kernel_id.as_bytes().to_vec()),
+            build_payload.clone(),
+            ActorId::Service("calyx-kernel-build".to_string()),
+        )?;
+        let ledger_row = read_ledger_seq(&resolved.path, build_ledger_ref.seq)?
+            .ok_or_else(|| CliError::runtime("kernel build ledger row missing after append"))?;
+        let ledger_entry = decode(&ledger_row.bytes)?;
+        if ledger_entry.entry_hash != build_ledger_ref.hash
+            || ledger_entry.kind != EntryKind::Kernel
+            || ledger_entry.payload != build_payload
+        {
+            return Err(CliError::runtime(
+                "kernel build ledger physical readback differs from the appended row",
+            ));
+        }
+        let hash = ledger_hash(&build_ledger_ref);
+        let seq = build_ledger_ref.seq;
+        let published = publish_current_generation(
+            &resolved.path,
+            KernelGenerationManifest {
+                schema_version: 3,
+                kernel_id: kernel.kernel_id,
+                kernel_json: kernel_json_ref,
+                index_json: index_json_ref,
+                graph: graph_contract,
+                admission: admission.clone(),
+                jurisdiction: jurisdiction.clone(),
+                build_ledger_seq: seq,
+                build_ledger_hash: hash.clone(),
+            },
+        )?;
+        (published, seq, hash)
+    };
+    rss.sample("published");
     eprintln!(
         "kernel-build: persisted artifacts kernel_json={} index_json={} elapsed_ms={} total_elapsed_ms={}",
         store.kernel_file_path(kernel.kernel_id).display(),
@@ -531,17 +826,75 @@ fn run_kernel_build_with_home(home: &Path, args: KernelBuildArgs) -> CliResult {
             "readback": {
                 "kernel_id": persisted_kernel.kernel_id.to_string(),
                 "kernel_members": persisted_kernel.members.len(),
-                "index_rows": persisted_index.rows().len(),
+                "index_rows": persisted_index_rows,
                 "health_recall_pass_mode": format!("{:?}", health.recall.pass_mode).to_ascii_lowercase(),
                 "health_grounded_fraction": health.grounded_fraction,
             },
             "current_manifest": published.manifest_path,
             "current_manifest_sha256": published.manifest_sha256,
-            "build_ledger_seq": build_ledger_ref.seq,
-            "build_ledger_hash": ledger_hash(&build_ledger_ref),
+            "build_ledger_seq": build_ledger_seq,
+            "build_ledger_hash": build_ledger_hash,
         },
+        "rss": rss.report(),
     });
     print_json(&output)
+}
+
+fn preflight_kernel_resident(
+    addr: SocketAddr,
+    vault: &Path,
+    embedding_slots: &[calyx_core::SlotId],
+) -> CliResult {
+    let ready = crate::panel_commands::resident_ready_value_at(addr)?;
+    let expected_source = format!("vault:{}", vault.display());
+    let observed_source = ready
+        .get("template_source")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("");
+    let count = |field| {
+        ready
+            .get(field)
+            .and_then(serde_json::Value::as_u64)
+            .and_then(|value| usize::try_from(value).ok())
+            .unwrap_or(0)
+    };
+    let observed_content = count("content_lens_count");
+    let observed_registry = count("registry_lens_count");
+    let observed_warmed = count("warmed_lens_count");
+    let observed_gpu = count("gpu_content_lens_count");
+    let observed_cpu = count("cpu_content_lens_count");
+    let expected_content = embedding_slots.len();
+    let is_ready = ready
+        .get("ready")
+        .and_then(serde_json::Value::as_bool)
+        .unwrap_or(false);
+    if !is_ready
+        || observed_source != expected_source
+        || observed_content != expected_content
+        || observed_registry != expected_content
+        || observed_warmed != expected_content
+        || observed_gpu != expected_content
+        || observed_cpu != 0
+    {
+        return Err(CliError::from(CalyxError {
+            code: "CALYX_PANEL_RESIDENT_IDENTITY_MISMATCH",
+            message: format!(
+                "kernel-build resident {addr} differs from the sealed graph contract: ready={is_ready} source={observed_source:?} expected_source={expected_source:?} content={observed_content} registry={observed_registry} warmed={observed_warmed} gpu={observed_gpu} cpu={observed_cpu} expected_content={expected_content}"
+            ),
+            remediation: "restart `calyx panel resident serve --vault <vault>` on the exact target vault and verify its full slot readiness",
+        }));
+    }
+    eprintln!(
+        "kernel-build: resident preflight ok addr={} process_id={} source={} slots={}",
+        addr,
+        ready
+            .get("process_id")
+            .and_then(serde_json::Value::as_u64)
+            .unwrap_or(0),
+        observed_source,
+        observed_content
+    );
+    Ok(())
 }
 
 fn kernel_admission_ledger_payload(admission: &KernelAdmissionContract) -> serde_json::Value {
@@ -561,6 +914,25 @@ fn kernel_admission_ledger_payload(admission: &KernelAdmissionContract) -> serde
         "observations_sha256": admission.observations_sha256,
         "calibration_queries_bytes": admission.calibration_queries.as_ref().map(|artifact| artifact.bytes),
         "calibration_queries_sha256": admission.calibration_queries.as_ref().map(|artifact| &artifact.sha256),
+    })
+}
+
+/// Keep the append-only Kernel row hash/id-only. The hash-addressed generation
+/// manifest retains the complete jurisdiction contract (including canonical
+/// dataset names and court IDs); repeating those operator-controlled strings in
+/// the Ledger both adds no provenance and crosses the Ledger's secret-token
+/// boundary. The sealed metadata digest commits those exact bytes.
+fn kernel_jurisdiction_ledger_payload(
+    jurisdiction: &KernelJurisdictionContract,
+) -> serde_json::Value {
+    json!({
+        "schema_version": jurisdiction.schema_version,
+        "country": jurisdiction.country,
+        "court_system": jurisdiction.court_system,
+        "state": jurisdiction.state,
+        "source_rows": jurisdiction.source_rows,
+        "scope_count": jurisdiction.scopes.len(),
+        "metadata_contract_sha256": jurisdiction.metadata_contract_sha256,
     })
 }
 

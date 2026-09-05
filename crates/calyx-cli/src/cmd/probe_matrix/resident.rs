@@ -160,7 +160,7 @@ pub(super) fn measure_query_vectors_via_resident(
                 slot.lens_id
             ))
         })?;
-        if !indexable(&vector) {
+        if !vector.is_indexable() {
             return Err(CalyxError::stale_derived(format!(
                 "resident service {addr} returned non-indexable query vector for slot {} lens {}",
                 slot.slot_id.get(),
@@ -198,11 +198,4 @@ pub(super) fn measure_query_vectors_via_resident(
         response_bytes
     );
     Ok(out)
-}
-
-fn indexable(vector: &SlotVector) -> bool {
-    matches!(
-        vector,
-        SlotVector::Dense { .. } | SlotVector::Sparse { .. } | SlotVector::Multi { .. }
-    )
 }

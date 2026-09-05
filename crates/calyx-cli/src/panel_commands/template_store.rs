@@ -21,8 +21,9 @@ pub(super) use super::template_model::{
     TEMPLATE_NOT_FOUND, TemplateDraft, TemplateEnsembleCard, TemplateLensRef,
     default_time_controls, id_for_loaded, lens_ref_from_catalog, object_bytes, template_error,
 };
-#[allow(unused_imports)]
-pub(super) use registration::{register_template_lenses, register_template_lenses_with_progress};
+#[cfg(test)]
+pub(super) use registration::register_template_lenses;
+pub(super) use registration::register_template_lenses_with_progress;
 pub(super) use resident_registration::ResidentSwapAttestation;
 #[allow(unused_imports)]
 pub(super) use types::{

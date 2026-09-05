@@ -101,6 +101,86 @@ where
         self.with_durable_commit_lock(|| self.commit_rows_locked(rows))
     }
 
+    pub(super) fn commit_reconstructible_rows(&self, rows: &[encode::WriteRow]) -> Result<Seq> {
+        self.with_durable_commit_lock(|| self.commit_reconstructible_rows_locked(rows))
+    }
+
+    pub(crate) fn commit_reconstructible_rows_locked(
+        &self,
+        rows: &[encode::WriteRow],
+    ) -> Result<Seq> {
+        self.ensure_writeable("commit reconstructible derived generation")?;
+        for row in rows {
+            let isolated = match row.cf {
+                crate::cf::ColumnFamily::Graph => {
+                    crate::plain_graph::is_generation_storage_graph_key(&row.key)
+                }
+                crate::cf::ColumnFamily::XTerm => {
+                    crate::cf::is_weave_xterm_generation_key(&row.key)
+                }
+                _ => false,
+            };
+            if !isolated {
+                return Err(CalyxError {
+                    code: "CALYX_RECONSTRUCTIBLE_DERIVED_NAMESPACE_REQUIRED",
+                    message: format!(
+                        "reconstructible write rejected non-isolated row cf={} key_len={}",
+                        row.cf.name(),
+                        row.key.len()
+                    ),
+                    remediation: "write only generation-namespaced Graph/XTerm rows, physically verify the complete generation, then publish it with a WAL-backed lifecycle commit",
+                });
+            }
+        }
+        let Some(durable) = &self.durable else {
+            return Err(CalyxError {
+                code: "CALYX_RECONSTRUCTIBLE_DERIVED_DURABILITY_REQUIRED",
+                message: "reconstructible derived writes require a durable Aster vault".to_string(),
+                remediation: "open the real durable vault before building a derived generation",
+            });
+        };
+        durable.ensure_disk_write_allowed(self.rows.resource_counters())?;
+        // Never advance the manifest over an older WAL-only commit. Drain
+        // every pending checkpoint first; the generation CF router levels
+        // are refreshed once after all direct batches are durable.
+        durable.flush()?;
+        let expected = self.rows.current_seq().checked_add(1).ok_or_else(|| {
+            CalyxError::aster_corrupt_shard(
+                "sequence exhausted while writing reconstructible derived generation",
+            )
+        })?;
+        // The bulk payload itself bypasses WAL, but the global sequence
+        // cannot: the WAL batcher and MVCC allocator must reserve the same
+        // sequence or the next authoritative commit will diverge. Persist
+        // an empty write-batch fence (no reconstructible row bytes), then
+        // checkpoint the generation payload directly into authenticated
+        // SSTs at that sequence. Recovery can advance through the empty
+        // fence if checkpoint installation is interrupted, while the
+        // unpublished namespace remains either fully read back and
+        // accepted later or safely unreachable.
+        let seq = durable.append_batch(&[])?;
+        if seq != expected {
+            return Err(CalyxError::aster_corrupt_shard(format!(
+                "reconstructible sequence fence {seq} diverged from next MVCC seq {expected}"
+            )));
+        }
+        durable.checkpoint_batch(seq, rows)?;
+        let feeds_derived_content = rows
+            .iter()
+            .any(|row| row.cf.feeds_persistent_search_index());
+        self.rows
+                .advance_reconstructible_checkpoint(seq, feeds_derived_content)
+                .map_err(|error| CalyxError {
+                    code: "CALYX_RECONSTRUCTIBLE_DERIVED_REOPEN_REQUIRED",
+                    message: format!(
+                        "checkpoint seq {seq} is durable but the live router could not install it: [{}] {}",
+                        error.code, error.message
+                    ),
+                    remediation: "stop this process and reopen the vault; do not publish the generation until physical readback succeeds",
+                })?;
+        Ok(seq)
+    }
+
     pub(crate) fn commit_rows_locked(&self, rows: &[encode::WriteRow]) -> Result<Seq> {
         if rows
             .iter()

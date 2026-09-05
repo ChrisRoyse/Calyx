@@ -9,6 +9,11 @@ use serde::{Deserialize, Serialize};
 use crate::backfill::{BackfillPriority, BackfillRequest, BackfillScheduler};
 use crate::lens::Registry;
 
+mod resource;
+
+pub use resource::CALYX_PANEL_RESOURCE_CONTRADICTION;
+use resource::{ensure_slot_resource, registered_slot_resource};
+
 /// Slot declaration supplied when a lens is hot-added to a panel.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SlotSpec {
@@ -149,8 +154,10 @@ impl SwapController {
     where
         I: IntoIterator<Item = BackfillCandidate>,
     {
+        ensure_registered_lens(registry, &spec)?;
+        let resource = registered_slot_resource(registry, spec.lens_id)?;
         if let Some(slot) = identical_live_slot(&self.panel, &spec) {
-            ensure_registered_lens(registry, &spec)?;
+            ensure_slot_resource(slot, &resource)?;
             return Ok(AddLensOutcome {
                 slot: slot.clone(),
                 panel_version: self.panel.version,
@@ -164,7 +171,6 @@ impl SwapController {
             });
         }
         ensure_unique_slot(&self.panel, &spec)?;
-        ensure_registered_lens(registry, &spec)?;
         let slot_id = next_slot_id(&self.panel)?;
         let version = self.bump_panel(now)?;
         let slot = Slot {
@@ -175,7 +181,7 @@ impl SwapController {
             modality: spec.modality,
             asymmetry: spec.asymmetry,
             quant: spec.quant,
-            resource: Default::default(),
+            resource,
             axis: spec.axis,
             retrieval_only: spec.retrieval_only,
             excluded_from_dedup: spec.excluded_from_dedup,

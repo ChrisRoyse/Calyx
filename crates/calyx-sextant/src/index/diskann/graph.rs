@@ -187,12 +187,14 @@ impl DiskAnnGraphWriter {
         if let Some(parent) = path.parent()
             && !parent.as_os_str().is_empty()
         {
-            fs::create_dir_all(parent).map_err(|e| io_err("create index dir", e))?;
+            calyx_aster::private_fs::create_private_dir_all(parent)?;
         }
         let mut tmp = path.as_os_str().to_owned();
         tmp.push(".tmp");
         let tmp_path = PathBuf::from(tmp);
-        let file = File::create(&tmp_path).map_err(|e| io_err("create tmp graph file", e))?;
+        // Owner-only (0600) staging file at creation (#1989); existing
+        // sync_all + rename in finish() keep durability unchanged.
+        let file = calyx_aster::private_fs::open_private_temp_file(&tmp_path)?;
         let mut out = BufWriter::new(file);
         out.write_all(&header.encode())
             .map_err(|e| io_err("write header block", e))?;

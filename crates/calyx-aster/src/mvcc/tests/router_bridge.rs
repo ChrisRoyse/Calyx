@@ -40,6 +40,61 @@ fn mvcc_store_flushes_router_rows_to_disk_and_cold_opens() {
 }
 
 #[test]
+fn latest_readback_commit_serves_reads_via_router_without_retaining_rows() {
+    // #1991 round-4: in latest-readback mode `commit_batch` must NOT retain a
+    // second copy of every committed row in the in-memory MVCC row table — that
+    // in-heap copy was the weave write-side OOM accumulator (~14.7 GB of graph
+    // node rows on the 109k vault). The router (memtable + flush SSTs) is the
+    // sole resident home; reads fall through to it, so read-after-write on the
+    // same handle still works while the row table stays empty.
+    let dir = test_dir("latest-readback-no-retain");
+    let store =
+        VersionedCfStore::new_with_router_latest_readback(0, CfRouter::open(&dir, 1024).unwrap());
+    let clock = FixedClock::new(100);
+
+    let seq = store
+        .commit_batch([
+            (ColumnFamily::Base, b"k1".to_vec(), b"v1".to_vec()),
+            (ColumnFamily::Base, b"k2".to_vec(), b"v2".to_vec()),
+        ])
+        .unwrap();
+    assert_eq!(seq, 1);
+
+    // Read-after-write on the same handle resolves through the router.
+    let snapshot = store.pin_snapshot(Freshness::FreshDerived, &clock, 1_000);
+    assert_eq!(
+        store
+            .read_at(snapshot, ColumnFamily::Base, b"k1", &clock)
+            .unwrap(),
+        Some(b"v1".to_vec())
+    );
+    assert_eq!(
+        store
+            .read_at(snapshot, ColumnFamily::Base, b"k2", &clock)
+            .unwrap(),
+        Some(b"v2".to_vec())
+    );
+
+    // The in-memory MVCC row table retained nothing — heap does not grow
+    // O(committed rows). This is the load-bearing assertion of the r4 fix.
+    assert!(!store.has_any_version(ColumnFamily::Base, b"k1"));
+    assert!(!store.has_any_version(ColumnFamily::Base, b"k2"));
+    println!("ISSUE1991_R4_NO_ROW_RETENTION seq=1 rows_in_table=0 router_served=2");
+    cleanup(dir);
+}
+
+#[test]
+fn default_commit_retains_rows_in_row_table() {
+    // The r4 fix is scoped to latest-readback: the default (history-preserving)
+    // store still retains committed versions in the MVCC row table unchanged.
+    let store = VersionedCfStore::default();
+    store
+        .commit_batch([(ColumnFamily::Base, b"k".to_vec(), b"v".to_vec())])
+        .unwrap();
+    assert!(store.has_any_version(ColumnFamily::Base, b"k"));
+}
+
+#[test]
 fn router_bridge_flush_edges_and_start_seq_recovery() {
     let dir = test_dir("router-edges");
     let router = CfRouter::open(&dir, 1024).unwrap();

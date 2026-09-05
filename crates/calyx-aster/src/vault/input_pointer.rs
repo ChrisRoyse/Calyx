@@ -1,6 +1,6 @@
-use super::{AsterVault, encode, ledger_hook};
+use super::{AsterVault, DurableCommitIntent, NoopDurableCommitIntent, encode, ledger_hook};
 use crate::cf::{ColumnFamily, base_key};
-use crate::retained_input::validate_vault_input_pointer;
+use crate::retained_input::{PendingRetentionBatch, validate_vault_input_pointer};
 use calyx_core::{CalyxError, Clock, CxId, InputRef, LedgerRef, Result, VaultStore};
 use calyx_ledger::{ActorId, EntryKind, RedactionPolicy, SubjectId};
 
@@ -34,96 +34,148 @@ where
         id: CxId,
         expected: &InputRef,
     ) -> Result<InputPointerBackfill> {
-        if expected.redacted {
-            return Err(identity_error(
-                id,
-                "incoming retained input is marked redacted",
-            ));
-        }
+        validate_expected_pointer(id, expected)?;
+        self.with_durable_commit_lock(|| self.backfill_input_pointer_locked(id, expected))
+    }
+
+    /// Atomically couples pointer migration with publication of the exact
+    /// authoritative bytes named by that pointer.
+    pub fn backfill_input_pointer_with_retained_input(
+        &self,
+        id: CxId,
+        expected: &InputRef,
+        bytes: &[u8],
+    ) -> Result<InputPointerBackfill> {
+        let mut intent = NoopDurableCommitIntent;
+        self.backfill_input_pointer_with_retained_input_and_commit_intent(
+            id,
+            expected,
+            bytes,
+            &mut intent,
+        )
+    }
+
+    /// Couples pointer migration, exact retained bytes, and an external
+    /// durable intent under one Aster commit lock.
+    pub fn backfill_input_pointer_with_retained_input_and_commit_intent(
+        &self,
+        id: CxId,
+        expected: &InputRef,
+        bytes: &[u8],
+        intent: &mut dyn DurableCommitIntent,
+    ) -> Result<InputPointerBackfill> {
+        validate_expected_pointer(id, expected)?;
+        let vault_root = self.durable_root()?.to_path_buf();
+        self.with_durable_commit_lock(|| {
+            let durable_before = self.retained_durable_tip()?;
+            let pending = PendingRetentionBatch::stage(&vault_root, [(expected, bytes)])?;
+            let operation = self.run_with_commit_intent_locked(intent, || {
+                self.backfill_input_pointer_locked(id, expected)
+            });
+            self.finish_retained_input_commit(durable_before, pending, operation)
+        })
+    }
+
+    fn backfill_input_pointer_locked(
+        &self,
+        id: CxId,
+        expected: &InputRef,
+    ) -> Result<InputPointerBackfill> {
         let pointer = expected
             .pointer
             .as_deref()
             .ok_or_else(|| identity_error(id, "incoming retained input has no pointer"))?;
-        validate_vault_input_pointer(pointer)?;
-        self.with_durable_commit_lock(|| {
-            let mut stored = self.get(id, self.snapshot())?;
-            if stored.input_ref.hash != expected.hash {
+        let mut stored = self.get(id, self.snapshot())?;
+        if stored.input_ref.hash != expected.hash {
+            return Err(identity_error(
+                id,
+                "stored and incoming input hashes differ",
+            ));
+        }
+        if stored.input_ref.redacted != expected.redacted {
+            return Err(identity_error(
+                id,
+                "stored and incoming input redaction states differ",
+            ));
+        }
+        match stored.input_ref.pointer.as_deref() {
+            Some(existing) if existing == pointer => {
+                return Ok(InputPointerBackfill::AlreadyPresent {
+                    ledger_ref: stored.provenance,
+                });
+            }
+            Some(_) => {
                 return Err(identity_error(
                     id,
-                    "stored and incoming input hashes differ",
+                    "stored input pointer conflicts with the incoming canonical pointer",
                 ));
             }
-            if stored.input_ref.redacted != expected.redacted {
-                return Err(identity_error(
-                    id,
-                    "stored and incoming input redaction states differ",
-                ));
-            }
-            match stored.input_ref.pointer.as_deref() {
-                Some(existing) if existing == pointer => {
-                    return Ok(InputPointerBackfill::AlreadyPresent {
-                        ledger_ref: stored.provenance,
-                    });
-                }
-                Some(_) => {
-                    return Err(identity_error(
-                        id,
-                        "stored input pointer conflicts with the incoming canonical pointer",
-                    ));
-                }
-                None => {}
-            }
+            None => {}
+        }
 
-            let payload = pointer_backfill_payload(id, expected, pointer)?;
-            let actor = ActorId::Service("calyx-aster".to_string());
-            let subject = SubjectId::Cx(id);
-            let mut rows = Vec::new();
-            let mut hook_guard = match &self.ledger_hook {
-                Some(hook) => Some(ledger_hook::lock_hook(hook)?),
-                None => None,
-            };
-            let staged = if let Some(hook) = hook_guard.as_deref() {
-                let staged = ledger_hook::stage_entry_payload(
-                    hook,
-                    &mut rows,
-                    EntryKind::Migrate,
-                    subject,
-                    payload,
-                    actor,
-                )?;
-                let ledger_ref = staged
-                    .first()
-                    .ok_or_else(|| CalyxError::ledger_group_commit_failed("no staged ledger rows"))?
-                    .ledger_ref();
-                Some((staged, ledger_ref))
-            } else {
-                let ledger_ref = self.stage_raw_ledger_entry_locked(
-                    &mut rows,
-                    EntryKind::Migrate,
-                    subject,
-                    payload,
-                    actor,
-                )?;
-                stored.input_ref.pointer = Some(pointer.to_string());
-                stored.provenance = ledger_ref.clone();
-                stored.validate_schema()?;
-                rows.push(base_row(id, &stored)?);
-                self.commit_rows_locked(&rows)?;
-                return Ok(InputPointerBackfill::Backfilled { ledger_ref });
-            };
-
-            let (staged, ledger_ref) = staged.expect("hook branch returns staged rows");
+        let payload = pointer_backfill_payload(id, expected, pointer)?;
+        let actor = ActorId::Service("calyx-aster".to_string());
+        let subject = SubjectId::Cx(id);
+        let mut rows = Vec::new();
+        let mut hook_guard = match &self.ledger_hook {
+            Some(hook) => Some(ledger_hook::lock_hook(hook)?),
+            None => None,
+        };
+        let staged = if let Some(hook) = hook_guard.as_deref() {
+            let staged = ledger_hook::stage_entry_payload(
+                hook,
+                &mut rows,
+                EntryKind::Migrate,
+                subject,
+                payload,
+                actor,
+            )?;
+            let ledger_ref = staged
+                .first()
+                .ok_or_else(|| CalyxError::ledger_group_commit_failed("no staged ledger rows"))?
+                .ledger_ref();
+            Some((staged, ledger_ref))
+        } else {
+            let ledger_ref = self.stage_raw_ledger_entry_locked(
+                &mut rows,
+                EntryKind::Migrate,
+                subject,
+                payload,
+                actor,
+            )?;
             stored.input_ref.pointer = Some(pointer.to_string());
             stored.provenance = ledger_ref.clone();
             stored.validate_schema()?;
             rows.push(base_row(id, &stored)?);
             self.commit_rows_locked(&rows)?;
-            if let Some(hook) = hook_guard.as_deref_mut() {
-                ledger_hook::commit_staged(hook, &staged)?;
-            }
-            Ok(InputPointerBackfill::Backfilled { ledger_ref })
-        })
+            return Ok(InputPointerBackfill::Backfilled { ledger_ref });
+        };
+
+        let (staged, ledger_ref) = staged.expect("hook branch returns staged rows");
+        stored.input_ref.pointer = Some(pointer.to_string());
+        stored.provenance = ledger_ref.clone();
+        stored.validate_schema()?;
+        rows.push(base_row(id, &stored)?);
+        self.commit_rows_locked(&rows)?;
+        if let Some(hook) = hook_guard.as_deref_mut() {
+            ledger_hook::commit_staged(hook, &staged)?;
+        }
+        Ok(InputPointerBackfill::Backfilled { ledger_ref })
     }
+}
+
+fn validate_expected_pointer(id: CxId, expected: &InputRef) -> Result<()> {
+    if expected.redacted {
+        return Err(identity_error(
+            id,
+            "incoming retained input is marked redacted",
+        ));
+    }
+    let pointer = expected
+        .pointer
+        .as_deref()
+        .ok_or_else(|| identity_error(id, "incoming retained input has no pointer"))?;
+    validate_vault_input_pointer(pointer)
 }
 
 fn base_row(id: CxId, stored: &calyx_core::Constellation) -> Result<encode::WriteRow> {

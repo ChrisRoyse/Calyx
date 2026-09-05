@@ -4,8 +4,12 @@ use std::fs;
 use std::io::BufRead;
 use std::path::Path;
 
-use calyx_core::{Anchor, CalyxError};
+use calyx_core::{
+    Anchor, CALYX_STRUCTURED_RESERVED_METADATA, CALYX_STRUCTURED_SCHEMA_MISMATCH, CalyxError,
+    STRUCTURED_METADATA_PREFIX, StructuredRecord,
+};
 use serde::Deserialize;
+use serde_json::Value;
 
 use super::super::vault::now_ms;
 use super::anchor::{parse_anchor_kind, parse_anchor_value};
@@ -25,6 +29,7 @@ const INVALID_BATCH_REMEDIATION: &str = "repair the JSON object at the named JSO
 /// `label:dataset`, or `test-pass` for verified-correct rows); the ingest engine
 /// stays domain-agnostic and only validates + threads them onto the constellation.
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct AnchorSpec {
     /// Anchor kind token, parsed by `parse_anchor_kind` (`test-pass`, `thumbs-up`,
     /// `thumbs-down`, `speaker-match`, `style-hold`, or `label:<axis>`).
@@ -40,8 +45,15 @@ struct AnchorSpec {
 }
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct BatchLine {
     text: String,
+    /// Stable schema identity for the canonical typed record.
+    #[serde(default)]
+    record_schema: Option<String>,
+    /// Explicit structured atoms measured independently from `text`.
+    #[serde(default)]
+    record: Option<Value>,
     /// Per-record source provenance (source_url, doi, pmid, license, ...). Stored
     /// verbatim on the constellation metadata map; survives raw-source deletion.
     #[serde(default)]
@@ -61,12 +73,14 @@ struct BatchLine {
 /// A parsed batch row: input text, provenance metadata, and the typed anchors to
 /// ground it at ingest. Shared by the in-memory `read_batch_texts` and the
 /// streaming ingest path.
-pub(super) type BatchRow = (
-    String,
-    BTreeMap<String, String>,
-    Vec<Anchor>,
-    Option<OracleEvent>,
-);
+#[derive(Debug)]
+pub(super) struct BatchRow {
+    pub(super) text: String,
+    pub(super) metadata: BTreeMap<String, String>,
+    pub(super) anchors: Vec<Anchor>,
+    pub(super) oracle: Option<OracleEvent>,
+    pub(super) structured: Option<StructuredRecord>,
+}
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) struct BatchValidation {
@@ -86,6 +100,7 @@ pub(super) fn parse_batch_line(index: usize, line: &str) -> CliResult<Option<Bat
     let parsed: BatchLine =
         serde_json::from_str(line).map_err(|error| invalid_batch(index + 1, error.to_string()))?;
     validate_text(&parsed.text)?;
+    let structured = parse_structured_record(index, parsed.record_schema, parsed.record)?;
     let metadata = validate_provenance(index, parsed.metadata)?;
     let mut anchors = Vec::with_capacity(parsed.anchors.len());
     for spec in parsed.anchors {
@@ -95,7 +110,44 @@ pub(super) fn parse_batch_line(index: usize, line: &str) -> CliResult<Option<Bat
         .oracle
         .map(|spec| parse_oracle_event(index, spec))
         .transpose()?;
-    Ok(Some((parsed.text, metadata, anchors, oracle)))
+    Ok(Some(BatchRow {
+        text: parsed.text,
+        metadata,
+        anchors,
+        oracle,
+        structured,
+    }))
+}
+
+fn parse_structured_record(
+    index: usize,
+    schema: Option<String>,
+    record: Option<Value>,
+) -> CliResult<Option<StructuredRecord>> {
+    match (schema, record) {
+        (None, None) => Ok(None),
+        (Some(schema), Some(record)) => StructuredRecord::from_json_value(schema, &record)
+            .map(Some)
+            .map_err(|error| {
+                CliError::from(CalyxError {
+                    code: error.code,
+                    message: format!(
+                        "batch JSONL line {} structured record is invalid: {}",
+                        index + 1,
+                        error.message
+                    ),
+                    remediation: error.remediation,
+                })
+            }),
+        _ => Err(CliError::from(CalyxError {
+            code: CALYX_STRUCTURED_SCHEMA_MISMATCH,
+            message: format!(
+                "batch JSONL line {} must provide record_schema and record together",
+                index + 1
+            ),
+            remediation: "supply both the exact stable schema id and its typed JSON object",
+        })),
+    }
 }
 
 /// Parser-only preflight for a JSONL batch file.
@@ -141,6 +193,18 @@ fn validate_provenance(
 ) -> CliResult<BTreeMap<String, String>> {
     let line = index + 1;
     let metadata = metadata.unwrap_or_default();
+    if let Some(key) = metadata
+        .keys()
+        .find(|key| key.starts_with(STRUCTURED_METADATA_PREFIX))
+    {
+        return Err(CliError::from(CalyxError {
+            code: CALYX_STRUCTURED_RESERVED_METADATA,
+            message: format!(
+                "batch JSONL line {line} metadata key {key:?} is reserved for canonical structured state"
+            ),
+            remediation: "remove calyx.structured.* user metadata and retry",
+        }));
+    }
     for required in ["source_dataset", "source_sha256", "license", "retrieval_ts"] {
         require_metadata_value(line, &metadata, required)?;
     }

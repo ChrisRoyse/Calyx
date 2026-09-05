@@ -76,6 +76,14 @@ pub(in crate::panel_commands) struct TemplateLensSnapshot {
     pub spec_blake3: String,
     pub runtime_contract: FrozenLensContract,
     pub runtime_contract_blake3: String,
+    /// Lens-identity derivation version that produced this snapshot's ids.
+    ///
+    /// Sidecar only, never a hash input (see `calyx_registry::derivation`).
+    /// `None` marks a template published before derivation stamping existed.
+    /// Skipped when absent so pre-stamp templates reserialize byte-identically
+    /// and their `spec_blake3` / `runtime_contract_blake3` stay valid.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub derivation_version: Option<u32>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

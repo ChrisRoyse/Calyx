@@ -57,6 +57,14 @@ pub(crate) fn run(args: &Args) -> CliResult<Evidence> {
     let mut args = args.clone();
     let lens_template = super::template::materialize_for_stream(&mut args)?;
     let lens_template_readback = lens_template.readback.clone();
+    let _reservation = if args.lens_template_specs.is_empty() {
+        crate::gpu_commands::require_for_manifests("calyx assay stream-fbin", &args.manifests)?
+    } else {
+        crate::gpu_commands::require_for_lens_specs(
+            "calyx assay stream-fbin",
+            &args.lens_template_specs,
+        )?
+    };
     let staging = staging_dir(&args.out_dir);
     fail_if_exists(&args.out_dir)?;
     fail_if_exists(&staging)?;
@@ -290,8 +298,14 @@ fn flush_batch(
             "fix stream-fbin batching before trusting progress or FBIN output",
         )
     })?;
-    let vectors =
-        measure_text_batch(stream.lens, texts, stream.effective_batch_size).map_err(|error| {
+    // Carry each row's canonical typed record alongside its text so structured
+    // lenses measure real atoms (identical to the ingest path) instead of Absent.
+    let records: Vec<Option<calyx_core::StructuredRecord>> = metas
+        .iter()
+        .map(|(_, row)| row.structured.clone())
+        .collect();
+    let vectors = measure_text_batch(stream.lens, texts, &records, stream.effective_batch_size)
+        .map_err(|error| {
             local_error(
                 "CALYX_FSV_ASSAY_STREAM_FBIN_LENS_MEASURE",
                 error,

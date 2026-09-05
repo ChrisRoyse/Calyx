@@ -16,6 +16,7 @@ pub(super) fn persist_assoc_csr<C: calyx_core::Clock>(
     vault: &AsterVault<C>,
     graph: &PlainGraph<'_, C>,
     vault_dir: &std::path::Path,
+    generation: &str,
     progress: &WeaveLoomProgressWriter,
 ) -> CliResult {
     let fail = |phase: &str, detail: String| {
@@ -51,13 +52,17 @@ pub(super) fn persist_assoc_csr<C: calyx_core::Clock>(
         )
     })?;
 
-    let physical = PhysicalPlainGraph::open_latest(vault_dir, PANEL_ASTER_ASSOC_COLLECTION)
-        .map_err(|error| {
-            fail(
-                "assoc_csr_readback_error",
-                format!("physical Graph CF reopen failed: {error}"),
-            )
-        })?;
+    let physical = PhysicalPlainGraph::open_generation_unchecked(
+        vault_dir,
+        PANEL_ASTER_ASSOC_COLLECTION,
+        generation,
+    )
+    .map_err(|error| {
+        fail(
+            "assoc_csr_readback_error",
+            format!("physical Graph CF reopen failed: {error}"),
+        )
+    })?;
     let raw = physical
         .read_csr_bytes()
         .map_err(|error| {

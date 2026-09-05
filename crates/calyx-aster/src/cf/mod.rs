@@ -11,12 +11,15 @@ mod router_scan;
 mod router_tests;
 
 pub use family::{ColumnFamily, SlotFamilyKind};
+pub(crate) use key::is_weave_xterm_generation_key;
 pub use key::{
-    KeyRange, OnlineKeyKind, ScalarId, XTermKind, anchor_key, anchor_prefix_range, base_key,
+    KeyRange, OnlineKeyKind, ScalarId, WEAVE_XTERM_GENERATION_SCHEMA,
+    WEAVE_XTERM_STORAGE_SCHEMA_DETAIL, XTermKind, anchor_key, anchor_prefix_range, base_key,
     cx_id_from_full_hash, cx_prefix_range, full_content_hash, ledger_key, ledger_range, online_key,
     prefix_range, recurrence_key, recurrence_prefix_range, scalar_key, scalar_prefix_range,
-    slot_key, temporal_xterm_key, temporal_xterm_prefix_range, verify_cx_hash_prefix, xterm_key,
-    xterm_prefix_range,
+    slot_key, temporal_xterm_key, temporal_xterm_prefix_range, verify_cx_hash_prefix,
+    weave_xterm_generation_cx_prefix_range, weave_xterm_generation_key,
+    weave_xterm_generation_prefix_range, xterm_key, xterm_prefix_range,
 };
 pub use router::{CfRouter, NO_COMMIT_DOMAIN};
 

@@ -1,4 +1,5 @@
 [package]
+autobenches = false
 autotests = false
 name = "calyx-cli"
 version.workspace = true
@@ -8,6 +9,8 @@ repository.workspace = true
 publish.workspace = true
 
 [[bin]]
+test = false
+bench = false
 name = "calyx"
 path = "src/main.rs"
 
@@ -50,20 +53,28 @@ calyx-paths = { path = "../calyx-paths" }
 calyx-search = { path = "../calyx-search" }
 calyx-registry = { path = "../calyx-registry" }
 calyx-sextant = { path = "../calyx-sextant" }
+calyx-turso = { path = "../calyx-turso" }
 calyx-ward = { path = "../calyx-ward" }
 calyxd = { path = "../calyxd" }
 bincode.workspace = true
 blake3.workspace = true
 ciborium.workspace = true
 crc32fast.workspace = true
+memmap2.workspace = true
 rayon.workspace = true
-rusqlite.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+serde_json_canonicalizer.workspace = true
 sha2.workspace = true
 signal-hook.workspace = true
+tokio = { workspace = true, features = ["rt"] }
 ulid.workspace = true
 ureq.workspace = true
+
+[target.'cfg(unix)'.dependencies]
+nix.workspace = true
+libc = "0.2"
+mimalloc.workspace = true
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61.2", features = [
@@ -86,52 +97,94 @@ tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
 tower = { version = "0.5", features = ["util"] }
 
 [[test]]
+test = false
 name = "issue1513_mcp_cli_web_parity_fsv"
 path = "tests/issue1513_mcp_cli_web_parity_fsv.rs"
+
+[[test]]
+test = false
+name = "issue1929_segmented_tei_fsv"
+path = "tests/issue1929_segmented_tei_fsv.rs"
+
+[[test]]
+test = false
+name = "issue1929_e2e_kernel_search_fsv"
+path = "tests/issue1929_e2e_kernel_search_fsv.rs"
+
+[[test]]
+test = false
+name = "lawroster_bindings"
+path = "tests/lawroster_bindings.rs"
+
+[[test]]
+test = false
+name = "lawroster_v2_contract"
+path = "tests/lawroster_v2_contract.rs"
+
+[[test]]
+test = false
+name = "lawroster_v3_contract"
+path = "tests/lawroster_v3_contract.rs"
+
+[[test]]
+test = false
+name = "issue1962_law_readback_fsv"
+path = "tests/issue1962_law_readback_fsv.rs"
 
 # BEGIN generated integration harnesses (issue #1546)
 
 [[test]]
+test = false
 name = "__calyx_integration_isolated_ingest_resident_discovery_fsv"
 path = "tests/__calyx_integration_isolated_ingest_resident_discovery_fsv.rs"
 
 [[test]]
+test = false
 name = "__calyx_integration_isolated_ingest_resident_service_fsv"
 path = "tests/__calyx_integration_isolated_ingest_resident_service_fsv.rs"
 
 [[test]]
+test = false
 name = "__calyx_integration_isolated_ingest_resident_worker_fsv"
 path = "tests/__calyx_integration_isolated_ingest_resident_worker_fsv.rs"
 
 [[test]]
+test = false
 name = "__calyx_integration_isolated_issue918_search_provenance"
 path = "tests/__calyx_integration_isolated_issue918_search_provenance.rs"
 
 [[test]]
+test = false
 name = "__calyx_integration_isolated_ph62_workflow_healthcheck"
 path = "tests/__calyx_integration_isolated_ph62_workflow_healthcheck.rs"
 
 [[test]]
+test = false
 name = "__calyx_integration_isolated_search_resident_service_fsv"
 path = "tests/__calyx_integration_isolated_search_resident_service_fsv.rs"
 
 [[test]]
+test = false
 name = "__calyx_integration_isolated_verify_chain"
 path = "tests/__calyx_integration_isolated_verify_chain.rs"
 
 [[test]]
+test = false
 name = "__calyx_integration_process_0"
 path = "tests/__calyx_integration_process_0.rs"
 
 [[test]]
+test = false
 name = "__calyx_integration_process_1"
 path = "tests/__calyx_integration_process_1.rs"
 
 [[test]]
+test = false
 name = "__calyx_integration_process_2"
 path = "tests/__calyx_integration_process_2.rs"
 
 [[test]]
+test = false
 name = "__calyx_integration_suite_0"
 path = "tests/__calyx_integration_suite_0.rs"
 

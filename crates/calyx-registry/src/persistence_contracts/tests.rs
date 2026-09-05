@@ -309,6 +309,7 @@ fn gdelt_algorithmic_specs_reconstruct_runtime_contracts() {
 
 mod contract_parity;
 mod contract_parity_model_kinds;
+mod derivation_drift;
 mod spec_hashes;
 
 #[derive(Clone, Debug, PartialEq, Eq)]

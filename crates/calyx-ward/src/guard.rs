@@ -162,6 +162,12 @@ fn required_slots(profile: &GuardProfile) -> Vec<SlotId> {
     slots
 }
 
+mod typed;
+pub use typed::{
+    TypedGuardVerdict, TypedMatchedSlots, TypedProducedSlots, TypedSlotVerdict, guard_result_typed,
+    guard_typed,
+};
+
 #[cfg(test)]
 mod tests {
     use std::collections::BTreeMap;

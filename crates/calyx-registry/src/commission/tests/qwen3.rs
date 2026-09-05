@@ -36,6 +36,8 @@ fn qwen3_manifest_preserves_explicit_max_tokens_and_defaults_legacy() {
         recall_delta: crate::spec::default_recall_delta(),
         max_batch: None,
         max_tokens: Some(8_192),
+        representation: None,
+        special_tokens: None,
         batch_policy: None,
     };
 

@@ -45,10 +45,14 @@ fn seed_summary_vault(dir: &Path) -> AsterVault {
         &AsterAssocMetadata {
             retention_horizon: Some(1),
             embedding_slot: None,
+            embedding_slots: Vec::new(),
+            fusion: None,
+            rrf_k: None,
             panel_version: None,
             graph_source_seq: None,
             knn: None,
             edge_cos_threshold: None,
+            edge_score_threshold: None,
         },
     )
     .unwrap();

@@ -127,7 +127,7 @@ pub fn rebuild_for_vault_with_panel_state_fallible_progress<F>(
 where
     F: FnMut(RebuildProgress<'_>) -> CliResult + Send,
 {
-    let active_slots = active_panel_slots(state);
+    let active_slots = active_panel_slots(&state.panel);
     super::rebuild_stream::rebuild_for_vault_with_active_slots_progress(
         vault_dir,
         vault,
@@ -136,9 +136,30 @@ where
     )
 }
 
-fn active_panel_slots(state: &calyx_registry::VaultPanelState) -> BTreeSet<SlotId> {
-    state
-        .panel
+/// Rebuilds derived search indexes from vectors already persisted in Aster.
+///
+/// This capability accepts only the runtime-free stored-vector panel state, so
+/// an index rebuild cannot accidentally contact historical inference endpoints.
+pub fn rebuild_for_vault_with_stored_panel_state_fallible_progress<F>(
+    vault_dir: &Path,
+    vault: &AsterVault,
+    state: &calyx_registry::VaultStoredVectorPanelState,
+    progress: F,
+) -> CliResult
+where
+    F: FnMut(RebuildProgress<'_>) -> CliResult + Send,
+{
+    let active_slots = active_panel_slots(&state.panel);
+    super::rebuild_stream::rebuild_for_vault_with_active_slots_progress(
+        vault_dir,
+        vault,
+        &active_slots,
+        progress,
+    )
+}
+
+fn active_panel_slots(panel: &calyx_core::Panel) -> BTreeSet<SlotId> {
+    panel
         .slots
         .iter()
         .filter(|slot| slot.state == SlotState::Active)
@@ -153,7 +174,7 @@ pub(super) fn rebuild_from_docs(
     base_seq: u64,
 ) -> CliResult<RebuildSummary> {
     let root = vault_dir.join(INDEX_ROOT);
-    fs::create_dir_all(&root)?;
+    calyx_aster::private_fs::create_private_dir_all(&root)?;
     let previous_manifest = previous_manifest(vault_dir)?;
     let build_policy = super::rebuild_plan::cpu_reference_policy_for_tests();
     let mut entries = Vec::new();

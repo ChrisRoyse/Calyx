@@ -6,8 +6,8 @@ use crate::__calyx_shared_sextant_support_mod_rs as sextant_support;
 use calyx_core::{CxId, SlotId, SlotVector};
 use calyx_sextant::index::diskann::graph::DiskAnnVectorRef;
 use calyx_sextant::index::{
-    DiskAnnBuildParams, DiskAnnPqBuildParams, DiskAnnSearch, DiskAnnSearchParams, SextantIndex,
-    open_diskann_graph,
+    DiskAnnBuildParams, DiskAnnPqBuildParams, DiskAnnSearch, DiskAnnSearchParams,
+    RAW_SIDECAR_HEADER_SIZE, SextantIndex, open_diskann_graph,
 };
 use proptest::prelude::*;
 use rand::{Rng, SeedableRng};
@@ -186,8 +186,11 @@ fn build_writes_unit_l2_marker_normalized_graph_and_raw_sidecar() {
     };
     assert_eq!(vector, &[95_i8, 127, 0, 0]);
 
-    let raw_bytes = std::fs::read(path.with_extension("raw").join("0")).expect("read raw");
-    let raw: Vec<f32> = raw_bytes
+    // Packed v2 sidecar (#1990): record 0 lives at the fixed header offset, dim
+    // (4) little-endian f32s wide.
+    let packed = std::fs::read(path.with_extension("raw")).expect("read packed sidecar");
+    let record0 = &packed[RAW_SIDECAR_HEADER_SIZE..RAW_SIDECAR_HEADER_SIZE + 4 * 4];
+    let raw: Vec<f32> = record0
         .chunks_exact(4)
         .map(|chunk| f32::from_le_bytes(chunk.try_into().expect("4B")))
         .collect();

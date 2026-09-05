@@ -7,7 +7,7 @@ use calyx_forge::{QuantLevel, Quantizer, TurboQuantCodec, new_seed};
 use calyx_ledger::{ForgeBackend, RecordedSlot, ReproduceInputResolver};
 use calyx_registry::load_vault_panel_state;
 
-use super::{ReproduceOut, ledger_entries, open_vault, reproduce_report};
+use super::{ReproduceOut, answer_entries, open_vault, reproduce_report};
 use crate::cmd::vault::ResolvedVault;
 use crate::error::CliResult;
 
@@ -29,7 +29,7 @@ pub(super) fn record(resolved: &ResolvedVault, answer_id: &[u8]) -> CliResult<Re
         &answer_id,
     )?;
     vault.flush()?;
-    let entries = ledger_entries(&resolved.path)?;
+    let entries = answer_entries(resolved, &answer_id)?;
     reproduce_report(&entries, &answer_id)
 }
 

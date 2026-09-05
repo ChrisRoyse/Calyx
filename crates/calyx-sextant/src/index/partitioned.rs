@@ -194,8 +194,7 @@ pub fn build_partitioned_vault_from_source_with_backend_and_metric(
     let initial_regions =
         gpu::initial_cluster_count(backend, n_cx, p.n_regions, p.balance_cap, sample);
     let mut gpu = gpu::for_backend(backend, source, p.chunk, sample, initial_regions)?;
-    std::fs::create_dir_all(root.join(CENTROID_DIR))
-        .map_err(|e| crate::error::sextant_error(crate::error::CALYX_INDEX_IO, e.to_string()))?;
+    calyx_aster::private_fs::create_private_dir_all(&root.join(CENTROID_DIR))?;
 
     let stride = (n_cx / sample as u64).max(1);
     let sample_rows: Vec<(u32, Vec<f32>)> = (0..sample)

@@ -197,23 +197,43 @@ pub fn kernel_answer_derivation_hash(
     context: &KernelAnswerRecordContext,
 ) -> Result<[u8; 32]> {
     validate_kernel_answer_record_context(context)?;
-    let bytes = serde_json::to_vec(&serde_json::json!({
-        "schema_version": 3,
-        "answer_id": hex(&context.answer_id),
-        "query_input_sha256": hex(&context.query_input_sha256),
-        "kernel_manifest_sha256": hex(&context.kernel_manifest_sha256),
-        "embedding_slots": context.embedding_slots.iter().map(|slot| slot.get()).collect::<Vec<_>>(),
-        "fusion": context.fusion,
-        "rrf_k": context.rrf_k,
-        "nearest_score": context.nearest_score,
-        "nearest_lanes": context.nearest_lanes,
-        "admission_threshold": context.admission_threshold,
-        "anchor": context.anchor,
-        "max_hops": context.max_hops,
-        "source_support": context.source_support,
-        "derivation": derivation,
-    }))
-    .map_err(|error| LodestarError::KernelArtifactCodec {
+    let value = if let Some(query_resolution) = &context.query_resolution {
+        serde_json::json!({
+            "schema_version": 4,
+            "answer_id": hex(&context.answer_id),
+            "query_input_sha256": hex(&context.query_input_sha256),
+            "kernel_manifest_sha256": hex(&context.kernel_manifest_sha256),
+            "embedding_slots": context.embedding_slots.iter().map(|slot| slot.get()).collect::<Vec<_>>(),
+            "fusion": context.fusion,
+            "rrf_k": context.rrf_k,
+            "nearest_score": context.nearest_score,
+            "nearest_lanes": context.nearest_lanes,
+            "admission_threshold": context.admission_threshold,
+            "anchor": context.anchor,
+            "max_hops": context.max_hops,
+            "source_support": context.source_support,
+            "query_resolution": query_resolution,
+            "derivation": derivation,
+        })
+    } else {
+        serde_json::json!({
+            "schema_version": 3,
+            "answer_id": hex(&context.answer_id),
+            "query_input_sha256": hex(&context.query_input_sha256),
+            "kernel_manifest_sha256": hex(&context.kernel_manifest_sha256),
+            "embedding_slots": context.embedding_slots.iter().map(|slot| slot.get()).collect::<Vec<_>>(),
+            "fusion": context.fusion,
+            "rrf_k": context.rrf_k,
+            "nearest_score": context.nearest_score,
+            "nearest_lanes": context.nearest_lanes,
+            "admission_threshold": context.admission_threshold,
+            "anchor": context.anchor,
+            "max_hops": context.max_hops,
+            "source_support": context.source_support,
+            "derivation": derivation,
+        })
+    };
+    let bytes = serde_json::to_vec(&value).map_err(|error| LodestarError::KernelArtifactCodec {
         detail: format!("encode kernel answer derivation: {error}"),
     })?;
     Ok(*blake3::hash(&bytes).as_bytes())

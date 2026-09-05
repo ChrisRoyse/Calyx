@@ -1,5 +1,7 @@
 use super::*;
-use crate::persisted::multi::pinned::{self, PinnedSegmentSpec};
+use crate::persisted::multi::pinned;
+#[cfg(feature = "cuda")]
+use crate::persisted::multi::pinned::PinnedSegmentSpec;
 #[cfg(feature = "cuda")]
 use std::fs;
 #[cfg(feature = "cuda")]
@@ -44,24 +46,20 @@ pub(in crate::persisted::multi) fn search_segments(
     pinned::observe_generation(vault_dir, slot, entry.require_sha256(slot)?)?;
     let manifest = read_segments_manifest(vault_dir, entry, manifest_base_seq, slot)?;
     let token_dim = entry.require_token_dim(slot)?;
-    let mut specs = Vec::with_capacity(manifest.segments.len());
-    for segment in &manifest.segments {
-        bounds::ensure_segment_ref_bounded(slot, token_dim, segment)?;
-        let path = checked_segment_path(vault_dir, &segment.index_rel, slot)?;
-        specs.push(PinnedSegmentSpec {
-            path,
-            index_rel: segment.index_rel.clone(),
-            sha256: segment.sha256.clone(),
-            base_seq: segment.base_seq,
-            row_count: segment.row_count as u64,
-            token_count: segment.token_count as u64,
-            #[cfg(feature = "cuda")]
-            byte_len: bounds::segment_estimated_bytes(
-                token_dim,
-                segment.row_count,
-                segment.token_count,
-            )?,
-        });
+    #[cfg(feature = "cuda")]
+    if let Some(candidates) = candidates
+        && !maxsim_cuda_strict()
+    {
+        return search_resident_candidates_exact(
+            vault_dir,
+            entry,
+            slot,
+            token_dim,
+            &manifest,
+            query_tokens,
+            k,
+            candidates,
+        );
     }
     if let Some(scored) = search_segments_cuda(
         vault_dir,
@@ -72,19 +70,114 @@ pub(in crate::persisted::multi) fn search_segments(
         query_tokens,
         k,
         candidates,
-        &specs,
     )? {
         return Ok(ranked(scored));
     }
-    let index = pinned::pinned_index(vault_dir, entry, slot, &specs)?.index;
-    if index.row_count() != manifest.row_count {
+    // CPU serving path: stream each verified segment row-by-row, scoring with
+    // the exact `MaxSimIndex::maxsim` arithmetic and holding only one decoded
+    // row plus the running scored vector. No lens is ever fully materialized or
+    // pinned resident, so the peak working set is independent of the lens token
+    // volume (issue #1845).
+    score_segments_streaming(
+        vault_dir,
+        slot,
+        token_dim,
+        &manifest,
+        query_tokens,
+        k,
+        candidates,
+    )
+}
+
+#[cfg(feature = "cuda")]
+#[allow(clippy::too_many_arguments)]
+fn search_resident_candidates_exact(
+    vault_dir: &Path,
+    entry: &SearchIndexEntry,
+    slot: SlotId,
+    token_dim: u32,
+    manifest: &MultiSegmentsManifest,
+    query_tokens: &[Vec<f32>],
+    k: usize,
+    candidates: &BTreeSet<CxId>,
+) -> CliResult<Vec<IndexSearchHit>> {
+    let started = Instant::now();
+    validate_or_memoize_segments(vault_dir, entry, slot, token_dim, manifest)?;
+    let specs = pinned_segment_specs(vault_dir, slot, token_dim, manifest)?;
+    let access = pinned::pinned_index(vault_dir, entry, slot, &specs)?;
+    let selection = access.index.select_candidates(candidates);
+    let scored = access
+        .index
+        .score_candidates_exact(&selection, query_tokens)?;
+    telemetry::record_cpu(telemetry::resident_cpu_report(
+        slot,
+        candidates.len(),
+        &selection,
+        &access,
+        &specs,
+        query_tokens.len(),
+        started.elapsed(),
+    ));
+    Ok(ranked(top_k(scored, k)))
+}
+
+/// Bounded, streaming CPU MaxSim scorer over the segmented sidecars. Each
+/// segment is verified (sha256 + header/row/token invariants) as it is read
+/// and scored one row at a time; the only retained state is the `(cx_id,
+/// score)` vector and a single decoded row, so resident memory does not scale
+/// with the lens token volume. Each row is scored with the canonical
+/// `MaxSimIndex::maxsim` / `cosine` arithmetic and the canonical `top_k`
+/// tie-break, preserving the established ranking contract.
+#[allow(clippy::too_many_arguments)]
+fn score_segments_streaming(
+    vault_dir: &Path,
+    slot: SlotId,
+    token_dim: u32,
+    manifest: &MultiSegmentsManifest,
+    query_tokens: &[Vec<f32>],
+    k: usize,
+    candidates: Option<&BTreeSet<CxId>>,
+) -> CliResult<Vec<IndexSearchHit>> {
+    let mut seen = BTreeSet::new();
+    let mut scored = Vec::new();
+    let mut scanned_rows = 0u64;
+    let mut scanned_tokens = 0u64;
+    for segment in &manifest.segments {
+        bounds::ensure_segment_ref_bounded(slot, token_dim, segment)?;
+        let path = checked_segment_path(vault_dir, &segment.index_rel, slot)?;
+        let expect = binary::SegmentExpectation {
+            index_rel: &segment.index_rel,
+            sha256: &segment.sha256,
+            base_seq: segment.base_seq,
+            row_count: segment.row_count as u64,
+            token_count: segment.token_count as u64,
+        };
+        binary::stream_score_segment(
+            &path,
+            slot,
+            token_dim,
+            &expect,
+            query_tokens,
+            candidates,
+            &mut seen,
+            &mut scored,
+        )?;
+        scanned_rows += segment.row_count as u64;
+        scanned_tokens += segment.token_count as u64;
+    }
+    if scanned_rows != manifest.row_count as u64 {
         return Err(stale(format!(
-            "persistent segmented multi manifest row_count {} != scanned row count {}; rebuild the vault search indexes",
-            manifest.row_count,
-            index.row_count()
+            "persistent segmented multi manifest row_count {} != scanned row count {scanned_rows}; rebuild the vault search indexes",
+            manifest.row_count
         )));
     }
-    Ok(ranked(top_k(index.score(query_tokens, candidates), k)))
+    if scanned_tokens != manifest.token_count as u64 {
+        return Err(stale(format!(
+            "persistent segmented multi manifest token_count {} != scanned token count {scanned_tokens}; rebuild the vault search indexes",
+            manifest.token_count
+        )));
+    }
+    Ok(ranked(top_k(scored, k)))
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -97,7 +190,6 @@ fn search_segments_cuda(
     query_tokens: &[Vec<f32>],
     k: usize,
     candidates: Option<&BTreeSet<CxId>>,
-    specs: &[PinnedSegmentSpec],
 ) -> CliResult<Option<Vec<(CxId, f32)>>> {
     #[cfg(feature = "cuda")]
     let slot_started = Instant::now();
@@ -123,7 +215,7 @@ fn search_segments_cuda(
 
     #[cfg(not(feature = "cuda"))]
     {
-        let _ = (query_tokens, candidates, specs);
+        let _ = (query_tokens, candidates);
         Err(stale(format!(
             "persistent MaxSim CUDA workload has {} tokens but calyx-search was built without --features cuda; rebuild with CUDA support or set CALYX_SEARCH_MAXSIM_CUDA=0 to force explicit CPU fallback",
             manifest.token_count
@@ -132,6 +224,8 @@ fn search_segments_cuda(
 
     #[cfg(feature = "cuda")]
     {
+        let owned_specs = pinned_segment_specs(vault_dir, slot, token_dim, manifest)?;
+        let specs = owned_specs.as_slice();
         let flat_query = flatten_query(query_tokens, token_dim as usize)?;
         let chunk_rows = maxsim_cuda_chunk_rows();
         let chunk_tokens = maxsim_cuda_chunk_tokens();
@@ -196,6 +290,34 @@ fn search_segments_cuda(
         telemetry::record(report, &result.report)?;
         Ok(Some(cuda_scores(result, k)))
     }
+}
+
+#[cfg(feature = "cuda")]
+pub(in crate::persisted::multi) fn pinned_segment_specs(
+    vault_dir: &Path,
+    slot: SlotId,
+    token_dim: u32,
+    manifest: &MultiSegmentsManifest,
+) -> CliResult<Vec<PinnedSegmentSpec>> {
+    let mut specs = Vec::with_capacity(manifest.segments.len());
+    for segment in &manifest.segments {
+        bounds::ensure_segment_ref_bounded(slot, token_dim, segment)?;
+        specs.push(PinnedSegmentSpec {
+            path: checked_segment_path(vault_dir, &segment.index_rel, slot)?,
+            index_rel: segment.index_rel.clone(),
+            sha256: segment.sha256.clone(),
+            base_seq: segment.base_seq,
+            row_count: segment.row_count as u64,
+            token_count: segment.token_count as u64,
+            byte_len: bounds::segment_estimated_bytes(
+                token_dim,
+                segment.row_count,
+                segment.token_count,
+            )?,
+            expected_ids: segment.ids.clone(),
+        });
+    }
+    Ok(specs)
 }
 
 fn validate_or_memoize_segments(

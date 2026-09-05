@@ -10,13 +10,13 @@ use crate::{
     anneal_commands, anneal_ledger_readback, anneal_mistakes_readback, anneal_status,
     assay_bits_validation, assay_corpus_build, assay_ensemble_card, assay_fbin_export,
     assay_gdelt_rows, assay_i8bin_ensemble_card, assay_multi_anchor_card, assay_stream_fbin, crash,
-    dedup_audit_readback, fsv, fsv_corpus, fsv_vault_health, healthcheck, htap_validation,
-    intelligence_commands, leapable, lens_commands, lodestar_commands, media_commands, merkle,
-    migrate, navigate, ops, oracle_readback, oracle_sufficiency_validation, panel_commands,
-    partitioned_bench, ph42_readback, provenance, resource_drill, resource_status, scan,
-    sextant_bench, sextant_commands, summarize_command, temporal_log_recurrence_readback,
-    time_prediction_readback, timetravel_readback, trigger_readback, usage, verify,
-    ward_guard_validation, ward_tau_readback,
+    dedup_audit_readback, fsv, fsv_corpus, fsv_vault_health, gpu_commands, healthcheck,
+    htap_validation, intelligence_commands, law_readback, lens_commands, lodestar_commands,
+    media_commands, merkle, navigate, ops, oracle_readback, oracle_sufficiency_validation,
+    panel_commands, partitioned_bench, ph42_readback, provenance, relational_commands,
+    resource_drill, resource_status, scan, sextant_bench, sextant_commands, summarize_command,
+    temporal_log_recurrence_readback, time_prediction_readback, timetravel_readback,
+    trigger_readback, usage, verify, ward_guard_validation, ward_tau_readback,
 };
 
 pub(crate) fn run(args: Vec<String>) -> CliResult {
@@ -29,7 +29,10 @@ pub(crate) fn run(args: Vec<String>) -> CliResult {
             crate::cmd::run_ingest_lens_worker(rest)
         }
         [command, rest @ ..] if command == "healthcheck" => healthcheck::run(rest),
-        [command, topic, rest @ ..] if command == "migrate" => migrate::run(topic, rest),
+        [command, topic, rest @ ..] if command == "gpu" => gpu_commands::run(topic, rest),
+        [command, topic, rest @ ..] if command == "relational" => {
+            relational_commands::run(topic, rest)
+        }
         [command, topic, vault_flag, vault]
             if command == "intelligence" && topic == "abundance" && vault_flag == "--vault" =>
         {
@@ -48,7 +51,6 @@ pub(crate) fn run(args: Vec<String>) -> CliResult {
         [command, topic, rest @ ..] if command == "readback" && ph42_readback::is_topic(topic) => {
             ph42_readback::readback_topic(topic, rest)
         }
-        [command, topic, rest @ ..] if command == "leapable" => leapable::run(topic, rest),
         [command, mode, rest @ ..] if command == "navigate" => navigate::run(mode, rest),
         [command, rest @ ..] if command == "build-bench-vault" => sextant_bench::run_build(rest),
         [command, rest @ ..] if command == "build-partitioned-vault" => {
@@ -86,6 +88,9 @@ pub(crate) fn run(args: Vec<String>) -> CliResult {
         }
         [command, topic, rest @ ..] if command == "assay" && topic == "multi-anchor-readback" => {
             assay_multi_anchor_card::run_readback(rest)
+        }
+        [command, topic, rest @ ..] if command == "assay" && topic == "multi-anchor-copy" => {
+            assay_multi_anchor_card::run_copy(rest)
         }
         [command, topic, rest @ ..] if command == "assay" && topic == "corpus-build" => {
             assay_corpus_build::run(rest)
@@ -179,6 +184,19 @@ pub(crate) fn run(args: Vec<String>) -> CliResult {
         [command, topic, rest @ ..] if command == "readback" && topic == "cx-list" => {
             dedup_audit_readback::readback_cx_list_args(rest)
         }
+        [command, topic, rest @ ..] if command == "readback" && topic == "citation-neighbors" => {
+            law_readback::readback_citation_neighbors_args(rest)
+        }
+        [command, topic, rest @ ..] if command == "readback" && topic == "opinion-type-census" => {
+            law_readback::readback_opinion_type_census_args(rest)
+        }
+        [command, topic, rest @ ..] if command == "readback" && topic == "case-text" => {
+            law_readback::readback_case_text_args(rest)
+        }
+        [command, topic, rest @ ..] if command == "readback" && topic == "judge-census" => {
+            law_readback::readback_judge_census_args(rest)
+        }
+        [command, rest @ ..] if command == "cite-check" => law_readback::cite_check_args(rest),
         [command, topic, vault_flag, vault]
             if command == "readback" && topic == "time-index" && vault_flag == "--vault" =>
         {
@@ -291,6 +309,9 @@ pub(crate) fn run(args: Vec<String>) -> CliResult {
             if command == "compact" && vault_flag == "--vault" && cf_flag == "--cf" =>
         {
             ops::compact(Path::new(vault), cf)
+        }
+        [command, vault_flag, vault] if command == "wal-prune" && vault_flag == "--vault" => {
+            ops::wal_prune(vault)
         }
         [command, vault_flag, vault, duration_flag, duration]
             if command == "compact-watch"

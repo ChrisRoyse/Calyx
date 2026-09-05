@@ -2,7 +2,7 @@ use super::{DurableVault, storage_error};
 use crate::manifest::{ImmutableRef, ManifestStore, VaultManifest};
 use crate::timetravel::RetentionHorizon;
 use calyx_core::{CalyxError, Panel, Result};
-use std::fs::{self, File};
+use std::fs;
 use std::io;
 use std::io::Write;
 use std::path::Path;
@@ -172,8 +172,7 @@ fn write_asset(path: &Path, bytes: &[u8]) -> Result<()> {
         Err(_) => {}
     }
     if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)
-            .map_err(|error| storage_error("create manifest asset dir", error))?;
+        crate::private_fs::create_private_dir_all(parent)?;
     }
     let file_name = path
         .file_name()
@@ -184,8 +183,7 @@ fn write_asset(path: &Path, bytes: &[u8]) -> Result<()> {
         std::thread::current().id()
     ));
     {
-        let mut file =
-            File::create(&tmp).map_err(|error| storage_error("create manifest asset", error))?;
+        let mut file = crate::private_fs::open_private_temp_file(&tmp)?;
         file.write_all(bytes)
             .map_err(|error| storage_error("write manifest asset", error))?;
         file.sync_all()

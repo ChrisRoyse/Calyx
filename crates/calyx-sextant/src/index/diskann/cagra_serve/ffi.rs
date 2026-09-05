@@ -9,7 +9,7 @@ use calyx_core::Result;
 use cudarc::driver::{CudaStream, sys::CUdeviceptr};
 use cuvs_sys as ffi;
 
-use super::{check, unavailable};
+use super::{check, invalid, unavailable};
 
 pub(super) struct Resources(pub(super) ffi::cuvsResources_t);
 
@@ -127,11 +127,28 @@ impl SearchParams {
         Ok(Self(params))
     }
 
-    pub(super) fn configure(&mut self, query_count: usize, k: usize, ef_search: usize) {
+    pub(super) fn configure(
+        &mut self,
+        query_count: usize,
+        k: usize,
+        ef_search: usize,
+    ) -> Result<()> {
+        let requested_itopk = ef_search.max(k);
+        let itopk_size = requested_itopk
+            .checked_next_power_of_two()
+            .ok_or_else(|| invalid(format!("CAGRA itopk size overflow for {requested_itopk}")))?
+            .max(32);
         unsafe {
             (*self.0).max_queries = query_count;
-            (*self.0).itopk_size = ef_search.max(k).next_power_of_two().max(32);
+            (*self.0).itopk_size = itopk_size;
+            // cuVS 26.06's C constructor leaves both enum fields at zero,
+            // selecting SINGLE_CTA/HASH rather than the documented C++
+            // AUTO defaults. Establish the contract explicitly so cuVS can
+            // select MULTI_CTA when itopk exceeds SINGLE_CTA's hard 512 cap.
+            (*self.0).algo = ffi::cuvsCagraSearchAlgo::AUTO;
+            (*self.0).hashmap_mode = ffi::cuvsCagraHashMode::AUTO_HASH;
         }
+        Ok(())
     }
 }
 

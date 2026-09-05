@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 
-use calyx_core::{Result, SlotVector, SparseEntry, content_address};
+use calyx_core::{CalyxError, Result, SlotVector, SparseEntry, content_address};
 
 use super::BYTE_FEATURE_DIM;
 
@@ -130,6 +130,54 @@ pub(super) fn sparse_keywords_from_hashes(hashes: &[u32], dim: u32) -> Result<Sl
     })
 }
 
+pub(super) fn sparse_keywords_raw_tf(bytes: &[u8], dim: u32) -> Result<SlotVector> {
+    let terms = tokenize_sparse_raw_tf(bytes)?;
+    let hashes = terms
+        .iter()
+        .map(|term| {
+            let digest = content_address([term.as_slice()]);
+            u32::from_be_bytes(digest[..4].try_into().expect("content hash has bytes"))
+        })
+        .collect::<Vec<_>>();
+    sparse_keywords_raw_tf_from_hashes(&hashes, dim)
+}
+
+pub(super) fn sparse_keywords_raw_tf_from_hashes(hashes: &[u32], dim: u32) -> Result<SlotVector> {
+    const MAX_EXACT_F32_INTEGER: usize = 1 << 24;
+    if hashes.is_empty() {
+        return Err(CalyxError {
+            code: "CALYX_LENS_EMPTY_INPUT",
+            message: "raw-TF sparse keyword lens found no whitespace-delimited terms".to_string(),
+            remediation: "provide complete non-empty UTF-8 text with at least one term",
+        });
+    }
+    if hashes.len() > MAX_EXACT_F32_INTEGER {
+        return Err(CalyxError::lens_numerical_invariant(format!(
+            "raw-TF sparse keyword document has {} terms; exact f32 term-frequency limit is {}",
+            hashes.len(),
+            MAX_EXACT_F32_INTEGER
+        )));
+    }
+    let dim = dim.max(1);
+    let mut counts = BTreeMap::<u32, u32>::new();
+    for &hash in hashes {
+        let count = counts.entry(hash % dim).or_default();
+        *count = count.checked_add(1).ok_or_else(|| {
+            CalyxError::lens_numerical_invariant("raw-TF sparse keyword count overflow")
+        })?;
+    }
+    Ok(SlotVector::Sparse {
+        dim,
+        entries: counts
+            .into_iter()
+            .map(|(idx, val)| SparseEntry {
+                idx,
+                val: val as f32,
+            })
+            .collect(),
+    })
+}
+
 pub(super) fn token_hash(bytes: &[u8], token_dim: u32) -> Result<SlotVector> {
     let token_dim = token_dim.max(1);
     let mut tokens = tokenize_token_hash(bytes)
@@ -148,6 +196,17 @@ pub(super) fn tokenize_sparse(bytes: &[u8]) -> Vec<Vec<u8>> {
         .map(str::as_bytes)
         .map(ToOwned::to_owned)
         .collect()
+}
+
+pub(super) fn tokenize_sparse_raw_tf(bytes: &[u8]) -> Result<Vec<Vec<u8>>> {
+    let text = std::str::from_utf8(bytes).map_err(|error| {
+        CalyxError::lens_dim_mismatch(format!("raw-TF sparse keyword input is not UTF-8: {error}"))
+    })?;
+    Ok(text
+        .split_whitespace()
+        .map(str::as_bytes)
+        .map(ToOwned::to_owned)
+        .collect())
 }
 
 pub(super) fn tokenize_token_hash(bytes: &[u8]) -> Vec<Vec<u8>> {

@@ -1,4 +1,5 @@
 [package]
+autobenches = false
 autotests = false
 name = "calyx-lodestar"
 version.workspace = true
@@ -36,15 +37,23 @@ serde_json.workspace = true
 # BEGIN generated integration harnesses (issue #1546)
 
 [[test]]
+test = false
 name = "__calyx_integration_platform_0"
 path = "tests/__calyx_integration_platform_0.rs"
 
 [[test]]
+test = false
 name = "__calyx_integration_suite_0"
 path = "tests/__calyx_integration_suite_0.rs"
 
 [[test]]
+test = false
 name = "__calyx_integration_suite_1"
 path = "tests/__calyx_integration_suite_1.rs"
 
 # END generated integration harnesses (issue #1546)
+
+[lib]
+test = false
+doctest = false
+bench = false

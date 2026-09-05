@@ -36,9 +36,12 @@ pub use error::{CliResult, SearchError};
 pub use persisted::{
     MarkerClearOutcome, PersistedSearchGeneration, PersistedSearchIndexes, PersistedSearchSlot,
     REBUILD_REQUIRED_REMEDIATION, REBUILD_REQUIRED_SCHEMA, RebuildProgress, RebuildRequiredMarker,
+    SEARCH_PIN_BUDGET_EXCEEDED_CODE, SEARCH_PIN_BUDGET_EXCEEDED_REMEDIATION,
     clear_rebuild_required_marker, clear_rebuild_required_marker_if_owned, load_docs,
     read_rebuild_required_marker, rebuild_for_vault, rebuild_for_vault_with_fallible_progress,
     rebuild_for_vault_with_panel_state, rebuild_for_vault_with_panel_state_fallible_progress,
     rebuild_for_vault_with_panel_state_progress, rebuild_for_vault_with_progress,
-    rebuild_required_marker_path, validate_rebuild_config, write_rebuild_required_marker,
+    rebuild_for_vault_with_stored_panel_state_fallible_progress, rebuild_required_marker_path,
+    replace_rebuild_required_marker_if_exact, validate_rebuild_config,
+    write_rebuild_required_marker,
 };

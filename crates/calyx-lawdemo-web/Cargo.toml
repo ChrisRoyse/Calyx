@@ -1,0 +1,50 @@
+[package]
+autobenches = false
+autotests = false
+name = "calyx-lawdemo-web"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[lib]
+test = false
+doctest = false
+bench = false
+name = "calyx_lawdemo_web"
+path = "src/lib.rs"
+
+[[bin]]
+test = false
+bench = false
+name = "calyx-lawdemo-web"
+path = "src/main.rs"
+
+[dependencies]
+axum = "0.8"
+# `sync` is declared EXPLICITLY: the episode registry (#2061) depends on
+# broadcast/oneshot/mpsc, and inheriting them from another workspace crate's feature
+# unification would make this crate's build order-dependent.
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "net", "io-util", "process", "signal", "time", "sync"] }
+# Unguessable episode ids: an episode id is the capability to attach to a running
+# episode's stream, so it must not be a guessable sequence number (#2061).
+rand = { workspace = true }
+serde = { workspace = true }
+serde_json.workspace = true
+sha2.workspace = true
+base64 = "0.22"
+tracing.workspace = true
+tracing-subscriber.workspace = true
+tower-http = { version = "0.6", features = ["catch-panic", "set-header"] }
+# Research-chat surface: DeepSeek reasoning-agent transport (blocking HTTP, run via
+# spawn_blocking) + SSE stream plumbing. Both are already in the workspace lockfile.
+ureq = { workspace = true }
+futures-util = "0.3"
+
+[target.'cfg(unix)'.dependencies]
+mimalloc.workspace = true
+
+[dev-dependencies]
+# Route-level tests drive the router with a single request via `ServiceExt::oneshot`.
+tower = { version = "0.5", features = ["util"] }

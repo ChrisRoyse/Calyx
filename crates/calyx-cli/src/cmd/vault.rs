@@ -13,7 +13,7 @@ use calyx_registry::{
 use serde::{Deserialize, Serialize};
 use ulid::Ulid;
 
-use super::lens::{build_lens, built_modality, profile_probes};
+use super::lens::{build_lens, profile_probes};
 use super::{
     AddLensArgs, CreateVaultArgs, ProfileLensArgs, SlotCommandArgs, Subcommand, VaultRefArgs,
     vault_retire,
@@ -43,9 +43,16 @@ struct CreateVaultReport {
     name: String,
     panel_template: String,
     template_source: String,
-    content_lens_count: usize,
+    /// Content slots the template declares (issue #1924). This is NOT how many
+    /// lenses were materialized — parked content slots are declared but inactive.
+    declared_content_slots: usize,
+    /// Content lenses that are actually Active and registry-resident, i.e. the
+    /// lenses that will measure at ingest.
+    active_materialized_content_lenses: usize,
     registered_lenses_added: usize,
     registry_snapshot_written: bool,
+    /// Declared content slots that are parked/unmaterialized. Invariant:
+    /// `declared_content_slots - active_materialized_content_lenses == len`.
     inactive_unmaterialized_slots: Vec<String>,
     a37_gate_eligible: bool,
     a37_status: String,
@@ -247,9 +254,8 @@ struct PreparedVaultPanel {
     panel: Panel,
     registry: Registry,
     template_source: String,
-    content_lens_count: usize,
+    content: ContentSlotReport,
     registered_lenses_added: usize,
-    inactive_unmaterialized_slots: Vec<String>,
     a37_gate_eligible: bool,
     a37_status: String,
 }
@@ -304,10 +310,11 @@ fn create_vault(args: CreateVaultArgs) -> CliResult {
         name: args.name,
         panel_template: template.to_string(),
         template_source: prepared.template_source,
-        content_lens_count: prepared.content_lens_count,
+        declared_content_slots: prepared.content.declared_content_slots,
+        active_materialized_content_lenses: prepared.content.active_materialized_content_lenses,
         registered_lenses_added: prepared.registered_lenses_added,
         registry_snapshot_written,
-        inactive_unmaterialized_slots: prepared.inactive_unmaterialized_slots,
+        inactive_unmaterialized_slots: prepared.content.inactive_unmaterialized_slots,
         a37_gate_eligible: prepared.a37_gate_eligible,
         a37_status: prepared.a37_status,
     })
@@ -442,7 +449,7 @@ fn profile_lens_command(args: ProfileLensArgs) -> CliResult {
     let lens_id = built.lens_id;
     let mut registry = Registry::new();
     built.register(&mut registry)?;
-    let probes = profile_probes(args.probe.as_deref(), built_modality(&registry, lens_id)?)?;
+    let probes = profile_probes(args.probe.as_deref(), &registry, lens_id)?;
     let card = profile_lens(&registry, lens_id, &probes)?;
     print_json(&card)
 }
@@ -469,29 +476,34 @@ fn prepare_vault_panel(home: &Path, template: &str) -> CliResult<PreparedVaultPa
     if super::PANEL_TEMPLATES.contains(&template) {
         let materialized =
             materialize_panel_template(&builtin_panel_template(template)?, now_ms())?;
+        // Derive the honest content-slot accounting from the actual materialized
+        // panel + registry (issue #1924) rather than counting declared slots as if
+        // they were all materialized.
+        let content = ContentSlotReport::derive(&materialized.panel, &materialized.registry)?;
         return Ok(PreparedVaultPanel {
-            content_lens_count: panel_content_lens_count(&materialized.panel),
+            content,
             panel: materialized.panel,
             registry: materialized.registry,
             template_source: "built_in_materialized".to_string(),
             registered_lenses_added: materialized.registered_lenses_added,
-            inactive_unmaterialized_slots: materialized.inactive_unmaterialized_slots,
             a37_gate_eligible: false,
             a37_status: "built_in_template_not_a37_profiled".to_string(),
         });
     }
 
     match build_saved_template_panel(home, template, now_ms()) {
-        Ok(saved) => Ok(PreparedVaultPanel {
-            panel: saved.panel,
-            registry: saved.registry,
-            template_source: format!("saved:{}:{}", saved.template_name, saved.template_id),
-            content_lens_count: saved.content_lens_count,
-            registered_lenses_added: saved.registered_lenses_added,
-            inactive_unmaterialized_slots: Vec::new(),
-            a37_gate_eligible: saved.a37_gate_eligible,
-            a37_status: saved.a37_status,
-        }),
+        Ok(saved) => {
+            let content = ContentSlotReport::derive(&saved.panel, &saved.registry)?;
+            Ok(PreparedVaultPanel {
+                panel: saved.panel,
+                registry: saved.registry,
+                template_source: format!("saved:{}:{}", saved.template_name, saved.template_id),
+                content,
+                registered_lenses_added: saved.registered_lenses_added,
+                a37_gate_eligible: saved.a37_gate_eligible,
+                a37_status: saved.a37_status,
+            })
+        }
         Err(error) if error.code() == "CALYX_PANEL_TEMPLATE_NOT_FOUND" => {
             let saved = saved_template_names(home).unwrap_or_default();
             Err(CliError::usage(format!(
@@ -506,14 +518,6 @@ fn prepare_vault_panel(home: &Path, template: &str) -> CliResult<PreparedVaultPa
         }
         Err(error) => Err(error),
     }
-}
-
-fn panel_content_lens_count(panel: &Panel) -> usize {
-    panel
-        .slots
-        .iter()
-        .filter(|slot| !slot.retrieval_only && !slot.excluded_from_dedup)
-        .count()
 }
 
 pub(crate) fn home_dir() -> CliResult<PathBuf> {
@@ -548,6 +552,9 @@ fn index_path(home: &Path) -> PathBuf {
 
 mod resolve;
 pub(crate) use resolve::{resolve_vault, resolve_vault_info};
+
+pub(crate) mod report;
+use report::ContentSlotReport;
 
 pub(crate) fn vault_salt(vault_id: VaultId, name: &str) -> Vec<u8> {
     vault_namespace(vault_id, name).into_bytes()

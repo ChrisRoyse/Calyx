@@ -22,7 +22,9 @@ use crate::compaction::TieringPolicy;
 use crate::manifest::ManifestStore;
 use crate::sst::{SstEntry, shared_reader};
 use crate::vault::encode::decode_write_batch;
-use crate::wal::{replay_dir_after, stream_records};
+use crate::wal::{
+    for_each_record_payload_after, for_each_record_payload_reverse, replay_dir_after,
+};
 pub use point_read::{LedgerPointReadTierStats, LedgerPointReadTrace};
 use point_read::{complete_ledger_sst_candidates, read_sst_ledger_rows, unresolved_seqs};
 pub use query_index::{LedgerQueryOpenStats, LedgerQuerySnapshot, LedgerQueryVisitStats};
@@ -140,19 +142,20 @@ impl AsterLedgerCfStore {
         }
 
         if layout.has_wal {
-            // This stable view is also the duplicate-conflict source of truth:
+            // This stable view is the duplicate-conflict source of truth:
             // compare retained WAL rows even when an SST already resolves the
-            // sequence. Targeted point reads intentionally skip resolved WAL
-            // rows; a generation-bound reusable view cannot weaken that
-            // append-only equality check.
-            stream_records(vault.join("wal"), |record| {
-                for row in decode_write_batch(&record.payload)? {
+            // sequence, so it must see every record (always returns Ok(true)).
+            // Reused-buffer decode (issue #1992): a large retained WAL is
+            // scanned with one shared payload buffer, not one owned Vec per
+            // record, so RSS stays O(largest record) instead of O(total WAL).
+            for_each_record_payload_after(vault.join("wal"), 0, |_seq, payload| {
+                for row in decode_write_batch(payload)? {
                     if row.cf == ColumnFamily::Ledger {
                         let seq = parse_aster_ledger_seq(&row.key)?;
                         insert_ledger_bytes(&mut rows, seq, row.value)?;
                     }
                 }
-                Ok(())
+                Ok(true)
             })?;
         }
 
@@ -291,17 +294,23 @@ fn read_retained_wal_ledger_rows(
     wanted: &BTreeSet<u64>,
     rows: &mut BTreeMap<u64, Vec<u8>>,
 ) -> CalyxResult<()> {
-    stream_records(vault.join("wal"), |record| {
-        for write in decode_write_batch(&record.payload)? {
+    // Bounded retained-WAL fallback (issue #1992): the wanted ledger seqs are
+    // recent (a checkpoint tail window), so scan newest-first with one reused
+    // payload buffer and stop as soon as every wanted seq is resolved — instead
+    // of decoding every payload of the whole WAL from seq 0, which churned
+    // ~O(total WAL bytes) of allocations and OOM-killed the open.
+    let mut remaining: BTreeSet<u64> = wanted.clone();
+    for_each_record_payload_reverse(vault.join("wal"), |_seq, payload| {
+        for write in decode_write_batch(payload)? {
             if write.cf != ColumnFamily::Ledger {
                 continue;
             }
             let seq = parse_aster_ledger_seq(&write.key)?;
-            if wanted.contains(&seq) {
+            if remaining.remove(&seq) {
                 insert_ledger_bytes(rows, seq, write.value)?;
             }
         }
-        Ok(())
+        Ok(!remaining.is_empty())
     })?;
     Ok(())
 }

@@ -157,6 +157,108 @@ fn seed_home_with_anchors(name: &str, anchored: bool) -> (PathBuf, PathBuf) {
     (home, vault_dir)
 }
 
+/// Seed a vault with `doc_count` distinct grounded constellations measured from
+/// real text (no mock vectors) across the same dense+sparse panel as
+/// [`seed_home`]. Used by the #1846 final-top-k contract tests where the corpus
+/// must be larger than the requested `top_k` so a pre-fix engine would return
+/// the wide internal retrieval window instead of `k`.
+///
+/// Every document is anchored (grounded) and every document's text shares the
+/// `"alpha"` frontier token so the frontier query recalls the whole corpus,
+/// forcing fusion to produce more than `top_k` candidates before truncation.
+pub(super) fn seed_home_with_corpus(name: &str, doc_count: usize) -> (PathBuf, PathBuf) {
+    let home =
+        std::env::temp_dir().join(format!("calyx-probe-matrix-{name}-{}", std::process::id()));
+    let _ = fs::remove_dir_all(&home);
+    fs::create_dir_all(home.join("vaults")).unwrap();
+    let vault_id = VaultId::from_ulid(Ulid::from_bytes([11; 16]));
+    let vault_dir = home.join("vaults").join(vault_id.to_string());
+    fs::write(
+        home.join("vaults").join("index.json"),
+        serde_json::to_vec_pretty(&serde_json::json!({
+            "vaults": [{
+                "name": name,
+                "vault_id": vault_id.to_string(),
+                "path": format!("vaults/{vault_id}"),
+                "panel_template": "text-default"
+            }]
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+
+    let mut registry = Registry::new();
+    let byte = register_lens(
+        &mut registry,
+        AlgorithmicLens::byte_features("issue1846-byte", Modality::Text),
+        "issue1846-byte",
+        "byte-features",
+    );
+    let sparse = register_lens(
+        &mut registry,
+        AlgorithmicLens::sparse_keywords("issue1846-sparse", Modality::Text, 64),
+        "issue1846-sparse",
+        "sparse-keywords:64",
+    );
+    let panel = Panel {
+        version: 1,
+        slots: vec![
+            slot(SlotId::new(8), "issue1846-byte", byte, SlotShape::Dense(16)),
+            slot(
+                SlotId::new(14),
+                "issue1846-sparse",
+                sparse,
+                SlotShape::Sparse(64),
+            ),
+        ],
+        created_at: 1,
+        kernel_ref: None,
+        guard_ref: None,
+    };
+    let vault = AsterVault::new_durable(
+        &vault_dir,
+        vault_id,
+        vault_salt(vault_id, name),
+        VaultOptions {
+            panel: Some(panel.clone()),
+            ..VaultOptions::default()
+        },
+    )
+    .unwrap();
+    persist_vault_panel_state(&vault_dir, &panel, &registry).unwrap();
+    let state = VaultPanelState {
+        panel,
+        registry,
+        registry_snapshot: None,
+    };
+    for index in 0..doc_count {
+        // Real, distinct text per document, all sharing the frontier token so
+        // the frontier query recalls the entire corpus (physically grounded).
+        let text = format!("alpha frontier document number {index} clinical mechanistic marker");
+        let mut cx =
+            measure_constellation(&vault, &state, Input::new(Modality::Text, text.as_str()), 1)
+                .unwrap();
+        cx.metadata = BTreeMap::from([
+            (
+                "source_dataset".to_string(),
+                "issue1846-fixture".to_string(),
+            ),
+            ("source_id".to_string(), format!("doc-{index}")),
+        ]);
+        cx.anchors.push(Anchor {
+            kind: AnchorKind::Label("answer".to_string()),
+            value: AnchorValue::Text(format!("doc-{index}")),
+            source: "issue1846-test".to_string(),
+            observed_at: 1,
+            confidence: 1.0,
+        });
+        vault.put(cx).unwrap();
+    }
+    vault.flush().unwrap();
+    rebuild_persistent_indexes(&vault_dir, &vault).unwrap();
+    (home, vault_dir)
+}
+
 fn register_lens(
     registry: &mut Registry,
     lens: AlgorithmicLens,

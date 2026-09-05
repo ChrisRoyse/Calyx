@@ -1,11 +1,15 @@
 use super::*;
+use calyx_aster::ledger_view::read_ledger_seq;
 use calyx_aster::plain_graph::PlainGraph;
 use calyx_aster::vault::{AsterVault, VaultOptions};
-use calyx_core::{AnchorKind, CxId, SlotShape, SlotState, VaultId, VaultStore};
+use calyx_core::{
+    AnchorKind, CxId, SlotId, SlotShape, SlotState, SlotVector, SparseEntry, VaultId, VaultStore,
+};
+use calyx_ledger::{EntryKind, decode};
 use calyx_lodestar::{
-    AsterAssocMetadata, AsterAssocNodeProps, DEFAULT_ASTER_ASSOC_COLLECTION, FsKernelStore,
-    RecallPassMode, encode_assoc_node_props, kernel_health, load_kernel_index,
-    read_kernel_artifact, write_assoc_metadata,
+    AsterAssocMetadata, AsterAssocNodeProps, FsKernelStore, PANEL_ASTER_ASSOC_COLLECTION,
+    PANEL_RRF_K, RecallPassMode, TypedPanelVectors, encode_assoc_node_props, kernel_health,
+    load_typed_panel_kernel_index, read_kernel_artifact, write_assoc_metadata,
 };
 use calyx_registry::{code_default, materialize_panel_template, persist_vault_panel_state};
 use serde_json::json;
@@ -131,9 +135,14 @@ fn run_persists_kernel_and_index_then_reads_back_source_of_truth() {
     .unwrap();
 
     let store = FsKernelStore::new(&vault_dir);
-    let kernel_id = only_kernel_id(&vault_dir);
+    let generation = super::super::kernel_generation::load_current_generation(&vault_dir).unwrap();
+    let kernel_id = generation.manifest.kernel_id;
     let kernel = read_kernel_artifact(kernel_id, &store).unwrap();
-    let index = load_kernel_index(kernel_id, &store).unwrap();
+    // The no-flatten contract persists the typed_block_rrf index; read it back
+    // through the same typed loader every production consumer uses (kernel_build
+    // readback, kernel-answer, kernel-reproduce). The legacy `rrf`/flat-`dims`
+    // panel loader no longer matches the sealed on-disk contract.
+    let index = load_typed_panel_kernel_index(kernel_id, &store).unwrap();
     let health = kernel_health(kernel_id, &store).unwrap();
 
     assert_eq!(kernel.kernel_id, kernel_id);
@@ -143,6 +152,22 @@ fn run_persists_kernel_and_index_then_reads_back_source_of_truth() {
     assert_eq!(health.recall.min_recall_ratio, 0.0);
     assert!(store.kernel_file_path(kernel_id).exists());
     assert!(store.index_file_path(kernel_id).exists());
+
+    // Physical ledger provenance: the build ledger row recorded in the CURRENT
+    // manifest must exist on disk and decode to the Kernel entry with the exact
+    // hash — proving the point-read append/readback path (issue #1863).
+    let seq = generation.manifest.build_ledger_seq;
+    let row = read_ledger_seq(&vault_dir, seq)
+        .unwrap()
+        .expect("kernel build ledger row physically present");
+    let entry = decode(&row.bytes).unwrap();
+    assert_eq!(entry.kind, EntryKind::Kernel);
+    let entry_hash_hex = entry
+        .entry_hash
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect::<String>();
+    assert_eq!(entry_hash_hex, generation.manifest.build_ledger_hash);
 }
 
 #[test]
@@ -164,13 +189,14 @@ fn strict_gate_refines_members_before_persisting_artifacts() {
     let store = FsKernelStore::new(&vault_dir);
     let kernel_id = only_kernel_id(&vault_dir);
     let kernel = read_kernel_artifact(kernel_id, &store).unwrap();
-    let index = load_kernel_index(kernel_id, &store).unwrap();
+    let index = load_typed_panel_kernel_index(kernel_id, &store).unwrap();
 
+    // A strict 1.0 gate must be met by refining the kernel until every held-out
+    // full top-1 (each node itself) is a member — so the sealed panel index has
+    // one row per member and the recall contract holds exactly.
     assert_eq!(kernel.recall.ratio, 1.0);
-    assert_eq!(kernel.recall.tau_star_estimate, 1);
-    assert!(kernel.recall.tau_star_exact);
     assert_eq!(kernel.members.len(), 30);
-    assert_eq!(index.rows().len(), 30);
+    assert_eq!(index.rows().len(), kernel.members.len());
     assert!(
         kernel
             .warnings
@@ -261,6 +287,63 @@ fn acyclic_selected_graph_fails_closed_without_member_substitution() {
     assert!(!vault_dir.join("idx/kernel/CURRENT").exists());
 }
 
+#[test]
+fn rss_budget_parses_and_rejects_bad_values() {
+    assert_eq!(super::parse_rss_budget(" 4096 ").unwrap(), 4096);
+    assert_eq!(
+        super::parse_rss_budget("0").unwrap_err().code(),
+        "CALYX_CLI_USAGE_ERROR"
+    );
+    assert_eq!(
+        super::parse_rss_budget("not-a-number").unwrap_err().code(),
+        "CALYX_CLI_USAGE_ERROR"
+    );
+}
+
+#[test]
+fn projected_peak_over_budget_is_saturating() {
+    // No budget or within budget -> None.
+    assert_eq!(super::projected_peak_over_budget(10, 5, None), None);
+    assert_eq!(super::projected_peak_over_budget(10, 5, Some(100)), None);
+    // Over budget -> the projected peak.
+    assert_eq!(
+        super::projected_peak_over_budget(80, 40, Some(100)),
+        Some(120)
+    );
+    // Saturating add never wraps the comparison.
+    assert_eq!(
+        super::projected_peak_over_budget(u64::MAX, 1, Some(u64::MAX - 1)),
+        Some(u64::MAX)
+    );
+}
+
+#[test]
+fn enforce_rss_budget_fails_closed_over_budget_and_passes_otherwise() {
+    // No budget configured is a no-op.
+    super::enforce_rss_budget("noop", None, 0).unwrap();
+    // A 1-byte budget is impossible for a live process (real /proc VmRSS is
+    // millions of bytes), so it must refuse fail-closed with backpressure.
+    let refused = super::enforce_rss_budget("tiny", Some(1), 0).unwrap_err();
+    assert_eq!(refused.code(), "CALYX_BACKPRESSURE");
+    assert!(refused.message().contains("projected peak RSS"));
+    // A huge budget passes.
+    super::enforce_rss_budget("ample", Some(u64::MAX), 0).unwrap();
+}
+
+#[test]
+fn rss_tracker_records_real_proc_samples() {
+    let mut tracker = super::RssTracker::new();
+    tracker.sample("phase_a");
+    tracker.sample("phase_b");
+    let report = tracker.report();
+    let samples = report["samples"].as_array().unwrap();
+    assert_eq!(samples.len(), 2);
+    // The /proc probe is exercised: peak RSS of a running test process is > 0.
+    assert!(report["peak_rss_bytes"].as_u64().unwrap() > 0);
+    assert_eq!(samples[0]["phase"], "phase_a");
+    assert!(samples[0]["rss_bytes"].as_u64().unwrap() > 0);
+}
+
 #[derive(Clone, Copy)]
 enum GraphShape {
     Empty,
@@ -305,22 +388,36 @@ fn seed_home(
     )
     .unwrap();
     persist_vault_panel_state(&vault_dir, &materialized.panel, &materialized.registry).unwrap();
-    let embedding_slot = materialized
+    // Every active typed content lane (no-flatten panel contract), keyed by its
+    // declared slot shape. This mirrors `weave::content_lens_slots` exactly
+    // (state=Active, not retrieval_only, ALL shapes — not dense-only) so the
+    // fixture carries the same ordered typed-block contract `kernel-build`
+    // reconstructs from the live panel (kernel_build.rs:305-326).
+    let mut content_slots = materialized
         .panel
         .slots
         .iter()
-        .find(|slot| {
-            slot.state == SlotState::Active
-                && !slot.retrieval_only
-                && matches!(slot.shape, SlotShape::Dense(_))
-        })
-        .unwrap()
-        .slot_id;
-    let graph = PlainGraph::new(&vault, DEFAULT_ASTER_ASSOC_COLLECTION).unwrap();
+        .filter(|slot| slot.state == SlotState::Active && !slot.retrieval_only)
+        .map(|slot| (slot.slot_id, slot.shape))
+        .collect::<Vec<_>>();
+    content_slots.sort_by_key(|(slot, _)| *slot);
+    content_slots.dedup_by_key(|(slot, _)| *slot);
+    assert!(
+        content_slots.len() >= 2,
+        "panel/RRF kernel-build needs >=2 typed content lanes"
+    );
+    let embedding_slots = content_slots
+        .iter()
+        .map(|(slot, _)| *slot)
+        .collect::<Vec<_>>();
+    let graph = PlainGraph::new(&vault, PANEL_ASTER_ASSOC_COLLECTION).unwrap();
     if !matches!(shape, GraphShape::Empty) {
         for seed in 1..=30u8 {
+            // The no-flatten contract stores a complete typed panel per node in
+            // `typed_embeddings`; the legacy flat `embedding`/`embeddings` fields
+            // are forbidden and rejected by kernel-build (kernel_build.rs:378).
             let props = AsterAssocNodeProps {
-                embedding: Some(vec![seed as f32, (31 - seed) as f32]),
+                typed_embeddings: panel_typed_vectors(seed, &content_slots),
                 anchors: anchored
                     .then(|| AnchorKind::Label("answer".to_string()))
                     .into_iter()
@@ -347,20 +444,71 @@ fn seed_home(
     let graph_source_seq = vault.latest_seq();
     write_assoc_metadata(
         &vault,
-        DEFAULT_ASTER_ASSOC_COLLECTION,
+        PANEL_ASTER_ASSOC_COLLECTION,
         &AsterAssocMetadata {
             retention_horizon: None,
-            embedding_slot: Some(embedding_slot),
+            embedding_slot: None,
+            embedding_slots,
+            // Match the real `weave-loom` no-flatten typed-block/RRF contract
+            // (weave/graph_contract.rs); kernel-build fails closed on any other
+            // fusion tag (kernel_build.rs:277).
+            fusion: Some("typed_block_rrf".to_string()),
+            rrf_k: Some(PANEL_RRF_K),
             panel_version: Some(u64::from(materialized.panel.version)),
             graph_source_seq: Some(graph_source_seq),
             knn: Some(16),
-            edge_cos_threshold: Some(0.5),
+            edge_cos_threshold: None,
+            edge_score_threshold: Some(0.5),
         },
     )
     .unwrap();
     graph.rebuild_csr(vault.snapshot()).unwrap();
     vault.flush().unwrap();
     (home, vault_dir)
+}
+
+/// Deterministic, finite, non-zero typed per-lane vectors for a synthetic panel
+/// node — one `SlotVector` per contracted content slot, shaped exactly as the
+/// slot declares (dense/sparse/multi). Distinct per node and per slot so the
+/// corpus is not degenerate, yet a node's own vectors are its unique nearest
+/// self (cosine 1.0), which is what the RRF recall/admission contract rides on.
+/// No mock data: these are real f32 measurements matching each lane's schema.
+fn panel_typed_vectors(seed: u8, content_slots: &[(SlotId, SlotShape)]) -> TypedPanelVectors {
+    content_slots
+        .iter()
+        .map(|(slot, shape)| (*slot, typed_lane(seed, *slot, *shape)))
+        .collect()
+}
+
+fn typed_lane(seed: u8, slot: SlotId, shape: SlotShape) -> SlotVector {
+    let base =
+        |k: u32| 0.5 + 0.1 * f32::from(seed) + 0.2 * f32::from(slot.get()) + 0.01 * (k as f32);
+    match shape {
+        SlotShape::Dense(dim) => SlotVector::Dense {
+            dim,
+            data: (0..dim).map(base).collect(),
+        },
+        // A fixed, strictly increasing support shared by every node (so cosine
+        // is well-defined and non-degenerate) with per-node distinct finite
+        // values. Eight entries is ample for the 30_522-dim lexical lane.
+        SlotShape::Sparse(dim) => SlotVector::Sparse {
+            dim,
+            entries: (0..8u32)
+                .filter(|idx| *idx < dim)
+                .map(|idx| SparseEntry {
+                    idx,
+                    val: base(idx),
+                })
+                .collect(),
+        },
+        // Not produced by the default panels exercised here, but keep the
+        // fixture total over the SlotVector contract so a new active Multi lane
+        // fails loudly at the schema, not silently.
+        SlotShape::Multi { token_dim } => SlotVector::Multi {
+            token_dim,
+            tokens: vec![(0..token_dim).map(base).collect()],
+        },
+    }
 }
 
 fn cx(seed: u8) -> CxId {

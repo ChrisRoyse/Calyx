@@ -10,7 +10,6 @@ use crate::sst::{SstEntry, SstSummary};
 use crate::storage_names::flush_sst_file_name;
 use calyx_core::{CalyxError, Result};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
-use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -34,10 +33,14 @@ pub struct CfRouter {
     pub(super) next_file: HashMap<ColumnFamily, u64>,
     memtable_byte_cap: usize,
     resource_counters: Arc<ResourceCounters>,
-    value_crypto: Option<SharedVaultContext>,
+    pub(super) value_crypto: Option<SharedVaultContext>,
 }
 
 impl CfRouter {
+    pub(super) fn value_crypto_context(&self) -> Option<SharedVaultContext> {
+        self.value_crypto.clone()
+    }
+
     pub(crate) fn prove_persistent_search_content_watermark(
         &self,
         durable_seq: u64,
@@ -135,13 +138,10 @@ impl CfRouter {
         } else {
             memtable_byte_cap
         };
-        fs::create_dir_all(vault_dir.join("cf"))
-            .map_err(|error| CalyxError::disk_pressure(format!("create CF root: {error}")))?;
+        crate::private_fs::create_private_dir_all(&vault_dir.join("cf"))?;
         if let Some(policy) = &tiering_policy {
             for tier_root in policy.tier_roots() {
-                fs::create_dir_all(tier_root.join("cf")).map_err(|error| {
-                    CalyxError::disk_pressure(format!("create tiered CF root: {error}"))
-                })?;
+                crate::private_fs::create_private_dir_all(&tier_root.join("cf"))?;
             }
         }
         Ok(Self {
@@ -281,16 +281,17 @@ impl CfRouter {
             }
             None => frozen.flush_to_sst(&path)?,
         };
-        self.levels
-            .entry(cf)
-            .or_default()
-            .push_with_lookup(summary.path.clone())?;
+        let level = self.levels.entry(cf).or_default();
+        if super::router_load::eager_lookup_on_open(cf) {
+            level.push_with_lookup(summary.path.clone())?;
+        } else {
+            level.push_with_bounds(summary.path.clone())?;
+        }
         Ok(summary)
     }
 
     pub(super) fn ensure_cf(&mut self, cf: ColumnFamily) -> Result<()> {
-        fs::create_dir_all(self.cf_dir(cf))
-            .map_err(|error| CalyxError::disk_pressure(format!("create CF dir: {error}")))?;
+        crate::private_fs::create_private_dir_all(&self.cf_dir(cf))?;
         self.memtables
             .entry(cf)
             .or_insert_with(|| Memtable::new(self.memtable_byte_cap));

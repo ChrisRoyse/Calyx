@@ -83,10 +83,11 @@ pub(super) fn prepare(
     if let Some(parent) = tmp.parent()
         && !parent.as_os_str().is_empty()
     {
-        fs::create_dir_all(parent).map_err(|error| io("create dataset asset directory", error))?;
+        calyx_aster::private_fs::create_private_dir_all(parent)?;
     }
     remove_if_present(&tmp)?;
-    let mut file = File::create(&tmp).map_err(|error| io("create dataset asset", error))?;
+    // Owner-only (0600) at creation (#1989).
+    let mut file = calyx_aster::private_fs::open_private_temp_file(&tmp)?;
     file.write_all(&encode_header(&header))
         .and_then(|()| file.write_all(&payload))
         .and_then(|()| file.sync_all())

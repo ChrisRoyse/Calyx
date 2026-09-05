@@ -1,4 +1,5 @@
 [package]
+autobenches = false
 autotests = false
 name = "calyxd"
 version.workspace = true
@@ -8,6 +9,8 @@ repository.workspace = true
 publish.workspace = true
 
 [[bin]]
+test = false
+bench = false
 name = "calyxd"
 path = "src/main.rs"
 
@@ -54,19 +57,28 @@ cuda = ["calyx-aster/cuda", "calyx-forge/cuda", "calyx-oracle/cuda"]
 # BEGIN generated integration harnesses (issue #1546)
 
 [[test]]
+test = false
 name = "__calyx_integration_isolated_issue959_mcp_startup_fsv"
 path = "tests/__calyx_integration_isolated_issue959_mcp_startup_fsv.rs"
 
 [[test]]
+test = false
 name = "__calyx_integration_isolated_main_wire"
 path = "tests/__calyx_integration_isolated_main_wire.rs"
 
 [[test]]
+test = false
 name = "__calyx_integration_process_0"
 path = "tests/__calyx_integration_process_0.rs"
 
 [[test]]
+test = false
 name = "__calyx_integration_suite_0"
 path = "tests/__calyx_integration_suite_0.rs"
 
 # END generated integration harnesses (issue #1546)
+
+[lib]
+test = false
+doctest = false
+bench = false

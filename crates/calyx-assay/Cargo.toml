@@ -1,4 +1,5 @@
 [package]
+autobenches = false
 autotests = false
 name = "calyx-assay"
 version.workspace = true
@@ -38,22 +39,27 @@ proptest.workspace = true
 # BEGIN generated integration harnesses (issue #1546)
 
 [[test]]
+test = false
 name = "__calyx_integration_isolated_drift_mmd_fsv"
 path = "tests/__calyx_integration_isolated_drift_mmd_fsv.rs"
 
 [[test]]
+test = false
 name = "__calyx_integration_isolated_periodicity_fsv"
 path = "tests/__calyx_integration_isolated_periodicity_fsv.rs"
 
 [[test]]
+test = false
 name = "__calyx_integration_isolated_stage5_fsv"
 path = "tests/__calyx_integration_isolated_stage5_fsv.rs"
 
 [[test]]
+test = false
 name = "__calyx_integration_suite_0"
 path = "tests/__calyx_integration_suite_0.rs"
 
 [[test]]
+test = false
 name = "__calyx_integration_suite_1"
 path = "tests/__calyx_integration_suite_1.rs"
 
@@ -62,25 +68,36 @@ path = "tests/__calyx_integration_suite_1.rs"
 # Dedicated post-#1546 harnesses. The issue1505-1507 roots mutate the shared
 # strict-CUDA environment switch and must remain process-isolated.
 [[test]]
+test = false
 name = "__calyx_integration_suite_issue1502_1504_cuda"
 path = "tests/__calyx_integration_suite_issue1502_1504_cuda.rs"
 
 [[test]]
+test = false
 name = "__calyx_integration_isolated_issue1505_cka_cuda"
 path = "tests/__calyx_integration_isolated_issue1505_cka_cuda.rs"
 
 [[test]]
+test = false
 name = "__calyx_integration_isolated_issue1505_logistic_cuda"
 path = "tests/__calyx_integration_isolated_issue1505_logistic_cuda.rs"
 
 [[test]]
+test = false
 name = "__calyx_integration_isolated_issue1506_linalg_cuda"
 path = "tests/__calyx_integration_isolated_issue1506_linalg_cuda.rs"
 
 [[test]]
+test = false
 name = "__calyx_integration_isolated_issue1507_periodicity_hawkes_cuda"
 path = "tests/__calyx_integration_isolated_issue1507_periodicity_hawkes_cuda.rs"
 
 [[test]]
+test = false
 name = "__calyx_integration_isolated_issue1508_dependence_cuda"
 path = "tests/__calyx_integration_isolated_issue1508_dependence_cuda.rs"
+
+[lib]
+test = false
+doctest = false
+bench = false

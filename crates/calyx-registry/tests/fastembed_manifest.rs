@@ -39,6 +39,8 @@ fn onnx_fastembed_manifest_preserves_core_file_order_and_sidecars() {
         recall_delta: calyx_registry::spec::default_recall_delta(),
         max_batch: None,
         max_tokens: None,
+        representation: None,
+        special_tokens: None,
         batch_policy: None,
     };
     fs::write(

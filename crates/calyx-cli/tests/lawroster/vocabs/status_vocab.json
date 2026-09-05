@@ -1,0 +1,21 @@
+{
+  "schema_id": "courtlistener-opinion-v1",
+  "field": "/precedential_status",
+  "encoder": "one_hot",
+  "source_files": [
+    "/zfs/archive/calyx/freelaw-cuyahoga/ingest/cap-cuyahoga.jsonl",
+    "/zfs/archive/calyx/freelaw-cuyahoga/ingest/ohctapp8-modern.jsonl"
+  ],
+  "corpus_rows": 18516,
+  "extraction": "python: Counter(metadata['precedential_status']) over both ingest JSONL files; sorted+deduped",
+  "distinct_count": 2,
+  "coverage_fraction": 1.0,
+  "counts": {
+    "Published": 14968,
+    "Unpublished": 3548
+  },
+  "tokens": [
+    "Published",
+    "Unpublished"
+  ]
+}

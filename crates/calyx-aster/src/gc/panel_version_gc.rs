@@ -355,8 +355,7 @@ where
         let Some(path) = find_panel_file(&self.hot_panel_dir, id)? else {
             return Ok(0);
         };
-        fs::create_dir_all(&self.cold_panel_dir)
-            .map_err(|error| calyx_core::CalyxError::disk_pressure(error.to_string()))?;
+        crate::private_fs::create_private_dir_all(&self.cold_panel_dir)?;
         let bytes = path.metadata().map(|meta| meta.len()).unwrap_or(0);
         let target = self.cold_panel_dir.join(
             path.file_name()

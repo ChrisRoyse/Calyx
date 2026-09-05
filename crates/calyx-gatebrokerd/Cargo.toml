@@ -1,0 +1,62 @@
+[package]
+autobenches = false
+autotests = false
+name = "calyx-gatebrokerd"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[lib]
+test = false
+doctest = false
+bench = false
+name = "calyx_gatebrokerd"
+path = "src/lib.rs"
+
+[dependencies]
+blake3.workspace = true
+libc = "0.2"
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tokio = { workspace = true, features = ["rt"] }
+toml.workspace = true
+turso.workspace = true
+
+[dev-dependencies]
+tempfile = "3"
+toml.workspace = true
+
+# BEGIN generated integration harnesses (issue #1546)
+
+[[test]]
+test = false
+name = "__calyx_integration_platform_0"
+path = "tests/__calyx_integration_platform_0.rs"
+
+[[test]]
+test = false
+name = "__calyx_integration_suite_0"
+path = "tests/__calyx_integration_suite_0.rs"
+
+# END generated integration harnesses (issue #1546)
+
+[[bin]]
+name = "calyx-gate-stage-shim"
+path = "src/bin/calyx-gate-stage-shim.rs"
+test = false
+bench = false
+
+[[bin]]
+name = "calyx-gatectl"
+path = "src/bin/calyx-gatectl.rs"
+test = false
+bench = false
+
+[[bin]]
+name = "calyx-gatebrokerd"
+path = "src/bin/calyx-gatebrokerd.rs"
+test = false
+bench = false

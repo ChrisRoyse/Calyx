@@ -324,7 +324,13 @@ fn add_test_lens(controller: &mut SwapController, now: u64) -> CalyxResult<HotAd
     let lens = AlgorithmicLens::scalar(&name, Modality::Structured);
     let contract = lens.contract().clone();
     let lens_id = contract.lens_id();
-    registry.register_frozen(lens, contract)?;
+    let spec = calyx_registry::LensSpec::algorithmic_content(
+        &contract,
+        "scalar",
+        Some("proposal".to_string()),
+        QuantPolicy::None,
+    );
+    registry.register_frozen_with_spec(lens, contract, spec)?;
     let outcome = controller.add_lens(
         &registry,
         SlotSpec {

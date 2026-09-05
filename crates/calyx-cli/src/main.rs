@@ -1,4 +1,8 @@
 //! Calyx command-line entry point.
+#[cfg(unix)]
+#[global_allocator]
+static GLOBAL_ALLOCATOR: mimalloc::MiMalloc = mimalloc::MiMalloc;
+
 mod a35_signal;
 mod a37_admission_store;
 mod anneal_ab_log;
@@ -54,6 +58,8 @@ mod fsv_vault_health_marker;
 mod fsv_vault_health_quarantine;
 #[cfg(test)]
 mod fsv_vault_health_tests;
+mod gpu_commands;
+mod grounding_batch_command;
 mod healthcheck;
 mod healthcheck_daemon;
 #[cfg(test)]
@@ -61,7 +67,7 @@ mod healthcheck_tests;
 mod htap_validation;
 mod intelligence_commands;
 mod kernel_health_readback;
-mod leapable;
+mod law_readback;
 mod ledger_store;
 mod lens_commands;
 mod lodestar_commands;
@@ -77,7 +83,6 @@ mod media_emotion_validation;
 mod media_image_validation;
 mod media_video_validation;
 mod merkle;
-mod migrate;
 mod navigate;
 mod ops;
 mod oracle_readback;
@@ -89,12 +94,14 @@ mod partitioned_manifest_readback;
 mod partitioned_rrf_report_store;
 mod path_identity;
 mod ph42_readback;
+mod private_fs;
 mod provenance;
 mod provenance_read;
 #[cfg(test)]
 mod provenance_read_tests;
 mod raw_media;
 mod recurrence_readback;
+mod relational_commands;
 mod resource_drill;
 mod resource_status;
 mod scan;
@@ -106,6 +113,7 @@ mod sextant_diskann_validation;
 mod sextant_recall_validation;
 mod summarize_command;
 mod temporal_log_recurrence_readback;
+mod temporal_parse;
 mod temporal_readback;
 mod time_prediction_readback;
 mod timetravel_readback;

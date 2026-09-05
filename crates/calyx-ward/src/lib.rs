@@ -31,22 +31,25 @@ pub use error::{
     CALYX_GUARD_CALIBRATION_SLOT_UNKNOWN, CALYX_GUARD_ID_MISMATCH,
     CALYX_GUARD_IDENTITY_SLOT_NOT_REQUIRED, CALYX_GUARD_INERT_PROFILE, CALYX_GUARD_MISSING_SLOT,
     CALYX_GUARD_NOT_A_FAILURE, CALYX_GUARD_NOVELTY_SINK, CALYX_GUARD_OOD,
-    CALYX_GUARD_POLICY_VIOLATION, CALYX_GUARD_PROVISIONAL, CALYX_WARD_INVALID_DOMAIN,
-    CALYX_WARD_INVALID_FREQUENCY, CALYX_WARD_INVALID_INPUT, CALYX_WARD_MISSING_FREQUENCY,
-    CALYX_WARD_MODEL_DIM_MISMATCH, CALYX_WARD_MODEL_NOT_FOUND, CALYX_WARD_RUNTIME_ERROR, WardError,
+    CALYX_GUARD_POLICY_VIOLATION, CALYX_GUARD_PROVISIONAL, CALYX_GUARD_TYPED_SLOT_INVALID,
+    CALYX_WARD_INVALID_DOMAIN, CALYX_WARD_INVALID_FREQUENCY, CALYX_WARD_INVALID_INPUT,
+    CALYX_WARD_MISSING_FREQUENCY, CALYX_WARD_MODEL_DIM_MISMATCH, CALYX_WARD_MODEL_NOT_FOUND,
+    CALYX_WARD_RUNTIME_ERROR, WardError,
 };
 pub use generate::{
     GUARDED_PASS_TAG, GUARDED_REJECT_TAG, GUARDED_REJECT_UNPROVENANCED_TAG, GenerateInput,
     GenerateOutput, guard_generate, guard_generate_with_ledger,
 };
 pub use guard::{
-    DEFAULT_TAU, MatchedSlots, ProducedSlots, guard, guard_non_high_stakes, guard_result,
-    guard_result_with_stakes, validate_non_inert_profile,
+    DEFAULT_TAU, MatchedSlots, ProducedSlots, TypedGuardVerdict, TypedMatchedSlots,
+    TypedProducedSlots, TypedSlotVerdict, guard, guard_non_high_stakes, guard_result,
+    guard_result_typed, guard_result_with_stakes, guard_typed, validate_non_inert_profile,
 };
 pub use identity::{IdentityProfile, IdentitySlotConfig};
 pub use injection_lens::{
-    DEFAULT_INJECTION_MODEL_PATH, DEFAULT_INJECTION_TOKENIZER_PATH, INJECTION_LABELS,
-    INJECTION_MAX_TOKENS, InjectionLens, InjectionProviderPolicy, InjectionScoreBackend,
+    DEFAULT_INJECTION_MODEL_PATH, DEFAULT_INJECTION_TOKENIZER_PATH,
+    INJECTION_INPUT_COVERAGE_POLICY, INJECTION_LABELS, INJECTION_MAX_TOKENS, InjectionLens,
+    InjectionProviderPolicy, InjectionScoreBackend,
 };
 pub use ledger::{
     WardLedgerError, WardLedgerResult, append_calibration_provenance, append_guard_verdict,
@@ -78,8 +81,8 @@ pub use speaker_lens::{
     WAVLM_DIM, WAVLM_SAMPLE_RATE,
 };
 pub use style_lens::{
-    DEFAULT_STYLE_MODEL_PATH, DEFAULT_STYLE_TOKENIZER_PATH, STYLE_DIM, STYLE_MAX_TOKENS,
-    StyleEmbeddingBackend, StyleLens, StyleProviderPolicy,
+    DEFAULT_STYLE_MODEL_PATH, DEFAULT_STYLE_TOKENIZER_PATH, STYLE_DIM, STYLE_INPUT_COVERAGE_POLICY,
+    STYLE_MAX_TOKENS, StyleEmbeddingBackend, StyleLens, StyleProviderPolicy,
 };
 pub use verdict::{GuardVerdict, SlotVerdict};
 

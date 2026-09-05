@@ -81,18 +81,27 @@ where
     // any later point leaves a durable, structured record. A pre-existing
     // marker (from the mutation that made this rebuild necessary) is kept —
     // its commit context is richer than a generic rebuild record.
-    match marker::read_rebuild_required_marker(vault_dir)? {
-        Some(_) => progress(RebuildProgress::phase("rebuild_marker_preserved"))?,
-        None => {
-            let mut intent = marker::RebuildRequiredMarker::new(
-                "search_index_rebuild",
-                "full search-index rebuild in progress; derived indexes are unproven until the manifest is republished",
-            )?;
-            intent.required_base_seq = Some(base_seq);
-            marker::write_rebuild_required_marker(vault_dir, &intent)?;
-            progress(RebuildProgress::phase("rebuild_marker_written"))?;
-        }
-    }
+    vault
+        .with_derived_generation_fence(base_seq, || {
+            match marker::read_rebuild_required_marker(vault_dir).map_err(calyx_core::CalyxError::from)? {
+                Some(_) => progress(RebuildProgress::phase("rebuild_marker_preserved"))
+                    .map_err(calyx_core::CalyxError::from)?,
+                None => {
+                    let mut intent = marker::RebuildRequiredMarker::new(
+                        "search_index_rebuild",
+                        "full search-index rebuild in progress; derived indexes are unproven until the manifest is republished",
+                    )
+                    .map_err(calyx_core::CalyxError::from)?;
+                    intent.required_base_seq = Some(base_seq);
+                    marker::write_rebuild_required_marker(vault_dir, &intent)
+                        .map_err(calyx_core::CalyxError::from)?;
+                    progress(RebuildProgress::phase("rebuild_marker_written"))
+                        .map_err(calyx_core::CalyxError::from)?;
+                }
+            }
+            Ok(())
+        })
+        .map_err(crate::error::SearchError::from)?;
     progress(RebuildProgress::phase("load_docs_start"))?;
     let page_rows = configured_rebuild_scan_page_rows()?;
     let base_docs = load_base_docs_at(vault, guard.snapshot(), page_rows, &mut progress)?;
@@ -158,7 +167,7 @@ where
         build_policy,
     } = options;
     let root = vault_dir.join(INDEX_ROOT);
-    fs::create_dir_all(&root)?;
+    calyx_aster::private_fs::create_private_dir_all(&root)?;
     let base_seq = snapshot.seq();
     progress(RebuildProgress::phase("previous_manifest_start"))?;
     let previous_manifest = previous_manifest(vault_dir)?;
@@ -296,7 +305,12 @@ where
     progress(RebuildProgress::phase("prune_start"))?;
     prune_stale_index_artifacts(vault_dir, &root, &manifest)?;
     progress(RebuildProgress::phase("prune_ok"))?;
-    let cleared = marker::clear_rebuild_required_marker(vault_dir, base_seq)?;
+    let cleared = vault
+        .with_derived_generation_fence(base_seq, || {
+            marker::clear_rebuild_required_marker(vault_dir, base_seq)
+                .map_err(calyx_core::CalyxError::from)
+        })
+        .map_err(crate::error::SearchError::from)?;
     progress(RebuildProgress::phase(match cleared {
         marker::MarkerClearOutcome::Cleared => "rebuild_marker_cleared",
         marker::MarkerClearOutcome::Absent => "rebuild_marker_absent",
@@ -321,7 +335,12 @@ pub(super) fn validate_staged_manifest_artifacts(
             "diskann" | "flat_dense" => dense::validate_entry(vault_dir, entry, slot)?,
             "sparse_inverted" => sparse::validate_entry(vault_dir, entry, manifest.base_seq, slot)?,
             "multi_maxsim" | "multi_maxsim_segments" => {
-                multi::validate_entry(vault_dir, entry, manifest.base_seq, slot)?
+                multi::validate_entry(vault_dir, entry, manifest.base_seq, slot)?;
+                if entry.kind == "multi_maxsim_segments"
+                    && manifest.diskann_build_backend.as_deref() == Some("cuvs-cagra")
+                {
+                    multi::validate_token_ann_gpu_assets(vault_dir, entry, slot)?;
+                }
             }
             other => {
                 return Err(stale(format!(
@@ -373,8 +392,16 @@ where
             ),
         )?;
     }
-    let rows =
-        collect_or_build_slot_from_cf(vault_dir, root, vault, snapshot, plan, page_rows, progress)?;
+    let rows = collect_or_build_slot_from_cf(
+        vault_dir,
+        root,
+        vault,
+        snapshot,
+        plan,
+        page_rows,
+        build_policy,
+        progress,
+    )?;
     let row_count = rows.len();
     if let Some(progress) = progress {
         emit_shared_progress(

@@ -61,7 +61,9 @@ pub(super) fn build_lens(manifest: PathBuf, spec: RegistryLensSpec) -> Result<Bu
         LensRuntime::TeiHttp { endpoint } => {
             let service = read_tei_service_info(&endpoint).map_err(lens_error)?;
             let endpoint_identity = tei_endpoint_identity(&endpoint).map_err(lens_error)?;
-            let lens = TeiHttpLens::new(&spec.name, endpoint, spec.modality, dim(spec.output));
+            let lens = TeiHttpLens::new(&spec.name, endpoint, spec.modality, dim(spec.output))
+                .with_declared_max_batch(spec.max_batch)
+                .map_err(lens_error)?;
             Ok(BuildLens {
                 name: spec.name.clone(),
                 manifest,

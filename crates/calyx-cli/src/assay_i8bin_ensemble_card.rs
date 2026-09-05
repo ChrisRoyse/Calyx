@@ -18,12 +18,38 @@ const FSV_REMEDIATION: &str = "inspect the streamed plan Graph CF row, label-anc
 
 pub(crate) fn run(args: &[String]) -> CliResult {
     let request = I8binEnsembleRequest::parse(args).map_err(i8bin_card_error)?;
+    let reservation =
+        crate::gpu_commands::acquire_strict_assay(&request.domain, request.gpu_reservation_mib)?;
+    let reservation_snapshot = reservation
+        .as_ref()
+        .map(|guard| guard.admitted_snapshot().clone());
+    let result = run_with_reservation(&request, reservation_snapshot);
+    let release = crate::gpu_commands::release(reservation);
+    match (result, release) {
+        (Ok(()), Ok(_)) => Ok(()),
+        (Err(primary), Ok(_)) => Err(primary),
+        (Ok(()), Err(release_error)) => Err(release_error),
+        (Err(primary), Err(release_error)) => Err(CliError::runtime(format!(
+            "primary failure code={} message={}; GPU reservation release failure code={} message={}",
+            primary.code(),
+            primary.message(),
+            release_error.code(),
+            release_error.message()
+        ))),
+    }
+}
+
+fn run_with_reservation(
+    request: &I8binEnsembleRequest,
+    reservation_snapshot: Option<calyx_forge::vram::HostGpuReservationSnapshot>,
+) -> CliResult {
     request
         .ensure_fresh_outputs()
         .map_err(i8bin_card_runtime_error)?;
-    let report = evaluate(&request).map_err(i8bin_card_runtime_error)?;
-    enforce_a37_mode(&request, &report).map_err(i8bin_card_runtime_error)?;
-    let evidence = write_outputs(&request, &report)?;
+    let report = evaluate(request).map_err(i8bin_card_runtime_error)?;
+    enforce_a37_mode(request, &report).map_err(i8bin_card_runtime_error)?;
+    let mut evidence = write_outputs(request, &report)?;
+    evidence.gpu_reservation_admission = reservation_snapshot;
     println!(
         "{}",
         serde_json::to_string_pretty(&evidence).map_err(|error| CliError::runtime(format!(
@@ -58,6 +84,22 @@ fn i8bin_card_error(error: String) -> CliError {
         }
         "CALYX_ASSAY_LOW_SIGNAL" => CliError::from(CalyxError::assay_low_signal(message)),
         "CALYX_ASSAY_REDUNDANT" => CliError::from(CalyxError::assay_redundant(message)),
+        "CALYX_ASSAY_DEGENERATE_INPUT" => {
+            CliError::from(CalyxError::assay_degenerate_input(message))
+        }
+        "CALYX_FORGE_NUMERICAL_INVARIANT" => {
+            CliError::from(CalyxError::forge_numerical_invariant(message))
+        }
+        "CALYX_INDEX_CORRUPT" => local_error(
+            code,
+            message,
+            "rebuild the on-disk vector file from its frozen lens source; do not trust partial bytes",
+        ),
+        "CALYX_INDEX_IO" => local_error(
+            code,
+            message,
+            "inspect vector-file disk permissions and availability, then rerun from a fresh output directory",
+        ),
         calyx_assay::CALYX_ASSAY_ESTIMATOR_UNDERPOWERED
         | calyx_assay::CALYX_ASSAY_DEGENERATE_TARGET_ENTROPY => {
             local_error(code, message, FSV_REMEDIATION)
@@ -95,6 +137,10 @@ const I8BIN_CARD_CODES: &[&str] = &[
     "CALYX_ASSAY_INSUFFICIENT_SAMPLES",
     "CALYX_ASSAY_LOW_SIGNAL",
     "CALYX_ASSAY_REDUNDANT",
+    "CALYX_ASSAY_DEGENERATE_INPUT",
+    "CALYX_FORGE_NUMERICAL_INVARIANT",
+    "CALYX_INDEX_CORRUPT",
+    "CALYX_INDEX_IO",
     calyx_assay::CALYX_ASSAY_ESTIMATOR_UNDERPOWERED,
     calyx_assay::CALYX_ASSAY_DEGENERATE_TARGET_ENTROPY,
     "CALYX_FSV_ASSAY_I8BIN_CARD_INVALID_CONFIG",
@@ -116,6 +162,8 @@ const I8BIN_CARD_CODES: &[&str] = &[
     "CALYX_FSV_ASSAY_I8BIN_LABELS_DB_DECODE",
     "CALYX_FSV_ASSAY_I8BIN_LABELS_TARGET_MISMATCH",
     "CALYX_FSV_ASSAY_I8BIN_CARD_VECTOR_MISMATCH",
+    "CALYX_FSV_ASSAY_I8BIN_CARD_REDUNDANCY_MISSING",
+    "CALYX_FSV_ASSAY_I8BIN_CARD_REDUNDANCY_MISMATCH",
     "CALYX_FSV_ASSAY_A37_DIVERSITY_GATE_REFUSED",
     "CALYX_FSV_ASSAY_I8BIN_CARD_OUTPUT_EXISTS",
     "CALYX_FSV_ASSAY_CARD_READBACK_MISSING",

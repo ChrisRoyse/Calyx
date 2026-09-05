@@ -1,14 +1,13 @@
 use std::collections::BTreeSet;
 use std::net::SocketAddr;
 use std::ops::Range;
-use std::path::Path;
 use std::str::FromStr;
 
+use calyx_aster::ledger_view::LedgerQuerySnapshot;
 use calyx_aster::vault::{AsterVault, VaultOptions};
 use calyx_core::{Anchor, AnchorKind, CalyxError, CxId, SlotId, SlotVector, VaultStore};
 use calyx_ledger::{
-    EntryKind, LedgerCfStore, LedgerEntry, QuarantineLookup, REPRODUCE_PAYLOAD_TAG, SubjectId,
-    decode, get_provenance,
+    EntryKind, LedgerEntry, QuarantineLookup, REPRODUCE_PAYLOAD_TAG, SubjectId, get_provenance,
 };
 use calyx_registry::load_vault_panel_state;
 use serde::Serialize;
@@ -165,7 +164,7 @@ fn run_provenance(args: ProvenanceArgs) -> CliResult {
 fn run_reproduce(args: ReproduceArgs) -> CliResult {
     let resolved = resolve_cli_vault(&args.vault)?;
     let answer_id = parse_answer_id(&args.answer_id)?;
-    let entries = ledger_entries(&resolved.path)?;
+    let entries = answer_entries(&resolved, &answer_id)?;
     let report = if let Some(payload) = latest_kernel_answer_payload(&entries, &answer_id)? {
         kernel_reproduce::record(&resolved, &answer_id, &payload, args.resident_addr)?
     } else if args.resident_addr.is_some() {
@@ -207,7 +206,12 @@ fn latest_kernel_answer_payload(
         })?;
         if matches!(
             payload.get("type").and_then(Value::as_str),
-            Some("kernel_answer_v2" | "kernel_answer_v3" | "kernel_citation_answer_v1")
+            Some(
+                "kernel_answer_v2"
+                    | "kernel_answer_v3"
+                    | "kernel_answer_v4"
+                    | "kernel_citation_answer_v1",
+            )
         ) {
             return Ok(Some(payload));
         }
@@ -324,20 +328,53 @@ fn reproduce_report(entries: &[LedgerEntry], answer_id: &[u8]) -> CliResult<Repr
     if let Some(payload) = latest_reproduce_payload(entries, answer_id)? {
         return reproduce_from_payload(&payload);
     }
-    if entries.iter().any(|entry| {
-        entry.kind == EntryKind::Answer
-            && matches!(&entry.subject, SubjectId::Query(id) if id == answer_id)
-    }) {
-        return Err(CalyxError::reproduce_nondeterministic(format!(
-            "answer_id {} has no reproduce_v1 ledger row",
-            hex_bytes(answer_id)
-        ))
-        .into());
-    }
-    Err(
-        CalyxError::vault_access_denied(format!("answer_id {} not found", hex_bytes(answer_id)))
-            .into(),
-    )
+    // Fail closed: an answer subject with no recorded reproduce evidence has no
+    // reproducibility to replay. This is an evidence-sufficiency failure, not an
+    // access-control decision (CALYX_VAULT_ACCESS_DENIED) — never synthesize an
+    // answer. Distinguish absent (zero rows) from an incomplete/aborted lifecycle.
+    Err(reproduce_insufficient_error(entries, answer_id).into())
+}
+
+/// Classifies why an answer subject has no reproducible evidence and builds the
+/// stable `CALYX_REPRODUCE_INSUFFICIENT` error with a message that distinguishes
+/// absent / completed-but-unrecorded / incomplete-lifecycle subjects. The message
+/// text must stay byte-identical to the calyx-mcp reproduce_report envelope.
+fn reproduce_insufficient_error(entries: &[LedgerEntry], answer_id: &[u8]) -> CalyxError {
+    let subject_rows: Vec<&LedgerEntry> = entries
+        .iter()
+        .filter(|entry| matches!(&entry.subject, SubjectId::Query(id) if id == answer_id))
+        .collect();
+    let hex = hex_bytes(answer_id);
+    let message = if subject_rows.is_empty() {
+        format!("answer_id {hex} is absent (no ledger rows)")
+    } else if subject_rows
+        .iter()
+        .any(|entry| is_completed_answer_row(entry))
+    {
+        format!(
+            "answer_id {hex} has a completed answer but no recorded reproduce evidence; run reproduce --record"
+        )
+    } else {
+        format!(
+            "answer_id {hex} lifecycle is incomplete or aborted ({} rows, no completion)",
+            subject_rows.len()
+        )
+    };
+    CalyxError::reproduce_insufficient(message)
+}
+
+/// True when the entry is a completed kernel answer (not a hop/frontier row).
+fn is_completed_answer_row(entry: &LedgerEntry) -> bool {
+    entry.kind == EntryKind::Answer
+        && matches!(
+            json_payload(entry).get("type").and_then(Value::as_str),
+            Some(
+                "kernel_answer_v2"
+                    | "kernel_answer_v3"
+                    | "kernel_answer_v4"
+                    | "kernel_citation_answer_v1",
+            )
+        )
 }
 
 fn latest_reproduce_payload(entries: &[LedgerEntry], answer_id: &[u8]) -> CliResult<Option<Value>> {
@@ -372,14 +409,9 @@ fn reproduce_from_payload(payload: &Value) -> CliResult<ReproduceOut> {
     })
 }
 
-fn ledger_entries(path: &Path) -> CliResult<Vec<LedgerEntry>> {
-    let store = AsterLedgerCfStore::open(path)?;
-    let mut entries = Vec::new();
-    for row in store.scan()? {
-        entries.push(decode(&row.bytes)?);
-    }
-    entries.sort_by_key(|entry| entry.seq);
-    Ok(entries)
+fn answer_entries(resolved: &ResolvedVault, answer_id: &[u8]) -> CliResult<Vec<LedgerEntry>> {
+    let query = LedgerQuerySnapshot::open(&resolved.path)?;
+    Ok(query.entries_for_subject(&SubjectId::Query(answer_id.to_vec()))?)
 }
 
 fn open_vault(resolved: &ResolvedVault) -> CliResult<AsterVault> {

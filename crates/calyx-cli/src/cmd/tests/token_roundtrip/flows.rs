@@ -15,6 +15,16 @@ pub(super) fn citation_overlay_tokens(
         "--citations".to_string(),
         args.citations.to_string_lossy().into_owned(),
     ];
+    push_opt(
+        &mut out,
+        "--frontier",
+        args.frontier.as_ref().and_then(|p| p.to_str()),
+    );
+    push_opt(
+        &mut out,
+        "--frontier-authorities",
+        args.frontier_authorities.as_ref().and_then(|p| p.to_str()),
+    );
     push_opt(&mut out, "--collection", args.collection.as_deref());
     push_opt(
         &mut out,
@@ -41,6 +51,8 @@ fn citation_overlay_round_trips_through_tokens() {
             vault: "legal-cuyahoga".to_string(),
             idmap: "/fsv/idmap.csv".into(),
             citations: "/fsv/citations_cuyahoga.csv".into(),
+            frontier: Some("/fsv/frontier.csv".into()),
+            frontier_authorities: Some("/fsv/frontier_authorities.json".into()),
             collection: Some("legal-citations-v1".to_string()),
             skip_report: Some("/fsv/skips.json".into()),
             report: Some("/fsv/readback.json".into()),

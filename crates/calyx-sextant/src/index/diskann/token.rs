@@ -1,7 +1,6 @@
 //! Token DiskANN + segmented MaxSim rerank for server-scale multi slots.
 
 use std::collections::{BTreeSet, HashMap};
-use std::fs;
 use std::path::{Path, PathBuf};
 
 use calyx_core::{CxId, Result, SlotId, SlotShape, SlotVector};
@@ -45,7 +44,7 @@ impl TokenDiskAnnMaxSim {
     ) -> Result<Self> {
         validate_rows(rows, build_params.dim)?;
         let root = root.into();
-        fs::create_dir_all(&root).map_err(|e| io("create token index dir", e))?;
+        calyx_aster::private_fs::create_private_dir_all(&root)?;
         let mut flat = Vec::new();
         let mut docs = Vec::new();
         let mut token_docs = Vec::new();
@@ -339,8 +338,4 @@ fn invalid(detail: impl std::fmt::Display) -> calyx_core::CalyxError {
         CALYX_INDEX_INVALID_PARAMS,
         format!("token diskann invalid params: {detail}"),
     )
-}
-
-fn io(stage: &str, error: std::io::Error) -> calyx_core::CalyxError {
-    sextant_error(CALYX_INDEX_IO, format!("token diskann {stage}: {error}"))
 }

@@ -16,9 +16,13 @@ mod warm;
 pub(crate) use resident::ResidentMeasuredInput;
 #[cfg(test)]
 pub(crate) use resident::ResidentSlotMeasure;
+pub(crate) use resident::kernel_rank_at as rank_kernel_at_resident;
 pub(crate) use resident::measure_batch_at as measure_resident_batch_at;
 pub(crate) use resident::ready_value_at as resident_ready_value_at;
-pub(crate) use resident::{ResidentDiscovery, read_resident_discovery, resident_discovery_path};
+pub(crate) use resident::{
+    ResidentDiscovery, ResidentSearchTrace, read_resident_discovery, resident_discovery_path,
+    search_at,
+};
 
 use calyx_assay::{PanelResourceBudget, ResourceDensity, ResourceUsage, pack_panel_by_density};
 use calyx_core::{CalyxError, Input, LensCost, LensId, Modality, Panel, Placement, SlotState};
@@ -107,7 +111,6 @@ pub(crate) struct SavedTemplatePanelBuild {
     pub template_name: String,
     pub panel: Panel,
     pub registry: Registry,
-    pub content_lens_count: usize,
     pub a37_gate_eligible: bool,
     pub a37_status: String,
     pub registered_lenses_added: usize,
@@ -139,13 +142,11 @@ fn build_saved_template_panel_with_progress(
         progress,
     )?;
     let panel = template.to_target_panel(now_ms);
-    let content_lens_count = a37.content_lens_count.max(panel_content_lens_count(&panel));
     Ok(SavedTemplatePanelBuild {
         template_id,
         template_name: template.name,
         panel,
         registry,
-        content_lens_count,
         a37_gate_eligible: a37.gate_eligible,
         a37_status: a37.status,
         registered_lenses_added,
@@ -176,14 +177,6 @@ pub(crate) fn run(topic: &str, rest: &[String]) -> CliResult {
             "unknown panel subcommand {other}; expected a38-bundle, batch-limit, manifest-restore, registry-audit, registry-repair, status, template, resident, or warm"
         ))),
     }
-}
-
-fn panel_content_lens_count(panel: &Panel) -> usize {
-    panel
-        .slots
-        .iter()
-        .filter(|slot| !slot.retrieval_only && !slot.excluded_from_dedup)
-        .count()
 }
 
 fn status(args: &[String]) -> CliResult {

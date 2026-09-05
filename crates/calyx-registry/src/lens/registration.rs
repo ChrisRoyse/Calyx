@@ -88,9 +88,9 @@ impl Registry {
             .transpose()?;
         let runtime_golden = match (runtime_version, effective_probe, verified_output.as_ref()) {
             (Some(runtime_version), Some(probe), Some(output)) => {
-                let golden_output = output.as_dense().ok_or_else(|| {
+                let golden_output = process_runtime_golden_vector(output).ok_or_else(|| {
                     CalyxError::lens_frozen_violation(
-                        "process runtime identity probes require dense output",
+                        "process runtime identity probes require dense output or exactly one native segmented vector",
                     )
                 })?;
                 Some(RuntimeGolden {

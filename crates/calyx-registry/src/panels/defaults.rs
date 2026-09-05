@@ -9,7 +9,7 @@ pub fn text_default() -> PanelTemplate {
         tei("E1_semantic", SlotShape::Dense(768), Modality::Text),
         alg(
             "keyword_splade",
-            AlgorithmicPanelLens::SparseKeywords,
+            AlgorithmicPanelLens::SparseKeywordsRawTf,
             SlotShape::Sparse(30_522),
             Modality::Text,
         ),
@@ -19,6 +19,12 @@ pub fn text_default() -> PanelTemplate {
             a: SlotId::new(4),
             b: SlotId::new(4),
         }),
+        alg(
+            "byte_statistics",
+            AlgorithmicPanelLens::ByteFeatures,
+            SlotShape::Dense(16),
+            Modality::Text,
+        ),
     ];
     append_temporal(&mut slots);
     PanelTemplate {
@@ -59,7 +65,7 @@ pub fn code_default() -> PanelTemplate {
     .collect::<Vec<_>>();
     slots.push(alg(
         "lexical_sparse",
-        AlgorithmicPanelLens::SparseKeywords,
+        AlgorithmicPanelLens::SparseKeywordsRawTf,
         SlotShape::Sparse(30_522),
         Modality::Code,
     ));
@@ -106,6 +112,18 @@ pub fn legal_default() -> PanelTemplate {
             "keyword_splade",
             "keyword-splade",
             SlotShape::Sparse(30_522),
+            Modality::Text,
+        ),
+        alg(
+            "legal_lexical_raw_tf",
+            AlgorithmicPanelLens::SparseKeywordsRawTf,
+            SlotShape::Sparse(30_522),
+            Modality::Text,
+        ),
+        alg(
+            "legal_document_structure",
+            AlgorithmicPanelLens::LegalDocumentStructure,
+            SlotShape::Dense(32),
             Modality::Text,
         ),
         registry("entity", "entity", SlotShape::Dense(768), Modality::Text),

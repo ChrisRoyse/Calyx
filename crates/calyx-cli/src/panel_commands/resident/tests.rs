@@ -30,8 +30,11 @@ fn readiness_multiplier_is_canonical_across_file_and_client_readback() {
         ReadyResponse {
             schema: READY_SCHEMA.to_string(),
             ready: true,
+            lifecycle: "ready",
             residency_scope: "resident_service_process",
             process_id: 42,
+            reservation_id: "0123456789abcdef0123456789abcdef".to_string(),
+            lease_pid: 41,
             bind,
             uptime_ms: 7,
             source_of_truth: "vault MANIFEST panel_ref registry_ref:test".to_string(),
@@ -63,6 +66,7 @@ fn readiness_multiplier_is_canonical_across_file_and_client_readback() {
             gpu_content_lens_count: 10,
             cpu_content_lens_count: 0,
             cpu_excluded_slots: Vec::new(),
+            kernel_rank: None,
         }
     }
 
@@ -180,6 +184,72 @@ fn resident_service_binary_request_roundtrips_without_json_shape() {
     assert!(
         !lossy.contains("inputs_hex") && !lossy.contains("runtime_batch_limit"),
         "resident service binary IPC must not carry JSON field names"
+    );
+}
+
+#[test]
+fn resident_typed_input_wire_roundtrips_structured_none_and_some() {
+    // #1945: the resident binary codec is non-self-describing bincode, so a
+    // skipped `Option` field on `Input.structured` desynchronizes the positional
+    // decoder. Exercise the exact client encode -> server decode path (the same
+    // `encode_inputs`/`decode_inputs` functions the resident wire uses) for both
+    // the common `structured: None` case and a `Some(..)` hybrid input.
+    let none_input = Input::new(Modality::Text, b"hello world".to_vec());
+
+    let record = calyx_core::StructuredRecord::from_json_value(
+        "calyx.test.structured.v1",
+        &json!({ "amount": 42, "currency": "USD" }),
+    )
+    .unwrap();
+    let some_input = Input::new(Modality::Text, b"hybrid payload".to_vec()).with_structured(record);
+
+    let inputs = vec![none_input.clone(), some_input.clone()];
+    let encoded = super::input_wire::encode_inputs(Modality::Text, &inputs).unwrap();
+    let decoded = super::input_wire::decode_inputs(Modality::Text, encoded).unwrap();
+
+    assert_eq!(decoded.len(), 2);
+    assert_eq!(decoded[0], none_input);
+    assert!(decoded[0].structured().is_none());
+    assert_eq!(decoded[1], some_input);
+    assert_eq!(
+        decoded[1].structured().unwrap().schema_id(),
+        "calyx.test.structured.v1"
+    );
+    // Content identity must survive the wire so downstream addressing is stable.
+    assert_eq!(
+        decoded[1].identity_bytes().unwrap(),
+        some_input.identity_bytes().unwrap()
+    );
+}
+
+#[test]
+fn unhosted_slot_absent_reason_matches_attestation_contract() {
+    use super::stream::unhosted_slot_absent_reason;
+    // A GPU-only resident does not host the CPU/structured time-control lenses.
+    // For a plain text probe (the swap attestation input) an unhosted structured
+    // slot must read NotApplicable, not LensUnavailable — otherwise a healthy
+    // roster cannot attest a template that carries time controls (#1945-adjacent).
+    let text = Input::new(Modality::Text, b"probe".to_vec());
+    assert_eq!(
+        unhosted_slot_absent_reason(Modality::Structured, &text),
+        AbsentReason::NotApplicable
+    );
+    // A same-modality slot that the resident does not host *would* apply, so the
+    // honest "genuinely missing" signal is preserved.
+    assert_eq!(
+        unhosted_slot_absent_reason(Modality::Text, &text),
+        AbsentReason::LensUnavailable
+    );
+    // A hybrid input carrying a structured record makes a structured slot apply.
+    let record = calyx_core::StructuredRecord::from_json_value(
+        "calyx.test.structured.v1",
+        &json!({ "amount": 7 }),
+    )
+    .unwrap();
+    let hybrid = Input::new(Modality::Text, b"probe".to_vec()).with_structured(record);
+    assert_eq!(
+        unhosted_slot_absent_reason(Modality::Structured, &hybrid),
+        AbsentReason::LensUnavailable
     );
 }
 

@@ -24,6 +24,7 @@ pub mod olap;
 pub mod plain_column;
 pub mod plain_graph;
 pub mod pressure;
+pub mod private_fs;
 pub mod recurrence;
 pub mod redaction;
 pub mod residency;

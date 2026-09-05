@@ -1,0 +1,16 @@
+CALYX_SEARCH_GENERATION base_seq=77236 manifest_sha256=320634cab405 slots=19
+CALYX_SEARCH_SLOTS resident_gpu=[1:semantic_multilingual_e5_base_fastembed,2:a38_bgem3_dense,3:a38_bgem3_sparse,5:a38_spladepp_v1_sparse,6:domain_modernbert_legal_tei,7:semantic_gte_base_tei,8:semantic_nomic_embed_text_v1_5_fastembed,9:a38_bge_base_en_v15,10:semantic_mxbai_embed_large_v1_onnx_cls,11:a38_qwen3_embedding_06b] local_cpu=[] parked_excluded=[4:a38_bgem3_colbert] retired_excluded=[] unregistered_excluded=[]
+CALYX_SEARCH_RUNTIME phase=search_resident_service_start addr=127.0.0.1:18401 vault=/zfs/hot/calyx/vaults/PRODUCTION inputs=1 demanded_gpu_slots=10 local_cpu_slots=0
+CALYX_SEARCH_RUNTIME phase=search_resident_service_ok addr=127.0.0.1:18401 process_id=48213 template_source=/zfs/hot/calyx/vaults/PRODUCTION inputs=1 slots=10 local_cpu_slots=0 elapsed_ms=61 resident_elapsed_ms=52 protocol=binary request_bytes=2048 response_bytes=40960
+CALYX_SEARCH_RUNTIME phase=search_slot.done slot=1 elapsed_ms=74 count=8 detail=stage=fanout slot_elapsed_ms=13 slot_backend=cuvs-resident-flat slot_compute_placement=cuda:0 source_rows=12596 candidate_rows=200
+CALYX_SEARCH_RUNTIME phase=search_slot.done slot=2 elapsed_ms=76 count=8 detail=stage=fanout slot_elapsed_ms=15 slot_backend=cuvs-resident-flat slot_compute_placement=cuda:0 source_rows=12596 candidate_rows=200
+CALYX_SEARCH_RUNTIME phase=search_slot.done slot=3 elapsed_ms=79 count=8 detail=stage=fanout slot_elapsed_ms=18 slot_backend=cuda-sparse-bm25 slot_compute_placement=cuda:0 source_rows=12596 candidate_rows=200
+CALYX_SEARCH_RUNTIME phase=search_slot.done slot=5 elapsed_ms=80 count=8 detail=stage=fanout slot_elapsed_ms=19 slot_backend=cuda-sparse-bm25 slot_compute_placement=cuda:0 source_rows=12596 candidate_rows=200
+CALYX_SEARCH_RUNTIME phase=search_slot.done slot=6 elapsed_ms=71 count=8 detail=stage=fanout slot_elapsed_ms=11 slot_backend=cuvs-resident-flat slot_compute_placement=cuda:0 source_rows=12596 candidate_rows=200
+CALYX_SEARCH_RUNTIME phase=search_slot.done slot=7 elapsed_ms=72 count=8 detail=stage=fanout slot_elapsed_ms=12 slot_backend=cuvs-resident-flat slot_compute_placement=cuda:0 source_rows=12596 candidate_rows=200
+CALYX_SEARCH_RUNTIME phase=search_slot.done slot=8 elapsed_ms=73 count=8 detail=stage=fanout slot_elapsed_ms=12 slot_backend=cuvs-resident-flat slot_compute_placement=cuda:0 source_rows=12596 candidate_rows=200
+CALYX_SEARCH_RUNTIME phase=search_slot.done slot=9 elapsed_ms=73 count=8 detail=stage=fanout slot_elapsed_ms=13 slot_backend=cuvs-resident-flat slot_compute_placement=cuda:0 source_rows=12596 candidate_rows=200
+CALYX_SEARCH_RUNTIME phase=search_slot.done slot=10 elapsed_ms=77 count=8 detail=stage=fanout slot_elapsed_ms=16 slot_backend=cuvs-resident-flat slot_compute_placement=cuda:0 source_rows=12596 candidate_rows=200
+CALYX_SEARCH_RUNTIME phase=search_slot.done slot=11 elapsed_ms=78 count=8 detail=stage=fanout slot_elapsed_ms=17 slot_backend=cuvs-resident-flat slot_compute_placement=cuda:0 source_rows=12596 candidate_rows=200
+</content>
+</invoke>

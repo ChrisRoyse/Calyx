@@ -183,33 +183,30 @@ impl VersionedCfStore {
             return Ok(Vec::new());
         }
         if self.router_latest_readback.load(Ordering::Acquire) {
-            // Select visible keys first so table tombstones and inserts are
-            // merged correctly without cloning the complete value range.
-            let keys = self.scan_cf_range_keys_at(snapshot, cf, range, clock)?;
-            let keys = keys
+            // The recovered router is the sole latest-readback source of truth
+            // and live commits route every row into its memtables before making
+            // the sequence visible. Use the SST merge cursor directly: the old
+            // path materialized every visible key in the range for *each* page,
+            // turning a bounded physical readback into O(rows * pages) work.
+            self.ensure_router_latest_snapshot(snapshot)?;
+            let router = self.router.read().expect("mvcc router poisoned");
+            let Some(router) = router.as_ref() else {
+                return Ok(Vec::new());
+            };
+            let page = router.range_page_until(
+                cf,
+                &range.start,
+                range.end.as_deref(),
+                after_key,
+                limit,
+            )?;
+            for entry in &page {
+                self.ensure_unbarriered(cf, &entry.key)?;
+            }
+            return Ok(page
                 .into_iter()
-                .filter(|key| after_key.is_none_or(|after| key.as_slice() > after))
-                .take(limit)
-                .collect::<Vec<_>>();
-            let reads = keys
-                .iter()
-                .cloned()
-                .map(|key| CfRead::new(cf, key))
-                .collect::<Vec<_>>();
-            let values = self.read_batch(snapshot, &reads, clock)?;
-            return keys
-                .into_iter()
-                .zip(values)
-                .map(|(key, value)| {
-                    value.map(|value| (key.clone(), value)).ok_or_else(|| {
-                        calyx_core::CalyxError::aster_corrupt_shard(format!(
-                            "visible {} key {} disappeared during pinned page read",
-                            cf.name(),
-                            hex_prefix(&key)
-                        ))
-                    })
-                })
-                .collect();
+                .map(|entry| (entry.key, entry.value))
+                .collect());
         }
         let lower = if let Some(after_key) = after_key {
             Bound::Excluded(after_key)

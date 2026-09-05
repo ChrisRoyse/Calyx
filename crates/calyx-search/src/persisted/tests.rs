@@ -102,6 +102,26 @@ fn load_docs_reads_real_base_and_slot_cf_bytes() {
     assert_eq!(second_slot0, &[0.0, 1.0]);
 }
 
+#[cfg(not(feature = "cuda"))]
+#[test]
+fn weave_candidate_gpu_without_cuda_feature_is_fail_closed() {
+    // The explicit `--candidate-device gpu` entry point must never silently
+    // serve the CPU scan: on a binary built without --features cuda there is no
+    // GPU surface, so it refuses with the specific fail-closed code + a
+    // remediation naming both routes (rebuild with cuda / use cpu) (#1963).
+    // (Vault construction is Linux-only here — private_fs owner-only mode is
+    // unsupported on Windows — so this asserts the fail-closed error directly,
+    // which the entry point returns before touching any vault state.)
+    let err = super::weave_candidate_cuda_feature_missing();
+    assert_eq!(err.code(), WEAVE_CANDIDATE_CUDA_FEATURE_MISSING);
+    assert_eq!(err.code(), "CALYX_WEAVE_CANDIDATE_CUDA_FEATURE_MISSING");
+    assert!(err.message().contains("--features cuda"));
+    let CliError::Calyx(calyx) = err else {
+        panic!("expected a structured Calyx error with a remediation");
+    };
+    assert!(calyx.remediation.contains("--candidate-device cpu"));
+}
+
 #[test]
 fn filtered_search_matches_exact_reference_for_scalar_anchor_and_metadata() {
     let root = scratch("filtered");

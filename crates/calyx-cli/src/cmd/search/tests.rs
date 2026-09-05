@@ -24,6 +24,7 @@ fn parse_search_defaults_to_rrf_guard_off_and_provenance() {
     assert_eq!(args.guard, SearchGuardArg::Off);
     assert!(!args.explain);
     assert!(args.provenance);
+    assert!(!args.metadata);
     assert!(args.resident_addr.is_none());
 }
 
@@ -54,7 +55,7 @@ fn parse_search_rejects_non_loopback_resident_addr() {
 #[test]
 fn explain_output_contains_per_lens() {
     let hit = sample_hit(cx(1));
-    let rendered = output::render_hits(&[hit], true, true, None);
+    let rendered = output::render_hits(&[hit], true, true, None, None).unwrap();
     let json = serde_json::to_value(rendered).unwrap();
 
     assert!(json[0]["per_lens"].as_array().is_some());
@@ -129,7 +130,7 @@ fn search_open_options_use_latest_only_router_readback() {
 
 #[test]
 fn zero_constellations_render_empty_results() {
-    let rendered = output::render_hits(&[], false, true, None);
+    let rendered = output::render_hits(&[], false, true, None, None).unwrap();
     assert_eq!(serde_json::to_string(&rendered).unwrap(), "[]");
 }
 
@@ -175,7 +176,7 @@ proptest! {
     #[test]
     fn hit_output_preserves_cx_hex(bytes in any::<[u8; 16]>()) {
         let id = CxId::from_bytes(bytes);
-        let rendered = output::render_hits(&[sample_hit(id)], false, true, None);
+        let rendered = output::render_hits(&[sample_hit(id)], false, true, None, None).unwrap();
         let json = serde_json::to_value(rendered).unwrap();
         let encoded = json[0]["cx_id"].as_str().unwrap();
         let decoded = encoded.parse::<CxId>().unwrap();

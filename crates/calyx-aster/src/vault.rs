@@ -6,6 +6,7 @@ mod anchor_merge;
 mod batch_ingest;
 pub(crate) mod cf_codec;
 mod commit;
+mod commit_intent;
 mod compaction_bridge;
 pub mod context;
 mod cursor;
@@ -14,6 +15,7 @@ mod durable;
 pub mod encode;
 mod gc_bridge;
 pub mod grant;
+mod grounding_batch;
 mod htap;
 mod ingest_precondition;
 mod input_pointer;
@@ -26,6 +28,7 @@ mod ledger_hook;
 mod open;
 mod prepared;
 pub mod quota;
+mod retained_input_commit;
 mod retention_horizon;
 mod router_bridge;
 mod scan;
@@ -35,6 +38,7 @@ mod slot_column;
 mod snapshot_lease;
 mod store;
 mod temporal_xterm;
+mod wal_prune_bridge;
 use crate::cf::{CfRouter, ColumnFamily, KeyRange};
 #[cfg(test)]
 use crate::cf::{anchor_key, base_key, ledger_key};
@@ -51,9 +55,19 @@ use calyx_core::{CalyxError, Clock, Constellation, CxId, Result, Seq, SystemCloc
 use std::{path::Path, sync::Mutex};
 
 pub use anchor_compact::{AnchorCompactionConflict, AnchorCompactionReport};
+pub use batch_ingest::{IngestLedgerInput, MediaArtifactIngestCommit};
 pub use commit::CALYX_DURABLE_COMMIT_RECONCILIATION_REQUIRED;
-pub use compaction_bridge::VaultCompactionScheduler;
+pub use commit_intent::{
+    CALYX_DURABLE_COMMIT_INTENT_RECONCILIATION_REQUIRED, DurableCommitIntent,
+    NoopDurableCommitIntent,
+};
+pub use compaction_bridge::{
+    CfCompactionOutcome, IngestCompactionConfig, VaultCompactionScheduler,
+};
 pub use grant::{AuditEvent, GrantEntry, GrantStore};
+pub use grounding_batch::{
+    GroundingBatchDisposition, GroundingBatchEvent, GroundingBatchEventResult, GroundingBatchReport,
+};
 pub use htap::HtapDualRead;
 pub use ingest_precondition::{
     CALYX_INGEST_PRECONDITION_FAILED, CALYX_INGEST_PRECONDITION_INVALID, IngestPrecondition,
@@ -65,6 +79,7 @@ pub use keyspace::{
     CALYX_VAULT_KEYSPACE_MISMATCH, KeyspaceGuard, VaultWriteLock, VaultWriteLockGuard, vault_prefix,
 };
 pub use layer_commit::CfLedgerEntry;
+pub use ledger_append::LedgerEntryInput;
 pub use quota::{CALYX_QUOTA_EXCEEDED, QuotaConfig, QuotaGuard};
 pub use slot_column::{
     SlotColumnManifest, SlotColumnMaterialization, SlotColumnReadback, SlotColumnRow,
@@ -76,7 +91,7 @@ pub use {
     durable::{RecoveryProgressHook, VaultOptions},
 };
 
-const DEFAULT_LEASE_MS: u64 = 5_000;
+const DEFAULT_LEASE_MS: u64 = crate::mvcc::DEFAULT_READER_LEASE_MS;
 
 /// Single-vault Aster store with content-addressed ingest semantics.
 #[derive(Debug)]
@@ -306,6 +321,54 @@ where
             return Ok(self.latest_seq());
         }
         self.commit_rows(&rows)
+    }
+
+    /// Writes rows in an unpublished, reconstructible weave generation
+    /// directly to authenticated checkpoint SSTs, without WAL duplication or
+    /// router-flush SST duplication. Publication remains a separate WAL-backed
+    /// graph lifecycle commit after physical readback.
+    pub fn write_reconstructible_derived_cf_batch(
+        &self,
+        rows: impl IntoIterator<Item = (ColumnFamily, Vec<u8>, Vec<u8>)>,
+    ) -> Result<Seq> {
+        let rows = rows
+            .into_iter()
+            .map(|(cf, key, value)| encode::WriteRow { cf, key, value })
+            .collect::<Vec<_>>();
+        if rows.is_empty() {
+            return Ok(self.latest_seq());
+        }
+        self.commit_reconstructible_rows(&rows)
+    }
+
+    /// Refreshes the live router after a complete set of reconstructible
+    /// generation batches has been checkpointed directly to SSTs. This must
+    /// happen before the generation is physically verified and published.
+    pub fn refresh_reconstructible_derived_cfs(
+        &self,
+        cfs: impl IntoIterator<Item = ColumnFamily>,
+    ) -> Result<()> {
+        self.with_durable_commit_lock(|| self.refresh_reconstructible_derived_cfs_locked(cfs))
+    }
+
+    pub(crate) fn refresh_reconstructible_derived_cfs_locked(
+        &self,
+        cfs: impl IntoIterator<Item = ColumnFamily>,
+    ) -> Result<()> {
+        for cf in cfs {
+            if !matches!(cf, ColumnFamily::Graph | ColumnFamily::XTerm) {
+                return Err(CalyxError {
+                    code: "CALYX_RECONSTRUCTIBLE_DERIVED_NAMESPACE_REQUIRED",
+                    message: format!(
+                        "reconstructible router refresh rejected non-derived cf={}",
+                        cf.name()
+                    ),
+                    remediation: "refresh only generation-namespaced Graph/XTerm rows before physical verification and lifecycle publication",
+                });
+            }
+            self.rows.reload_router_cf_level(cf)?;
+        }
+        Ok(())
     }
 
     /// Writes one raw CF row through the WAL-backed batch path.

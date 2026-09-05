@@ -75,10 +75,13 @@ fn direct_lens_template_import_writes_db_row_without_json_sidecars() {
 
     let (record, readback) = template::read(&root, "unit_direct_template").unwrap();
     assert!(readback.readback_matches);
-    assert_eq!(record.descriptors.len(), 15);
-    assert_eq!(record.descriptors[0].name, "semantic-e5-base-tei");
-    assert_eq!(record.descriptors[0].dtype, "float16");
-    assert_eq!(record.descriptors[0].max_batch, Some(64));
+    assert_eq!(record.descriptors.len(), 13);
+    // The roster preserves import order; the first lens is the leading
+    // `--algorithmic` entry, imported with the algorithmic runtime contract.
+    assert_eq!(record.descriptors[0].name, "gdelt-cameo-event-code");
+    assert_eq!(record.descriptors[0].runtime, "algorithmic");
+    assert_eq!(record.descriptors[0].dtype, "f32");
+    assert_eq!(record.descriptors[0].max_batch, None);
     assert!(
         record
             .descriptors
@@ -106,47 +109,76 @@ fn direct_lens_template_import_writes_db_row_without_json_sidecars() {
 }
 
 #[test]
-fn direct_lens_template_import_refuses_manifest_mix() {
-    let root = std::env::temp_dir().join(format!(
-        "calyx-stream-fbin-direct-template-mix-{}",
-        std::process::id()
-    ));
+fn manifest_and_direct_lens_template_imports_merge_into_one_roster() {
+    // The importer now *allows* mixing file `--manifest` lenses with direct
+    // `--algorithmic`/`--tei` lenses: they merge (deduplicated by name) into one
+    // roster instead of being refused. This is the current contract — the prior
+    // "cannot mix --manifest with direct" refusal was removed.
+    // A35 requires >=10 lenses in a template, so seed 10 manifest lenses and mix
+    // in one direct algorithmic lens for 11 total.
+    let fixture = Fixture::new("stream-fbin-template-mix", 10, 10, 50);
+    let root = fixture.root.join("mixed_template_cf");
+    let manifests = fixture.manifest_paths();
+
     let mut raw = vec![
-        "--manifest".to_string(),
-        "legacy.json".to_string(),
         "--cf-root".to_string(),
         root.display().to_string(),
-        "--tei".to_string(),
-        "semantic-e5-base-tei".to_string(),
-        "http://127.0.0.1:18190/embed".to_string(),
-        "768".to_string(),
+        "--lens-template-key".to_string(),
+        "unit_direct_template_mix".to_string(),
     ];
-    raw.push("--lens-template-key".to_string());
-    raw.push("unit_direct_template_mix".to_string());
+    for manifest in &manifests {
+        raw.push("--manifest".to_string());
+        raw.push(manifest.display().to_string());
+    }
+    // One offline direct algorithmic lens mixed in alongside the manifests.
+    raw.push("--algorithmic".to_string());
+    raw.push("direct-gdelt-tone".to_string());
+    raw.push("gdelt-tone-signal".to_string());
+    raw.push("512".to_string());
 
-    let error = template::run_import(&raw).unwrap_err();
-    assert!(
-        error
-            .to_string()
-            .contains("cannot mix --manifest with direct --tei/--algorithmic")
-    );
-    let _ = fs::remove_dir_all(root);
+    template::run_import(&raw).unwrap();
+
+    let (record, readback) = template::read(&root, "unit_direct_template_mix").unwrap();
+    assert!(readback.readback_matches);
+    // Ten manifest lenses plus the one direct algorithmic lens, merged.
+    assert_eq!(record.descriptors.len(), 11);
+    let names: Vec<&str> = record
+        .descriptors
+        .iter()
+        .map(|descriptor| descriptor.name.as_str())
+        .collect();
+    assert!(names.contains(&"lens-0"));
+    assert!(names.contains(&"lens-1"));
+    assert!(names.contains(&"direct-gdelt-tone"));
+    // The direct lens cites the DB; the manifest lenses cite their files.
+    let direct = record
+        .descriptors
+        .iter()
+        .find(|descriptor| descriptor.name == "direct-gdelt-tone")
+        .expect("direct algorithmic lens present");
+    assert!(direct.source_path.starts_with("calyx-db-direct:"));
+    let manifest_lens = record
+        .descriptors
+        .iter()
+        .find(|descriptor| descriptor.name == "lens-0")
+        .expect("manifest lens present");
+    assert!(!manifest_lens.source_path.starts_with("calyx-db-direct:"));
+    // The DB-native import path writes no JSON sidecars.
+    assert_eq!(json_count(&root), 0);
+    let _ = fs::remove_dir_all(fixture.root);
 }
 
 fn direct_template_args(root: &Path) -> Vec<String> {
+    // Direct import exercised entirely through offline `--algorithmic` lenses.
+    // The `--tei` path now attests each lens against a *live* TEI `/info` service
+    // and a physical model artifact (`--tei <name> <endpoint> <dim>
+    // <physical-model-artifact>`), so it can no longer be driven from an offline
+    // unit test; algorithmic lenses fully cover the DB-row/no-JSON-sidecar intent.
     let mut raw = vec![
         "--cf-root".to_string(),
         root.display().to_string(),
         "--lens-template-key".to_string(),
         "unit_direct_template".to_string(),
-        "--tei".to_string(),
-        "semantic-e5-base-tei".to_string(),
-        "http://127.0.0.1:18190/embed".to_string(),
-        "768".to_string(),
-        "--tei".to_string(),
-        "semantic-bge-m3-tei".to_string(),
-        "http://127.0.0.1:18188/embed".to_string(),
-        "1024".to_string(),
     ];
     for (name, kind, dim) in [
         ("gdelt-cameo-event-code", "gdelt-cameo", "16"),

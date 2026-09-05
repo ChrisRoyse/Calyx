@@ -20,7 +20,7 @@ pub(crate) fn verify_idmap_physical(
     idmap: &BTreeMap<String, CxId>,
 ) -> CliResult<usize> {
     let resolved = resolve_vault_info(home, vault_name)?;
-    let physical = PhysicalPlainGraph::open_latest(&resolved.path, DEFAULT_COLLECTION)?;
+    let physical = PhysicalPlainGraph::open_latest_isolated(&resolved.path, DEFAULT_COLLECTION)?;
     let nodes = physical
         .node_props()?
         .into_iter()
@@ -51,7 +51,7 @@ fn verify_one(
             "materialize the complete accepted opinion-alias relation before citation ingestion",
         )
     })?;
-    let alias: AsterAssocNodeProps = serde_json::from_slice(&alias_bytes).map_err(|error| {
+    let alias: AsterAssocNodeProps = serde_json::from_slice(alias_bytes).map_err(|error| {
         contract_error(
             "CALYX_CITATION_ALIAS_NODE_CORRUPT",
             format!("citation idmap opinion {opinion_id} alias node does not decode: {error}"),
@@ -81,7 +81,7 @@ fn verify_one(
             "quarantine and rebuild the opinion-alias collection from Base bytes",
         )
     })?;
-    let target: AsterAssocNodeProps = serde_json::from_slice(&target_bytes).map_err(|error| {
+    let target: AsterAssocNodeProps = serde_json::from_slice(target_bytes).map_err(|error| {
         contract_error(
             "CALYX_CITATION_ALIAS_TARGET_CORRUPT",
             format!(
@@ -111,7 +111,7 @@ fn verify_one(
             "quarantine and rebuild the complete opinion-alias collection",
         )
     })?;
-    let edge: serde_json::Value = serde_json::from_slice(&edge_bytes).map_err(|error| {
+    let edge: serde_json::Value = serde_json::from_slice(edge_bytes).map_err(|error| {
         contract_error(
             "CALYX_CITATION_ALIAS_EDGE_CORRUPT",
             format!("citation idmap opinion {opinion_id} edge does not decode: {error}"),

@@ -482,6 +482,14 @@ fn slot_vector_summary(vector: &SlotVector) -> String {
         SlotVector::Multi { token_dim, tokens } => {
             format!("multi:token_dim={token_dim}:tokens={}", tokens.len())
         }
+        SlotVector::SegmentedMulti {
+            token_dim,
+            segments,
+            ..
+        } => format!(
+            "segmented_multi:token_dim={token_dim}:segments={}",
+            segments.len()
+        ),
     }
 }
 

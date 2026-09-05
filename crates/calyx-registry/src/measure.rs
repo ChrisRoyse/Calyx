@@ -25,22 +25,39 @@ pub fn measure_constellation(
     input: Input,
     now: u64,
 ) -> Result<Constellation> {
-    let cx_id = vault.cx_id_for_input(&input.bytes, state.panel.version);
+    let cx_id = {
+        let identity = input.identity_bytes()?;
+        vault.cx_id_for_input(identity.as_ref(), state.panel.version)
+    };
     let mut slots = BTreeMap::new();
     let mut degraded = false;
     for slot in &state.panel.slots {
         let vector = if slot.state != SlotState::Active {
             absent(AbsentReason::LensInactive)
-        } else if slot.modality != input.modality {
-            absent(AbsentReason::NotApplicable)
+        } else if !state.registry.contains(slot.lens_id)
+            && slot.modality == calyx_core::Modality::Structured
+        {
+            return Err(calyx_core::CalyxError::lens_unreachable(format!(
+                "active structured slot {} references unregistered lens {}",
+                slot.slot_id.get(),
+                slot.lens_id
+            )));
         } else if !state.registry.contains(slot.lens_id) {
             absent(AbsentReason::LensUnavailable)
+        } else if state.registry.requires_structured_record(slot.lens_id)? {
+            state.registry.measure(slot.lens_id, &input)?
+        } else if !state.registry.accepts_input(slot.lens_id, &input)? {
+            absent(AbsentReason::NotApplicable)
         } else {
             state.registry.measure(slot.lens_id, &input)?
         };
-        degraded |= slot.counts_toward_degraded(input.modality) && vector.is_absent();
+        degraded |= slot.counts_toward_degraded_for(input.modality, input.structured().is_some())
+            && vector.is_absent();
         slots.insert(slot.slot_id, vector);
     }
+    let mut scalars = BTreeMap::new();
+    let mut metadata = BTreeMap::new();
+    input.persist_structured(&mut scalars, &mut metadata)?;
     Ok(Constellation {
         cx_id,
         vault_id: vault.vault_id(),
@@ -53,8 +70,8 @@ pub fn measure_constellation(
         },
         modality: input.modality,
         slots,
-        scalars: BTreeMap::new(),
-        metadata: BTreeMap::new(),
+        scalars,
+        metadata,
         anchors: Vec::new(),
         provenance: LedgerRef {
             seq: vault.latest_seq().saturating_add(1),

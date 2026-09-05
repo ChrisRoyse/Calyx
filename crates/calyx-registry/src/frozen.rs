@@ -4,6 +4,29 @@ use sha2::{Digest, Sha256};
 
 use crate::lens::{ensure_input_modality, ensure_vector_shape};
 
+/// Frozen wire policy for every TEI HTTP measurement.
+///
+/// Request-level truncation changes the bytes whose meaning the lens measures.
+/// It is therefore disabled explicitly instead of inheriting a server default.
+pub const TEI_HTTP_REQUEST_POLICY: &str = "tei-http-request-v2;truncate=false";
+/// Frozen wire/representation policy for long-input TEI measurements.
+pub const TEI_SEGMENTED_REQUEST_POLICY: &str =
+    "tei-http-segmented-request-v1;tokenize-offsets=true;truncate=false;pool=false";
+
+/// Frozen wire/representation policy for long-input TEI measurements that are
+/// pooled down to a single dense vector per document (#1980).
+///
+/// This is a DISTINCT base string from [`TEI_SEGMENTED_REQUEST_POLICY`] so that
+/// pooled lenses content-address differently from segment-preserving ones and
+/// no existing segmented lens is re-identified by the addition of pooling.
+///
+/// `truncate=false` is retained verbatim: pooling never discards input. The
+/// document is segmented so that every segment fits the lens context window,
+/// each segment is measured whole, and the segments are combined. Any input
+/// that would overflow a window fails closed instead of becoming a prefix.
+pub const TEI_SEGMENTED_POOLED_REQUEST_POLICY: &str =
+    "tei-http-segmented-pooled-v1;tokenize-offsets=true;truncate=false;pool=mean-token-weighted-l2";
+
 /// Runtime dtype declared by a frozen lens contract.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -127,7 +150,62 @@ impl FrozenLensContract {
         Self::new(
             name,
             sha256_digest(&[endpoint.as_bytes()]),
-            sha256_digest(&[b"tei-http-runtime"]),
+            sha256_digest(&[TEI_HTTP_REQUEST_POLICY.as_bytes()]),
+            SlotShape::Dense(dim),
+            modality,
+            LensDType::F32,
+            NormPolicy::unit(),
+        )
+    }
+
+    /// Creates a TEI contract whose output is an ordered segment block.
+    pub fn tei_http_segmented(
+        name: impl Into<String>,
+        endpoint: impl AsRef<str>,
+        modality: Modality,
+        dim: u32,
+        policy_fingerprint: impl AsRef<str>,
+    ) -> Self {
+        let endpoint = endpoint.as_ref();
+        let policy_fingerprint = policy_fingerprint.as_ref();
+        Self::new(
+            name,
+            sha256_digest(&[endpoint.as_bytes()]),
+            sha256_digest(&[
+                TEI_SEGMENTED_REQUEST_POLICY.as_bytes(),
+                policy_fingerprint.as_bytes(),
+            ]),
+            SlotShape::Multi { token_dim: dim },
+            modality,
+            LensDType::F32,
+            NormPolicy::unit(),
+        )
+    }
+
+    /// Creates a TEI contract for a segmented lane that pools its segments into
+    /// one dense vector per document (#1980).
+    ///
+    /// Identical to [`Self::tei_http_segmented`] except that it declares
+    /// `SlotShape::Dense`: a pooled lane indexes and pins like any other dense
+    /// lane and builds no `multi_maxsim_segments` structure. The pooled policy
+    /// fingerprint carries its own base string, so this is a different LensId
+    /// from the segment-preserving contract over the same endpoint.
+    pub fn tei_http_segmented_pooled(
+        name: impl Into<String>,
+        endpoint: impl AsRef<str>,
+        modality: Modality,
+        dim: u32,
+        policy_fingerprint: impl AsRef<str>,
+    ) -> Self {
+        let endpoint = endpoint.as_ref();
+        let policy_fingerprint = policy_fingerprint.as_ref();
+        Self::new(
+            name,
+            sha256_digest(&[endpoint.as_bytes()]),
+            sha256_digest(&[
+                TEI_SEGMENTED_REQUEST_POLICY.as_bytes(),
+                policy_fingerprint.as_bytes(),
+            ]),
             SlotShape::Dense(dim),
             modality,
             LensDType::F32,
@@ -353,6 +431,12 @@ fn ensure_norm(lens_id: LensId, vector: &SlotVector, target: f64, tolerance: f32
         SlotVector::Multi { tokens, .. } => {
             for token in tokens {
                 ensure_one_norm(lens_id, token, target, tolerance)?;
+            }
+            Ok(())
+        }
+        SlotVector::SegmentedMulti { segments, .. } => {
+            for segment in segments {
+                ensure_one_norm(lens_id, &segment.data, target, tolerance)?;
             }
             Ok(())
         }

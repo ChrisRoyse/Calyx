@@ -1,7 +1,10 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use calyx_registry::{load_vault_panel_state, persist_vault_panel_state, swap_panel_to_target};
+use calyx_core::{CalyxError, Panel, SlotState};
+use calyx_registry::{
+    Registry, load_vault_panel_state, persist_vault_panel_state, swap_panel_to_target,
+};
 
 use crate::error::{CliError, CliResult};
 
@@ -236,6 +239,11 @@ impl TemplateStore {
         let mut panel = state.panel;
         let target = template.to_target_panel(now_ms);
         let diff = swap_panel_to_target(&mut panel, &target, now_ms);
+        // Swap is the boundary that publishes the panel; it must not persist a
+        // constellation that ingest cannot then read (#1947). Assert the same
+        // "active slot => registered frozen lens" invariant the built-in
+        // materializer enforces, here, where the offending slot is still local.
+        ensure_active_slots_are_registered(&template.name, &panel, &state.registry)?;
         let write = persist_vault_panel_state(vault_dir, &panel, &state.registry)?;
         readback::verify_persisted_swap(vault_dir, &panel, &state.registry, &write.panel_ref)?;
         Ok(TemplateSwap {
@@ -376,6 +384,53 @@ impl TemplateStore {
     fn object_path(&self, template_id: &str) -> PathBuf {
         self.root.join(object_rel_path(template_id))
     }
+}
+
+/// Refuses to publish a panel whose active content slots are not fully backed by
+/// a frozen registry entry.
+///
+/// Mirrors both checks `cmd::ingest::command::structured_preflight::active_lenses`
+/// performs, including its compute-on-recall exemption, so a swap can never hand
+/// ingest a constellation it must reject: every active content slot's lens must be
+/// registered *and* carry a frozen runtime spec.
+pub(super) fn ensure_active_slots_are_registered(
+    template: &str,
+    panel: &Panel,
+    registry: &Registry,
+) -> CliResult {
+    let unbacked = panel
+        .slots
+        .iter()
+        .filter(|slot| slot.state == SlotState::Active)
+        // Compute-on-recall sidecars are exempt by the same shared predicate ingest
+        // uses, so swap and ingest cannot disagree about what must be registered.
+        .filter(|slot| !slot.is_compute_on_recall_sidecar())
+        .filter(|slot| {
+            !registry.contains(slot.lens_id) || registry.lens_spec(slot.lens_id).is_none()
+        })
+        .map(|slot| {
+            format!(
+                "slot={} key={} lens={}",
+                slot.slot_id.get(),
+                slot.slot_key.key(),
+                slot.lens_id
+            )
+        })
+        .collect::<Vec<_>>();
+    if unbacked.is_empty() {
+        return Ok(());
+    }
+    Err(CalyxError {
+        code: calyx_registry::CALYX_PANEL_LENS_MISSING,
+        message: format!(
+            "panel template {template} swap would publish active slots without a frozen registry \
+             entry: [{}]",
+            unbacked.join("; ")
+        ),
+        remediation: "register the frozen lens for every active slot, or materialize \
+                      compute-on-recall sidecars as parked, before swapping the template",
+    }
+    .into())
 }
 
 fn next_version(catalog: &PanelTemplateCatalog, name: &str) -> u32 {

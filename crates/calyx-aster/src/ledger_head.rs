@@ -1,4 +1,4 @@
-use std::fs::{self, File};
+use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
@@ -46,17 +46,13 @@ pub(crate) fn write_head_anchor(vault: &Path, anchor: &LedgerHeadAnchor) -> Resu
     let parent = path
         .parent()
         .ok_or_else(|| CalyxError::disk_pressure("Aster ledger head path has no parent"))?;
-    fs::create_dir_all(parent).map_err(|error| {
-        CalyxError::disk_pressure(format!("create Aster ledger head dir: {error}"))
-    })?;
+    crate::private_fs::create_private_dir_all(parent)?;
     let tmp = path.with_extension("json.tmp");
     let bytes = serde_json::to_vec(anchor).map_err(|error| {
         CalyxError::ledger_corrupt(format!("encode Aster ledger head: {error}"))
     })?;
     {
-        let mut file = File::create(&tmp).map_err(|error| {
-            CalyxError::disk_pressure(format!("create Aster ledger head temp: {error}"))
-        })?;
+        let mut file = crate::private_fs::open_private_temp_file(&tmp)?;
         file.write_all(&bytes).map_err(|error| {
             CalyxError::disk_pressure(format!("write Aster ledger head temp: {error}"))
         })?;

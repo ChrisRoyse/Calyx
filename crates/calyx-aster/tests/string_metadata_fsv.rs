@@ -241,7 +241,7 @@ fn constellation(
         created_at: 1_786_000_601,
         input_ref: InputRef {
             hash: *blake3::hash(raw).as_bytes(),
-            pointer: Some(format!("sqlite://chunks/{chunk_id}")),
+            pointer: Some(format!("source://chunks/{chunk_id}")),
             redacted: false,
         },
         modality: Modality::Text,

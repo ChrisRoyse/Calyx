@@ -212,8 +212,10 @@ fn features(vector: &SlotVector) -> Result<Vec<f32>> {
             }
             Ok(dense)
         }
-        SlotVector::Multi { .. } | SlotVector::Absent { .. } => Err(CalyxError::stale_derived(
-            "materialization gate requires dense or sparse measured slots",
+        SlotVector::Multi { .. }
+        | SlotVector::SegmentedMulti { .. }
+        | SlotVector::Absent { .. } => Err(CalyxError::stale_derived(
+            "materialization gate requires dense or sparse measured slots; multi-vector blocks must use a native block estimator",
         )),
     }
 }

@@ -17,12 +17,16 @@ impl FileLockGuard {
         let process_guard = process_mutex(&key)
             .lock()
             .map_err(|_| CalyxError::backpressure("file lock mutex poisoned"))?;
-        let file = OpenOptions::new()
-            .create(true)
-            .read(true)
-            .append(true)
+        let existed = path.exists();
+        let mut options = OpenOptions::new();
+        options.create(true).read(true).append(true);
+        crate::private_fs::harden_open_options(&mut options);
+        let file = options
             .open(path)
             .map_err(|error| CalyxError::disk_pressure(format!("open lock file: {error}")))?;
+        if !existed {
+            crate::private_fs::enforce_private_file_mode(&file, path)?;
+        }
         file.lock()
             .map_err(|error| CalyxError::backpressure(format!("lock file: {error}")))?;
         Ok(Self {
@@ -45,8 +49,7 @@ fn process_mutex(path: &Path) -> &'static Mutex<()> {
 
 fn lock_key(path: &Path) -> Result<PathBuf> {
     if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)
-            .map_err(|error| CalyxError::disk_pressure(format!("create lock dir: {error}")))?;
+        crate::private_fs::create_private_dir_all(parent)?;
         let parent = parent.canonicalize().map_err(|error| {
             CalyxError::disk_pressure(format!("canonicalize lock dir: {error}"))
         })?;

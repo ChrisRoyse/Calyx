@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use crate::error::{CliError, CliResult};
 
-use super::{DEFAULT_ASSOCIATION_KEY, LensTemplateRecord, direct, record_from_manifests};
+use super::{DEFAULT_ASSOCIATION_KEY, LensTemplateRecord, direct, record_from_import_sources};
 
 pub(super) struct ImportArgs {
     pub(super) cf_root: PathBuf,
@@ -47,6 +47,11 @@ impl ImportArgs {
                     let dim = parse_u32("--algorithmic <name> <kind> <dim>", &next()?)?;
                     direct_lenses.push(direct::DirectLensSource::Algorithmic { name, kind, dim });
                 }
+                "--structured" => {
+                    let name = next()?;
+                    let binding_path = PathBuf::from(next()?);
+                    direct_lenses.push(direct::DirectLensSource::Structured { name, binding_path });
+                }
                 "--cf-root" => cf_root = Some(PathBuf::from(next()?)),
                 "--association-key" | "--lens-template-key" => association_key = next()?,
                 other => return Err(CliError::usage(format!("unknown flag: {other}"))),
@@ -64,15 +69,7 @@ impl ImportArgs {
     }
 
     pub(super) fn record(&self) -> CliResult<LensTemplateRecord> {
-        if !self.manifests.is_empty() && !self.direct_lenses.is_empty() {
-            return Err(CliError::usage(
-                "lens template import cannot mix --manifest with direct --tei/--algorithmic lenses",
-            ));
-        }
-        if !self.direct_lenses.is_empty() {
-            return direct::record_from_direct_lenses(&self.direct_lenses);
-        }
-        record_from_manifests(&self.manifests)
+        record_from_import_sources(&self.manifests, &self.direct_lenses)
     }
 }
 

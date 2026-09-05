@@ -20,6 +20,14 @@ pub(super) enum CommissionRuntime {
     FastembedQwen3,
     CandleFp16,
     Tei,
+    /// Segmented TEI lane that pools its per-paragraph segments into one dense
+    /// vector per document (#1980). Requires `--max-tokens` (the lane's own
+    /// context window, which is what makes per-lane packing possible).
+    TeiSegmentedPooled,
+    /// Segmented TEI lane on the same paragraph boundaries as the pooled lane
+    /// but keeping every segment (`SlotShape::Multi`) -- the controlled B arm
+    /// of the pooled-vs-chunk measurement (#1980).
+    TeiSegmentedChunk,
 }
 
 impl CommissionRuntime {
@@ -39,8 +47,14 @@ impl CommissionRuntime {
             "fastembed-qwen3" | "qwen3" => Ok(Self::FastembedQwen3),
             "candle-fp16" => Ok(Self::CandleFp16),
             "tei" | "tei-http" | "tei_http" => Ok(Self::Tei),
+            "tei-segmented-pooled" | "tei-pooled" | "tei_segmented_pooled" => {
+                Ok(Self::TeiSegmentedPooled)
+            }
+            "tei-segmented-chunk" | "tei-chunk" | "tei_segmented_chunk" => {
+                Ok(Self::TeiSegmentedChunk)
+            }
             other => Err(CliError::usage(format!(
-                "unsupported --runtime {other}; expected onnx-int8, onnx-fp32, onnx-colbert, fastembed-onnx, fastembed-sparse, fastembed-bgem3-*, fastembed-reranker, fastembed-qwen3, candle-fp16, or tei"
+                "unsupported --runtime {other}; expected onnx-int8, onnx-fp32, onnx-colbert, fastembed-onnx, fastembed-sparse, fastembed-bgem3-*, fastembed-reranker, fastembed-qwen3, candle-fp16, tei, tei-segmented-pooled, or tei-segmented-chunk"
             ))),
         }
     }
@@ -59,6 +73,7 @@ impl CommissionRuntime {
             Self::FastembedQwen3 => "fastembed-qwen3",
             Self::CandleFp16 => "candle-fp16",
             Self::Tei => "tei",
+            Self::TeiSegmentedPooled | Self::TeiSegmentedChunk => "tei-segmented",
         }
     }
 
@@ -73,7 +88,9 @@ impl CommissionRuntime {
             | Self::FastembedBgem3Sparse
             | Self::FastembedBgem3Colbert
             | Self::FastembedReranker
-            | Self::Tei => "f32",
+            | Self::Tei
+            | Self::TeiSegmentedPooled
+            | Self::TeiSegmentedChunk => "f32",
             Self::FastembedQwen3 => "f16",
             Self::CandleFp16 => "f16",
         }
@@ -230,9 +247,28 @@ impl CommissionFlags {
         let hf = require_nonempty(hf, "--hf")?;
         let runtime = runtime.ok_or_else(|| CliError::usage("--runtime is required"))?;
         validate_quant_target(&quant_target)?;
-        if max_tokens.is_some() && !matches!(runtime, CommissionRuntime::FastembedQwen3) {
+        if max_tokens.is_some()
+            && !matches!(
+                runtime,
+                CommissionRuntime::FastembedQwen3
+                    | CommissionRuntime::TeiSegmentedPooled
+                    | CommissionRuntime::TeiSegmentedChunk
+            )
+        {
             return Err(CliError::usage(
-                "--max-tokens is currently supported only with --runtime fastembed-qwen3",
+                "--max-tokens is currently supported only with --runtime fastembed-qwen3 or tei-segmented-pooled",
+            ));
+        }
+        // A pooled segmented lane packs whole paragraphs into ITS OWN context
+        // window, so the window must be stated, never defaulted: defaulting it
+        // would silently mis-size the segments a lane actually measures (#1980).
+        if matches!(
+            runtime,
+            CommissionRuntime::TeiSegmentedPooled | CommissionRuntime::TeiSegmentedChunk
+        ) && max_tokens.is_none()
+        {
+            return Err(CliError::usage(
+                "a segmented TEI runtime requires --max-tokens <lane max_input_length>",
             ));
         }
         Ok(Self {
@@ -285,7 +321,12 @@ impl CommissionFlags {
     }
 
     pub(super) fn endpoint_for_manifest(&self) -> Option<String> {
-        if matches!(self.runtime, CommissionRuntime::Tei) {
+        if matches!(
+            self.runtime,
+            CommissionRuntime::Tei
+                | CommissionRuntime::TeiSegmentedPooled
+                | CommissionRuntime::TeiSegmentedChunk
+        ) {
             Some(
                 self.endpoint
                     .clone()
@@ -369,14 +410,28 @@ fn parse_positive_usize(raw: &str, flag: &str) -> CliResult<usize> {
 }
 
 pub(super) fn qwen3_max_tokens_for_manifest(flags: &CommissionFlags) -> Option<usize> {
-    if matches!(flags.runtime, CommissionRuntime::FastembedQwen3) {
-        Some(
+    match flags.runtime {
+        CommissionRuntime::FastembedQwen3 => Some(
             flags
                 .max_tokens
                 .unwrap_or(DEFAULT_QWEN3_COMMISSION_MAX_TOKENS),
-        )
-    } else {
-        None
+        ),
+        // A pooled segmented lane packs to its OWN context window, so the
+        // window is required rather than defaulted (#1980).
+        CommissionRuntime::TeiSegmentedPooled | CommissionRuntime::TeiSegmentedChunk => {
+            flags.max_tokens
+        }
+        _ => None,
+    }
+}
+
+/// The representation a segmented TEI lane declares in its manifest (#1980).
+/// `None` for every other runtime keeps pre-#1980 manifests byte-identical.
+pub(super) const fn representation_for_manifest(flags: &CommissionFlags) -> Option<&'static str> {
+    match flags.runtime {
+        CommissionRuntime::TeiSegmentedPooled => Some("pooled-paragraph"),
+        CommissionRuntime::TeiSegmentedChunk => Some("segments-paragraph"),
+        _ => None,
     }
 }
 

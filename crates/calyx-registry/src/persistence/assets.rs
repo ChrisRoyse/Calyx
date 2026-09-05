@@ -86,14 +86,15 @@ pub(crate) fn write_asset(path: &Path, bytes: &[u8]) -> Result<()> {
         }
         Err(_) => {}
     }
+    // Registry/panel immutable assets are security-sensitive vault descendants;
+    // create their directory and staging file owner-only (0700/0600) through the
+    // shared aster primitive so they cannot inherit the operator umask (#1935).
     if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)
-            .map_err(|error| storage_error("create registry asset dir", error))?;
+        calyx_aster::private_fs::create_private_dir_all(parent)?;
     }
     let tmp = tmp_path(path);
     {
-        let mut file =
-            File::create(&tmp).map_err(|error| storage_error("create registry asset", error))?;
+        let mut file = calyx_aster::private_fs::open_private_temp_file(&tmp)?;
         file.write_all(bytes)
             .map_err(|error| storage_error("write registry asset", error))?;
         file.sync_all()

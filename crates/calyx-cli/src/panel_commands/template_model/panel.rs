@@ -30,6 +30,22 @@ impl SavedPanelTemplate {
                 added_at_panel_version: (slots.len() + 1) as u32,
             });
         }
+        // Temporal sidecars stay Active and carry no frozen registry entry.
+        //
+        // These are compute-on-recall slots: `retrieval_only` + `excluded_from_dedup`,
+        // so they contribute to neither content identity nor dedup. Their encoders
+        // (`E2RecencyLens`/`E3PeriodicLens`/`E4PositionalLens`) cannot be frozen at
+        // swap time because their identity derives from an execution-time
+        // `TemporalContext` (`reference_time`, `max_age_secs`, `total_position`) and
+        // they consume a packed timestamp / position-and-total rather than document
+        // bytes. Freezing one would content-address an execution-time constant into
+        // an immutable lens id.
+        //
+        // Active is the correct state: `Slot::counts_toward_degraded_for` requires
+        // `Active` and then exempts `retrieval_only`, which is precisely the "present
+        // but benignly absent" lifecycle these slots occupy. Consumers must therefore
+        // treat an unregistered compute-on-recall sidecar as `NotApplicable` rather
+        // than demand a frozen registry model (#1947).
         for control in &self.time_controls {
             let slot_id = SlotId::new(slots.len() as u16);
             slots.push(Slot {

@@ -10,13 +10,13 @@ pub(super) fn write_json_atomic<T: Serialize>(path: &Path, value: &T) -> CliResu
 
 pub(super) fn write_bytes_atomic(path: &Path, bytes: &[u8]) -> CliResult {
     if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)?;
+        calyx_aster::private_fs::create_private_dir_all(parent)?;
     }
     let mut tmp = path.as_os_str().to_owned();
     tmp.push(".tmp");
     let tmp = PathBuf::from(tmp);
     {
-        let mut file = File::create(&tmp)?;
+        let mut file = calyx_aster::private_fs::open_private_temp_file(&tmp)?;
         file.write_all(bytes)?;
         file.sync_all()?;
     }
@@ -44,13 +44,13 @@ where
     F: FnOnce(&mut HashingWriter<BufWriter<File>>) -> CliResult<()>,
 {
     if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)?;
+        calyx_aster::private_fs::create_private_dir_all(parent)?;
     }
     let mut tmp = path.as_os_str().to_owned();
     tmp.push(".tmp");
     let tmp = PathBuf::from(tmp);
     let sha256 = {
-        let file = File::create(&tmp)?;
+        let file = calyx_aster::private_fs::open_private_temp_file(&tmp)?;
         let mut writer = HashingWriter::new(BufWriter::new(file));
         write_fn(&mut writer).inspect_err(|_| {
             let _ = fs::remove_file(&tmp);

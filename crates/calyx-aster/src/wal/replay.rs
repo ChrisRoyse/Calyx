@@ -1,4 +1,4 @@
-use super::record::DecodeStatus;
+use super::record::{DecodeStatus, SpanStatus};
 use super::{ReplayOutcome, ReplayRecord, TornTail, record, segment, storage_error};
 use calyx_core::{CalyxErrorCode, Result};
 use std::fs::{File, OpenOptions};
@@ -20,10 +20,6 @@ pub fn replay_dir_after(dir: impl AsRef<Path>, replay_floor_seq: u64) -> Result<
     replay_dir_locked_after(dir, replay_floor_seq)
 }
 
-pub(super) fn replay_dir_locked(dir: &Path) -> Result<ReplayOutcome> {
-    replay_dir_locked_after(dir, 0)
-}
-
 pub(super) fn replay_dir_locked_after(dir: &Path, replay_floor_seq: u64) -> Result<ReplayOutcome> {
     let segments = segment::list_segments(dir)?;
     let mut records = Vec::new();
@@ -38,12 +34,12 @@ pub(super) fn replay_dir_locked_after(dir: &Path, replay_floor_seq: u64) -> Resu
         let mut offset = 0;
 
         loop {
-            let header = match record::read_header_at(&mut file, offset)
+            let span = match record::read_logical_span_at(&mut file, offset)
                 .map_err(|error| storage_error("decode WAL header", error))?
             {
-                record::HeaderStatus::Complete(header) => header,
-                record::HeaderStatus::Eof => break,
-                record::HeaderStatus::Torn { offset, message } => {
+                SpanStatus::Complete(span) => span,
+                SpanStatus::Eof => break,
+                SpanStatus::Torn { offset, message } => {
                     return resolve_torn_tail(
                         &file,
                         path,
@@ -54,8 +50,8 @@ pub(super) fn replay_dir_locked_after(dir: &Path, replay_floor_seq: u64) -> Resu
                     );
                 }
             };
-            if header.seq <= replay_floor_seq {
-                offset = header.end_offset;
+            if span.seq <= replay_floor_seq {
+                offset = span.end_offset;
                 continue;
             }
             match record::decode_at(&mut file, offset)
@@ -69,6 +65,7 @@ pub(super) fn replay_dir_locked_after(dir: &Path, replay_floor_seq: u64) -> Resu
                         segment_path: path.clone(),
                         start_offset: decoded.start_offset,
                         end_offset: decoded.end_offset,
+                        fragmented: decoded.fragmented,
                     });
                 }
                 DecodeStatus::Eof => break,

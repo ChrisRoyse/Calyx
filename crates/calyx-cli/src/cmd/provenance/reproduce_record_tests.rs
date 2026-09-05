@@ -24,8 +24,17 @@ const RETAINED_INPUT_PREFIX: &str = "calyx-vault://inputs/";
 fn reproduce_record_appends_row_and_keeps_ledger_chain_intact() {
     let seeded = seed_reproduce_fixture(temp_root("record"), "record-vault");
     let before = decoded_entries(&seeded.path);
+    // Before any reproduce evidence is recorded, `reproduce_report` fails closed
+    // with INSUFFICIENT: it replays recorded reproduce payloads and there is none
+    // yet. (Nondeterminism is a `record()`-time judgement, not something
+    // `reproduce_report` can ever return — it only reads persisted evidence.)
     let before_report = reproduce_report(&before, &seeded.answer_id).unwrap_err();
-    assert_eq!(before_report.code(), "CALYX_REPRODUCE_NONDETERMINISTIC");
+    assert_eq!(before_report.code(), "CALYX_REPRODUCE_INSUFFICIENT");
+    assert!(
+        before_report.message().contains("no completion"),
+        "unexpected pre-record message: {}",
+        before_report.message()
+    );
 
     let report = reproduce_record::record(&seeded.resolved, &seeded.answer_id).unwrap();
     let store = AsterLedgerCfStore::open(&seeded.path).unwrap();

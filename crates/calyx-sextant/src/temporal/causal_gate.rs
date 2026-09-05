@@ -163,11 +163,13 @@ mod tests {
         high.guard = Some(HitGuardEvidence {
             mode: HitGuardMode::InRegionOnly,
             verdict: guard_verdict(true, false),
+            typed_verdict: None,
         });
         let mut low = hit(2, 0.80, 2, CausalConfidence::Absent, Some(999_000));
         low.guard = Some(HitGuardEvidence {
             mode: HitGuardMode::InRegionOnly,
             verdict: guard_verdict(true, true),
+            typed_verdict: None,
         });
 
         assert_eq!(derive_causal_confidence(&high), CausalConfidence::High);

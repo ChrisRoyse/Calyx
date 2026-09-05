@@ -238,6 +238,8 @@ pub(crate) fn parse_measure(rest: &[String]) -> CliResult<Subcommand> {
         .ok_or_else(|| CliError::usage("measure requires <vault>"))?
         .clone();
     let mut text = None;
+    let mut record_schema = None;
+    let mut record = None;
     let mut idx = 1;
     while idx < rest.len() {
         match rest[idx].as_str() {
@@ -247,6 +249,14 @@ pub(crate) fn parse_measure(rest: &[String]) -> CliResult<Subcommand> {
                 validate_text(raw)?;
                 text = Some(raw.to_string());
             }
+            "--record-schema" => {
+                idx += 1;
+                record_schema = Some(value(rest, idx, "--record-schema")?.to_string());
+            }
+            "--record" => {
+                idx += 1;
+                record = Some(value(rest, idx, "--record")?.into());
+            }
             other => return Err(CliError::usage(format!("unexpected measure flag {other}"))),
         }
         idx += 1;
@@ -254,6 +264,8 @@ pub(crate) fn parse_measure(rest: &[String]) -> CliResult<Subcommand> {
     Ok(Subcommand::Measure(MeasureArgs {
         vault,
         text: text.ok_or_else(|| CliError::usage("measure requires --text <s>"))?,
+        record_schema,
+        record,
     }))
 }
 

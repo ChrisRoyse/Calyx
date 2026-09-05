@@ -1,4 +1,5 @@
 [package]
+autobenches = false
 autotests = false
 name = "calyx-anneal"
 version.workspace = true
@@ -39,15 +40,23 @@ proptest.workspace = true
 # BEGIN generated integration harnesses (issue #1546)
 
 [[test]]
+test = false
 name = "__calyx_integration_isolated_issue1369_online_head_contract_fsv"
 path = "tests/__calyx_integration_isolated_issue1369_online_head_contract_fsv.rs"
 
 [[test]]
+test = false
 name = "__calyx_integration_suite_0"
 path = "tests/__calyx_integration_suite_0.rs"
 
 [[test]]
+test = false
 name = "__calyx_integration_suite_1"
 path = "tests/__calyx_integration_suite_1.rs"
 
 # END generated integration harnesses (issue #1546)
+
+[lib]
+test = false
+doctest = false
+bench = false

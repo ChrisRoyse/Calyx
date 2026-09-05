@@ -288,6 +288,75 @@ fn concurrent_template_saves_preserve_both_catalog_updates() {
     fs::remove_dir_all(home).unwrap();
 }
 
+/// #1947: the target panel keeps temporal time controls Active and marks them as
+/// compute-on-recall sidecars, which is what exempts them from the "active slot
+/// => frozen registry entry" rule at swap and at ingest preflight.
+#[test]
+fn target_panel_materializes_temporal_sidecars_as_active_compute_on_recall() {
+    let root = temp_root("target-panel-temporal-sidecar");
+    fs::create_dir_all(&root).unwrap();
+    let template = saved_template(
+        "temporal-sidecar-template",
+        (0..MIN_CONTENT_LENSES)
+            .map(|idx| tei_lens_ref(&root, idx, None, None))
+            .collect(),
+    );
+
+    let panel = template.to_target_panel(42);
+
+    assert_eq!(panel.slots.len(), MIN_CONTENT_LENSES + 3);
+    let (content, temporal) = panel.slots.split_at(MIN_CONTENT_LENSES);
+    for slot in content {
+        assert_eq!(slot.state, calyx_core::SlotState::Active);
+        assert!(
+            !slot.is_compute_on_recall_sidecar(),
+            "content slots must stay subject to the registry requirement"
+        );
+    }
+    assert_eq!(
+        temporal
+            .iter()
+            .map(|slot| slot.slot_key.key().to_string())
+            .collect::<Vec<_>>(),
+        vec!["E2_recency", "E3_periodic", "E4_positional"],
+    );
+    for slot in temporal {
+        assert_eq!(slot.state, calyx_core::SlotState::Active);
+        assert!(slot.is_compute_on_recall_sidecar());
+        assert_eq!(slot.modality, Modality::Structured);
+    }
+    fs::remove_dir_all(root).unwrap();
+}
+
+/// #1947: swap must refuse to publish an active *content* slot with no frozen
+/// registry entry, rather than deferring the failure to ingest preflight — while
+/// never naming the exempt compute-on-recall sidecars.
+#[test]
+fn swap_guard_refuses_active_slot_without_frozen_registry_entry() {
+    let root = temp_root("swap-guard-unbacked-active");
+    fs::create_dir_all(&root).unwrap();
+    let template = saved_template(
+        "unbacked-active-template",
+        (0..MIN_CONTENT_LENSES)
+            .map(|idx| tei_lens_ref(&root, idx, None, None))
+            .collect(),
+    );
+    let panel = template.to_target_panel(42);
+    let empty = Registry::new();
+
+    let error = super::store::ensure_active_slots_are_registered(&template.name, &panel, &empty)
+        .unwrap_err();
+
+    let rendered = format!("{error:?}");
+    assert!(
+        rendered.contains(calyx_registry::CALYX_PANEL_LENS_MISSING),
+        "expected CALYX_PANEL_LENS_MISSING, got {rendered}"
+    );
+    // The parked temporal sidecars must not be named by the refusal.
+    assert!(!rendered.contains("E2_recency"), "got {rendered}");
+    fs::remove_dir_all(root).unwrap();
+}
+
 fn saved_template(name: &str, lenses: Vec<TemplateLensRef>) -> SavedPanelTemplate {
     SavedPanelTemplate {
         schema_version: OBJECT_VERSION,
@@ -347,6 +416,7 @@ fn tei_lens_ref(
         serde_json::from_slice(&fs::read(&manifest_path).unwrap()).unwrap();
     let runtime_contract = derive_runtime_contract_from_spec(&spec).unwrap();
     let immutable_snapshot = TemplateLensSnapshot {
+        derivation_version: Some(calyx_registry::derivation::LENS_DERIVATION_VERSION),
         schema_version: LENS_SNAPSHOT_VERSION,
         manifest_blake3: fixture_blake3(&manifest),
         spec_blake3: fixture_blake3(&spec),

@@ -4,8 +4,10 @@ use std::path::Path;
 
 use calyx_aster::cf::ColumnFamily;
 use calyx_aster::plain_graph::{
-    GraphCollectionGenerationState, GraphCollectionGenerationStatus, GraphCollectionLifecycle,
-    PhysicalGraphCollectionLifecycle, PhysicalPlainGraph, PlainGraph,
+    GRAPH_GENERATION_STORAGE_COLLECTION_DETAIL, GRAPH_GENERATION_STORAGE_SCHEMA,
+    GRAPH_GENERATION_STORAGE_SCHEMA_DETAIL, GraphCollectionGenerationState,
+    GraphCollectionGenerationStatus, GraphCollectionLifecycle, PhysicalGraphCollectionLifecycle,
+    PhysicalPlainGraph, PlainGraph, graph_generation_storage_collection,
 };
 use calyx_aster::vault::{AsterVault, VaultOptions};
 use calyx_core::{AnchorKind, CalyxError, CxId, VaultStore};
@@ -23,6 +25,10 @@ use crate::error::{CliError, CliResult};
 
 const GRAPH_WAL_ROWS_PER_BATCH: usize = 10_000;
 
+type GraphNodeValues = BTreeMap<CxId, Vec<u8>>;
+type GraphEdgeValue = (CxId, CxId, Vec<u8>);
+type ExpectedGraphRows = (GraphNodeValues, Vec<GraphEdgeValue>);
+
 mod graph;
 use graph::{build_csr, verify_edges, verify_nodes};
 
@@ -35,6 +41,7 @@ pub(crate) struct MaterializeReport {
     vault_dir: String,
     collection: String,
     graph_generation: String,
+    graph_storage_collection: String,
     schema: &'static str,
     edge_type: &'static str,
     input: InputReport,
@@ -95,6 +102,7 @@ pub(crate) fn materialize(
     )?;
     validate_base(&vault, input)?;
     let generation = format!("materialize-opinion-aliases-{}", ulid::Ulid::new());
+    let storage_collection = graph_generation_storage_collection(&args.collection, &generation)?;
     let lifecycle = GraphCollectionLifecycle::new(&vault)?;
     lifecycle.put_state(
         &GraphCollectionGenerationState::new(
@@ -104,9 +112,18 @@ pub(crate) fn materialize(
             "materialize-opinion-aliases",
         )
         .with_reason("opinion-alias Graph materialization started")
-        .with_detail("schema", SCHEMA),
+        .with_detail("schema", SCHEMA)
+        .with_detail(
+            GRAPH_GENERATION_STORAGE_SCHEMA_DETAIL,
+            GRAPH_GENERATION_STORAGE_SCHEMA,
+        )
+        .with_detail(
+            GRAPH_GENERATION_STORAGE_COLLECTION_DETAIL,
+            storage_collection.clone(),
+        ),
     )?;
-    let graph = PlainGraph::new(&vault, &args.collection)?;
+    vault.flush()?;
+    let graph = PlainGraph::new_generation(&vault, &args.collection, &generation)?;
     let (node_values, edge_values) = expected_graph_rows(input)?;
     let mut graph_rows = Vec::with_capacity(node_values.len() + edge_values.len() * 2);
     for (id, value) in &node_values {
@@ -140,7 +157,7 @@ pub(crate) fn materialize(
     .map_err(|error| CliError::runtime(format!("serialize opinion-alias summary: {error}")))?;
     graph.put_metadata(SUMMARY_KEY, &summary)?;
     let projection = build_csr(
-        &args.collection,
+        &storage_collection,
         vault.snapshot(),
         &node_values,
         &edge_values,
@@ -150,7 +167,23 @@ pub(crate) fn materialize(
     drop(graph);
     drop(vault);
 
-    let physical = PhysicalPlainGraph::open_latest_unchecked(&resolved.path, &args.collection)?;
+    let physical = PhysicalPlainGraph::open_generation_unchecked(
+        &resolved.path,
+        &args.collection,
+        &generation,
+    )?;
+    if physical.storage_collection() != storage_collection {
+        return Err(contract_error(
+            "CALYX_OPINION_ALIAS_GENERATION_ROUTE_MISMATCH",
+            format!(
+                "opinion-alias generation {}/{} reopened storage {}, expected {storage_collection}",
+                args.collection,
+                generation,
+                physical.storage_collection()
+            ),
+            "do not publish the alias generation until its deterministic storage route reads back exactly",
+        ));
+    }
     verify_nodes(&physical, &node_values)?;
     verify_edges(&physical, &edge_values)?;
     let physical_summary = physical
@@ -190,6 +223,7 @@ pub(crate) fn materialize(
         vault_dir: resolved.path.display().to_string(),
         collection: args.collection.clone(),
         graph_generation: generation.clone(),
+        graph_storage_collection: storage_collection,
         schema: SCHEMA,
         edge_type: EDGE_TYPE,
         input: InputReport {
@@ -257,9 +291,7 @@ fn validate_base(vault: &AsterVault, input: &AliasInput) -> CliResult {
     Ok(())
 }
 
-fn expected_graph_rows(
-    input: &AliasInput,
-) -> CliResult<(BTreeMap<CxId, Vec<u8>>, Vec<(CxId, CxId, Vec<u8>)>)> {
+fn expected_graph_rows(input: &AliasInput) -> CliResult<ExpectedGraphRows> {
     let mut nodes = BTreeMap::new();
     for row in input.rows.values().filter(|row| row.is_canonical) {
         insert_node(&mut nodes, row.cx_id, target_props(row)?)?;
@@ -450,7 +482,15 @@ fn accept_generation(
             "canonical_constellations",
             report.accounting.canonical_constellations.to_string(),
         )
-        .with_detail("csr_sha256", report.readback.csr_sha256.clone()),
+        .with_detail("csr_sha256", report.readback.csr_sha256.clone())
+        .with_detail(
+            GRAPH_GENERATION_STORAGE_SCHEMA_DETAIL,
+            GRAPH_GENERATION_STORAGE_SCHEMA,
+        )
+        .with_detail(
+            GRAPH_GENERATION_STORAGE_COLLECTION_DETAIL,
+            report.graph_storage_collection.clone(),
+        ),
     )?;
     vault.flush()?;
     drop(vault);
@@ -459,6 +499,18 @@ fn accept_generation(
         row.state.collection == collection
             && row.state.generation == generation
             && row.state.status == GraphCollectionGenerationStatus::Accepted
+            && row
+                .state
+                .detail
+                .get(GRAPH_GENERATION_STORAGE_SCHEMA_DETAIL)
+                .map(String::as_str)
+                == Some(GRAPH_GENERATION_STORAGE_SCHEMA)
+            && row
+                .state
+                .detail
+                .get(GRAPH_GENERATION_STORAGE_COLLECTION_DETAIL)
+                == Some(&report.graph_storage_collection)
+            && row.state.detail.get("csr_sha256") == Some(&report.readback.csr_sha256)
     });
     if !accepted {
         return Err(CliError::from(CalyxError {
@@ -466,6 +518,36 @@ fn accept_generation(
             message: format!("accepted lifecycle row is absent for {collection}/{generation}"),
             remediation: "do not consume the alias collection until accepted state reads back",
         }));
+    }
+    let routed = PhysicalPlainGraph::open_latest_isolated(&resolved.path, collection)?;
+    if routed.storage_collection() != report.graph_storage_collection {
+        return Err(contract_error(
+            "CALYX_OPINION_ALIAS_ACCEPTED_ROUTE_MISMATCH",
+            format!(
+                "accepted alias route resolved to {}, expected {} for {collection}/{generation}",
+                routed.storage_collection(),
+                report.graph_storage_collection
+            ),
+            "do not consume the alias collection until a cold reader resolves the verified generation",
+        ));
+    }
+    let routed_csr = routed.read_csr_bytes()?.ok_or_else(|| {
+        contract_error(
+            "CALYX_OPINION_ALIAS_ACCEPTED_CSR_MISSING",
+            format!("accepted alias route has no CSR bytes for {collection}/{generation}"),
+            "do not consume the alias collection until its accepted CSR reads back",
+        )
+    })?;
+    let routed_hash = sha256_hex(&routed_csr);
+    if routed_hash != report.readback.csr_sha256 {
+        return Err(contract_error(
+            "CALYX_OPINION_ALIAS_ACCEPTED_CSR_MISMATCH",
+            format!(
+                "accepted alias CSR hash {routed_hash} differs from verified hash {} for {collection}/{generation}",
+                report.readback.csr_sha256
+            ),
+            "quarantine the accepted generation and inspect physical Graph CF publication",
+        ));
     }
     Ok(())
 }

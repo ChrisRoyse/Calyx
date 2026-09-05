@@ -1,19 +1,23 @@
-use std::fmt::Write;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
-use calyx_core::{Input, Lens, SlotShape, SlotVector, SparseEntry};
+use calyx_core::{Input, Lens, SlotShape, SlotVector};
 use calyx_registry::{
     CandleLens, FastembedBgem3Lens, FastembedRerankerLens, FastembedSparseLens, LensRuntime,
-    LensSpec, MultimodalAdapterLens, OnnxColbertLens, OnnxLens, StaticLookupLens, TeiHttpLens,
-    lens_spec_from_manifest_path,
+    LensSpec, MultimodalAdapterLens, OnnxColbertLens, OnnxLens, StaticLookupLens,
+    TeiEndpointIdentity, TeiHttpLens, TeiSegmentedLens, algorithmic_lens_from_spec,
+    lens_spec_from_manifest_path, tei_endpoint_identity,
 };
 use serde::Serialize;
-use sha2::{Digest, Sha256};
 
+use super::explain_vector::{
+    SegmentationReport, SparseEntryReport, full_sparse, full_vector, norm, segment_count,
+    segment_norms, segmentation_report, sparse_entry_count, sparse_top, token_count, vector_kind,
+    vector_sha256,
+};
 use super::flags::Flags;
-use super::support::{dim, runtime_name, slot_norm, slot_prefix, validate_vector_contract};
+use super::support::{dim, runtime_name, slot_prefix, validate_vector_contract};
 use crate::error::{CliError, CliResult};
 use crate::output::print_json;
 
@@ -21,9 +25,12 @@ use crate::output::print_json;
 struct ExplainReport {
     manifest: PathBuf,
     lens_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    runtime_lens_id: Option<String>,
     name: String,
     runtime: String,
     runtime_detail: String,
+    vector_kind: &'static str,
     dtype: String,
     shape: ShapeReport,
     dim: u32,
@@ -32,7 +39,14 @@ struct ExplainReport {
     rows: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     token_count: Option<usize>,
-    norm: f32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    segment_count: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    segmentation: Option<SegmentationReport>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    norm: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    segment_norms: Option<Vec<f32>>,
     norm_ok: bool,
     vector_sha256: String,
     first_values: Vec<f32>,
@@ -48,12 +62,8 @@ struct ExplainReport {
     ms_per_input: f32,
     vram_bytes: u64,
     vram_mb: f32,
-}
-
-#[derive(Serialize)]
-struct SparseEntryReport {
-    idx: u32,
-    val: f32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tei_endpoint_identity: Option<TeiEndpointIdentity>,
 }
 
 #[derive(Serialize)]
@@ -85,17 +95,49 @@ pub(crate) fn explain(args: &[String]) -> CliResult {
     let spec = lens_spec_from_manifest_path(&manifest)?;
     let input = input_bytes(&flags)?;
     let probe = Input::new(spec.modality, input);
+    let (runtime_lens_id, tei_endpoint_identity) = match &spec.runtime {
+        LensRuntime::TeiHttp { endpoint } => {
+            let lens = TeiHttpLens::new(&spec.name, endpoint, spec.modality, dim(spec.output));
+            (
+                Some(lens.id().to_string()),
+                Some(tei_endpoint_identity(endpoint)?),
+            )
+        }
+        LensRuntime::TeiHttpSegmented { endpoint, policy } => {
+            let lens = TeiSegmentedLens::new(
+                &spec.name,
+                endpoint,
+                spec.modality,
+                dim(spec.output),
+                *policy,
+            )?;
+            (
+                Some(lens.id().to_string()),
+                Some(tei_endpoint_identity(endpoint)?),
+            )
+        }
+        LensRuntime::StaticLookup { .. } => (
+            Some(StaticLookupLens::from_lens_spec(&spec)?.id().to_string()),
+            None,
+        ),
+        LensRuntime::Algorithmic { .. } => (
+            Some(algorithmic_lens_from_spec(&spec)?.id().to_string()),
+            None,
+        ),
+        _ => (None, None),
+    };
     let started = Instant::now();
     let measurement = measure_runtime(&spec, &probe, repeat)?;
     let total_ms = started.elapsed().as_secs_f64() as f32 * 1000.0;
     validate_vector_contract(&measurement.vector, spec.output, spec.norm_policy)?;
-    let norm = slot_norm(&measurement.vector);
     print_json(&ExplainReport {
         manifest,
         lens_id: spec.lens_id().to_string(),
+        runtime_lens_id,
         name: spec.name,
         runtime: runtime_name(&spec.runtime).to_string(),
         runtime_detail: measurement.runtime_detail,
+        vector_kind: vector_kind(&measurement.vector),
         dtype: measurement.dtype,
         shape: shape_report(spec.output),
         dim: dim(spec.output),
@@ -103,7 +145,10 @@ pub(crate) fn explain(args: &[String]) -> CliResult {
         excluded_from_dedup: spec.excluded_from_dedup,
         rows: measurement.rows,
         token_count: token_count(&measurement.vector),
-        norm,
+        segment_count: segment_count(&measurement.vector),
+        segmentation: segmentation_report(&measurement.vector),
+        norm: norm(&measurement.vector),
+        segment_norms: segment_norms(&measurement.vector),
         norm_ok: true,
         vector_sha256: vector_sha256(&measurement.vector),
         first_values: slot_prefix(&measurement.vector, 4),
@@ -115,6 +160,7 @@ pub(crate) fn explain(args: &[String]) -> CliResult {
         ms_per_input: total_ms / repeat as f32,
         vram_bytes: measurement.vram_bytes,
         vram_mb: measurement.vram_bytes as f32 / (1024.0 * 1024.0),
+        tei_endpoint_identity,
     })
 }
 
@@ -138,118 +184,14 @@ fn shape_report(shape: SlotShape) -> ShapeReport {
     }
 }
 
-fn sparse_entry_count(vector: &SlotVector) -> Option<usize> {
-    match vector {
-        SlotVector::Sparse { entries, .. } => Some(entries.len()),
-        _ => None,
-    }
-}
-
-fn sparse_top(vector: &SlotVector, limit: usize) -> Option<Vec<SparseEntryReport>> {
-    let SlotVector::Sparse { entries, .. } = vector else {
-        return None;
-    };
-    let mut entries = entries.clone();
-    entries.sort_by(|left, right| {
-        right
-            .val
-            .total_cmp(&left.val)
-            .then_with(|| left.idx.cmp(&right.idx))
-    });
-    Some(
-        entries
-            .into_iter()
-            .take(limit)
-            .map(|entry| SparseEntryReport {
-                idx: entry.idx,
-                val: entry.val,
-            })
-            .collect(),
-    )
-}
-
-fn sparse_entries_report(entries: &[SparseEntry]) -> Vec<SparseEntryReport> {
-    entries
-        .iter()
-        .map(|entry| SparseEntryReport {
-            idx: entry.idx,
-            val: entry.val,
-        })
-        .collect()
-}
-
-fn vector_sha256(vector: &SlotVector) -> String {
-    let mut hasher = Sha256::new();
-    match vector {
-        SlotVector::Dense { dim, data } => {
-            hasher.update(b"calyx-slot-vector-dense-v1");
-            update_u32(&mut hasher, *dim);
-            update_u64(&mut hasher, data.len() as u64);
-            update_f32s(&mut hasher, data);
-        }
-        SlotVector::Sparse { dim, entries } => {
-            hasher.update(b"calyx-slot-vector-sparse-v1");
-            update_u32(&mut hasher, *dim);
-            update_u64(&mut hasher, entries.len() as u64);
-            for SparseEntry { idx, val } in entries {
-                update_u32(&mut hasher, *idx);
-                update_f32(&mut hasher, *val);
-            }
-        }
-        SlotVector::Multi { token_dim, tokens } => {
-            hasher.update(b"calyx-slot-vector-multi-v1");
-            update_u32(&mut hasher, *token_dim);
-            update_u64(&mut hasher, tokens.len() as u64);
-            for token in tokens {
-                update_u64(&mut hasher, token.len() as u64);
-                update_f32s(&mut hasher, token);
-            }
-        }
-        SlotVector::Absent { reason } => {
-            hasher.update(b"calyx-slot-vector-absent-v1");
-            hasher.update(format!("{reason:?}").as_bytes());
-        }
-    }
-    hex_lower(&hasher.finalize())
-}
-
-fn update_u32(hasher: &mut Sha256, value: u32) {
-    hasher.update(value.to_le_bytes());
-}
-
-fn update_u64(hasher: &mut Sha256, value: u64) {
-    hasher.update(value.to_le_bytes());
-}
-
-fn update_f32s(hasher: &mut Sha256, values: &[f32]) {
-    for value in values {
-        update_f32(hasher, *value);
-    }
-}
-
-fn update_f32(hasher: &mut Sha256, value: f32) {
-    hasher.update(value.to_bits().to_le_bytes());
-}
-
-fn hex_lower(bytes: &[u8]) -> String {
-    let mut out = String::with_capacity(bytes.len() * 2);
-    for byte in bytes {
-        write!(&mut out, "{byte:02x}").expect("hex write");
-    }
-    out
-}
-
-fn token_count(vector: &SlotVector) -> Option<usize> {
-    match vector {
-        SlotVector::Multi { tokens, .. } => Some(tokens.len()),
-        _ => None,
-    }
-}
-
 fn measure_runtime(spec: &LensSpec, probe: &Input, repeat: usize) -> CliResult<Measurement> {
     match &spec.runtime {
+        LensRuntime::Algorithmic { .. } => measure_algorithmic(spec, probe, repeat),
         LensRuntime::StaticLookup { .. } => measure_static_lookup(spec, probe, repeat),
         LensRuntime::TeiHttp { endpoint } => measure_tei(spec, endpoint, probe, repeat),
+        LensRuntime::TeiHttpSegmented { endpoint, policy } => {
+            measure_tei_segmented(spec, endpoint, *policy, probe, repeat)
+        }
         LensRuntime::CandleLocal { .. } => measure_candle(spec, probe, repeat),
         LensRuntime::Onnx { .. } => measure_onnx(spec, probe, repeat),
         LensRuntime::OnnxColbert { .. } => measure_onnx_colbert(spec, probe, repeat),
@@ -265,30 +207,19 @@ fn measure_runtime(spec: &LensSpec, probe: &Input, repeat: usize) -> CliResult<M
     }
 }
 
-fn full_vector(vector: &SlotVector, enabled: bool) -> CliResult<Option<Vec<f32>>> {
-    if !enabled {
-        return Ok(None);
-    }
-    match vector {
-        SlotVector::Dense { data, .. } => Ok(Some(data.clone())),
-        SlotVector::Sparse { .. } => Ok(None),
-        SlotVector::Multi { .. } | SlotVector::Absent { .. } => Err(CliError::usage(
-            "--full-vector is supported only for dense or sparse lens explain output",
-        )),
-    }
-}
-
-fn full_sparse(vector: &SlotVector, enabled: bool) -> CliResult<Option<Vec<SparseEntryReport>>> {
-    if !enabled {
-        return Ok(None);
-    }
-    match vector {
-        SlotVector::Sparse { entries, .. } => Ok(Some(sparse_entries_report(entries))),
-        SlotVector::Dense { .. } => Ok(None),
-        SlotVector::Multi { .. } | SlotVector::Absent { .. } => Err(CliError::usage(
-            "--full-vector is supported only for dense or sparse lens explain output",
-        )),
-    }
+fn measure_algorithmic(spec: &LensSpec, probe: &Input, repeat: usize) -> CliResult<Measurement> {
+    let lens = algorithmic_lens_from_spec(spec)?;
+    let vector = measure_repeated(&lens, probe, repeat)?;
+    let LensRuntime::Algorithmic { kind } = &spec.runtime else {
+        unreachable!();
+    };
+    Ok(Measurement {
+        vector,
+        dtype: "f32".to_string(),
+        rows: None,
+        vram_bytes: 0,
+        runtime_detail: format!("algorithmic;{kind};frozen={}", lens.id()),
+    })
 }
 
 fn input_bytes(flags: &Flags) -> CliResult<Vec<u8>> {
@@ -320,7 +251,8 @@ fn measure_tei(
     probe: &Input,
     repeat: usize,
 ) -> CliResult<Measurement> {
-    let lens = TeiHttpLens::new(&spec.name, endpoint, spec.modality, dim(spec.output));
+    let lens = TeiHttpLens::new(&spec.name, endpoint, spec.modality, dim(spec.output))
+        .with_declared_max_batch(spec.max_batch)?;
     let vector = measure_repeated(&lens, probe, repeat)?;
     Ok(Measurement {
         vector,
@@ -328,6 +260,31 @@ fn measure_tei(
         rows: None,
         vram_bytes: 0,
         runtime_detail: endpoint.to_string(),
+    })
+}
+
+fn measure_tei_segmented(
+    spec: &LensSpec,
+    endpoint: &str,
+    policy: calyx_registry::TeiSegmentationPolicy,
+    probe: &Input,
+    repeat: usize,
+) -> CliResult<Measurement> {
+    let lens = TeiSegmentedLens::new(
+        &spec.name,
+        endpoint,
+        spec.modality,
+        dim(spec.output),
+        policy,
+    )?
+    .with_declared_max_batch(spec.max_batch)?;
+    let vector = measure_repeated(&lens, probe, repeat)?;
+    Ok(Measurement {
+        vector,
+        dtype: "f32".to_string(),
+        rows: None,
+        vram_bytes: 0,
+        runtime_detail: format!("{endpoint};{}", policy.fingerprint()),
     })
 }
 
@@ -457,11 +414,21 @@ fn measure_multimodal(spec: &LensSpec, probe: &Input, repeat: usize) -> CliResul
 }
 
 fn measure_repeated(lens: &dyn Lens, probe: &Input, repeat: usize) -> CliResult<SlotVector> {
-    let mut last = None;
-    for _ in 0..repeat {
-        last = Some(lens.measure(probe)?);
+    let expected = lens.measure(probe)?;
+    let expected_sha256 = vector_sha256(&expected);
+    for attempt in 2..=repeat {
+        let observed = lens.measure(probe)?;
+        if observed != expected {
+            return Err(calyx_core::CalyxError::lens_frozen_violation(format!(
+                "lens {} returned non-deterministic typed slot bytes for identical input at \
+                 repeat {attempt}: expected_sha256={expected_sha256} observed_sha256={}",
+                lens.id(),
+                vector_sha256(&observed)
+            ))
+            .into());
+        }
     }
-    last.ok_or_else(|| CliError::usage("repeat produced no vector"))
+    Ok(expected)
 }
 
 fn files_size(files: &[PathBuf]) -> CliResult<u64> {

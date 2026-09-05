@@ -12,7 +12,7 @@ use crate::resource::{
     LeaseRegistry, LeaseView, MemtableCfStatus, MemtableStatus, ResourceCounters,
 };
 use crate::sst::SstSummary;
-use calyx_core::{Clock, Result, Seq, Ts};
+use calyx_core::{CalyxError, Clock, Result, Seq, Ts};
 use std::collections::BTreeMap;
 use std::ops::Bound;
 use std::sync::atomic::AtomicBool;
@@ -135,6 +135,10 @@ impl VersionedCfStore {
     /// Latest committed sequence.
     pub fn current_seq(&self) -> Seq {
         self.seqs.current()
+    }
+
+    pub(crate) fn router_latest_readback_enabled(&self) -> bool {
+        self.router_latest_readback.load(Ordering::Acquire)
     }
 
     pub fn set_start_seq(&self, seq: Seq) -> Result<()> {
@@ -310,6 +314,21 @@ impl VersionedCfStore {
                 .fetch_max(self.current_seq() + 1, Ordering::AcqRel);
         }
         let seq = self.seqs.allocate();
+        // Latest-readback mode: the CF router (memtable + flush SSTs) is the
+        // source of truth for latest reads, and every row was just routed via
+        // `put_at` above, so retaining a second copy in the in-memory MVCC row
+        // table would grow the heap O(committed rows) for the whole session with
+        // no reader — the weave-loom write-side OOM accumulator (#1991: the
+        // 109k-node graph's node rows are ~14.7 GB). Durability is the WAL append
+        // plus checkpoint SSTs (see `vault::commit`), independent of this table;
+        // a table miss falls through to the router on every read
+        // (`read_at`/`read_batch`/`scan_*` latest-readback paths), and open never
+        // restores rows in this mode. So skip the retention entirely. The row
+        // write lock is still held across the router put + seq allocation above,
+        // preserving the "next seq is exactly current + 1" commit invariant.
+        if self.router_latest_readback.load(Ordering::Acquire) {
+            return Ok(seq);
+        }
         for (cf, key, value) in rows {
             table
                 .entry(cf)
@@ -385,6 +404,39 @@ impl VersionedCfStore {
             Some(router) => router.reload_cf_level(cf),
             None => Ok(()),
         }
+    }
+
+    /// Advances MVCC after an already-checkpointed reconstructible batch without
+    /// routing it through a second memtable/SST copy. The caller holds Aster's
+    /// durable commit lock and may use this only for an unpublished derived
+    /// namespace. Its CF router levels are refreshed once, after all bulk
+    /// batches are durable and before physical verification/publication.
+    pub(crate) fn advance_reconstructible_checkpoint(
+        &self,
+        seq: Seq,
+        feeds_derived_content: bool,
+    ) -> Result<()> {
+        let _rows = self.rows.write().expect("mvcc row table poisoned");
+        let expected = self.current_seq().checked_add(1).ok_or_else(|| {
+            CalyxError::aster_corrupt_shard(
+                "sequence exhausted while installing reconstructible checkpoint",
+            )
+        })?;
+        if seq != expected {
+            return Err(CalyxError::aster_corrupt_shard(format!(
+                "reconstructible checkpoint seq {seq} did not equal next MVCC seq {expected}"
+            )));
+        }
+        if feeds_derived_content {
+            self.derived_content_seq.fetch_max(seq, Ordering::AcqRel);
+        }
+        let allocated = self.seqs.allocate();
+        if allocated != seq {
+            return Err(CalyxError::aster_corrupt_shard(format!(
+                "reconstructible checkpoint allocated seq {allocated}, expected {seq}"
+            )));
+        }
+        Ok(())
     }
 
     pub fn install_read_barrier(&self, barrier: ReadBarrier) {

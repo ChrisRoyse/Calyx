@@ -22,6 +22,10 @@ impl CfRouter {
         }
         if let Some(table) = self.memtables.get(&cf) {
             for (key, value) in table.range(start, end) {
+                let value = match &self.value_crypto {
+                    Some(context) => seal_value(context, cf, &key, &value)?,
+                    None => value,
+                };
                 rows.insert(key, value);
             }
         }
@@ -52,7 +56,14 @@ impl CfRouter {
                 .memtables
                 .get(&cf)
                 .and_then(|table| table.predecessor(start, &upper, inclusive))
-                .map(|(key, value)| SstEntry { key, value });
+                .map(|(key, value)| -> Result<SstEntry> {
+                    let value = match &self.value_crypto {
+                        Some(context) => seal_value(context, cf, &key, &value)?,
+                        None => value,
+                    };
+                    Ok(SstEntry { key, value })
+                })
+                .transpose()?;
             let candidate = match (level, memtable) {
                 (None, None) => return Ok(None),
                 (Some(entry), None) | (None, Some(entry)) => entry,
@@ -86,7 +97,7 @@ impl CfRouter {
         if limit == 0 {
             return Ok(Vec::new());
         }
-        let overlay = self
+        let mut overlay = self
             .memtables
             .get(&cf)
             .map(|table| {
@@ -97,6 +108,11 @@ impl CfRouter {
                     .collect::<Vec<_>>()
             })
             .unwrap_or_default();
+        if let Some(context) = &self.value_crypto {
+            for entry in &mut overlay {
+                entry.value = seal_value(context, cf, &entry.key, &entry.value)?;
+            }
+        }
         let rows = self
             .levels
             .get(&cf)
@@ -142,6 +158,10 @@ impl CfRouter {
         }
         if let Some(table) = self.memtables.get(&cf) {
             for (key, value) in table.iter() {
+                let value = match &self.value_crypto {
+                    Some(context) => seal_value(context, cf, &key, &value)?,
+                    None => value,
+                };
                 rows.insert(key, value);
             }
         }

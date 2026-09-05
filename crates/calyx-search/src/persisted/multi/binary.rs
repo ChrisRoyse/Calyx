@@ -181,6 +181,119 @@ pub(super) fn search_binary(
     Ok(ranked(top_k(scored, k)))
 }
 
+/// The manifest-side expectations one segment's binary sidecar must match,
+/// used by the CPU streaming MaxSim scorer.
+pub(in crate::persisted::multi) struct SegmentExpectation<'a> {
+    pub(in crate::persisted::multi) index_rel: &'a str,
+    pub(in crate::persisted::multi) sha256: &'a str,
+    pub(in crate::persisted::multi) base_seq: u64,
+    pub(in crate::persisted::multi) row_count: u64,
+    pub(in crate::persisted::multi) token_count: u64,
+}
+
+/// Stream one verified segment sidecar row-by-row, scoring each row with the
+/// exact `MaxSimIndex::maxsim` arithmetic and appending `(cx_id, score)` to
+/// `scored`. Only a single row's tokens are held in memory at a time — the
+/// whole lens is never materialized or pinned (issue #1845). The sha256 is
+/// verified with a streaming hash over the same bytes the resident loader
+/// hashed, and every header/row/token-count/finiteness/trailing-byte invariant
+/// is enforced fail-closed, so a corrupt or stale sidecar returns a structured
+/// error instead of a silently wrong answer.
+#[allow(clippy::too_many_arguments)]
+pub(in crate::persisted::multi) fn stream_score_segment(
+    path: &Path,
+    slot: SlotId,
+    token_dim: u32,
+    expect: &SegmentExpectation<'_>,
+    query: &[Vec<f32>],
+    candidates: Option<&BTreeSet<CxId>>,
+    seen: &mut BTreeSet<CxId>,
+    scored: &mut Vec<(CxId, f32)>,
+) -> CliResult {
+    let file = File::open(path)?;
+    let mut reader = BufReader::new(file);
+    let mut hasher = Sha256::new();
+    let header = read_binary_header_hashed(path, &mut reader, &mut hasher)?;
+    if header.slot != slot.get() {
+        return Err(stale(format!(
+            "persistent segmented multi sidecar {} slot {} != expected slot {}; rebuild the vault search indexes",
+            expect.index_rel,
+            header.slot,
+            slot.get()
+        )));
+    }
+    if header.token_dim != token_dim {
+        return Err(stale(format!(
+            "persistent segmented multi sidecar {} token_dim {} != expected token_dim {token_dim}; rebuild the vault search indexes",
+            expect.index_rel, header.token_dim
+        )));
+    }
+    if header.base_seq != expect.base_seq {
+        return Err(stale(format!(
+            "persistent segmented multi sidecar {} seq {} != segment manifest seq {}; rebuild the vault search indexes",
+            expect.index_rel, header.base_seq, expect.base_seq
+        )));
+    }
+    if header.row_count != expect.row_count {
+        return Err(stale(format!(
+            "persistent segmented multi sidecar {} row len {} != expected {}; rebuild the vault search indexes",
+            expect.index_rel, header.row_count, expect.row_count
+        )));
+    }
+    if header.token_count != expect.token_count {
+        return Err(stale(format!(
+            "persistent segmented multi sidecar {} token_count {} != expected {}; rebuild the vault search indexes",
+            expect.index_rel, header.token_count, expect.token_count
+        )));
+    }
+    let mut observed_tokens = 0u64;
+    for _ in 0..header.row_count {
+        let cx_id = read_cx_id(path, &mut reader, &mut hasher)?;
+        if !seen.insert(cx_id) {
+            return Err(stale(format!(
+                "persistent segmented multi sidecars repeat {cx_id}; rebuild the vault search indexes"
+            )));
+        }
+        let row_token_count = read_u32(path, &mut reader, &mut hasher)? as u64;
+        observed_tokens = observed_tokens
+            .checked_add(row_token_count)
+            .ok_or_else(|| stale("persistent segmented multi sidecar token_count overflow"))?;
+        if observed_tokens > header.token_count {
+            return Err(stale(format!(
+                "persistent segmented multi sidecar {} token_count exceeds header {}; rebuild the vault search indexes",
+                expect.index_rel, header.token_count
+            )));
+        }
+        let tokens = read_tokens(
+            path,
+            &mut reader,
+            &mut hasher,
+            slot,
+            cx_id,
+            header.token_dim,
+            row_token_count,
+        )?;
+        if candidates.is_none_or(|allowed| allowed.contains(&cx_id)) {
+            scored.push((cx_id, MaxSimIndex::maxsim(query, &tokens)));
+        }
+    }
+    if observed_tokens != header.token_count {
+        return Err(stale(format!(
+            "persistent segmented multi sidecar {} token_count {observed_tokens} != header {}; rebuild the vault search indexes",
+            expect.index_rel, header.token_count
+        )));
+    }
+    ensure_no_trailing_bytes(path, &mut reader, &mut hasher)?;
+    let actual = finish_sha256_hex(hasher);
+    if actual != expect.sha256 {
+        return Err(stale(format!(
+            "persistent segmented multi sidecar {} sha256 {actual} != manifest {}; rebuild the vault search indexes",
+            expect.index_rel, expect.sha256
+        )));
+    }
+    Ok(())
+}
+
 #[path = "binary/segments.rs"]
 mod segments;
 

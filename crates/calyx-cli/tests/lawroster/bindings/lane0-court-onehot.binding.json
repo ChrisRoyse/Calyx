@@ -1,0 +1,21 @@
+{
+  "schema_id": "courtlistener-opinion-v1",
+  "selector": {
+    "kind": "field",
+    "path": "/court_id"
+  },
+  "source_type": "string",
+  "encoder": {
+    "kind": "one_hot",
+    "categories": [
+      "ohcirctcuyahoga",
+      "ohctapp8cuyahog",
+      "ohctcomplcuyaho",
+      "ohctinsolvcuyah",
+      "ohioctapp",
+      "ohjuvctcuyahoga",
+      "ohmunictcuyahog",
+      "ohprobctcuyahog"
+    ]
+  }
+}

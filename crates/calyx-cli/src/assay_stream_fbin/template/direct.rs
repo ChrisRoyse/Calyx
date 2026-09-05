@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 use calyx_core::{Asymmetry, Modality, QuantPolicy};
 use calyx_registry::{
     AlgorithmicLens, FrozenLensContract, LensDType, LensRuntime, LensSpec, NormPolicy,
-    read_tei_service_info, tei_endpoint_identity,
+    StructuredBinding, read_tei_service_info, tei_endpoint_identity,
 };
 use sha2::{Digest, Sha256};
 
@@ -34,6 +34,12 @@ pub(super) enum DirectLensSource {
         kind: String,
         dim: u32,
     },
+    /// Structured-v1 algorithmic lens bound to a frozen binding JSON. The binding
+    /// carries the exact schema/selector/encoder, so its runtime kind, shape, and
+    /// frozen contract are derived from the binding artifact rather than a hand
+    /// passed `<kind> <dim>` pair. Routes `Modality::Structured` so `structured-v1`
+    /// kinds are admitted instead of rejected as text (issue #1914).
+    Structured { name: String, binding_path: PathBuf },
 }
 
 pub(super) fn record_from_direct_lenses(
@@ -215,7 +221,77 @@ fn direct_descriptor_parts(source: &DirectLensSource) -> CliResult<DirectDescrip
                 ]),
             })
         }
+        DirectLensSource::Structured { name, binding_path } => {
+            validate_direct_name(name)?;
+            let (physical_binding_path, binding_file_sha256, bytes) =
+                read_structured_binding(binding_path)?;
+            let binding = StructuredBinding::from_json_bytes(&bytes).map_err(CliError::from)?;
+            // The binding is authoritative: derive the canonical runtime kind and
+            // the emitted slot shape from it, then build the frozen structured
+            // contract exactly as `calyx lens add --modality structured` does, so a
+            // template-imported lens is byte-identical to a directly registered one.
+            let kind = binding.runtime_kind().map_err(CliError::from)?;
+            let shape = binding.shape();
+            let lens = AlgorithmicLens::from_runtime_kind(name, Modality::Structured, &kind, shape)
+                .map_err(CliError::from)?;
+            let contract = lens.contract().clone();
+            let spec = spec_from_contract(
+                name,
+                LensRuntime::Algorithmic { kind: kind.clone() },
+                &contract,
+            );
+            let binding_hex = hex_digest(&binding_file_sha256);
+            Ok(DirectDescriptorParts {
+                spec,
+                runtime: "algorithmic".to_string(),
+                model_id: format!("structured-v1:{}", binding.schema_id()),
+                endpoint: None,
+                dtype: "f32".to_string(),
+                source_path: physical_binding_path.display().to_string(),
+                source_sha256: direct_source_sha256(&[
+                    "structured-v1",
+                    name,
+                    binding.schema_id(),
+                    &binding_hex,
+                ]),
+            })
+        }
     }
+}
+
+/// Reads and hashes a frozen structured binding JSON artifact for a direct
+/// template import. Fails closed (never fabricates a binding) if the artifact is
+/// missing or unreadable.
+fn read_structured_binding(path: &Path) -> CliResult<(PathBuf, [u8; 32], Vec<u8>)> {
+    let absolute = if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        std::env::current_dir()
+            .map_err(|error| {
+                structured_binding_error(format!(
+                    "resolve current directory for {} failed: {error}",
+                    path.display()
+                ))
+            })?
+            .join(path)
+    };
+    let bytes = std::fs::read(&absolute).map_err(|error| {
+        structured_binding_error(format!(
+            "read structured binding {} failed: {error}",
+            absolute.display()
+        ))
+    })?;
+    let mut hasher = Sha256::new();
+    hasher.update(&bytes);
+    Ok((absolute, hasher.finalize().into(), bytes))
+}
+
+fn structured_binding_error(message: impl Into<String>) -> crate::error::CliError {
+    local_error(
+        "CALYX_FSV_ASSAY_STREAM_FBIN_STRUCTURED_BINDING_INVALID",
+        message,
+        "pass --structured <name> <binding.json> pointing at the frozen structured binding artifact",
+    )
 }
 
 pub(super) fn validate_attested_tei_descriptor(descriptor: &LensTemplateDescriptor) -> CliResult {
@@ -396,64 +472,7 @@ fn tei_attestation_error(
 }
 
 fn algorithmic_lens(name: &str, kind: &str, dim: u32) -> CliResult<AlgorithmicLens> {
-    let lens = match kind {
-        "byte" | "byte-features" => fixed_algorithmic_dim(
-            kind,
-            dim,
-            16,
-            AlgorithmicLens::byte_features(name, Modality::Text),
-        )?,
-        "scalar" => {
-            fixed_algorithmic_dim(kind, dim, 1, AlgorithmicLens::scalar(name, Modality::Text))?
-        }
-        "ast-style" => fixed_algorithmic_dim(
-            kind,
-            dim,
-            8,
-            AlgorithmicLens::ast_style(name, Modality::Text),
-        )?,
-        "gdelt-cameo" => fixed_algorithmic_dim(
-            kind,
-            dim,
-            16,
-            AlgorithmicLens::gdelt_cameo(name, Modality::Text),
-        )?,
-        "gdelt-actor-geo" => AlgorithmicLens::gdelt_actor_geo(name, Modality::Text, dim),
-        "gdelt-source-domain" => AlgorithmicLens::gdelt_source_domain(name, Modality::Text, dim),
-        "gdelt-event-geo" => AlgorithmicLens::gdelt_event_geo(name, Modality::Text, dim),
-        "gdelt-actor-pair" => AlgorithmicLens::gdelt_actor_pair(name, Modality::Text, dim),
-        "gdelt-event-actor" => AlgorithmicLens::gdelt_event_actor(name, Modality::Text, dim),
-        "gdelt-tone-signal" => AlgorithmicLens::gdelt_tone_signal(name, Modality::Text, dim),
-        "gdelt-source-event" => AlgorithmicLens::gdelt_source_event(name, Modality::Text, dim),
-        "gdelt-action-geo" => AlgorithmicLens::gdelt_action_geo(name, Modality::Text, dim),
-        "gdelt-actor-country" => AlgorithmicLens::gdelt_actor_country(name, Modality::Text, dim),
-        "gdelt-source-host" => AlgorithmicLens::gdelt_source_host(name, Modality::Text, dim),
-        "gdelt-sqldate" => AlgorithmicLens::gdelt_sql_date(name, Modality::Text, dim),
-        "gdelt-event-code" => AlgorithmicLens::gdelt_event_code(name, Modality::Text, dim),
-        "sparse" | "sparse-keywords" => AlgorithmicLens::sparse_keywords(name, Modality::Text, dim),
-        "token-hash" | "multi-hash" => AlgorithmicLens::token_hash(name, Modality::Text, dim),
-        "one-hot" => AlgorithmicLens::one_hot(name, Modality::Text, dim),
-        other => {
-            return Err(CliError::usage(format!(
-                "unknown algorithmic runtime kind {other}"
-            )));
-        }
-    };
-    Ok(lens)
-}
-
-fn fixed_algorithmic_dim(
-    kind: &str,
-    actual: u32,
-    expected: u32,
-    lens: AlgorithmicLens,
-) -> CliResult<AlgorithmicLens> {
-    if actual != expected {
-        return Err(CliError::usage(format!(
-            "{kind} direct lens dimension must be {expected}, got {actual}"
-        )));
-    }
-    Ok(lens)
+    AlgorithmicLens::from_runtime_kind_dim(name, Modality::Text, kind, dim).map_err(CliError::from)
 }
 
 fn spec_from_contract(name: &str, runtime: LensRuntime, contract: &FrozenLensContract) -> LensSpec {
@@ -503,4 +522,81 @@ fn direct_source_sha256(parts: &[&str]) -> String {
         .iter()
         .map(|byte| format!("{byte:02x}"))
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    fn temp_dir(name: &str) -> PathBuf {
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let dir = std::env::temp_dir().join(format!("{name}-{}-{nanos}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    fn write_numeric_binding(dir: &Path) -> PathBuf {
+        // Roster lane 5: /citation_count Log1pSigned -> Dense(1).
+        let json = serde_json::json!({
+            "schema_id": "courtlistener-opinion-v1",
+            "selector": {"kind": "field", "path": "/citation_count"},
+            "source_type": "integer",
+            "encoder": {"kind": "numeric", "scaling": {"kind": "log1p_signed"}}
+        });
+        let path = dir.join("citation_binding.json");
+        std::fs::write(&path, serde_json::to_vec(&json).unwrap()).unwrap();
+        path
+    }
+
+    #[test]
+    fn structured_direct_source_routes_modality_structured() {
+        let dir = temp_dir("stream-fbin-direct-structured");
+        let binding_path = write_numeric_binding(&dir);
+
+        let record = record_from_direct_lenses(&[DirectLensSource::Structured {
+            name: "citation-count-v1".to_string(),
+            binding_path,
+        }])
+        .expect("structured direct source must build a template descriptor");
+
+        assert_eq!(record.descriptors.len(), 1);
+        let descriptor = &record.descriptors[0];
+        assert_eq!(descriptor.name, "citation-count-v1");
+        assert_eq!(descriptor.runtime, "algorithmic");
+        assert_eq!(descriptor.spec.modality, Modality::Structured);
+        assert_eq!(descriptor.native_dim, 1);
+        match &descriptor.spec.runtime {
+            LensRuntime::Algorithmic { kind } => {
+                assert!(
+                    kind.starts_with("structured-v1:"),
+                    "structured direct source must freeze a structured-v1 runtime kind, got {kind}"
+                );
+            }
+            other => panic!("expected an algorithmic structured runtime, got {other:?}"),
+        }
+        assert!(descriptor.model_id.contains("courtlistener-opinion-v1"));
+
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn structured_direct_source_missing_binding_fails_closed() {
+        let dir = temp_dir("stream-fbin-direct-structured-missing");
+        let error = record_from_direct_lenses(&[DirectLensSource::Structured {
+            name: "citation-count-v1".to_string(),
+            binding_path: dir.join("does-not-exist.json"),
+        }])
+        .expect_err("a missing structured binding artifact must fail closed");
+        assert!(
+            error
+                .to_string()
+                .contains("CALYX_FSV_ASSAY_STREAM_FBIN_STRUCTURED_BINDING_INVALID"),
+            "expected structured binding invalid code, got: {error}"
+        );
+        let _ = std::fs::remove_dir_all(dir);
+    }
 }

@@ -4,8 +4,9 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
+use calyx_core::CalyxError;
 use calyx_lodestar::{
-    AssocStore, DEFAULT_ASTER_ASSOC_COLLECTION, LodestarError, PhysicalAsterAssocSnapshot,
+    AssocStore, LodestarError, PANEL_ASTER_ASSOC_COLLECTION, PhysicalAsterAssocSnapshot,
     SpectralCommunityParams, SpectralCommunityReport, spectral_community_report,
 };
 use serde_json::json;
@@ -23,6 +24,10 @@ const DEFAULT_CLI_EIGEN_K: usize = 16;
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct SpectralCommunitiesArgs {
     pub vault: String,
+    /// Physical graph collection to read. Defaults to the panel-native assoc
+    /// collection (`kernel-panel-v3`) that `weave-loom` persists into as of
+    /// #1857; `--collection default` reads pre-#1857 single-lane vaults (#1971).
+    pub collection: String,
     pub eigen_k: usize,
     pub eigen_max_iter: usize,
     pub community_count: usize,
@@ -39,6 +44,7 @@ impl Default for SpectralCommunitiesArgs {
         let params = SpectralCommunityParams::default();
         Self {
             vault: String::new(),
+            collection: PANEL_ASTER_ASSOC_COLLECTION.to_string(),
             eigen_k: DEFAULT_CLI_EIGEN_K,
             eigen_max_iter: params.eigen_max_iter,
             community_count: DEFAULT_CLI_COMMUNITIES,
@@ -56,6 +62,9 @@ struct PersistedReport {
     path: PathBuf,
     bytes: u64,
     sha256: String,
+    readback_node_count: usize,
+    readback_member_count: usize,
+    readback_degenerate_node_count: usize,
     readback_community_count: usize,
     readback_bridge_candidate_count: usize,
     readback_centrality_candidate_count: usize,
@@ -76,13 +85,17 @@ pub(crate) fn run_spectral_communities_with_home(
     let started = Instant::now();
     let resolved = resolve_vault_info(home, &args.vault)?;
     eprintln!(
-        "spectral-communities: opening physical graph name={} id={} path={}",
+        "spectral-communities: opening physical graph name={} id={} collection={} path={}",
         resolved.name,
         resolved.vault_id,
+        args.collection,
         resolved.path.display()
     );
-    let store = PhysicalAsterAssocSnapshot::latest(&resolved.path, DEFAULT_ASTER_ASSOC_COLLECTION)?;
+    let store = PhysicalAsterAssocSnapshot::latest(&resolved.path, &args.collection)?;
     let graph = store.full_graph()?;
+    if graph.node_count() == 0 {
+        return Err(graph_not_persisted_error(&args.collection));
+    }
     eprintln!(
         "spectral-communities: computing report nodes={} edges={} communities={} eigen_k={} eigen_max_iter={} cluster_max_iter={} rayon_threads={}",
         graph.node_count(),
@@ -109,10 +122,14 @@ pub(crate) fn run_spectral_communities_with_home(
     ensure_useful_report(&report)?;
     let persisted = persist_report(&resolved.path, args.out.as_deref(), &report)?;
     eprintln!(
-        "spectral-communities: persisted report={} bytes={} sha256={} elapsed_ms={}",
+        "spectral-communities: persisted report={} bytes={} sha256={} node_count={} members={} degenerate_nodes={} communities={} elapsed_ms={}",
         persisted.path.display(),
         persisted.bytes,
         persisted.sha256,
+        persisted.readback_node_count,
+        persisted.readback_member_count,
+        persisted.readback_degenerate_node_count,
+        persisted.readback_community_count,
         started.elapsed().as_millis()
     );
     print_json(&json!({
@@ -135,12 +152,33 @@ pub(crate) fn run_spectral_communities_with_home(
             "report_json_bytes": persisted.bytes,
             "report_json_sha256": persisted.sha256,
             "readback": {
+                "node_count": persisted.readback_node_count,
+                "member_count": persisted.readback_member_count,
+                "degenerate_node_count": persisted.readback_degenerate_node_count,
                 "community_count": persisted.readback_community_count,
                 "bridge_candidate_count": persisted.readback_bridge_candidate_count,
                 "centrality_candidate_count": persisted.readback_centrality_candidate_count,
             }
         }
     }))
+}
+
+/// Fail-closed error for a vault whose selected graph collection has no
+/// persisted assoc graph (0 nodes). Distinct from `CALYX_SPECTRAL_GRAPH_TOO_SMALL`
+/// (a real graph with fewer than two nodes): here the collection is absent or
+/// empty, which almost always means weave-loom has not run or wrote a different
+/// collection. Returning a specific code prevents the silent-empty
+/// (0 nodes, rc=0 / misleading "too small") behaviour from masking the miss
+/// (#1971).
+fn graph_not_persisted_error(collection: &str) -> CliError {
+    CliError::from(CalyxError {
+        code: "CALYX_SPECTRAL_GRAPH_NOT_PERSISTED",
+        message: format!(
+            "graph collection {collection:?} has no persisted assoc graph (0 nodes); \
+             the weave-loom association graph is not readable in this collection"
+        ),
+        remediation: "run `calyx weave-loom <vault>` to persist the assoc graph, or pass `--collection <name>` to read the collection weave-loom wrote (pre-#1857 vaults used `default`, current vaults use `kernel-panel-v3`)",
+    })
 }
 
 fn preflight_explicit_report(path: Option<&Path>) -> CliResult {
@@ -221,6 +259,14 @@ pub(crate) fn parse_spectral_communities(rest: &[String]) -> CliResult<Subcomman
                     1,
                 )?;
             }
+            "--collection" => {
+                idx += 1;
+                let collection = value(rest, idx, "--collection")?;
+                if collection.is_empty() {
+                    return Err(CliError::usage("--collection must not be empty"));
+                }
+                args.collection = collection.to_string();
+            }
             "--out" => {
                 idx += 1;
                 args.out = Some(value(rest, idx, "--out")?.into());
@@ -245,10 +291,16 @@ pub(crate) fn parse_spectral_communities(rest: &[String]) -> CliResult<Subcomman
 }
 
 fn ensure_useful_report(report: &SpectralCommunityReport) -> CliResult {
-    if report.communities.len() != report.requested_communities {
+    // The main spectral k-means always yields exactly `requested_communities`
+    // non-empty communities. Disconnected/isolated nodes (#1973) add further
+    // deterministic per-component communities on top, so the total is
+    // `requested_communities + <disconnected component count>` and can exceed
+    // the request. Fewer than requested means the well-embedded partition
+    // itself collapsed, which must still fail closed.
+    if report.communities.len() < report.requested_communities {
         return Err(LodestarError::KernelInvalidParams {
             detail: format!(
-                "spectral report produced {} communities but {} were requested",
+                "spectral report produced {} communities but at least {} were requested",
                 report.communities.len(),
                 report.requested_communities
             ),
@@ -344,6 +396,9 @@ fn persist_report(
         path,
         bytes: readback.len() as u64,
         sha256: sha256_hex(&readback),
+        readback_node_count: decoded.node_count,
+        readback_member_count: decoded.members.len(),
+        readback_degenerate_node_count: decoded.degenerate_node_count,
         readback_community_count: decoded.communities.len(),
         readback_bridge_candidate_count: decoded.bridge_candidates.len(),
         readback_centrality_candidate_count: decoded.centrality_candidates.len(),

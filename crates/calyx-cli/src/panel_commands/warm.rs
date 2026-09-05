@@ -1,6 +1,6 @@
 use std::collections::{BTreeSet, VecDeque};
 use std::env;
-use std::fs::{self, OpenOptions};
+use std::fs::OpenOptions;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, mpsc};
@@ -158,20 +158,19 @@ type SharedProgressLog = Option<Arc<Mutex<WarmProgressLog>>>;
 
 impl WarmProgressLog {
     fn create(path: PathBuf) -> CliResult<Self> {
-        if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent)?;
-        }
-        fs::write(&path, b"")?;
+        // Runtime evidence: create the progress log owner-only (0600) under a
+        // 0700 parent before any append (issue #1931).
+        crate::private_fs::write_private_bytes(&path, b"")?;
         Ok(Self { path })
     }
 
     fn append(&self, record: &WarmProgressRecord) -> CliResult {
         let line = serde_json::to_string(record)
             .map_err(|error| CliError::runtime(format!("serialize warm progress: {error}")))?;
-        let mut file = OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(&self.path)?;
+        let mut options = OpenOptions::new();
+        options.create(true).append(true);
+        crate::private_fs::harden_open_options(&mut options);
+        let mut file = options.open(&self.path)?;
         file.write_all(line.as_bytes())?;
         file.write_all(b"\n")?;
         file.flush()?;
@@ -363,13 +362,8 @@ use probe::{content_slots, probe_panel, run_progress_record};
 pub(super) mod resident_support;
 
 fn write_report(path: &Path, report: &WarmReport) -> CliResult {
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)?;
-    }
-    let bytes = serde_json::to_vec_pretty(report)
-        .map_err(|error| CliError::runtime(format!("serialize warm report: {error}")))?;
-    fs::write(path, bytes)?;
-    Ok(())
+    // Warm report is runtime evidence; write it owner-only (issue #1931).
+    crate::private_fs::write_private_json(path, report)
 }
 
 fn derive_progress_path(out: &Path) -> PathBuf {

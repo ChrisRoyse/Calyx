@@ -280,27 +280,10 @@ fn dense_projection(vector: &SlotVector) -> Result<Option<Vec<f32>>> {
             }
             Ok(Some(data))
         }
-        SlotVector::Multi { token_dim, tokens } => {
-            if tokens.is_empty() {
-                return Ok(None);
-            }
-            let mut data = vec![0.0; *token_dim as usize];
-            for token in tokens {
-                if token.len() != *token_dim as usize {
-                    return Err(CalyxError::lens_dim_mismatch(format!(
-                        "multi token length {} != token_dim {token_dim}",
-                        token.len()
-                    )));
-                }
-                for (dst, src) in data.iter_mut().zip(token) {
-                    *dst += *src;
-                }
-            }
-            let scale = 1.0 / tokens.len() as f32;
-            for value in &mut data {
-                *value *= scale;
-            }
-            Ok(Some(data))
+        SlotVector::Multi { .. } | SlotVector::SegmentedMulti { .. } => {
+            Err(CalyxError::lens_dim_mismatch(
+                "dense capability profiling cannot pool a multi-vector slot; use native block profiling",
+            ))
         }
         SlotVector::Absent { .. } => Ok(None),
     }

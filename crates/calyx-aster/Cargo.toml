@@ -1,4 +1,5 @@
 [package]
+autobenches = false
 autotests = false
 name = "calyx-aster"
 version.workspace = true
@@ -41,6 +42,8 @@ proptest.workspace = true
 ulid.workspace = true
 
 [[bench]]
+test = false
+bench = false
 name = "bench_arena_reset"
 harness = false
 
@@ -58,27 +61,38 @@ windows-sys = { version = "0.61.2", features = [
 # BEGIN generated integration harnesses (issue #1546)
 
 [[test]]
+test = false
 name = "__calyx_integration_isolated_issue460_kv_unsigned_ns_index_fsv"
 path = "tests/__calyx_integration_isolated_issue460_kv_unsigned_ns_index_fsv.rs"
 
 [[test]]
+test = false
 name = "__calyx_integration_isolated_leapable_issue1977_durability_fsv"
 path = "tests/__calyx_integration_isolated_leapable_issue1977_durability_fsv.rs"
 
 [[test]]
+test = false
 name = "__calyx_integration_isolated_ph61_integration"
 path = "tests/__calyx_integration_isolated_ph61_integration.rs"
 
 [[test]]
+test = false
 name = "__calyx_integration_platform_0"
 path = "tests/__calyx_integration_platform_0.rs"
 
 [[test]]
+test = false
 name = "__calyx_integration_suite_0"
 path = "tests/__calyx_integration_suite_0.rs"
 
 [[test]]
+test = false
 name = "__calyx_integration_suite_1"
 path = "tests/__calyx_integration_suite_1.rs"
 
 # END generated integration harnesses (issue #1546)
+
+[lib]
+test = false
+doctest = false
+bench = false

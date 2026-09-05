@@ -8,6 +8,7 @@ pub const CANDLE_CUDA_COMPILED: bool = cfg!(feature = "candle-cuda");
 pub mod backfill;
 pub mod commission;
 pub mod compression;
+pub mod derivation;
 pub mod drift;
 pub mod explain;
 pub mod frozen;
@@ -20,6 +21,7 @@ pub mod persistence;
 mod persistence_contracts;
 pub mod placement;
 pub mod profile;
+pub mod relocation;
 pub mod runtime;
 mod runtime_limit;
 pub mod spec;
@@ -72,22 +74,24 @@ pub use panels::{
 pub use persistence::{
     LoadedRegistrySnapshotLens, RegistryBatchLimitChange, RegistryBatchLimitUpdate,
     RegistrySnapshotMeasureStats, VaultPanelState, VaultPanelWrite, VaultRegistryBatchLimitWrite,
-    VaultRegistrySnapshot, apply_registry_snapshot_batch_limits, load_vault_panel_state,
+    VaultRegistrySnapshot, VaultStoredVectorPanelState, apply_registry_snapshot_batch_limits,
+    load_vault_panel_contract_state, load_vault_panel_state, load_vault_stored_vector_panel_state,
     measure_registry_snapshot_lens_batch, measure_registry_snapshot_lens_batch_with_stats,
     persist_vault_panel_state, set_vault_registry_batch_limits,
 };
 pub use persistence_contracts::{
-    RegistryContractAudit, RegistryContractDiff, RegistryContractFieldDiff,
-    RegistryContractRepairChange, VaultRegistryContractRepairAllWrite,
-    VaultRegistryContractRepairWrite, audit_registry_snapshot_contracts,
-    audit_vault_registry_contracts, derive_runtime_contract_from_spec,
-    lens_spec_with_frozen_contract, repair_vault_registry_contracts_from_specs,
+    CALYX_REGISTRY_CONTRACT_MISSING_SPEC, RegistryContractAudit, RegistryContractDiff,
+    RegistryContractFieldDiff, RegistryContractRepairChange, VaultRegistryContractRepairAllWrite,
+    VaultRegistryContractRepairWrite, algorithmic_lens_from_spec,
+    audit_registry_snapshot_contracts, audit_vault_registry_contracts,
+    derive_runtime_contract_from_spec, lens_spec_with_frozen_contract,
+    registry_contract_audit_error, repair_vault_registry_contracts_from_specs,
     repair_vault_registry_slot_from_spec, require_vault_registry_contracts,
 };
 pub use placement::{
     CALYX_BGE_M3_CPU_GRAPH_GPU_PLACEMENT, CALYX_RAM_BUDGET_EXCEEDED, CALYX_VRAM_BUDGET_EXCEEDED,
     CpuLensPool, CpuPoolAdmission, LENS_RAM_REMEDIATION, LENS_VRAM_REMEDIATION, PlacementBudget,
-    PlacementPlan, choose_placement,
+    PlacementPlan, choose_placement, runtime_default_placement,
 };
 pub use profile::{
     CALYX_PROFILE_CUDA_MIN_ROWS_ENV, CALYX_PROFILE_REQUIRE_CUDA_ENV,
@@ -100,6 +104,10 @@ pub use profile::{
     evaluate_capability_gate, max_panel_pairwise_correlation, profile_dense_vectors, profile_lens,
     profile_slot_with_assay, signal_kind_from_spec,
 };
+pub use relocation::{
+    CALYX_LENS_RELOCATION_REJECTED, ENDPOINT_RELOCATION_ENV, EndpointRelocation,
+    EndpointRelocationTable, process_relocation_table,
+};
 pub use runtime::adapters::{
     CALYX_ALLOW_NONCOMMERCIAL_LENSES_ENV, CALYX_LICENSE_DENIED, MultimodalAdapterLens,
     MultimodalAdapterProvider, MultimodalAdapterSpec, MultimodalAxis, MultimodalLensPackEntry,
@@ -108,7 +116,11 @@ pub use runtime::adapters::{
 };
 pub use runtime::algorithmic::{
     AlgorithmicBatchProvider, AlgorithmicBatchStats, AlgorithmicEncoder, AlgorithmicLens,
-    BYTE_FEATURES_CUDA_MIN_INPUT_BYTES, SPARSE_KEYWORDS_CUDA_MIN_TOKENS, TOKEN_HASH_CUDA_MIN_WORDS,
+    BYTE_FEATURES_CUDA_MIN_INPUT_BYTES, CALYX_STRUCTURED_BINDING_INVALID,
+    CALYX_STRUCTURED_CATEGORY_UNKNOWN, CALYX_STRUCTURED_DATE_INVALID,
+    CALYX_STRUCTURED_DERIVATION_INVALID, DateComponent, NumericDerivation, NumericScaling,
+    NumericSourceType, SPARSE_KEYWORDS_CUDA_MIN_TOKENS, StructuredBinding, StructuredEncoder,
+    StructuredSelector, StructuredSourceType, TOKEN_HASH_CUDA_MIN_WORDS,
 };
 pub use runtime::candle::{
     CandleDevicePolicy, CandleFileSpec, CandleLens, CandleModelFiles, CandlePoolingPolicy,
@@ -131,11 +143,18 @@ pub use runtime::tei_http::{
     DEFAULT_TEI_ENDPOINT, TeiEndpointIdentity, TeiHttpLens, TeiServiceInfo, read_tei_service_info,
     tei_endpoint_identity,
 };
+pub use runtime::tei_segmented::{
+    BoundaryPolicy, DEFAULT_TEI_SEGMENTATION_POLICY, PoolPolicy, TeiSegmentationPolicy,
+    TeiSegmentedLens, pooled_paragraph_policy, pooled_policy_for_endpoint,
+    probe_tei_special_tokens, segments_paragraph_policy,
+};
 pub use runtime_limit::{
     measure_registry_batch_with_runtime_limit, measure_registry_group_with_runtime_limit,
 };
 pub use spec::{Bgem3Engine, FastembedBgem3Output, LensHealth, LensRuntime, LensSpec};
-pub use swap::{BackfillCandidate, BackfillQueue, SlotSpec, SwapController};
+pub use swap::{
+    BackfillCandidate, BackfillQueue, CALYX_PANEL_RESOURCE_CONTRADICTION, SlotSpec, SwapController,
+};
 pub use temporal::{
     DecayFunction, E2RecencyConfig, E2RecencyLens, E3PeriodicConfig, E3PeriodicLens,
     E4PositionalConfig, E4PositionalLens, MultiAnchorMode, PeriodicOptions, SequenceDirection,

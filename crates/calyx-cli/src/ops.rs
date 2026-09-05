@@ -27,6 +27,9 @@ use crate::output::{WriteLineResult, print_line_result, print_table};
 mod compact;
 pub use compact::compact;
 
+mod wal_prune;
+pub use wal_prune::wal_prune;
+
 const SOAK_VALUE_BYTES: usize = 256;
 
 pub fn readback_cf(vault: &Path, cf_name: &str) -> crate::error::CliResult {
@@ -367,52 +370,7 @@ fn demo_constellation(vault: &AsterVault, vault_id: VaultId) -> Constellation {
 }
 
 pub(crate) fn parse_cf(value: &str) -> Result<ColumnFamily, String> {
-    match value {
-        "base" => Ok(ColumnFamily::Base),
-        "collections" => Ok(ColumnFamily::Collections),
-        "relational" => Ok(ColumnFamily::Relational),
-        "anchors" => Ok(ColumnFamily::Anchors),
-        "assay" => Ok(ColumnFamily::Assay),
-        "ledger" => Ok(ColumnFamily::Ledger),
-        "recurrence" => Ok(ColumnFamily::Recurrence),
-        "time_index" => Ok(ColumnFamily::TimeIndex),
-        "index_btree" => Ok(ColumnFamily::IndexBtree),
-        "index_inverted" => Ok(ColumnFamily::IndexInverted),
-        "graph" => Ok(ColumnFamily::Graph),
-        "online" => Ok(ColumnFamily::Online),
-        "reactive" => Ok(ColumnFamily::Reactive),
-        "scalars" => Ok(ColumnFamily::Scalars),
-        "xterm" => Ok(ColumnFamily::XTerm),
-        "temporal_xterm" => Ok(ColumnFamily::TemporalXTerm),
-        "anneal_rollback" => Ok(ColumnFamily::AnnealRollback),
-        "anneal_health" => Ok(ColumnFamily::AnnealHealth),
-        "anneal_checksums" => Ok(ColumnFamily::AnnealChecksums),
-        "anneal_mistakes" => Ok(ColumnFamily::AnnealMistakes),
-        "anneal_replay" => Ok(ColumnFamily::AnnealReplay),
-        "anneal_heads" => Ok(ColumnFamily::AnnealHeads),
-        "anneal_bandit" => Ok(ColumnFamily::AnnealBandit),
-        "anneal_soak" => Ok(ColumnFamily::AnnealSoak),
-        "anneal_report" => Ok(ColumnFamily::AnnealReport),
-        "anneal_growth" => Ok(ColumnFamily::AnnealGrowth),
-        "anneal_operators" => Ok(ColumnFamily::AnnealOperators),
-        "kernel" => Ok(ColumnFamily::Kernel),
-        "guard" => Ok(ColumnFamily::Guard),
-        _ if value.starts_with("slot_") => parse_slot_cf(value),
-        _ => Err(format!("unknown column family: {value}")),
-    }
-}
-
-fn parse_slot_cf(value: &str) -> Result<ColumnFamily, String> {
-    let raw = value.ends_with(".raw");
-    let slot_text = value.trim_start_matches("slot_").trim_end_matches(".raw");
-    let slot = slot_text
-        .parse::<u16>()
-        .map_err(|error| format!("invalid slot id {slot_text}: {error}"))?;
-    if raw {
-        Ok(ColumnFamily::slot_raw(SlotId::new(slot)))
-    } else {
-        Ok(ColumnFamily::slot(SlotId::new(slot)))
-    }
+    ColumnFamily::from_name(value).ok_or_else(|| format!("unknown column family: {value}"))
 }
 
 fn tier_roots(vault: &Path) -> (PathBuf, PathBuf) {

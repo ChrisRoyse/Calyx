@@ -366,6 +366,7 @@ fn vector_kind(vector: &SlotVector) -> &'static str {
         SlotVector::Dense { .. } => "dense",
         SlotVector::Sparse { .. } => "sparse",
         SlotVector::Multi { .. } => "multi",
+        SlotVector::SegmentedMulti { .. } => "segmented_multi",
         SlotVector::Absent { .. } => "absent",
     }
 }
@@ -375,6 +376,9 @@ fn vector_value_count(vector: &SlotVector) -> usize {
         SlotVector::Dense { data, .. } => data.len(),
         SlotVector::Sparse { entries, .. } => entries.len(),
         SlotVector::Multi { tokens, .. } => tokens.iter().map(Vec::len).sum(),
+        SlotVector::SegmentedMulti { segments, .. } => {
+            segments.iter().map(|segment| segment.data.len()).sum()
+        }
         SlotVector::Absent { .. } => 0,
     }
 }

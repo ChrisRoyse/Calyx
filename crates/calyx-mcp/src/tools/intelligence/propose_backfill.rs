@@ -6,7 +6,7 @@ use calyx_aster::mvcc::tombstone_value;
 use calyx_aster::vault::{AsterVault, encode};
 use calyx_core::{
     CalyxError, Clock, Constellation, CxId, Input, LensId, Modality, Result, SlotId, SlotVector,
-    VaultStore,
+    StructuredRecord, VaultStore,
 };
 use serde::Serialize;
 
@@ -37,12 +37,17 @@ pub(super) fn input_for_constellation(
     cx: &Constellation,
     modality: Modality,
 ) -> Result<Input> {
-    calyx_aster::retained_input::input_from_ref(vault_dir, modality, &cx.input_ref).map_err(
-        |error| {
+    let input = calyx_aster::retained_input::input_from_ref(vault_dir, modality, &cx.input_ref)
+        .map_err(|error| {
             input_unavailable(format!(
                 "retained input for {} failed verification ({}): {}",
                 cx.cx_id, error.code, error.message
             ))
+        })?;
+    Ok(
+        match StructuredRecord::from_persisted(&cx.scalars, &cx.metadata)? {
+            Some(record) => input.with_structured(record),
+            None => input,
         },
     )
 }

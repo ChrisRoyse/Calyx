@@ -5,7 +5,7 @@ use calyx_registry::{
     AlgorithmicLens, CandleLens, FastembedBgem3Lens, FastembedQwen3Lens, FastembedRerankerLens,
     FastembedSparseLens, FrozenLensContract, LensRuntime, LensSpec, MultimodalAdapterLens,
     NormPolicy, OnnxColbertLens, OnnxLens, Registry, StaticLookupLens, TeiHttpLens,
-    lens_spec_with_frozen_contract,
+    TeiSegmentedLens, lens_spec_with_frozen_contract,
 };
 
 use crate::error::{CliError, CliResult};
@@ -20,6 +20,7 @@ pub(crate) fn runtime_name(runtime: &LensRuntime) -> &'static str {
     match runtime {
         LensRuntime::Algorithmic { .. } => "algorithmic",
         LensRuntime::TeiHttp { .. } => "tei_http",
+        LensRuntime::TeiHttpSegmented { .. } => "tei_http_segmented",
         LensRuntime::CandleLocal { .. } => "candle_local",
         LensRuntime::Onnx { .. } => "onnx",
         LensRuntime::OnnxColbert { .. } => "onnx_colbert",
@@ -92,9 +93,22 @@ pub(crate) fn prepare_manifest_runtime(spec: LensSpec) -> Result<PreparedRuntime
             Ok(prepared(lens, contract, spec))
         }
         LensRuntime::TeiHttp { endpoint } => {
-            let lens = TeiHttpLens::new(&spec.name, endpoint, spec.modality, dim(spec.output));
+            let lens = TeiHttpLens::new(&spec.name, endpoint, spec.modality, dim(spec.output))
+                .with_declared_max_batch(spec.max_batch)?;
             let contract =
                 FrozenLensContract::tei_http(&spec.name, endpoint, spec.modality, dim(spec.output));
+            Ok(prepared(lens, contract, spec))
+        }
+        LensRuntime::TeiHttpSegmented { endpoint, policy } => {
+            let lens = TeiSegmentedLens::new(
+                &spec.name,
+                endpoint,
+                spec.modality,
+                dim(spec.output),
+                *policy,
+            )?
+            .with_declared_max_batch(spec.max_batch)?;
+            let contract = lens.contract(&spec.name);
             Ok(prepared(lens, contract, spec))
         }
         LensRuntime::Algorithmic { kind } => {
@@ -133,43 +147,7 @@ fn algorithmic_lens(
     kind: &str,
     shape: SlotShape,
 ) -> Result<AlgorithmicLens> {
-    let lens = match kind {
-        "byte" | "byte-features" => AlgorithmicLens::byte_features(name, modality),
-        "scalar" => AlgorithmicLens::scalar(name, modality),
-        "ast-style" => AlgorithmicLens::ast_style(name, modality),
-        "gdelt-cameo" | "gdelt_cameo" => AlgorithmicLens::gdelt_cameo(name, modality),
-        "gdelt-actor-geo" | "gdelt_actor_geo" => {
-            AlgorithmicLens::gdelt_actor_geo(name, modality, dim(shape))
-        }
-        "gdelt-source-domain" | "gdelt_source_domain" => {
-            AlgorithmicLens::gdelt_source_domain(name, modality, dim(shape))
-        }
-        "gdelt-event-geo" | "gdelt_event_geo" => {
-            AlgorithmicLens::gdelt_event_geo(name, modality, dim(shape))
-        }
-        "gdelt-actor-pair" | "gdelt_actor_pair" => {
-            AlgorithmicLens::gdelt_actor_pair(name, modality, dim(shape))
-        }
-        "gdelt-event-actor" | "gdelt_event_actor" => {
-            AlgorithmicLens::gdelt_event_actor(name, modality, dim(shape))
-        }
-        "gdelt-tone-signal" | "gdelt_tone_signal" => {
-            AlgorithmicLens::gdelt_tone_signal(name, modality, dim(shape))
-        }
-        "gdelt-source-event" | "gdelt_source_event" => {
-            AlgorithmicLens::gdelt_source_event(name, modality, dim(shape))
-        }
-        "sparse" | "sparse-keywords" => {
-            AlgorithmicLens::sparse_keywords(name, modality, dim(shape))
-        }
-        "token-hash" | "multi-hash" => AlgorithmicLens::token_hash(name, modality, dim(shape)),
-        other => {
-            return Err(CalyxError::lens_unreachable(format!(
-                "manifest runtime registration does not support algorithmic kind {other}"
-            )));
-        }
-    };
-    Ok(lens)
+    AlgorithmicLens::from_runtime_kind(name, modality, kind, shape)
 }
 
 pub(crate) fn hex_from_bytes(bytes: &[u8; 32]) -> String {
@@ -189,6 +167,12 @@ pub(crate) fn slot_norm(vector: &SlotVector) -> f32 {
         SlotVector::Multi { tokens, .. } => tokens
             .iter()
             .flat_map(|token| token.iter())
+            .map(|value| value * value)
+            .sum::<f32>()
+            .sqrt(),
+        SlotVector::SegmentedMulti { segments, .. } => segments
+            .iter()
+            .flat_map(|segment| segment.data.iter())
             .map(|value| value * value)
             .sum::<f32>()
             .sqrt(),
@@ -212,6 +196,10 @@ pub(crate) fn slot_prefix(vector: &SlotVector, limit: usize) -> Vec<f32> {
             .first()
             .map(|token| token.iter().take(limit).copied().collect())
             .unwrap_or_default(),
+        SlotVector::SegmentedMulti { segments, .. } => segments
+            .first()
+            .map(|segment| segment.data.iter().take(limit).copied().collect())
+            .unwrap_or_default(),
         SlotVector::Absent { .. } => Vec::new(),
     }
 }
@@ -226,6 +214,35 @@ pub(crate) fn validate_vector_contract(
         return Err(CliError::from(CalyxError::lens_numerical_invariant(
             "lens explain received NaN or Inf from runtime",
         )));
+    }
+    if let SlotVector::SegmentedMulti { segments, .. } = vector {
+        for (index, segment) in segments.iter().enumerate() {
+            let norm = segment
+                .data
+                .iter()
+                .map(|value| value * value)
+                .sum::<f32>()
+                .sqrt();
+            match norm_policy {
+                NormPolicy::L2 { tolerance } | NormPolicy::Unit { tolerance } => {
+                    ensure_norm_close(norm, 1.0, tolerance).map_err(|error| {
+                        CliError::from(CalyxError::lens_numerical_invariant(format!(
+                            "segmented lens vector {index} violates its unit norm: {error}"
+                        )))
+                    })?;
+                }
+                NormPolicy::DeclaredByModel {
+                    declared_norm,
+                    tolerance,
+                } => ensure_norm_close(norm, declared_norm, tolerance).map_err(|error| {
+                    CliError::from(CalyxError::lens_numerical_invariant(format!(
+                        "segmented lens vector {index} violates declared norm: {error}"
+                    )))
+                })?,
+                NormPolicy::None | NormPolicy::Finite => {}
+            }
+        }
+        return Ok(());
     }
     let norm = slot_norm(vector);
     match norm_policy {
@@ -258,6 +275,12 @@ fn validate_vector_shape(vector: &SlotVector, expected_shape: SlotShape) -> CliR
                 token_dim: expected,
             },
         ) if *token_dim == expected => Ok(()),
+        (
+            SlotVector::SegmentedMulti { token_dim, .. },
+            SlotShape::Multi {
+                token_dim: expected,
+            },
+        ) if *token_dim == expected => Ok(()),
         (SlotVector::Absent { .. }, _) => Err(CalyxError::lens_dim_mismatch(
             "lens explain runtime returned an absent vector",
         ))?,
@@ -274,6 +297,10 @@ fn has_non_finite(vector: &SlotVector) -> bool {
         SlotVector::Multi { tokens, .. } => tokens
             .iter()
             .flat_map(|token| token.iter())
+            .any(|value| !value.is_finite()),
+        SlotVector::SegmentedMulti { segments, .. } => segments
+            .iter()
+            .flat_map(|segment| segment.data.iter())
             .any(|value| !value.is_finite()),
         SlotVector::Absent { .. } => false,
     }

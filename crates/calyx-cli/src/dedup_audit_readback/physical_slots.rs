@@ -54,6 +54,37 @@ pub(super) fn slot_row_json(slot: SlotId, state: &PhysicalSlotState) -> serde_js
                 "token_dim": token_dim,
                 "tokens": tokens.len(),
             }),
+            SlotVector::SegmentedMulti {
+                token_dim,
+                provenance,
+                segments,
+            } => json!({
+                "slot": slot.get(),
+                "kind": "segmented_multi",
+                "payload_source": payload_source,
+                "token_dim": token_dim,
+                "segment_count": segments.len(),
+                "policy_version": provenance.policy_version,
+                "policy_hash": hex_bytes(&provenance.policy_hash),
+                "source_hash": hex_bytes(&provenance.source_hash),
+                "source_byte_len": provenance.source_byte_len,
+                "source_token_count": provenance.source_token_count,
+                "max_input_tokens": provenance.max_input_tokens,
+                "special_tokens": provenance.special_tokens,
+                "overlap_tokens": provenance.overlap_tokens,
+                "max_source_bytes": provenance.max_source_bytes,
+                "max_segments": provenance.max_segments,
+                "segments": segments.iter().enumerate().map(|(index, segment)| json!({
+                    "index": index,
+                    "byte_start": segment.byte_start,
+                    "byte_end": segment.byte_end,
+                    "token_start": segment.token_start,
+                    "token_end": segment.token_end,
+                    "measured_tokens": segment.measured_tokens,
+                    "values": segment.data.len(),
+                    "vector_hash": segment_vector_hash(&segment.data),
+                })).collect::<Vec<_>>(),
+            }),
             SlotVector::Absent { reason } => json!({
                 "slot": slot.get(),
                 "kind": "absent",
@@ -62,6 +93,16 @@ pub(super) fn slot_row_json(slot: SlotId, state: &PhysicalSlotState) -> serde_js
             }),
         },
     }
+}
+
+fn segment_vector_hash(data: &[f32]) -> String {
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(b"calyx-segment-vector-f32-v1");
+    hasher.update(&(data.len() as u64).to_le_bytes());
+    for value in data {
+        hasher.update(&value.to_bits().to_le_bytes());
+    }
+    hex_bytes(hasher.finalize().as_bytes())
 }
 
 pub(super) fn tombstone_row(key: &[u8]) -> serde_json::Value {
@@ -303,6 +344,7 @@ pub(super) fn slot_summary<'a>(
     let mut dense_slots = 0usize;
     let mut sparse_slots = 0usize;
     let mut multi_slots = 0usize;
+    let mut segmented_multi_slots = 0usize;
     let mut tombstoned_slots = 0usize;
     let mut absent_reasons = BTreeMap::<String, usize>::new();
     for state in states {
@@ -312,6 +354,7 @@ pub(super) fn slot_summary<'a>(
                 SlotVector::Dense { .. } => dense_slots += 1,
                 SlotVector::Sparse { .. } => sparse_slots += 1,
                 SlotVector::Multi { .. } => multi_slots += 1,
+                SlotVector::SegmentedMulti { .. } => segmented_multi_slots += 1,
                 SlotVector::Absent { reason } => {
                     let key = serde_json::to_value(reason)
                         .ok()
@@ -324,10 +367,11 @@ pub(super) fn slot_summary<'a>(
     }
     let absent_slots = absent_reasons.values().sum::<usize>();
     json!({
-        "slot_count": dense_slots + sparse_slots + multi_slots + tombstoned_slots + absent_slots,
+        "slot_count": dense_slots + sparse_slots + multi_slots + segmented_multi_slots + tombstoned_slots + absent_slots,
         "dense_slots": dense_slots,
         "sparse_slots": sparse_slots,
         "multi_slots": multi_slots,
+        "segmented_multi_slots": segmented_multi_slots,
         "tombstoned_slots": tombstoned_slots,
         "absent_slots": absent_slots,
         "absent_reasons": absent_reasons,

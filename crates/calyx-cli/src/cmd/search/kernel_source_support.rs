@@ -2,11 +2,11 @@
 
 use std::collections::BTreeSet;
 
-use calyx_aster::ledger_view::AsterLedgerCfStore;
+use calyx_aster::ledger_view::read_ledger_seq;
 use calyx_aster::retained_input::input_from_ref;
 use calyx_aster::vault::AsterVault;
 use calyx_core::{CalyxError, CxId};
-use calyx_ledger::{LedgerCfStore, decode};
+use calyx_ledger::decode;
 use calyx_lodestar::{AnswerDerivation, KernelAnswerSourceEvidence, KernelAnswerSourceSupport};
 
 use super::super::kernel_generation::sha256_bytes;
@@ -15,7 +15,8 @@ use super::{base_read_cfs, latest_read_vault_options_for_cfs};
 use crate::error::{CliError, CliResult};
 
 pub(super) const CALYX_KERNEL_SOURCE_LOW_SUPPORT: &str = "CALYX_KERNEL_SOURCE_LOW_SUPPORT";
-const SUPPORT_METHOD: &str = "retained_constellation_lexical_v1";
+const SUPPORT_METHOD_V1: &str = "retained_constellation_lexical_v1";
+const SUPPORT_METHOD_V2: &str = "retained_constellation_lexical_v2";
 const MINIMUM_WEIGHTED_COVERAGE_BPS: u16 = 6_000;
 
 pub(super) fn evaluate_path_source_support(
@@ -23,11 +24,25 @@ pub(super) fn evaluate_path_source_support(
     query: &str,
     derivation: &AnswerDerivation,
 ) -> CliResult<KernelAnswerSourceSupport> {
-    let query_terms = meaningful_terms(query);
+    evaluate_path_source_support_with_method(resolved, query, derivation, SUPPORT_METHOD_V2)
+}
+
+pub(super) fn evaluate_path_source_support_with_method(
+    resolved: &ResolvedVault,
+    query: &str,
+    derivation: &AnswerDerivation,
+    method: &str,
+) -> CliResult<KernelAnswerSourceSupport> {
+    if !matches!(method, SUPPORT_METHOD_V1 | SUPPORT_METHOD_V2) {
+        return Err(CliError::runtime(format!(
+            "unsupported retained source-support method {method:?}"
+        )));
+    }
+    let query_terms = meaningful_terms(query, method);
     if query_terms.is_empty() {
         return Ok(KernelAnswerSourceSupport {
             schema_version: 1,
-            method: SUPPORT_METHOD.to_string(),
+            method: method.to_string(),
             verdict: "low_support".to_string(),
             query_terms,
             matched_terms: Vec::new(),
@@ -48,7 +63,6 @@ pub(super) fn evaluate_path_source_support(
         latest_read_vault_options_for_cfs(Some(base_read_cfs())),
     )?;
     let snapshot = vault.latest_seq();
-    let ledger = AsterLedgerCfStore::open(&resolved.path)?;
     let query_pairs = adjacent_pairs(&query_terms);
     let mut sources = Vec::new();
     let mut union_terms = BTreeSet::new();
@@ -56,7 +70,7 @@ pub(super) fn evaluate_path_source_support(
 
     for cx_id in path_cx_ids(derivation) {
         let base = vault.get_base(cx_id, snapshot)?;
-        verify_base_ledger_ref(&ledger, cx_id, &base.provenance)?;
+        verify_base_ledger_ref(&resolved.path, cx_id, &base.provenance)?;
         let input = input_from_ref(&resolved.path, base.modality, &base.input_ref)?;
         let text = std::str::from_utf8(&input.bytes).map_err(|error| {
             CliError::Calyx(CalyxError {
@@ -67,7 +81,7 @@ pub(super) fn evaluate_path_source_support(
                 remediation: "restore the exact UTF-8 source bytes or use a modality-native deterministic support gate",
             })
         })?;
-        let source_terms = meaningful_terms_with_duplicates(text);
+        let source_terms = meaningful_terms_with_duplicates(text, method);
         let source_term_set = source_terms.iter().cloned().collect::<BTreeSet<_>>();
         let matched_terms = query_terms
             .iter()
@@ -129,7 +143,7 @@ pub(super) fn evaluate_path_source_support(
 
     Ok(KernelAnswerSourceSupport {
         schema_version: 1,
-        method: SUPPORT_METHOD.to_string(),
+        method: method.to_string(),
         verdict: verdict.to_string(),
         query_terms,
         matched_terms,
@@ -144,11 +158,11 @@ pub(super) fn evaluate_path_source_support(
 }
 
 fn verify_base_ledger_ref(
-    ledger: &AsterLedgerCfStore,
+    vault: &std::path::Path,
     cx_id: CxId,
     reference: &calyx_core::LedgerRef,
 ) -> CliResult {
-    let row = ledger.read_seq(reference.seq)?.ok_or_else(|| {
+    let row = read_ledger_seq(vault, reference.seq)?.ok_or_else(|| {
         CalyxError::ledger_corrupt(format!(
             "Base provenance ledger seq {} for constellation {cx_id} is absent",
             reference.seq
@@ -179,23 +193,34 @@ fn path_cx_ids(derivation: &AnswerDerivation) -> Vec<CxId> {
     ids
 }
 
-fn meaningful_terms(text: &str) -> Vec<String> {
+fn meaningful_terms(text: &str, method: &str) -> Vec<String> {
     let mut seen = BTreeSet::new();
-    meaningful_terms_with_duplicates(text)
+    meaningful_terms_with_duplicates(text, method)
         .into_iter()
         .filter(|term| seen.insert(term.clone()))
         .collect()
 }
 
-fn meaningful_terms_with_duplicates(text: &str) -> Vec<String> {
+fn meaningful_terms_with_duplicates(text: &str, method: &str) -> Vec<String> {
     calyx_sextant::index::tokenizer::tokenize(text)
         .into_iter()
-        .map(normalize_term)
+        .map(|term| normalize_term(term, method))
         .filter(|term| term.len() >= 3 && !is_stop_word(term))
         .collect()
 }
 
-fn normalize_term(mut term: String) -> String {
+fn normalize_term(mut term: String, method: &str) -> String {
+    if method == SUPPORT_METHOD_V2 {
+        if term.len() > 6 && term.ends_with("ing") {
+            term.truncate(term.len() - 3);
+            trim_doubled_inflection_consonant(&mut term);
+        } else if term.len() > 5 && term.ends_with("ed") {
+            term.truncate(term.len() - 2);
+            trim_doubled_inflection_consonant(&mut term);
+        } else if term.len() > 7 && term.ends_with("ssion") {
+            term.truncate(term.len() - 3);
+        }
+    }
     if term.len() > 4 && term.ends_with("ies") {
         term.truncate(term.len() - 3);
         term.push('y');
@@ -208,6 +233,16 @@ fn normalize_term(mut term: String) -> String {
         term.pop();
     }
     term
+}
+
+fn trim_doubled_inflection_consonant(term: &mut String) {
+    let bytes = term.as_bytes();
+    if bytes.len() >= 2
+        && bytes[bytes.len() - 1] == bytes[bytes.len() - 2]
+        && bytes[bytes.len() - 1] != b's'
+    {
+        term.pop();
+    }
 }
 
 fn adjacent_pairs(terms: &[String]) -> Vec<(String, String)> {

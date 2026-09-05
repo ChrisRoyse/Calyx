@@ -259,6 +259,14 @@ fn metadata_runtime_from_manifest(
             dtype: manifest.dtype.clone(),
             pooling: manifest.pooling.clone(),
         }),
+        "tei-segmented" | "tei-http-segmented" | "tei_http_segmented" => {
+            Ok(LensRuntime::TeiHttpSegmented {
+                endpoint: manifest.endpoint.clone().ok_or_else(|| {
+                    config_invalid("lensforge segmented TEI endpoint is required")
+                })?,
+                policy: super::manifest_runtime::segmented_tei_policy(manifest)?,
+            })
+        }
         "tei" | "tei-http" | "tei_http" => Ok(LensRuntime::TeiHttp {
             endpoint: manifest
                 .endpoint
@@ -439,6 +447,8 @@ mod tests {
             recall_delta: crate::spec::default_recall_delta(),
             max_batch: None,
             max_tokens: None,
+            representation: None,
+            special_tokens: None,
             batch_policy: None,
         };
         let manifest_path = root.join("manifest.json");

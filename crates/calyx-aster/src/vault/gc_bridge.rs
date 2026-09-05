@@ -140,24 +140,27 @@ fn reclaim_snapshot_inputs(report: &crate::compaction::CompactionReport) -> Resu
     let outputs = canonical_output_paths(report)?;
     let mut reclaimed = 0;
     for input in &report.input_paths {
-        let input = match fs::canonicalize(input) {
+        let canonical = match fs::canonicalize(input) {
             Ok(path) => path,
             Err(_) => continue,
         };
-        if outputs.contains(&input) {
+        if outputs.contains(&canonical) {
             continue;
         }
-        if classify_sst(&input)?.is_none() {
+        if classify_sst(&canonical)?.is_none() {
             continue;
         }
         // Drop any cached shared reader before deleting: an active mapping keeps
         // DeleteFile failing on Windows (fail-closed), so invalidation shrinks
-        // that window to reads still holding a clone in flight.
-        invalidate_reader(&input);
-        fs::remove_file(&input).map_err(|error| {
+        // that window to reads still holding a clone in flight. Invalidate both
+        // the vault-derived key readers cached under and the canonical form (the
+        // reader cache no longer canonicalizes, #1986).
+        invalidate_reader(input);
+        invalidate_reader(&canonical);
+        fs::remove_file(&canonical).map_err(|error| {
             CalyxError::disk_pressure(format!(
                 "reclaim snapshot GC input {}: {error}",
-                input.display()
+                canonical.display()
             ))
         })?;
         reclaimed += 1;

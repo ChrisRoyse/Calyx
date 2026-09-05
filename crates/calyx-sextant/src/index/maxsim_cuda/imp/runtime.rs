@@ -15,6 +15,9 @@ pub(super) struct Runtime {
     pub(super) score_fn: CudaFunction,
     pub(super) topk_fn: CudaFunction,
     pub(super) merge_fn: CudaFunction,
+    pub(super) batch_score_fn: CudaFunction,
+    pub(super) batch_topk_fn: CudaFunction,
+    pub(super) batch_merge_fn: CudaFunction,
 }
 
 #[cfg(sextant_cuvs)]
@@ -32,6 +35,9 @@ pub(super) fn get() -> Result<&'static Runtime> {
         score_fn: load(&module, "maxsim_score_rows", "score load")?,
         topk_fn: load(&module, "maxsim_chunk_topk", "topk load")?,
         merge_fn: load(&module, "maxsim_merge_topk", "merge load")?,
+        batch_score_fn: load(&module, "maxsim_score_rows_batch", "batch score load")?,
+        batch_topk_fn: load(&module, "maxsim_chunk_topk_batch", "batch topk load")?,
+        batch_merge_fn: load(&module, "maxsim_merge_topk_batch", "batch merge load")?,
         stream,
     };
     let _ = RUNTIME.set(candidate);

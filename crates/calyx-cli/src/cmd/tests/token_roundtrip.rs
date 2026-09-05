@@ -355,8 +355,8 @@ fn weave_loom_tokens(args: &weave::WeaveLoomArgs) -> Vec<String> {
     }
     out.extend(["--knn".to_string(), args.knn.to_string()]);
     out.extend([
-        "--edge-cos-threshold".to_string(),
-        args.edge_cos_threshold.to_string(),
+        "--edge-score-threshold".to_string(),
+        args.edge_score_threshold.to_string(),
     ]);
     out.extend([
         "--max-groundedness-distance".to_string(),

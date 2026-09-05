@@ -120,21 +120,27 @@ fn show_manifest_cli_dispatch_fsv() {
         "native vault must NOT surface the shadow CALYX_MANIFEST_CORRUPT error (#1262 regression)"
     );
 
-    // ================= EDGE: shadow-magic vault routes to shadow ==============
-    // A directory whose MANIFEST begins with the shadow magic `CXSHDW1!` must be
-    // dispatched to the shadow reader — proven by the ABSENCE of the native and
-    // unrecognized signatures (a valid shadow vault needs the pub(crate) shadow
-    // harness, unavailable to an integration test, so we assert the routing, not
-    // a successful shadow read).
+    // ============ EDGE: shadow-magic vault is recognized, fails closed ========
+    // A directory whose MANIFEST begins with the shadow magic `CXSHDW1!` is still
+    // detected as a Leapable shadow vault, but shadow-vault readback was removed
+    // with the leapable.ai migration harness (#1526/#1637 rescope). It must fail
+    // closed with the distinct CALYX_VAULT_FORMAT_SHADOW_UNSUPPORTED code — never
+    // silently degrade, never be misrouted to the native reader, and never be
+    // reported as the generic UNRECOGNIZED (the format IS recognized).
     let shadow = root.join("shadow");
     std::fs::create_dir_all(&shadow).expect("shadow dir");
     std::fs::write(shadow.join("MANIFEST"), b"CXSHDW1!\x00garbage-body").expect("shadow manifest");
     let out = show_manifest(&shadow);
     let sh_stdout = String::from_utf8_lossy(&out.stdout);
     let sh_stderr = String::from_utf8_lossy(&out.stderr);
+    let sh_combined = format!("{sh_stdout}{sh_stderr}");
     println!(
         "[shadow] exit={:?} stdout={sh_stdout} stderr={sh_stderr}",
         out.status.code()
+    );
+    assert!(
+        !out.status.success(),
+        "shadow-magic vault --show-manifest must fail closed after shadow readback removal"
     );
     assert!(
         !sh_stdout.contains("\"vault_format\":\"native-aster\"")
@@ -142,9 +148,12 @@ fn show_manifest_cli_dispatch_fsv() {
         "shadow-magic vault must NOT be misrouted to the native reader"
     );
     assert!(
-        !sh_stdout.contains("CALYX_VAULT_FORMAT_UNRECOGNIZED")
-            && !sh_stderr.contains("CALYX_VAULT_FORMAT_UNRECOGNIZED"),
+        !sh_combined.contains("CALYX_VAULT_FORMAT_UNRECOGNIZED"),
         "shadow-magic vault must be recognized as shadow, not reported as unrecognized"
+    );
+    assert!(
+        sh_combined.contains("CALYX_VAULT_FORMAT_SHADOW_UNSUPPORTED"),
+        "shadow-magic vault must fail closed with CALYX_VAULT_FORMAT_SHADOW_UNSUPPORTED, got: {sh_combined}"
     );
 
     // ================= EDGE: unrecognized dir fails closed distinctly =========

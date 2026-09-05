@@ -1,0 +1,11 @@
+# Vendored copy of the deployed gatebroker calyx-gate.slice unit for tests.
+# Keep in sync with the install tree copy shipped by install-gatebroker.sh.
+[Unit]
+Description=Calyx gate dedicated worker boundary
+BindsTo=calyx-gatebrokerd.service
+Before=calyx-gatebrokerd.service
+StopWhenUnneeded=yes
+
+[Slice]
+TasksAccounting=yes
+MemoryAccounting=yes

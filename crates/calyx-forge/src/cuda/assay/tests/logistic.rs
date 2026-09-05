@@ -19,6 +19,10 @@ fn logistic_summaries_match_cpu_oracle() -> Result<()> {
         0.35,
         1.0e-4,
     );
+    let block_value_offsets = [0, samples.len() as i32];
+    let block_feature_offsets = [0, dim as i32];
+    let block_dims = [dim as i32];
+    let block_scales = vec![1.0; train_offsets.len() - 1];
     let actual = logistic_summaries_host(
         &ctx,
         CudaLogisticDataset {
@@ -26,6 +30,10 @@ fn logistic_summaries_match_cpu_oracle() -> Result<()> {
             labels: &labels,
             rows: n,
             dim,
+            block_value_offsets: &block_value_offsets,
+            block_feature_offsets: &block_feature_offsets,
+            block_dims: &block_dims,
+            block_scales: &block_scales,
         },
         CudaLogisticSplits {
             train_offsets: &train_offsets,
@@ -34,7 +42,9 @@ fn logistic_summaries_match_cpu_oracle() -> Result<()> {
             test_indices: &test_indices,
         },
         CudaLogisticConfig {
-            steps: 96,
+            max_iterations: 2_048,
+            convergence_check_interval: 16,
+            relative_parameter_tolerance: 1.0e-4,
             learning_rate: 0.35,
             l2_penalty: 1.0e-4,
         },
@@ -64,6 +74,10 @@ fn logistic_summaries_fail_loud_on_edges() -> Result<()> {
     let ctx = init_cuda(0, false)?;
     let (samples, labels, n, dim, train_offsets, train_indices, test_offsets, test_indices) =
         logistic_fixture();
+    let block_value_offsets = [0, samples.len() as i32];
+    let block_feature_offsets = [0, dim as i32];
+    let block_dims = [dim as i32];
+    let block_scales = vec![1.0; train_offsets.len() - 1];
 
     let empty = logistic_summaries_host(
         &ctx,
@@ -72,6 +86,10 @@ fn logistic_summaries_fail_loud_on_edges() -> Result<()> {
             labels: &[],
             rows: 0,
             dim,
+            block_value_offsets: &[0, 0],
+            block_feature_offsets: &[0, dim as i32],
+            block_dims: &[dim as i32],
+            block_scales: &[1.0],
         },
         CudaLogisticSplits {
             train_offsets: &[0, 0],
@@ -80,7 +98,9 @@ fn logistic_summaries_fail_loud_on_edges() -> Result<()> {
             test_indices: &[],
         },
         CudaLogisticConfig {
-            steps: 96,
+            max_iterations: 2_048,
+            convergence_check_interval: 16,
+            relative_parameter_tolerance: 1.0e-4,
             learning_rate: 0.35,
             l2_penalty: 1.0e-4,
         },
@@ -98,6 +118,10 @@ fn logistic_summaries_fail_loud_on_edges() -> Result<()> {
             labels: &labels,
             rows: n,
             dim,
+            block_value_offsets: &block_value_offsets,
+            block_feature_offsets: &block_feature_offsets,
+            block_dims: &block_dims,
+            block_scales: &block_scales,
         },
         CudaLogisticSplits {
             train_offsets: &train_offsets,
@@ -106,7 +130,9 @@ fn logistic_summaries_fail_loud_on_edges() -> Result<()> {
             test_indices: &test_indices,
         },
         CudaLogisticConfig {
-            steps: 96,
+            max_iterations: 2_048,
+            convergence_check_interval: 16,
+            relative_parameter_tolerance: 1.0e-4,
             learning_rate: 0.35,
             l2_penalty: 1.0e-4,
         },
@@ -124,6 +150,10 @@ fn logistic_summaries_fail_loud_on_edges() -> Result<()> {
             labels: &bad_labels,
             rows: n,
             dim,
+            block_value_offsets: &block_value_offsets,
+            block_feature_offsets: &block_feature_offsets,
+            block_dims: &block_dims,
+            block_scales: &block_scales,
         },
         CudaLogisticSplits {
             train_offsets: &train_offsets,
@@ -132,7 +162,9 @@ fn logistic_summaries_fail_loud_on_edges() -> Result<()> {
             test_indices: &test_indices,
         },
         CudaLogisticConfig {
-            steps: 96,
+            max_iterations: 2_048,
+            convergence_check_interval: 16,
+            relative_parameter_tolerance: 1.0e-4,
             learning_rate: 0.35,
             l2_penalty: 1.0e-4,
         },
@@ -149,6 +181,10 @@ fn logistic_summaries_fail_loud_on_edges() -> Result<()> {
             labels: &[0],
             rows: 1,
             dim: 1025,
+            block_value_offsets: &[0, 1025],
+            block_feature_offsets: &[0, 1025],
+            block_dims: &[1025],
+            block_scales: &[1.0],
         },
         CudaLogisticSplits {
             train_offsets: &[0, 1],
@@ -157,7 +193,9 @@ fn logistic_summaries_fail_loud_on_edges() -> Result<()> {
             test_indices: &[0],
         },
         CudaLogisticConfig {
-            steps: 96,
+            max_iterations: 2_048,
+            convergence_check_interval: 16,
+            relative_parameter_tolerance: 1.0e-4,
             learning_rate: 0.35,
             l2_penalty: 1.0e-4,
         },

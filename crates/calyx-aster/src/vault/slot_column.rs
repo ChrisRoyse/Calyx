@@ -5,7 +5,7 @@ use crate::sst::arrow::{decode_column_chunk, encode_column_chunk_accelerated};
 use calyx_core::{CalyxError, Clock, CxId, Result, Seq, SlotId, SlotVector};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use std::fs::{self, File};
+use std::fs;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 
@@ -71,8 +71,7 @@ where
     ) -> Result<SlotColumnMaterialization> {
         let rows = self.dense_slot_rows_at(snapshot, slot)?;
         let output_dir = output_dir.as_ref();
-        fs::create_dir_all(output_dir)
-            .map_err(|error| storage_error("create slot-column output dir", error))?;
+        crate::private_fs::create_private_dir_all(output_dir)?;
 
         let refs = rows
             .iter()
@@ -249,8 +248,7 @@ fn sha256_hex(bytes: &[u8]) -> String {
 fn write_atomic(path: &Path, bytes: &[u8]) -> Result<()> {
     let tmp = path.with_extension("tmp");
     {
-        let mut file =
-            File::create(&tmp).map_err(|error| storage_error("create slot temp", error))?;
+        let mut file = crate::private_fs::open_private_temp_file(&tmp)?;
         file.write_all(bytes)
             .map_err(|error| storage_error("write slot temp", error))?;
         file.sync_all()

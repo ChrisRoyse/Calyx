@@ -1,4 +1,4 @@
-use calyx_aster::vault::AsterVault;
+use calyx_aster::vault::{AsterVault, IngestLedgerInput};
 use calyx_core::{Modality, SlotState, VaultStore};
 use calyx_ledger::{ActorId, SubjectId};
 use calyx_registry::{VaultPanelState, load_vault_panel_state};
@@ -74,7 +74,7 @@ pub(super) fn ingest_media_with_derived_text(
     }
     let artifact_draft =
         derived_artifact_draft(&retained, &derived, media_cx.cx_id, text_cx.cx_id)?;
-    super::stake_rebuild_required_marker(
+    let mut rebuild_intent = super::rebuild_intent::SearchRebuildCommitIntent::new(
         &resolved.path,
         "media_ingest",
         format!(
@@ -83,13 +83,16 @@ pub(super) fn ingest_media_with_derived_text(
         ),
         None,
         None,
-    )?;
-    let commit = vault.put_batch_with_ingest_ledger_and_media_artifact(
+    );
+    let commit = vault.put_batch_with_ingest_ledger_media_artifact_and_commit_intent(
         staged,
-        SubjectId::Cx(text_cx.cx_id),
-        payload,
-        ActorId::Service("calyx-cli".to_string()),
+        IngestLedgerInput::new(
+            SubjectId::Cx(text_cx.cx_id),
+            payload,
+            ActorId::Service("calyx-cli".to_string()),
+        ),
         artifact_draft,
+        &mut rebuild_intent,
     )?;
     vault.flush()?;
     rebuild_persistent_indexes(&resolved.path, &vault)?;

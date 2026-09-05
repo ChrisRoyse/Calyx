@@ -1,4 +1,5 @@
 [package]
+autobenches = false
 autotests = false
 name = "calyx-mcp"
 version.workspace = true
@@ -18,6 +19,8 @@ cuda = [
 ]
 
 [[bin]]
+test = false
+bench = false
 name = "calyx-mcp"
 path = "src/main.rs"
 
@@ -32,6 +35,7 @@ calyx-aster = { path = "../calyx-aster" }
 calyx-core = { path = "../calyx-core" }
 calyx-forge = { path = "../calyx-forge" }
 calyx-ledger = { path = "../calyx-ledger" }
+calyx-lodestar = { path = "../calyx-lodestar" }
 calyx-loom = { path = "../calyx-loom" }
 calyx-paths = { path = "../calyx-paths" }
 calyx-registry = { path = "../calyx-registry" }
@@ -50,11 +54,18 @@ calyx-fsv = { path = "../calyx-fsv" }
 # BEGIN generated integration harnesses (issue #1546)
 
 [[test]]
+test = false
 name = "__calyx_integration_isolated_stdio"
 path = "tests/__calyx_integration_isolated_stdio.rs"
 
 [[test]]
+test = false
 name = "__calyx_integration_suite_0"
 path = "tests/__calyx_integration_suite_0.rs"
 
 # END generated integration harnesses (issue #1546)
+
+[lib]
+test = false
+doctest = false
+bench = false

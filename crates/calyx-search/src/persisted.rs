@@ -15,6 +15,7 @@ mod mixed_tests;
 mod multi;
 #[path = "persisted/pinned.rs"]
 mod pinned;
+pub use pinned::{SEARCH_PIN_BUDGET_EXCEEDED_CODE, SEARCH_PIN_BUDGET_EXCEEDED_REMEDIATION};
 #[path = "persisted/rebuild.rs"]
 mod rebuild;
 #[path = "persisted/rebuild_plan.rs"]
@@ -30,6 +31,7 @@ use calyx_aster::vault::AsterVault;
 use calyx_core::{CalyxError, Constellation, CxId, SlotId, SlotVector};
 use calyx_sextant::QueryFilters;
 use calyx_sextant::index::IndexSearchHit;
+use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
@@ -42,7 +44,8 @@ pub use generation::{PersistedSearchGeneration, PersistedSearchSlot};
 pub use marker::{
     MarkerClearOutcome, REBUILD_REQUIRED_REMEDIATION, REBUILD_REQUIRED_SCHEMA,
     RebuildRequiredMarker, clear_rebuild_required_marker, clear_rebuild_required_marker_if_owned,
-    read_rebuild_required_marker, rebuild_required_marker_path, write_rebuild_required_marker,
+    read_rebuild_required_marker, rebuild_required_marker_path,
+    replace_rebuild_required_marker_if_exact, write_rebuild_required_marker,
 };
 #[cfg(feature = "cuda")]
 pub(crate) use multi::take_maxsim_cuda_detail;
@@ -54,12 +57,35 @@ pub use rebuild::{
     RebuildProgress, load_docs, rebuild_for_vault, rebuild_for_vault_with_fallible_progress,
     rebuild_for_vault_with_panel_state, rebuild_for_vault_with_panel_state_fallible_progress,
     rebuild_for_vault_with_panel_state_progress, rebuild_for_vault_with_progress,
+    rebuild_for_vault_with_stored_panel_state_fallible_progress,
 };
 
 const MANIFEST_FORMAT: &str = "calyx-search-index-manifest-v1";
 const IDMAP_FORMAT: &str = "calyx-search-index-idmap-v1";
 const INDEX_ROOT: &str = "idx/search";
 const MANIFEST_NAME: &str = "manifest.json";
+
+/// Fail-closed error code raised when GPU candidate generation is requested
+/// (weave-loom `--candidate-device gpu`, #1963) on a binary built without
+/// `--features cuda`. Without the feature there is no cuVS/CUDA surface at all,
+/// so the request can never be honoured and we refuse rather than silently
+/// serving the CPU scan.
+pub const WEAVE_CANDIDATE_CUDA_FEATURE_MISSING: &str = "CALYX_WEAVE_CANDIDATE_CUDA_FEATURE_MISSING";
+
+#[cfg(not(feature = "cuda"))]
+fn weave_candidate_cuda_feature_missing() -> CliError {
+    CalyxError {
+        code: WEAVE_CANDIDATE_CUDA_FEATURE_MISSING,
+        message:
+            "weave candidate search requested --candidate-device gpu but calyx was built without \
+             --features cuda; there is no GPU search surface in this binary"
+                .to_string(),
+        remediation:
+            "rebuild calyx-cli with --features cuda for GPU candidate generation, or rerun \
+             weave-loom with --candidate-device cpu",
+    }
+    .into()
+}
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub(crate) struct SearchIndexManifest {
@@ -90,6 +116,8 @@ pub(crate) struct SearchIndexEntry {
     graph_rel: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     id_map_rel: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    id_map_sha256: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     index_rel: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -125,6 +153,9 @@ pub struct PersistedSearchIndexes {
     vault_dir: PathBuf,
     manifest: SearchIndexManifest,
     manifest_sha256: String,
+    dense_cache: dense::DenseIndexCache,
+    #[cfg(feature = "cuda")]
+    multi_token_ann_cache: multi::TokenAnnCache,
 }
 
 impl PersistedSearchIndexes {
@@ -151,7 +182,14 @@ impl PersistedSearchIndexes {
             vault_dir: vault_dir.to_path_buf(),
             manifest,
             manifest_sha256,
+            dense_cache: dense::DenseIndexCache::default(),
+            #[cfg(feature = "cuda")]
+            multi_token_ann_cache: multi::TokenAnnCache::default(),
         })
+    }
+
+    pub fn uses_gpu_dense_serving(&self) -> CliResult<bool> {
+        dense::gpu_serving_required(self.manifest.diskann_build_backend.as_deref())
     }
 
     pub fn search(
@@ -161,12 +199,17 @@ impl PersistedSearchIndexes {
         k: usize,
     ) -> CliResult<Vec<IndexSearchHit>> {
         let entry = self.require_entry(slot)?;
-        let gpu_serving =
-            dense::gpu_serving_required(self.manifest.diskann_build_backend.as_deref())?;
+        let gpu_serving = self.uses_gpu_dense_serving()?;
         match query {
-            SlotVector::Dense { .. } => {
-                dense::search(&self.vault_dir, entry, slot, query, k, gpu_serving)
-            }
+            SlotVector::Dense { .. } => dense::search(
+                &self.vault_dir,
+                entry,
+                slot,
+                query,
+                k,
+                gpu_serving,
+                &self.dense_cache,
+            ),
             SlotVector::Sparse { .. } => sparse::search(
                 &self.vault_dir,
                 entry,
@@ -176,7 +219,7 @@ impl PersistedSearchIndexes {
                 k,
                 None,
             ),
-            SlotVector::Multi { .. } => multi::search(
+            SlotVector::Multi { .. } | SlotVector::SegmentedMulti { .. } => multi::search(
                 &self.vault_dir,
                 entry,
                 self.manifest.base_seq,
@@ -187,6 +230,46 @@ impl PersistedSearchIndexes {
             ),
             SlotVector::Absent { .. } => Err(stale(format!(
                 "persistent search slot {slot} received an absent query vector; remeasure the active panel"
+            ))),
+        }
+    }
+
+    /// Shape-native batch candidate search over one slot generation. Dense
+    /// DiskANN/CAGRA queries use the index's real batch API and one validated,
+    /// pinned open. Sparse and multi-vector lanes retain their native search
+    /// implementations but run slot-major so their verified resident indexes
+    /// are reused instead of cycling generations per document.
+    pub fn search_batch(
+        &self,
+        slot: SlotId,
+        queries: &[SlotVector],
+        k: usize,
+    ) -> CliResult<Vec<Vec<IndexSearchHit>>> {
+        if queries.is_empty() {
+            return Ok(Vec::new());
+        }
+        let entry = self.require_entry(slot)?;
+        match queries.first().expect("non-empty query batch") {
+            SlotVector::Dense { .. } => {
+                let gpu_serving = self.uses_gpu_dense_serving()?;
+                dense::search_batch(
+                    &self.vault_dir,
+                    entry,
+                    slot,
+                    queries,
+                    k,
+                    gpu_serving,
+                    &self.dense_cache,
+                )
+            }
+            SlotVector::Sparse { .. }
+            | SlotVector::Multi { .. }
+            | SlotVector::SegmentedMulti { .. } => queries
+                .iter()
+                .map(|query| self.search(slot, query, k))
+                .collect(),
+            SlotVector::Absent { .. } => Err(stale(format!(
+                "persistent search slot {slot} received an absent batch query vector; remeasure the active panel"
             ))),
         }
     }
@@ -202,8 +285,7 @@ impl PersistedSearchIndexes {
             return Ok(Vec::new());
         }
         let entry = self.require_entry(slot)?;
-        let gpu_serving =
-            dense::gpu_serving_required(self.manifest.diskann_build_backend.as_deref())?;
+        let gpu_serving = self.uses_gpu_dense_serving()?;
         match query {
             SlotVector::Dense { .. } => dense::search_filtered(
                 &self.vault_dir,
@@ -212,7 +294,10 @@ impl PersistedSearchIndexes {
                 query,
                 k,
                 candidates,
-                gpu_serving,
+                dense::DenseSearchRuntime {
+                    gpu_serving,
+                    cache: &self.dense_cache,
+                },
             ),
             SlotVector::Sparse { .. } => sparse::search(
                 &self.vault_dir,
@@ -223,7 +308,7 @@ impl PersistedSearchIndexes {
                 k,
                 Some(candidates),
             ),
-            SlotVector::Multi { .. } => multi::search(
+            SlotVector::Multi { .. } | SlotVector::SegmentedMulti { .. } => multi::search(
                 &self.vault_dir,
                 entry,
                 self.manifest.base_seq,
@@ -235,6 +320,119 @@ impl PersistedSearchIndexes {
             SlotVector::Absent { .. } => Err(stale(format!(
                 "persistent filtered search slot {slot} received an absent query vector; remeasure the active panel"
             ))),
+        }
+    }
+
+    /// Explicit GPU candidate-generation entry point for weave-loom between-doc
+    /// search (#1963). Unlike [`Self::search`] — whose GPU use is *implicit*,
+    /// keyed off the manifest build backend plus per-lane row/token thresholds —
+    /// this **forces** the GPU search kernel for the slot's lane and fails closed
+    /// (never silently degrades to the CPU scan) whenever the GPU path cannot be
+    /// honoured, so a `--candidate-device gpu` run can never quietly fall back.
+    ///
+    /// Candidate generation is *approximate selection only*: the bit-stable
+    /// per-pair similarity evidence is still produced downstream by the CPU
+    /// rerank (`rank_typed_panel_candidate_refs`) over the returned union, so the
+    /// persisted `SlotSimilarityEvidence` is byte-identical regardless of the
+    /// device used to select the candidates (#1960 equality guarantees intact).
+    pub fn search_candidates_gpu(
+        &self,
+        slot: SlotId,
+        query: &SlotVector,
+        k: usize,
+    ) -> CliResult<Vec<IndexSearchHit>> {
+        #[cfg(not(feature = "cuda"))]
+        {
+            let _ = (slot, query, k);
+            Err(weave_candidate_cuda_feature_missing())
+        }
+        #[cfg(feature = "cuda")]
+        {
+            let entry = self.require_entry(slot)?;
+            match query {
+                SlotVector::Dense { .. } => dense::search_gpu_forced(
+                    &self.vault_dir,
+                    entry,
+                    slot,
+                    query,
+                    k,
+                    &self.dense_cache,
+                ),
+                SlotVector::Sparse { .. } => sparse::search_gpu_forced(
+                    &self.vault_dir,
+                    entry,
+                    self.manifest.base_seq,
+                    slot,
+                    query,
+                    k,
+                ),
+                SlotVector::Multi { .. } | SlotVector::SegmentedMulti { .. } => {
+                    multi::search_gpu_forced(
+                        &self.vault_dir,
+                        entry,
+                        self.manifest.base_seq,
+                        slot,
+                        query,
+                        k,
+                        &self.multi_token_ann_cache,
+                    )
+                }
+                SlotVector::Absent { .. } => Err(stale(format!(
+                    "persistent GPU candidate search slot {slot} received an absent query vector; remeasure the active panel"
+                ))),
+            }
+        }
+    }
+
+    /// Forced-GPU counterpart of [`Self::search_batch`]. Dense lanes issue one
+    /// CAGRA launch per batch; every non-dense query stays on its explicit
+    /// shape-native CUDA path. Any unavailable GPU surface is an error, never a
+    /// CPU substitution.
+    pub fn search_candidates_gpu_batch(
+        &self,
+        slot: SlotId,
+        queries: &[SlotVector],
+        k: usize,
+    ) -> CliResult<Vec<Vec<IndexSearchHit>>> {
+        #[cfg(not(feature = "cuda"))]
+        {
+            let _ = (slot, queries, k);
+            Err(weave_candidate_cuda_feature_missing())
+        }
+        #[cfg(feature = "cuda")]
+        {
+            if queries.is_empty() {
+                return Ok(Vec::new());
+            }
+            let entry = self.require_entry(slot)?;
+            match queries.first().expect("non-empty query batch") {
+                SlotVector::Dense { .. } => dense::search_gpu_forced_batch(
+                    &self.vault_dir,
+                    entry,
+                    slot,
+                    queries,
+                    k,
+                    &self.dense_cache,
+                ),
+                SlotVector::Multi { .. } | SlotVector::SegmentedMulti { .. } => {
+                    multi::search_gpu_forced_batch(
+                        &self.vault_dir,
+                        entry,
+                        self.manifest.base_seq,
+                        slot,
+                        queries,
+                        k,
+                        &self.multi_token_ann_cache,
+                    )
+                }
+                SlotVector::Sparse { .. } => queries
+                    .iter()
+                    .map(|query| self.search_candidates_gpu(slot, query, k))
+                    .collect(),
+                SlotVector::Absent { .. } => Err(stale(format!(
+                    "persistent GPU candidate search slot {slot} received an absent batch query vector; remeasure the active panel"
+                ))),
+            }
         }
     }
 
@@ -328,16 +526,27 @@ impl PersistedSearchIndexes {
         &self,
         allowed_slots: Option<&BTreeSet<SlotId>>,
     ) -> CliResult {
-        for entry in &self.manifest.slots {
-            if allowed_slots
-                .map(|allowed| !allowed.contains(&SlotId::new(entry.slot)))
-                .unwrap_or(false)
-            {
-                continue;
-            }
-            if entry.kind == "multi_maxsim" || entry.kind == "multi_maxsim_segments" {
-                multi::ensure_bounded_sidecar(&self.vault_dir, entry, SlotId::new(entry.slot))?;
-            }
+        let entries = self
+            .manifest
+            .slots
+            .iter()
+            .filter(|entry| {
+                allowed_slots
+                    .map(|allowed| allowed.contains(&SlotId::new(entry.slot)))
+                    .unwrap_or(true)
+                    && (entry.kind == "multi_maxsim" || entry.kind == "multi_maxsim_segments")
+            })
+            .collect::<Vec<_>>();
+        let outcomes = entries
+            .par_iter()
+            .map(|entry| {
+                multi::ensure_bounded_sidecar(&self.vault_dir, entry, SlotId::new(entry.slot))
+            })
+            .collect::<Vec<_>>();
+        // Preserve manifest-order error reporting even though independent
+        // generations validate and pin concurrently.
+        for outcome in outcomes {
+            outcome?;
         }
         Ok(())
     }
@@ -377,6 +586,7 @@ impl SearchIndexEntry {
             built_at_seq: base_seq,
             graph_rel: Some(graph_rel),
             id_map_rel: Some(id_map_rel),
+            id_map_sha256: None,
             index_rel: None,
             sha256: None,
             token_count: None,
@@ -400,6 +610,7 @@ impl SearchIndexEntry {
             built_at_seq: base_seq,
             graph_rel: None,
             id_map_rel: None,
+            id_map_sha256: None,
             index_rel: Some(index_rel),
             sha256: Some(sha256),
             token_count: None,
@@ -423,6 +634,7 @@ impl SearchIndexEntry {
             built_at_seq: base_seq,
             graph_rel: None,
             id_map_rel: None,
+            id_map_sha256: None,
             index_rel: Some(index_rel),
             sha256: Some(sha256),
             token_count: None,
@@ -448,6 +660,7 @@ impl SearchIndexEntry {
             built_at_seq: base_seq,
             graph_rel: None,
             id_map_rel: None,
+            id_map_sha256: None,
             index_rel: Some(index_rel),
             sha256: Some(sha256),
             token_count: Some(token_count),
@@ -472,10 +685,23 @@ impl SearchIndexEntry {
             built_at_seq: base_seq,
             graph_rel: None,
             id_map_rel: None,
+            id_map_sha256: None,
             index_rel: Some(index_rel),
             sha256: Some(sha256),
             token_count: Some(token_count),
         }
+    }
+
+    pub(super) fn with_token_ann(
+        mut self,
+        graph_rel: String,
+        id_map_rel: String,
+        id_map_sha256: String,
+    ) -> Self {
+        self.graph_rel = Some(graph_rel);
+        self.id_map_rel = Some(id_map_rel);
+        self.id_map_sha256 = Some(id_map_sha256);
+        self
     }
 
     pub(super) fn require_kind(&self, expected: &str, slot: SlotId) -> CliResult {
@@ -500,6 +726,22 @@ impl SearchIndexEntry {
         self.token_dim.ok_or_else(|| {
             stale(format!(
                 "persistent slot {slot} manifest is missing token_dim; rebuild the vault search indexes"
+            ))
+        })
+    }
+
+    pub(super) fn require_token_count(&self, slot: SlotId) -> CliResult<usize> {
+        self.token_count.ok_or_else(|| {
+            stale(format!(
+                "persistent slot {slot} manifest is missing token_count; rebuild the vault search indexes"
+            ))
+        })
+    }
+
+    pub(super) fn require_id_map_sha256(&self, slot: SlotId) -> CliResult<&str> {
+        self.id_map_sha256.as_deref().ok_or_else(|| {
+            stale(format!(
+                "persistent slot {slot} manifest is missing id_map_sha256; rebuild the vault search indexes"
             ))
         })
     }

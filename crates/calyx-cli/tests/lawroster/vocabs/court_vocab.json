@@ -1,0 +1,23 @@
+{
+  "schema_id": "courtlistener-opinion-v1",
+  "field": "/court_id",
+  "encoder": "one_hot",
+  "source_files": [
+    "/zfs/archive/calyx/freelaw-cuyahoga/ingest/cap-cuyahoga.jsonl",
+    "/zfs/archive/calyx/freelaw-cuyahoga/ingest/ohctapp8-modern.jsonl"
+  ],
+  "corpus_rows": 18516,
+  "extraction": "python: Counter(json.loads(l)['metadata']['court_id']) over both ingest JSONL files; sorted+deduped",
+  "distinct_count": 8,
+  "coverage_fraction": 1.0,
+  "tokens": [
+    "ohcirctcuyahoga",
+    "ohctapp8cuyahog",
+    "ohctcomplcuyaho",
+    "ohctinsolvcuyah",
+    "ohioctapp",
+    "ohjuvctcuyahoga",
+    "ohmunictcuyahog",
+    "ohprobctcuyahog"
+  ]
+}

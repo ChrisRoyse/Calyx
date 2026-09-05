@@ -43,6 +43,8 @@ pub enum AlgorithmicPanelLens {
     ByteFeatures,
     AstStyle,
     SparseKeywords,
+    SparseKeywordsRawTf,
+    LegalDocumentStructure,
     TemporalRecent,
     TemporalPeriodic,
     TemporalPositional,
@@ -188,24 +190,51 @@ mod tests {
         let template = text_default();
         let panel = instantiate_panel(&template, 10);
 
-        assert_eq!(template.slots.len(), 8);
-        assert_eq!(panel.panel.version, 8);
-        assert_eq!(panel.panel.slots[5].slot_key.key(), "E2_recency");
-        assert!(template.slots[5..].iter().all(|slot| slot.retrieval_only));
+        // Derive the content/temporal boundary from the template's own temporal
+        // specs rather than a hard-coded slot count, so growing the content
+        // slots (issue #1938: 5 -> 6) never recreates this stale-expectation
+        // failure.
+        let temporal_count = template.temporal_specs().count();
+        let tail_start = template.slots.len() - temporal_count;
+
+        // Instantiation is lossless: every template slot becomes a panel slot
+        // and the panel version equals the slot count.
+        assert_eq!(panel.panel.slots.len(), template.slots.len());
+        assert_eq!(panel.panel.version, template.slots.len() as u32);
+
+        // The temporal tail is exactly the recency/periodic/positional sidecar,
+        // appended last and in order.
+        let expected_tail = ["E2_recency", "E3_periodic", "E4_positional"];
+        assert_eq!(temporal_count, expected_tail.len());
+        let panel_tail = panel.panel.slots[tail_start..]
+            .iter()
+            .map(|slot| slot.slot_key.key())
+            .collect::<Vec<_>>();
+        assert_eq!(panel_tail, expected_tail);
+
+        // Every tail slot is retrieval-only and excluded from dedup; every
+        // content slot before the tail is neither. Assert on both the template
+        // and the instantiated panel so the flags round-trip through
+        // instantiation.
         assert!(
-            panel.panel.slots[5..]
+            template.slots[tail_start..]
                 .iter()
-                .all(|slot| slot.retrieval_only)
+                .all(|slot| slot.retrieval_only && slot.excluded_from_dedup)
         );
         assert!(
-            template.slots[5..]
+            panel.panel.slots[tail_start..]
                 .iter()
-                .all(|slot| slot.excluded_from_dedup)
+                .all(|slot| slot.retrieval_only && slot.excluded_from_dedup)
         );
         assert!(
-            panel.panel.slots[5..]
+            template.slots[..tail_start]
                 .iter()
-                .all(|slot| slot.excluded_from_dedup)
+                .all(|slot| !slot.retrieval_only && !slot.excluded_from_dedup)
+        );
+        assert!(
+            panel.panel.slots[..tail_start]
+                .iter()
+                .all(|slot| !slot.retrieval_only && !slot.excluded_from_dedup)
         );
     }
 
@@ -281,7 +310,7 @@ mod tests {
         assert!(matches!(
             lexical.runtime,
             PanelLensRuntime::Algorithmic {
-                lens: AlgorithmicPanelLens::SparseKeywords
+                lens: AlgorithmicPanelLens::SparseKeywordsRawTf
             }
         ));
     }

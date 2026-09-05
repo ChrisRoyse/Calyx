@@ -93,6 +93,20 @@ pub struct LensForgeManifest {
     pub max_batch: Option<usize>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub max_tokens: Option<usize>,
+    /// How a long input is represented by a segmented TEI lane (#1980):
+    /// `segments` (default, one vector per window, `SlotShape::Multi`) or
+    /// `pooled-paragraph` (paragraph cascade + token-weighted L2 pooling, one
+    /// `SlotShape::Dense` vector per document). Absent means `segments`, so
+    /// every pre-#1980 manifest keeps its exact identity.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub representation: Option<String>,
+    /// How many special tokens the segmented TEI lane's own tokenizer adds to
+    /// one encoded input (#1980). Measured from the live lane at commission
+    /// time, never assumed: BERT-family lanes add 2, a last-token-pooled lane
+    /// such as Qwen3-Embedding adds 1. Absent means the frozen default of 2, so
+    /// every pre-#1980 manifest keeps its exact identity.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub special_tokens: Option<u16>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub batch_policy: Option<LensForgeBatchPolicy>,
 }
@@ -133,9 +147,41 @@ pub struct LensForgeBatchProbeLevel {
     pub failure: Option<String>,
 }
 
+/// True for the lensforge runtime tokens that name the segmented TEI runtime.
+pub(crate) fn is_segmented_tei_runtime(runtime: &str) -> bool {
+    matches!(
+        runtime,
+        "tei-segmented" | "tei-http-segmented" | "tei_http_segmented"
+    )
+}
+
 impl LensForgeManifest {
+    /// True when this manifest opts into the #1980 pooled paragraph
+    /// representation, which emits one dense vector per document instead of one
+    /// vector per segment.
+    pub fn declares_pooled_representation(&self) -> bool {
+        matches!(
+            self.representation.as_deref(),
+            Some("pooled-paragraph") | Some("pooled")
+        )
+    }
+
     pub fn output_shape(&self) -> Result<SlotShape> {
-        let derived = algorithmic_output_shape(&self.runtime, self.dim)?;
+        // `representation` only means something for the segmented TEI runtime.
+        // Declaring it anywhere else would be a claim the runtime cannot honour,
+        // so it fails closed rather than being ignored.
+        if self.representation.is_some() && !is_segmented_tei_runtime(&self.runtime) {
+            return Err(config_invalid(format!(
+                "lensforge manifest runtime {} does not support a representation declaration",
+                self.runtime
+            )));
+        }
+        let derived = if self.declares_pooled_representation() {
+            // A pooled segmented lane emits one vector per document (#1980).
+            SlotShape::Dense(self.dim)
+        } else {
+            algorithmic_output_shape(&self.runtime, self.dim)?
+        };
         let Some(shape) = self.shape else {
             return Ok(derived);
         };

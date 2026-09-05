@@ -27,13 +27,15 @@ fn batch_ingest_writes_durable_session_status_readback() {
     assert!(!status_path.exists(), "session status must not pre-exist");
 
     let validation = validate_batch_file(&jsonl).unwrap();
+    let identity = BatchSnapshotIdentity::capture(&jsonl, validation.row_count).unwrap();
     let mut session =
-        BatchIngestSession::start(&resolved, &jsonl, &validation, Some(session_id)).unwrap();
+        BatchIngestSession::start(&resolved, &jsonl, &validation, &identity, Some(session_id))
+            .unwrap();
     ingest_validated_batch_streaming_with_output(
         &resolved,
         &jsonl,
         IngestOutput::Summary,
-        validation.row_count,
+        &identity,
         IngestGpuRoute::cold_workers_allowed(),
         None,
         Some(&mut session),
@@ -94,13 +96,15 @@ fn batch_ingest_session_fails_closed_on_reused_session_id() {
     .unwrap();
     let session_id = "issue1065-reused-session";
     let validation = validate_batch_file(&jsonl).unwrap();
+    let identity = BatchSnapshotIdentity::capture(&jsonl, validation.row_count).unwrap();
     let mut session =
-        BatchIngestSession::start(&resolved, &jsonl, &validation, Some(session_id)).unwrap();
+        BatchIngestSession::start(&resolved, &jsonl, &validation, &identity, Some(session_id))
+            .unwrap();
     ingest_validated_batch_streaming_with_output(
         &resolved,
         &jsonl,
         IngestOutput::Summary,
-        validation.row_count,
+        &identity,
         IngestGpuRoute::cold_workers_allowed(),
         None,
         Some(&mut session),
@@ -113,7 +117,8 @@ fn batch_ingest_session_fails_closed_on_reused_session_id() {
         .join("status.json");
     let before = fs::read(&status_file).unwrap();
     let err =
-        BatchIngestSession::start(&resolved, &jsonl, &validation, Some(session_id)).unwrap_err();
+        BatchIngestSession::start(&resolved, &jsonl, &validation, &identity, Some(session_id))
+            .unwrap_err();
     let after = fs::read(&status_file).unwrap();
     assert_eq!(err.code(), "CALYX_INGEST_SESSION_EXISTS");
     assert_eq!(before, after, "reused session must not overwrite prior SoT");
@@ -135,13 +140,15 @@ fn batch_ingest_session_records_post_commit_failure() {
     let session_id = "issue1065-session-failed";
 
     let validation = validate_batch_file(&jsonl).unwrap();
+    let identity = BatchSnapshotIdentity::capture(&jsonl, validation.row_count).unwrap();
     let mut session =
-        BatchIngestSession::start(&resolved, &jsonl, &validation, Some(session_id)).unwrap();
+        BatchIngestSession::start(&resolved, &jsonl, &validation, &identity, Some(session_id))
+            .unwrap();
     let err = ingest_validated_batch_streaming_with_output(
         &resolved,
         &jsonl,
         IngestOutput::Summary,
-        validation.row_count,
+        &identity,
         IngestGpuRoute::cold_workers_allowed(),
         None,
         Some(&mut session),
@@ -195,10 +202,12 @@ fn running_and_failed_status_keep_pending_uncommitted_and_failed_rows_distinct()
     )
     .unwrap();
     let validation = validate_batch_file(&jsonl).unwrap();
+    let identity = BatchSnapshotIdentity::capture(&jsonl, validation.row_count).unwrap();
     let mut session = BatchIngestSession::start(
         &resolved,
         &jsonl,
         &validation,
+        &identity,
         Some("issue1684-counter-state"),
     )
     .unwrap();
@@ -258,9 +267,11 @@ fn exact_pid_reuse_reconciliation_archives_prior_bytes_and_preserves_counters() 
     )
     .unwrap();
     let validation = validate_batch_file(&jsonl).unwrap();
+    let identity = BatchSnapshotIdentity::capture(&jsonl, validation.row_count).unwrap();
     let session_id = "issue1698-pid-reuse";
     let mut session =
-        BatchIngestSession::start(&resolved, &jsonl, &validation, Some(session_id)).unwrap();
+        BatchIngestSession::start(&resolved, &jsonl, &validation, &identity, Some(session_id))
+            .unwrap();
     session.record_rows_started(1, "batch_flush_start").unwrap();
     let status_path = resolved
         .path
@@ -327,8 +338,9 @@ fn remote_owner_remains_running_and_status_bytes_are_unchanged() {
     )
     .unwrap();
     let validation = validate_batch_file(&jsonl).unwrap();
+    let identity = BatchSnapshotIdentity::capture(&jsonl, validation.row_count).unwrap();
     let session_id = "issue1698-remote-owner";
-    BatchIngestSession::start(&resolved, &jsonl, &validation, Some(session_id)).unwrap();
+    BatchIngestSession::start(&resolved, &jsonl, &validation, &identity, Some(session_id)).unwrap();
     let status_path = resolved
         .path
         .join("idx/ingest/runs")
@@ -369,9 +381,11 @@ fn legacy_v1_dead_process_derives_absent_partial_counters_without_inferring_comm
     )
     .unwrap();
     let validation = validate_batch_file(&jsonl).unwrap();
+    let identity = BatchSnapshotIdentity::capture(&jsonl, validation.row_count).unwrap();
     let session_id = "issue1698-v1-dead-owner";
     let mut session =
-        BatchIngestSession::start(&resolved, &jsonl, &validation, Some(session_id)).unwrap();
+        BatchIngestSession::start(&resolved, &jsonl, &validation, &identity, Some(session_id))
+            .unwrap();
     session.record_rows_started(2, "batch_flush_start").unwrap();
     let dead_pid = exited_child_pid();
     let status_path = resolved

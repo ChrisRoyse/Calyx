@@ -3,13 +3,14 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use calyx_core::{
-    Input, Modality, TEMPORAL_LANE_ACTIVE, TEMPORAL_LANE_INACTIVE, TEMPORAL_MISSING_CREATED_AT,
+    CALYX_STRUCTURED_SCHEMA_MISMATCH, Input, Modality, StructuredRecord, TEMPORAL_LANE_ACTIVE,
+    TEMPORAL_LANE_INACTIVE, TEMPORAL_MISSING_CREATED_AT,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::assay_anchor_audit::AnchorAudit;
-use crate::migrate::temporal::parse_event_time_secs;
+use crate::temporal_parse::parse_event_time_secs;
 
 use super::request::CorpusBuildRequest;
 
@@ -31,6 +32,10 @@ pub(crate) struct LabeledRow {
     pub(crate) source_sequence: String,
     pub(crate) source_sequence_index: usize,
     pub(crate) anchor_audit: AnchorAudit,
+    /// Canonical typed record measured by structured-modality lenses, mirroring
+    /// the batch-ingest `record_schema`+`record` contract so structured lanes
+    /// measure real atoms on the assay path instead of `Absent`.
+    pub(crate) structured: Option<StructuredRecord>,
 }
 
 #[derive(Clone, Debug)]
@@ -52,6 +57,12 @@ struct RawRow {
     split: String,
     #[serde(default)]
     text: Option<String>,
+    /// Stable schema identity for the canonical typed record (batch-ingest parity).
+    #[serde(default)]
+    record_schema: Option<String>,
+    /// Explicit structured atoms measured independently from `text`.
+    #[serde(default)]
+    record: Option<Value>,
     #[serde(default)]
     gdelt_action_geo_country: Option<String>,
     #[serde(default)]
@@ -106,6 +117,7 @@ pub(crate) fn load_rows(request: &CorpusBuildRequest) -> Result<BuildRows, Strin
         validate_row(line_idx, &raw)?;
         let id = row_id(line_idx, &raw)?;
         let label = row_label(line_idx, &raw.label)?;
+        let structured = row_structured(line_idx, &raw)?;
         let input = row_input(line_idx, &raw, &request.rows_jsonl)?;
         if let Some(limit) = request.limit_per_class {
             let count = counts.get(&label).copied().unwrap_or(0);
@@ -140,6 +152,7 @@ pub(crate) fn load_rows(request: &CorpusBuildRequest) -> Result<BuildRows, Strin
             source_sequence: SOURCE_SEQUENCE.to_string(),
             source_sequence_index: line_idx,
             anchor_audit,
+            structured,
         });
     }
     validate_loaded_rows(request, &rows)?;
@@ -199,7 +212,17 @@ fn inactive_temporal() -> RowTemporal {
 
 impl LabeledRow {
     pub(crate) fn input_for(&self, modality: Modality) -> Input {
-        Input::new(modality, self.input_bytes.clone()).with_pointer(self.input_pointer.clone())
+        let input =
+            Input::new(modality, self.input_bytes.clone()).with_pointer(self.input_pointer.clone());
+        // Attach the canonical typed record so structured-modality lenses measure
+        // the same atoms the ingest path feeds through `prepared_hybrid_text_input`
+        // (batch_stream.rs). The byte payload/modality are irrelevant to a
+        // structured lens' measured value — only the attached record is read — so
+        // this yields byte-identical slot vectors to the ingest path.
+        match &self.structured {
+            Some(record) => input.with_structured(record.clone()),
+            None => input,
+        }
     }
 }
 
@@ -294,6 +317,28 @@ fn row_input(line_idx: usize, row: &RawRow, rows_jsonl: &Path) -> Result<RowInpu
         pointer: format!("file://{}", resolved.display()),
         text: String::new(),
     })
+}
+
+/// Parses the optional canonical typed record, mirroring the batch-ingest
+/// `parse_structured_record` contract (batch.rs) exactly: `record_schema` and
+/// `record` must appear together, and `StructuredRecord::from_json_value`
+/// validates the atoms, failing closed with the stable structured error codes
+/// (`CALYX_STRUCTURED_TYPE_MISMATCH` / `_SCHEMA_INVALID` / `_SCHEMA_MISMATCH`).
+fn row_structured(line_idx: usize, row: &RawRow) -> Result<Option<StructuredRecord>, String> {
+    match (row.record_schema.as_deref(), row.record.as_ref()) {
+        (None, None) => Ok(None),
+        (Some(schema), Some(record)) => StructuredRecord::from_json_value(schema, record)
+            .map(Some)
+            .map_err(|error| {
+                format!(
+                    "{}: assay corpus-build row line {line_idx} structured record is invalid: {}",
+                    error.code, error.message
+                )
+            }),
+        _ => Err(format!(
+            "{CALYX_STRUCTURED_SCHEMA_MISMATCH}: assay corpus-build row line {line_idx} must provide record_schema and record together"
+        )),
+    }
 }
 
 fn resolve_input_path(rows_jsonl: &Path, input_path: &Path) -> PathBuf {

@@ -68,6 +68,14 @@ fn materialize_algorithmic_content_lens(
         AlgorithmicPanelLens::SparseKeywords => {
             AlgorithmicLens::sparse_keywords(&spec.name, spec.modality, sparse_dim(spec.output)?)
         }
+        AlgorithmicPanelLens::SparseKeywordsRawTf => AlgorithmicLens::sparse_keywords_raw_tf(
+            &spec.name,
+            spec.modality,
+            sparse_dim(spec.output)?,
+        ),
+        AlgorithmicPanelLens::LegalDocumentStructure => {
+            AlgorithmicLens::legal_document_structure(&spec.name, spec.modality)
+        }
         AlgorithmicPanelLens::Scalar => AlgorithmicLens::scalar(&spec.name, spec.modality),
         AlgorithmicPanelLens::TemporalRecent
         | AlgorithmicPanelLens::TemporalPeriodic
@@ -90,6 +98,8 @@ fn algorithmic_runtime(runtime: &PanelLensRuntime) -> Option<LensRuntime> {
         AlgorithmicPanelLens::ByteFeatures => "byte-features".to_string(),
         AlgorithmicPanelLens::AstStyle => "ast-style".to_string(),
         AlgorithmicPanelLens::SparseKeywords => "sparse-keywords".to_string(),
+        AlgorithmicPanelLens::SparseKeywordsRawTf => "sparse-keywords-raw-tf".to_string(),
+        AlgorithmicPanelLens::LegalDocumentStructure => "legal-document-structure".to_string(),
         AlgorithmicPanelLens::Scalar => "scalar".to_string(),
         AlgorithmicPanelLens::TemporalRecent => "temporal-recent".to_string(),
         AlgorithmicPanelLens::TemporalPeriodic => "temporal-periodic".to_string(),

@@ -1,0 +1,15 @@
+{
+  "schema_id": "courtlistener-opinion-v1",
+  "selector": {
+    "kind": "field",
+    "path": "/precedential_status"
+  },
+  "source_type": "string",
+  "encoder": {
+    "kind": "one_hot",
+    "categories": [
+      "Published",
+      "Unpublished"
+    ]
+  }
+}

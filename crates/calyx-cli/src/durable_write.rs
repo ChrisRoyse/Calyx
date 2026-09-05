@@ -28,17 +28,22 @@ impl DurableWriteLockGuard {
         let process_guard = process_mutex(&key)
             .lock()
             .map_err(|_| CliError::io(format!("{label} process lock mutex was poisoned")))?;
-        let file = OpenOptions::new()
-            .create(true)
-            .read(true)
-            .append(true)
-            .open(&key)
-            .map_err(|error| {
-                CliError::io(format!(
-                    "open {label} lock file {} failed: {error}",
-                    key.display()
-                ))
-            })?;
+        let existed = key.exists();
+        let mut options = OpenOptions::new();
+        options.create(true).read(true).append(true);
+        // The durable-write lock file is a vault descendant; create it
+        // owner-only (0600 + O_NOFOLLOW) so it cannot inherit the operator
+        // umask like the evidence it guards (issue #1931).
+        crate::private_fs::harden_open_options(&mut options);
+        let file = options.open(&key).map_err(|error| {
+            CliError::io(format!(
+                "open {label} lock file {} failed: {error}",
+                key.display()
+            ))
+        })?;
+        if !existed {
+            crate::private_fs::enforce_private_file_mode(&file, &key)?;
+        }
         file.lock().map_err(|error| {
             CliError::io(format!(
                 "acquire {label} lock file {} failed: {error}",
@@ -84,16 +89,19 @@ pub(crate) fn write_bytes_atomic(path: &Path, bytes: &[u8], label: &str) -> CliR
 pub(crate) fn write_bytes_atomic_locked(path: &Path, bytes: &[u8], label: &str) -> CliResult {
     let parent = ensure_parent(path, label)?;
     let tmp = temp_path(path)?;
-    let mut file = OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .open(&tmp)
-        .map_err(|error| {
-            CliError::io(format!(
-                "create-new temporary {label} {} failed: {error}",
-                tmp.display()
-            ))
-        })?;
+    // Runtime evidence written through this durable path (ingest status.json,
+    // etc.) must be owner-only; create the staging file 0600 + O_NOFOLLOW and
+    // prove the mode before publishing (issue #1931).
+    let mut options = OpenOptions::new();
+    options.write(true).create_new(true);
+    crate::private_fs::harden_open_options(&mut options);
+    let mut file = options.open(&tmp).map_err(|error| {
+        CliError::io(format!(
+            "create-new temporary {label} {} failed: {error}",
+            tmp.display()
+        ))
+    })?;
+    crate::private_fs::enforce_private_file_mode(&file, &tmp)?;
     let publish = (|| {
         file.write_all(bytes).map_err(|error| {
             CliError::io(format!(

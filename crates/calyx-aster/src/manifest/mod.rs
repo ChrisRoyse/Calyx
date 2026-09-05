@@ -11,7 +11,7 @@ use calyx_core::{CalyxError, Result, TemporalPolicy};
 use calyx_ledger::QuarantineSet;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
-use std::fs::{self, File};
+use std::fs;
 use std::io::{self, Write};
 use std::path::{Component, Path, PathBuf};
 
@@ -280,9 +280,7 @@ impl ManifestStore {
 
     pub fn write_current(&self, manifest: &VaultManifest) -> Result<ManifestWrite> {
         manifest.validate()?;
-        fs::create_dir_all(&self.vault_dir).map_err(|error| {
-            storage_error("create vault manifest directory", &self.vault_dir, error)
-        })?;
+        crate::private_fs::create_private_dir_all(&self.vault_dir)?;
         let pointer = manifest_filename(manifest.manifest_seq);
         let manifest_path = self.vault_dir.join(&pointer);
         let mirror_path = self.vault_dir.join(MANIFEST_FILE);
@@ -384,6 +382,29 @@ pub fn recover_vault(vault_dir: impl AsRef<Path>) -> Result<RecoveryOutcome> {
     })
 }
 
+/// Metadata-only recovery for streaming opens (issue #1992).
+///
+/// Loads and validates the current manifest, then recovers the WAL tip seq via
+/// a header-only scan (healing a torn newest tail exactly as replay does)
+/// WITHOUT decoding or collecting the post-floor tail into the heap. The caller
+/// (a write-capable latest-readback open) streams the tail restore in bounded
+/// chunks instead, so a multi-GB orphaned WAL tail no longer materializes at
+/// open. `wal_records` is intentionally empty.
+pub fn recover_vault_metadata(vault_dir: impl AsRef<Path>) -> Result<RecoveryOutcome> {
+    let vault_dir = vault_dir.as_ref();
+    let manifest = ManifestStore::open(vault_dir).load_current()?;
+    let (tip_seq, torn_tail) = crate::wal::recover_tip_and_torn(vault_dir.join("wal"))?;
+    let last_recovered_seq = tip_seq.max(manifest.durable_seq);
+    let degraded_rebuildable = manifest.degraded_rebuildable;
+    Ok(RecoveryOutcome {
+        manifest,
+        wal_records: Vec::new(),
+        torn_tail,
+        last_recovered_seq,
+        degraded_rebuildable,
+    })
+}
+
 /// Reads a base CF shard through the fail-closed SST path.
 pub fn read_base_shard(path: impl AsRef<Path>, key: &[u8]) -> Result<Option<Vec<u8>>> {
     shared_reader(path.as_ref())?.get(key)
@@ -452,8 +473,7 @@ fn decode_manifest(bytes: &[u8]) -> Result<VaultManifest> {
 fn write_atomic(path: &Path, bytes: &[u8]) -> Result<()> {
     let tmp = path.with_extension("tmp");
     {
-        let mut file =
-            File::create(&tmp).map_err(|error| storage_error("create atomic temp", &tmp, error))?;
+        let mut file = crate::private_fs::open_private_temp_file(&tmp)?;
         file.write_all(bytes)
             .map_err(|error| storage_error("write atomic temp", &tmp, error))?;
         file.sync_all()

@@ -240,29 +240,35 @@ mod tests {
         let _ = std::fs::remove_dir_all(root);
     }
 
+    // A37 admission readback now refuses diagnostic evidence: `load_report` only
+    // returns rows that carry actual gate authority (mode=gate, status=gate_passed,
+    // gate_passed=true). This fixture is therefore an internally-consistent
+    // gate-passing card: both lenses clear the marginal-bits floor so the gate
+    // genuinely passes, while their differing strengths still exercise the
+    // weakest-first rendering the test asserts.
     fn sample_report() -> MultiAnchorReport {
         MultiAnchorReport {
             schema_version: 1,
             role: "a37_multi_anchor_admission_card".to_string(),
-            status: "diagnostic_only".to_string(),
-            mode: "diagnostic".to_string(),
-            gate_passed: false,
+            status: calyx_assay::A37_DIVERSITY_GATE_PASSED.to_string(),
+            mode: "gate".to_string(),
+            gate_passed: true,
             report_count: 2,
             lens_count: 2,
-            passing_lens_count: 1,
+            passing_lens_count: 2,
             min_lenses: 2,
             min_marginal_bits: 0.05,
             max_redundancy: 0.6,
             family_span_pass: true,
             redundancy_bound_pass: true,
-            no_collapse_pass: false,
+            no_collapse_pass: true,
             association_family_count: 2,
             association_families: Default::default(),
-            min_best_marginal_bits: 0.01,
+            min_best_marginal_bits: 0.05,
             max_best_marginal_bits: 0.07,
             weakest_lens: "weak-lens".to_string(),
             target_summaries: vec![target(0), target(1)],
-            lenses: vec![lens("strong-lens", 1, 0.07), lens("weak-lens", 2, 0.01)],
+            lenses: vec![lens("strong-lens", 1, 0.07), lens("weak-lens", 2, 0.05)],
             source_reports: vec!["db-a".to_string(), "db-b".to_string()],
         }
     }
@@ -272,8 +278,8 @@ mod tests {
             target_class,
             domain: "unit".to_string(),
             report_path: format!("db-{target_class}"),
-            status: "diagnostic_only".to_string(),
-            no_collapse_pass: false,
+            status: calyx_assay::A37_DIVERSITY_GATE_PASSED.to_string(),
+            no_collapse_pass: true,
             family_span_pass: true,
             redundancy_bound_pass: true,
             n_eff: 1.5,

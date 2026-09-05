@@ -1,6 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use calyx_core::{CxId, SlotId};
+use calyx_core::{CxId, SlotId, SlotSimilarityEvidence};
 use calyx_loom::{CrossTermKind, CrossTermValue, LoomStore, cross_term::canonical_pair};
 use calyx_mincut::{AgreementEdge, build_assoc_graph};
 use calyx_paths::AssocGraph;
@@ -40,6 +40,8 @@ pub struct LoomAssocEdgeProvenance {
     pub agreement: f32,
     pub directional_confidence: f32,
     pub edge_weight: f32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub typed_evidence: Option<SlotSimilarityEvidence>,
 }
 
 pub fn loom_assoc_graph_input(
@@ -61,13 +63,14 @@ pub fn loom_assoc_graph_input(
             a,
             b,
         };
-        let Some(raw_agreement) = agreements.get(&pair_key).copied() else {
+        let Some(agreement_row) = agreements.get(&pair_key) else {
             return Err(LodestarError::KernelLoomAgreementMissing {
                 xterm_cx: key.xterm_cx,
                 a,
                 b,
             });
         };
+        let raw_agreement = agreement_row.raw;
         let src_cx = mapped_node(&node_map, key.xterm_cx, key.src_slot)?;
         let dst_cx = mapped_node(&node_map, key.xterm_cx, key.dst_slot)?;
         let agreement = agreement_weight(raw_agreement)?;
@@ -89,6 +92,7 @@ pub fn loom_assoc_graph_input(
             agreement,
             directional_confidence: confidence,
             edge_weight,
+            typed_evidence: agreement_row.evidence.clone(),
         });
         seen_pairs.insert(pair_key);
     }
@@ -137,16 +141,30 @@ fn mapped_node(
         .ok_or(LodestarError::KernelLoomSlotMappingMissing { xterm_cx, slot })
 }
 
-fn agreement_rows(store: &LoomStore) -> Result<BTreeMap<LoomPairKey, f32>> {
+fn agreement_rows(store: &LoomStore) -> Result<BTreeMap<LoomPairKey, LoomAgreementValue>> {
     let mut rows = BTreeMap::new();
     for row in store.xterm_rows() {
         if row.key.kind != CrossTermKind::Agreement {
             continue;
         }
-        let CrossTermValue::Scalar(value) = row.value else {
-            return Err(LodestarError::KernelLoomAgreementInvalid {
-                detail: format!("agreement xterm for {} is not scalar", row.key.cx_id),
-            });
+        let (value, evidence) = match row.value {
+            CrossTermValue::Scalar(value) => (value, None),
+            CrossTermValue::BlockAgreement(evidence) => {
+                evidence
+                    .validate()
+                    .map_err(|error| LodestarError::KernelLoomAgreementInvalid {
+                        detail: format!(
+                            "typed agreement xterm for {} is invalid: {}",
+                            row.key.cx_id, error
+                        ),
+                    })?;
+                (evidence.score, Some(*evidence))
+            }
+            CrossTermValue::Vector(_) => {
+                return Err(LodestarError::KernelLoomAgreementInvalid {
+                    detail: format!("agreement xterm for {} is a derived vector", row.key.cx_id),
+                });
+            }
         };
         agreement_weight(value)?;
         rows.insert(
@@ -155,10 +173,19 @@ fn agreement_rows(store: &LoomStore) -> Result<BTreeMap<LoomPairKey, f32>> {
                 a: row.key.a,
                 b: row.key.b,
             },
-            value,
+            LoomAgreementValue {
+                raw: value,
+                evidence,
+            },
         );
     }
     Ok(rows)
+}
+
+#[derive(Clone, Debug)]
+struct LoomAgreementValue {
+    raw: f32,
+    evidence: Option<SlotSimilarityEvidence>,
 }
 
 fn directional_confidence_map(

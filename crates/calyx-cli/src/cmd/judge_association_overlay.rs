@@ -123,6 +123,10 @@ struct EdgeRow {
     value: Vec<u8>,
 }
 
+type GraphNodeValues = BTreeMap<CxId, Vec<u8>>;
+type ResolutionDimensionCounts = (usize, usize);
+type ExpectedGraphRows = (GraphNodeValues, Vec<EdgeRow>, ResolutionDimensionCounts);
+
 #[derive(Debug, Serialize)]
 struct InputReport {
     judge_generation: String,
@@ -837,9 +841,7 @@ fn validate_base(vault: &AsterVault, input: &Input) -> CliResult<usize> {
     Ok(count)
 }
 
-fn expected_graph_rows(
-    input: &Input,
-) -> CliResult<(BTreeMap<CxId, Vec<u8>>, Vec<EdgeRow>, (usize, usize))> {
+fn expected_graph_rows(input: &Input) -> CliResult<ExpectedGraphRows> {
     let mut nodes = BTreeMap::new();
     let mut edges = Vec::new();
     for alias in input.aliases.values().filter(|row| row.is_canonical) {

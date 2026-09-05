@@ -4,7 +4,7 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
-use crate::{CxId, Modality, Result, SlotId, VaultId};
+use crate::{CxId, Modality, Result, SlotId, StructuredRecord, VaultId};
 
 use super::{
     Anchor, CxFlags, InputRef, LedgerRef, SlotVector, Ts, validation::record_schema_error,
@@ -98,6 +98,13 @@ impl Constellation {
             vector
                 .validate_schema()
                 .map_err(|err| record_schema_error(format!("slot {slot}: {}", err.message)))?;
+            if let SlotVector::SegmentedMulti { provenance, .. } = vector
+                && provenance.source_hash != self.input_ref.hash
+            {
+                return Err(record_schema_error(format!(
+                    "slot {slot}: segmented source hash does not match constellation input_ref"
+                )));
+            }
         }
         for (key, value) in &self.scalars {
             if key.is_empty() {
@@ -112,6 +119,7 @@ impl Constellation {
                 return Err(record_schema_error("metadata key must not be empty"));
             }
         }
+        StructuredRecord::from_persisted(&self.scalars, &self.metadata)?;
         for anchor in &self.anchors {
             anchor.validate_schema()?;
         }

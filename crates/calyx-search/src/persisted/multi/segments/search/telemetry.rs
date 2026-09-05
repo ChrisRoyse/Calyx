@@ -16,6 +16,7 @@ pub(super) struct MaxSimCudaTelemetry {
     pub(crate) staging_placement: &'static str,
     pub(crate) compute_placement: &'static str,
     pub(crate) slot: u16,
+    pub(crate) query_rows: usize,
     pub(crate) strict: bool,
     pub(crate) filtered: bool,
     pub(crate) source_rows: usize,
@@ -42,11 +43,13 @@ pub(super) struct MaxSimCudaTelemetry {
 impl MaxSimCudaTelemetry {
     fn trace_detail(&self) -> String {
         format!(
-            "maxsim_cuda_backend={} maxsim_source_placement={} maxsim_staging_placement={} maxsim_compute_placement={} maxsim_cuda_strict={} maxsim_cuda_filtered={} maxsim_source_rows={} maxsim_source_tokens={} maxsim_source_bytes={} maxsim_candidate_rows_requested={} maxsim_candidate_rows_resolved={} maxsim_resident_cache_hit={} maxsim_rows_scanned={} maxsim_tokens_scanned={} maxsim_bytes_scanned={} maxsim_rows_decoded={} maxsim_tokens_decoded={} maxsim_bytes_decoded={} maxsim_physical_bytes_read={} maxsim_rows_uploaded={} maxsim_tokens_uploaded={} maxsim_vector_bytes_uploaded={} maxsim_h2d_bytes={} maxsim_slot_elapsed_us={} maxsim_cuda_elapsed_us={}",
+            "maxsim_backend={} maxsim_cuda_backend={} maxsim_source_placement={} maxsim_staging_placement={} maxsim_compute_placement={} maxsim_query_rows={} maxsim_cuda_strict={} maxsim_cuda_filtered={} maxsim_source_rows={} maxsim_source_tokens={} maxsim_source_bytes={} maxsim_candidate_rows_requested={} maxsim_candidate_rows_resolved={} maxsim_resident_cache_hit={} maxsim_rows_scanned={} maxsim_tokens_scanned={} maxsim_bytes_scanned={} maxsim_rows_decoded={} maxsim_tokens_decoded={} maxsim_bytes_decoded={} maxsim_physical_bytes_read={} maxsim_rows_uploaded={} maxsim_tokens_uploaded={} maxsim_vector_bytes_uploaded={} maxsim_h2d_bytes={} maxsim_slot_elapsed_us={} maxsim_cuda_elapsed_us={}",
+            self.backend,
             self.backend,
             self.source_placement,
             self.staging_placement,
             self.compute_placement,
+            self.query_rows,
             self.strict,
             self.filtered,
             self.source_rows,
@@ -96,6 +99,70 @@ pub(super) fn record(telemetry: MaxSimCudaTelemetry, gpu: &MaxSimCudaReport) -> 
     Ok(())
 }
 
+pub(super) fn record_cpu(telemetry: MaxSimCudaTelemetry) {
+    LAST_TELEMETRY.with(|cell| cell.replace(Some(telemetry)));
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(super) fn resident_cpu_report(
+    slot: SlotId,
+    requested_candidates: usize,
+    selection: &crate::persisted::multi::pinned::PinnedCandidateSelection,
+    access: &PinnedIndexAccess,
+    specs: &[PinnedSegmentSpec],
+    query_rows: usize,
+    elapsed: Duration,
+) -> MaxSimCudaTelemetry {
+    let source_rows = specs.iter().map(|spec| spec.row_count as usize).sum();
+    let source_tokens = specs.iter().map(|spec| spec.token_count as usize).sum();
+    let source_bytes = source_bytes(specs);
+    let candidate_bytes = resident_bytes(selection.token_count(), access.index.token_dim as usize);
+    MaxSimCudaTelemetry {
+        backend: "persistent-maxsim-cpu-resident-candidates-v1",
+        source_placement: "cpu-ram-verified-generation",
+        staging_placement: "none",
+        compute_placement: "cpu-canonical-exact",
+        slot: slot.get(),
+        query_rows,
+        strict: false,
+        filtered: true,
+        source_rows,
+        source_tokens,
+        source_bytes,
+        candidate_rows_requested: Some(requested_candidates),
+        candidate_rows_resolved: Some(selection.row_count()),
+        resident_cache_hit: Some(access.resident_cache_hit),
+        rows_scanned: if access.resident_cache_hit {
+            selection.row_count()
+        } else {
+            access.physical_rows_scanned
+        },
+        tokens_scanned: if access.resident_cache_hit {
+            selection.token_count()
+        } else {
+            access.physical_tokens_decoded
+        },
+        bytes_scanned: if access.resident_cache_hit {
+            candidate_bytes
+        } else {
+            access.physical_bytes_read
+        },
+        rows_decoded: access.physical_rows_scanned,
+        tokens_decoded: access.physical_tokens_decoded,
+        bytes_decoded: resident_bytes(
+            access.physical_tokens_decoded,
+            access.index.token_dim as usize,
+        ),
+        physical_bytes_read: access.physical_bytes_read,
+        rows_uploaded: 0,
+        tokens_uploaded: 0,
+        vector_bytes_uploaded: 0,
+        h2d_bytes: 0,
+        slot_elapsed_us: elapsed.as_micros(),
+        cuda_elapsed_us: 0,
+    }
+}
+
 #[allow(clippy::too_many_arguments)] // Records the explicit source, cache, and GPU shapes.
 pub(super) fn resident_report(
     slot: SlotId,
@@ -117,6 +184,7 @@ pub(super) fn resident_report(
         staging_placement: "pageable-host",
         compute_placement: "cuda:0",
         slot: slot.get(),
+        query_rows: gpu.query_rows,
         strict,
         filtered: true,
         source_rows,
@@ -168,6 +236,7 @@ pub(super) fn stream_report(
         staging_placement: "pageable-host",
         compute_placement: "cuda:0",
         slot: slot.get(),
+        query_rows: gpu.query_rows,
         strict,
         filtered: false,
         source_rows: manifest.row_count,

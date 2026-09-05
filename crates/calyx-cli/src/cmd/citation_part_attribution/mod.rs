@@ -115,6 +115,8 @@ struct Part {
     source_text_sha256: String,
 }
 
+type LoadedParts = (BTreeMap<String, Part>, BTreeMap<String, String>, usize);
+
 #[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct ExplicitPartRow {
@@ -620,7 +622,7 @@ fn load_parts(
     path: &Path,
     aliases: &BTreeMap<String, CxId>,
     explicit: &[ExplicitPartRow],
-) -> CliResult<(BTreeMap<String, Part>, BTreeMap<String, String>, usize)> {
+) -> CliResult<LoadedParts> {
     let wanted_text = explicit
         .iter()
         .map(|row| row.citing_opinion_id.clone())
@@ -729,12 +731,11 @@ fn traction(args: TractionArgs) -> CliResult {
                 .metadata
                 .get("opinion_ids")
                 .is_some_and(|ids| ids.split('|').any(|value| value == args.opinion_id))
+            && target.replace((id, props)).is_some()
         {
-            if target.replace((id, props)).is_some() {
-                return Err(CliError::runtime(
-                    "opinion id resolves to multiple attribution nodes",
-                ));
-            }
+            return Err(CliError::runtime(
+                "opinion id resolves to multiple attribution nodes",
+            ));
         }
     }
     let (part_id, props) = target.ok_or_else(|| {

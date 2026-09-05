@@ -8,6 +8,8 @@ pub const CALYX_LOOM_NON_FINITE_VECTOR: &str = "CALYX_LOOM_NON_FINITE_VECTOR";
 pub const CALYX_LOOM_SLOT_MISSING: &str = "CALYX_LOOM_SLOT_MISSING";
 pub const CALYX_LOOM_UNCALIBRATED_BLINDSPOT: &str = "CALYX_LOOM_UNCALIBRATED_BLINDSPOT";
 pub const CALYX_LOOM_FORGE_UNAVAILABLE: &str = "CALYX_LOOM_FORGE_UNAVAILABLE";
+pub const CALYX_LOOM_TYPED_CUDA_UNAVAILABLE: &str = "CALYX_LOOM_TYPED_CUDA_UNAVAILABLE";
+pub const CALYX_LOOM_TYPED_XTERM_UNSUPPORTED: &str = "CALYX_LOOM_TYPED_XTERM_UNSUPPORTED";
 pub const CALYX_LOOM_SERIES_READ_ERROR: &str = "CALYX_LOOM_SERIES_READ_ERROR";
 pub const CALYX_LOOM_TEMPORAL_XTERM_CORRUPT: &str = "CALYX_LOOM_TEMPORAL_XTERM_CORRUPT";
 pub const CALYX_RECURRENCE_CONTEXT_TOO_LARGE: &str = "CALYX_RECURRENCE_CONTEXT_TOO_LARGE";
@@ -40,6 +42,12 @@ pub fn loom_error(code: &'static str, message: impl Into<String>) -> CalyxError 
             "collect enough per-lens-pair blind-spot calibration samples"
         }
         CALYX_LOOM_FORGE_UNAVAILABLE => "enable Loom's cuda feature and verify Forge CUDA first",
+        CALYX_LOOM_TYPED_CUDA_UNAVAILABLE => {
+            "enable the native typed-block CUDA kernel; do not fall back to CPU under strict CUDA"
+        }
+        CALYX_LOOM_TYPED_XTERM_UNSUPPORTED => {
+            "use native typed agreement or implement this derived block operation without pooling"
+        }
         CALYX_LOOM_SERIES_READ_ERROR => "repair the recurrence series before temporal xterm reads",
         CALYX_LOOM_TEMPORAL_XTERM_CORRUPT => {
             "rewrite the temporal_xterm row from recurrence series"

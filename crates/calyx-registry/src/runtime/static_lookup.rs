@@ -3,10 +3,10 @@ use std::path::{Path, PathBuf};
 
 use calyx_core::{CalyxError, Input, Lens, LensId, Modality, Result, SlotShape, SlotVector};
 use memmap2::Mmap;
-use tokenizers::{Encoding, Tokenizer, TruncationParams};
+use tokenizers::{Encoding, Tokenizer};
 
 use crate::frozen::{FrozenLensContract, LensDType, NormPolicy, sha256_digest};
-use crate::runtime::common::{DEFAULT_MAX_TOKENS, hash_files, normalize_unit, text_from_input};
+use crate::runtime::common::{hash_files, normalize_unit, text_from_input};
 use crate::spec::{LensRuntime, LensSpec};
 
 const MAGIC: &[u8; 8] = b"CXLKUP1\0";
@@ -15,6 +15,8 @@ const DTYPE_I8: u8 = 1;
 const DTYPE_F16: u8 = 2;
 const DTYPE_F32: u8 = 3;
 const UNK_TOKENS: &[&str] = &["[UNK]", "<unk>", "<UNK>"];
+pub const STATIC_LOOKUP_MAX_INPUT_BYTES: usize = 16 * 1024 * 1024;
+pub(crate) const STATIC_LOOKUP_FULL_DOCUMENT_POLICY: &str = "static-lookup-model2vec-v2;coverage=complete;truncation=disabled;pool=mean-all-known;max_input_bytes=16777216";
 
 #[derive(Debug)]
 pub struct StaticLookupLens {
@@ -100,7 +102,7 @@ impl StaticLookupLens {
         let dim_text = matrix.dim.to_string();
         let dtype_text = matrix.dtype.as_str();
         let corpus_hash = sha256_digest(&[
-            b"static-lookup-model2vec-v1",
+            STATIC_LOOKUP_FULL_DOCUMENT_POLICY.as_bytes(),
             dim_text.as_bytes(),
             dtype_text.as_bytes(),
         ]);
@@ -200,16 +202,31 @@ impl Lens for StaticLookupLens {
     }
 
     fn measure(&self, input: &Input) -> Result<SlotVector> {
+        if input.bytes.len() > STATIC_LOOKUP_MAX_INPUT_BYTES {
+            return Err(CalyxError {
+                code: "CALYX_LENS_INPUT_TOO_LARGE",
+                message: format!(
+                    "static lookup input is {} bytes; frozen complete-document limit is {} bytes",
+                    input.bytes.len(),
+                    STATIC_LOOKUP_MAX_INPUT_BYTES
+                ),
+                remediation: "commission a bounded streaming full-document lens with a larger frozen coverage contract and new LensId",
+            });
+        }
         let text = text_from_input(self, input)?;
-        let mut data = if text.trim().is_empty() {
-            zero_safe_unit(self.matrix.dim)
-        } else {
-            let encoding = self
-                .tokenizer
-                .encode(text, true)
-                .map_err(|err| CalyxError::lens_dim_mismatch(format!("tokenize failed: {err}")))?;
-            self.pool_encoding(&encoding)?
-        };
+        if text.trim().is_empty() {
+            return Err(CalyxError {
+                code: "CALYX_LENS_EMPTY_INPUT",
+                message: "static lookup cannot measure an empty or whitespace-only input"
+                    .to_string(),
+                remediation: "provide the complete non-empty source bytes; do not substitute a synthetic vector",
+            });
+        }
+        let encoding = self
+            .tokenizer
+            .encode(text, true)
+            .map_err(|err| CalyxError::lens_dim_mismatch(format!("tokenize failed: {err}")))?;
+        let mut data = self.pool_encoding(&encoding)?;
         apply_norm(self.contract.norm_policy(), &mut data)?;
         let vector = SlotVector::Dense {
             dim: self.matrix.dim,
@@ -235,7 +252,11 @@ impl StaticLookupLens {
             }
         }
         if count == 0 {
-            return Ok(zero_safe_unit(self.matrix.dim));
+            return Err(CalyxError {
+                code: "CALYX_LENS_NO_KNOWN_TOKENS",
+                message: "static lookup tokenizer produced no vocabulary-backed tokens".to_string(),
+                remediation: "commission a tokenizer/matrix that covers the source corpus under a new LensId",
+            });
         }
         let inv = 1.0 / count as f32;
         for value in &mut out {
@@ -351,12 +372,14 @@ impl StaticLookupMatrix {
 fn read_tokenizer(path: &Path) -> Result<Tokenizer> {
     let mut tokenizer = Tokenizer::from_file(path)
         .map_err(|err| config_invalid(format!("load static tokenizer failed: {err}")))?;
-    tokenizer
-        .with_truncation(Some(TruncationParams {
-            max_length: DEFAULT_MAX_TOKENS,
-            ..Default::default()
-        }))
-        .map_err(|err| CalyxError::lens_dim_mismatch(format!("set truncation failed: {err}")))?;
+    tokenizer.with_truncation(None).map_err(|err| {
+        CalyxError::lens_dim_mismatch(format!("disable truncation failed: {err}"))
+    })?;
+    if tokenizer.get_truncation().is_some() {
+        return Err(CalyxError::lens_frozen_violation(
+            "static lookup tokenizer retained a truncation policy after disable",
+        ));
+    }
     Ok(tokenizer)
 }
 
@@ -371,14 +394,6 @@ fn apply_norm(policy: NormPolicy, data: &mut [f32]) -> Result<()> {
         NormPolicy::L2 { .. } | NormPolicy::Unit { .. } => normalize_unit(data),
         NormPolicy::DeclaredByModel { .. } => Ok(()),
     }
-}
-
-fn zero_safe_unit(dim: u32) -> Vec<f32> {
-    let mut data = vec![0.0_f32; dim as usize];
-    if let Some(first) = data.first_mut() {
-        *first = 1.0;
-    }
-    data
 }
 
 fn is_unknown_token(token: &str) -> bool {

@@ -19,6 +19,7 @@ pub(crate) struct I8binEnsembleRequest {
     pub(crate) min_marginal_bits: f32,
     pub(crate) max_redundancy: f32,
     pub(crate) nmi_bins: usize,
+    pub(crate) gpu_reservation_mib: u64,
     pub(crate) mode: A37CardMode,
     pub(crate) emit_artifacts: bool,
 }
@@ -61,6 +62,7 @@ impl I8binEnsembleRequest {
         let mut min_marginal_bits = calyx_assay::DEFAULT_MIN_MARGINAL_BITS;
         let mut max_redundancy = calyx_assay::DEFAULT_MAX_REDUNDANCY;
         let mut nmi_bins = 10_usize;
+        let mut gpu_reservation_mib = crate::gpu_commands::DEFAULT_ASSAY_I8BIN_PEAK_MIB;
         let mut mode = A37CardMode::Gate;
         let mut emit_artifacts = true;
         let mut idx = 0;
@@ -134,6 +136,10 @@ impl I8binEnsembleRequest {
                     nmi_bins = parse_usize(args, idx, "--nmi-bins")?;
                     idx += 2;
                 }
+                "--gpu-reservation-mib" => {
+                    gpu_reservation_mib = parse_u64(args, idx, "--gpu-reservation-mib")?;
+                    idx += 2;
+                }
                 "--mode" => {
                     mode = parse_mode(value(args, idx, "--mode")?)?;
                     idx += 2;
@@ -181,6 +187,7 @@ impl I8binEnsembleRequest {
             min_marginal_bits,
             max_redundancy,
             nmi_bins,
+            gpu_reservation_mib,
             mode,
             emit_artifacts,
         };
@@ -250,6 +257,12 @@ impl I8binEnsembleRequest {
                 "CALYX_FSV_ASSAY_I8BIN_CARD_INVALID_CONFIG: --nmi-bins must be >= 2".to_string(),
             );
         }
+        if self.gpu_reservation_mib == 0 {
+            return Err(
+                "CALYX_FSV_ASSAY_I8BIN_CARD_INVALID_CONFIG: --gpu-reservation-mib must be > 0"
+                    .to_string(),
+            );
+        }
         if !self.min_marginal_bits.is_finite() || self.min_marginal_bits < 0.0 {
             return Err(
                 "CALYX_FSV_ASSAY_I8BIN_CARD_INVALID_CONFIG: --min-marginal-bits must be finite and non-negative"
@@ -303,6 +316,12 @@ fn parse_mode(value: &str) -> Result<A37CardMode, String> {
 
 fn parse_usize(args: &[String], idx: usize, flag: &str) -> Result<usize, String> {
     value(args, idx, flag)?.parse::<usize>().map_err(|error| {
+        format!("CALYX_FSV_ASSAY_I8BIN_CARD_INVALID_CONFIG: invalid {flag}: {error}")
+    })
+}
+
+fn parse_u64(args: &[String], idx: usize, flag: &str) -> Result<u64, String> {
+    value(args, idx, flag)?.parse::<u64>().map_err(|error| {
         format!("CALYX_FSV_ASSAY_I8BIN_CARD_INVALID_CONFIG: invalid {flag}: {error}")
     })
 }

@@ -38,13 +38,14 @@ pub mod scope_report;
 pub mod spectral_communities;
 pub mod summarize;
 pub mod temporal_kernel;
+pub mod typed_kernel_index;
 pub mod vault_kernel;
 
 pub use aster_bridge::{
     ASTER_ASSOC_METADATA_KEY, AsterAssocMetadata, AsterAssocNodeProps, AsterAssocSnapshot,
-    AsterSummarizeRequest, DEFAULT_ASTER_ASSOC_COLLECTION, PANEL_ASTER_ASSOC_COLLECTION,
-    PhysicalAsterAssocSnapshot, encode_assoc_node_props, summarize_vault_as_of,
-    summarize_vault_latest, write_assoc_metadata,
+    AsterRecallInputs, AsterSummarizeRequest, DEFAULT_ASTER_ASSOC_COLLECTION,
+    PANEL_ASTER_ASSOC_COLLECTION, PhysicalAsterAssocSnapshot, encode_assoc_node_props,
+    summarize_vault_as_of, summarize_vault_latest, write_assoc_metadata,
 };
 pub use blind_spot_sweep::{
     BLIND_SPOT_SWEEP_SCHEMA_VERSION, BlindSpotCandidate, BlindSpotGateVerdict, BlindSpotNeighbor,
@@ -164,8 +165,9 @@ pub use probe_matrix::{
 };
 pub use provenance::{
     AnswerHopEvidence, KernelAnswerRecordContext, KernelAnswerSourceEvidence,
-    KernelAnswerSourceSupport, KernelBuildReceipt, append_answer_hop_entry,
-    append_kernel_build_entry, build_kernel_pipeline_with_ledger, kernel_members_hash,
+    KernelAnswerSourceSupport, KernelBuildReceipt, KernelQueryResolutionEvidence,
+    append_answer_hop_entry, append_kernel_build_entry, build_kernel_pipeline_with_ledger,
+    kernel_members_hash,
 };
 pub use ranked_hypotheses::{
     RANKED_HYPOTHESIS_SCHEMA_VERSION, RankedHypothesis, RankedHypothesisParams,
@@ -204,6 +206,24 @@ pub use temporal_kernel::{
     CALYX_LODESTAR_MISSING_FREQUENCY, FREQ_BONUS_MAX, FREQ_WEIGHT, FrequencyRead, KernelResult,
     KernelScope, KernelWeight, TimeWindow, active_cxids_in_window, apply_frequency_bonuses,
     frequency_kernel_bonus, kernel_for_window, kernel_for_window_from_graph, kernel_weight_rows,
+};
+pub use typed_kernel_index::{
+    PreparedTypedPanelCorpus, PreparedTypedPanelRecallReference, TYPED_PANEL_FORMAT_VERSION,
+    TypedPanelFusionHit, TypedPanelFusionLane, TypedPanelKernelIndex,
+    TypedPanelKernelIndexReadback, TypedPanelKernelVectorRow, TypedPanelVectors, TypedSlotContract,
+    build_typed_panel_kernel_index, build_typed_panel_kernel_index_owned,
+    load_typed_panel_kernel_index, load_typed_panel_kernel_index_verified,
+    prepare_typed_panel_corpus, prepare_typed_panel_recall_reference,
+    rank_typed_panel_candidate_refs, rank_typed_panel_candidates,
+    rank_typed_panel_top_k_candidate_refs, rank_typed_panel_top_k_candidates,
+    typed_panel_kernel_rank_ids, typed_panel_kernel_rank_with_nearest,
+    typed_panel_kernel_recall_gate, typed_panel_kernel_recall_test,
+    typed_panel_kernel_recall_test_members_against_reference,
+    typed_panel_kernel_recall_test_members_prepared, typed_panel_kernel_recall_test_prepared,
+    typed_panel_kernel_search, typed_panel_rank_stabilization_support_from_reference,
+    typed_panel_rank_stabilization_support_set,
+    typed_panel_rank_stabilization_support_set_prepared, verify_typed_panel_kernel_index,
+    verify_typed_panel_kernel_index_physical, write_typed_panel_kernel_index,
 };
 
 pub use vault_kernel::{

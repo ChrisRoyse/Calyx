@@ -2,17 +2,30 @@
 //! generation is loaded once: whole-file reads, one-shot sha256 against the
 //! manifest, full structural validation (header, duplicate rows, token
 //! counts, finiteness, trailing bytes), then a flattened token matrix with
-//! precomputed token norms is pinned. Queries score with the exact
-//! arithmetic of `MaxSimIndex::maxsim` / `cosine`, so results are bit-identical.
+//! precomputed token norms is pinned. Candidate reranks resolve only the
+//! requested rows and use canonical exact CPU MaxSim by default, avoiding the
+//! multi-GiB CUDA context cost for a few dozen rows. Strict CUDA may explicitly
+//! select bounded GPU chunks; CPU-only full scans stream verified segments.
 
+#[cfg(feature = "cuda")]
 use std::collections::BTreeSet;
 
+#[cfg(feature = "cuda")]
 use rayon::prelude::*;
 
 use super::*;
+#[cfg(feature = "cuda")]
 use crate::persisted::pinned::{self, PinKey};
 
+#[cfg(feature = "cuda")]
 const PIN_KIND: &str = "multi_maxsim";
+
+// The CPU MaxSim serving path streams each segment sidecar row-by-row and
+// never pins the lens resident (issue #1845). The bounded per-row decode
+// buffer is capped by the per-segment byte budget, so this is the largest
+// single decoded row the streaming scorer can hold at once.
+#[cfg(not(feature = "cuda"))]
+const STREAMING_ROW_WORKING_SET_BYTES: u64 = 64 * 1024 * 1024;
 
 #[path = "pinned/bounded.rs"]
 mod bounded;
@@ -25,6 +38,7 @@ mod cache;
 #[cfg(feature = "cuda")]
 pub(super) use cache::PinnedIndexAccess;
 pub(super) use cache::observe_generation;
+#[cfg(feature = "cuda")]
 pub(super) use cache::pinned_index;
 #[path = "pinned/candidates.rs"]
 #[cfg(feature = "cuda")]
@@ -33,7 +47,9 @@ mod candidates;
 pub(super) use candidates::{PinnedCandidateRow, PinnedCandidateSelection};
 
 /// One verified binary segment to load: path plus the manifest-side
-/// expectations the file must match.
+/// expectations the file must match. Only the resident CUDA candidate-reuse
+/// path materializes segments; the CPU path streams them (issue #1845).
+#[cfg(feature = "cuda")]
 pub(super) struct PinnedSegmentSpec {
     pub(super) path: PathBuf,
     pub(super) index_rel: String,
@@ -41,13 +57,14 @@ pub(super) struct PinnedSegmentSpec {
     pub(super) base_seq: u64,
     pub(super) row_count: u64,
     pub(super) token_count: u64,
-    #[cfg(feature = "cuda")]
     pub(super) byte_len: u64,
+    pub(super) expected_ids: Vec<CxId>,
 }
 
+#[cfg(feature = "cuda")]
 #[derive(Debug)]
 pub(super) struct PinnedMultiIndex {
-    token_dim: u32,
+    pub(in crate::persisted::multi) token_dim: u32,
     rows: Vec<PinnedMultiRow>,
     #[cfg(feature = "cuda")]
     row_lookup: Vec<(CxId, usize)>,
@@ -55,6 +72,7 @@ pub(super) struct PinnedMultiIndex {
     norms: Vec<f32>,
 }
 
+#[cfg(feature = "cuda")]
 #[derive(Debug)]
 struct PinnedMultiRow {
     cx_id: CxId,
@@ -62,31 +80,58 @@ struct PinnedMultiRow {
     token_count: usize,
 }
 
+/// Fail-closed serving memory admission for a segmented multi lens.
+///
+/// A CUDA build can select the generation-resident candidate rerank path, which
+/// retains every decoded token, norm, row, and lookup entry. Admit that exact
+/// worst-case footprint before any file is read or allocation is attempted.
+/// CPU-only builds stream rows and retain only their bounded working set.
 pub(super) fn predicted_pin_bytes(entry: &SearchIndexEntry, token_dim: u32) -> CliResult<u64> {
-    let tokens = entry.token_count.unwrap_or_default() as u64;
-    let bytes = tokens
-        .checked_mul(token_dim as u64)
-        .and_then(|values| values.checked_mul(4))
-        .and_then(|bytes| bytes.checked_add(tokens.checked_mul(4)?))
-        .and_then(|bytes| {
-            bytes.checked_add(
-                (entry.len as u64).checked_mul(std::mem::size_of::<PinnedMultiRow>() as u64)?,
-            )
-        })
-        .ok_or_else(|| stale("persistent segmented multi sidecar pin byte count overflow"))?;
     #[cfg(feature = "cuda")]
-    let bytes = bytes
-        .checked_add(
-            (entry.len as u64)
-                .checked_mul(std::mem::size_of::<(CxId, usize)>() as u64)
-                .ok_or_else(|| {
-                    stale("persistent segmented multi sidecar lookup byte count overflow")
-                })?,
-        )
-        .ok_or_else(|| stale("persistent segmented multi sidecar pin byte count overflow"))?;
-    Ok(bytes)
+    {
+        let token_count = entry.token_count.ok_or_else(|| {
+            stale(format!(
+                "persistent segmented multi slot {} is missing token_count for CUDA pin admission",
+                entry.slot
+            ))
+        })? as u64;
+        let token_components = token_count
+            .checked_mul(u64::from(token_dim))
+            .ok_or_else(|| stale("persistent segmented multi token component count overflow"))?;
+        let token_bytes = token_components
+            .checked_mul(std::mem::size_of::<f32>() as u64)
+            .ok_or_else(|| stale("persistent segmented multi token byte count overflow"))?;
+        let norm_bytes = token_count
+            .checked_mul(std::mem::size_of::<f32>() as u64)
+            .ok_or_else(|| stale("persistent segmented multi norm byte count overflow"))?;
+        let row_bytes = (entry.len as u64)
+            .checked_mul(std::mem::size_of::<PinnedMultiRow>() as u64)
+            .ok_or_else(|| stale("persistent segmented multi row byte count overflow"))?;
+        let lookup_bytes = (entry.len as u64)
+            .checked_mul(std::mem::size_of::<(CxId, usize)>() as u64)
+            .ok_or_else(|| stale("persistent segmented multi lookup byte count overflow"))?;
+        token_bytes
+            .checked_add(norm_bytes)
+            .and_then(|bytes| bytes.checked_add(row_bytes))
+            .and_then(|bytes| bytes.checked_add(lookup_bytes))
+            .ok_or_else(|| stale("persistent segmented multi CUDA pin byte count overflow"))
+    }
+
+    #[cfg(not(feature = "cuda"))]
+    let _ = token_dim;
+    #[cfg(not(feature = "cuda"))]
+    let scored = (entry.len as u64)
+        .checked_mul(std::mem::size_of::<(CxId, f32)>() as u64)
+        .ok_or_else(|| stale("persistent segmented multi streaming scored byte count overflow"))?;
+    #[cfg(not(feature = "cuda"))]
+    scored
+        .checked_add(STREAMING_ROW_WORKING_SET_BYTES)
+        .ok_or_else(|| {
+            stale("persistent segmented multi streaming working-set byte count overflow")
+        })
 }
 
+#[cfg(feature = "cuda")]
 fn load_verified(
     slot: SlotId,
     token_dim: u32,
@@ -173,12 +218,14 @@ fn load_verified(
     })
 }
 
+#[cfg(feature = "cuda")]
 struct LoadedSegment {
     rows: Vec<(CxId, usize)>,
     tokens: Vec<f32>,
     norms: Vec<f32>,
 }
 
+#[cfg(feature = "cuda")]
 fn load_segment(
     slot: SlotId,
     token_dim: u32,
@@ -198,9 +245,25 @@ fn load_segment(
             spec.sha256
         )));
     }
-    parse_segment(slot, token_dim, spec, &bytes)
+    let loaded = parse_segment(slot, token_dim, spec, &bytes)?;
+    let mut actual_ids = loaded
+        .rows
+        .iter()
+        .map(|(cx_id, _)| *cx_id)
+        .collect::<Vec<_>>();
+    actual_ids.sort_unstable();
+    let mut expected_ids = spec.expected_ids.clone();
+    expected_ids.sort_unstable();
+    if actual_ids != expected_ids {
+        return Err(stale(format!(
+            "persistent segmented multi sidecar {} IDs do not match its manifest; rebuild the vault search indexes",
+            spec.index_rel
+        )));
+    }
+    Ok(loaded)
 }
 
+#[cfg(feature = "cuda")]
 fn parse_segment(
     slot: SlotId,
     token_dim: u32,
@@ -309,6 +372,7 @@ fn parse_segment(
     })
 }
 
+#[cfg(feature = "cuda")]
 impl PinnedMultiIndex {
     fn approx_bytes(&self) -> u64 {
         let bytes = (self.tokens.len() as u64 + self.norms.len() as u64) * 4
@@ -318,69 +382,16 @@ impl PinnedMultiIndex {
             bytes + self.row_lookup.len() as u64 * std::mem::size_of::<(CxId, usize)>() as u64;
         bytes
     }
-
-    pub(super) fn row_count(&self) -> usize {
-        self.rows.len()
-    }
-
-    /// MaxSim over the pinned matrix; arithmetic mirrors
-    /// `MaxSimIndex::maxsim` + `cosine` exactly (same accumulation order and
-    /// zero-norm semantics), parallelized across rows.
-    pub(super) fn score(
-        &self,
-        query: &[Vec<f32>],
-        candidates: Option<&BTreeSet<CxId>>,
-    ) -> Vec<(CxId, f32)> {
-        let dim = self.token_dim as usize;
-        let query_norms = query
-            .iter()
-            .map(|token| {
-                let mut squared = 0.0f32;
-                for value in token {
-                    squared += value * value;
-                }
-                squared.sqrt()
-            })
-            .collect::<Vec<_>>();
-        self.rows
-            .par_iter()
-            .filter(|row| candidates.is_none_or(|allowed| allowed.contains(&row.cx_id)))
-            .map(|row| {
-                let tokens =
-                    &self.tokens[row.token_start * dim..(row.token_start + row.token_count) * dim];
-                let norms = &self.norms[row.token_start..row.token_start + row.token_count];
-                let score = query
-                    .iter()
-                    .zip(&query_norms)
-                    .map(|(q, q_norm)| {
-                        let mut best = f32::NEG_INFINITY;
-                        for (token, t_norm) in tokens.chunks_exact(dim).zip(norms) {
-                            let mut dot = 0.0f32;
-                            for (left, right) in q.iter().zip(token) {
-                                dot += left * right;
-                            }
-                            let cosine = if *q_norm == 0.0 || *t_norm == 0.0 {
-                                0.0
-                            } else {
-                                dot / (q_norm * t_norm)
-                            };
-                            best = best.max(cosine);
-                        }
-                        best
-                    })
-                    .sum::<f32>();
-                (row.cx_id, score)
-            })
-            .collect()
-    }
 }
 
+#[cfg(feature = "cuda")]
 struct SegmentCursor<'a> {
     index_rel: &'a str,
     bytes: &'a [u8],
     offset: usize,
 }
 
+#[cfg(feature = "cuda")]
 impl<'a> SegmentCursor<'a> {
     fn new(index_rel: &'a str, bytes: &'a [u8]) -> Self {
         Self {

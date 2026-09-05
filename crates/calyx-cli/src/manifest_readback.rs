@@ -22,14 +22,25 @@ const SHADOW_MANIFEST_FILE: &str = "MANIFEST";
 /// constructed locally with a fixed remediation so an agent can dispatch on it.
 const CALYX_VAULT_FORMAT_UNRECOGNIZED: &str = "CALYX_VAULT_FORMAT_UNRECOGNIZED";
 
+/// Stable code for a `--show-manifest` target that IS a detected Leapable shadow
+/// vault (its `MANIFEST` begins with `CXSHDW1!`) but whose readback support was
+/// removed with the leapable.ai migration harness (#1526/#1637 rescope). The
+/// format is still recognized so the failure is honest — the shadow reader no
+/// longer exists in this workspace. Not a PRD 18 catalog entry; constructed
+/// locally with a fixed remediation so an agent can dispatch on it.
+const CALYX_VAULT_FORMAT_SHADOW_UNSUPPORTED: &str = "CALYX_VAULT_FORMAT_SHADOW_UNSUPPORTED";
+
 /// `readback --vault <dir> --show-manifest`.
 ///
 /// Auto-detects the vault format from its on-disk bytes (issue #1262) and
 /// dispatches to the matching reader, instead of assuming every vault is a
 /// Leapable shadow vault. Detection order is content-first:
 ///
-/// 1. If `MANIFEST` begins with the shadow magic `CXSHDW1!`, read the shadow
-///    manifest (and surface any shadow-specific corruption verbatim).
+/// 1. If `MANIFEST` begins with the shadow magic `CXSHDW1!`, the target is a
+///    Leapable shadow vault. Its readback support was removed with the
+///    leapable.ai migration harness (#1526/#1637 rescope), so this fails closed
+///    with [`CALYX_VAULT_FORMAT_SHADOW_UNSUPPORTED`] rather than silently
+///    degrading — the format is still recognized so the error is honest.
 /// 2. Otherwise, if a native `CURRENT` pointer exists, read the native Aster
 ///    manifest via [`ManifestStore::load_current`].
 /// 3. Otherwise fail closed with [`CALYX_VAULT_FORMAT_UNRECOGNIZED`]; the target
@@ -40,7 +51,7 @@ const CALYX_VAULT_FORMAT_UNRECOGNIZED: &str = "CALYX_VAULT_FORMAT_UNRECOGNIZED";
 /// reader was parsing the native JSON `MANIFEST` mirror.
 pub fn readback_vault_manifest(vault: &Path) -> CliResult {
     if is_shadow_vault(vault)? {
-        return crate::leapable::readback_shadow_manifest(vault);
+        return Err(shadow_unsupported(vault));
     }
     if vault.join(NATIVE_CURRENT_FILE).is_file() {
         return readback_native_manifest(vault);
@@ -99,6 +110,22 @@ pub fn readback_vault_manifest_field(vault: &Path, field: &str) -> CliResult {
         .get(field)
         .ok_or_else(|| CliError::usage(format!("manifest field `{field}` not found")))?;
     print_json(value)
+}
+
+fn shadow_unsupported(vault: &Path) -> CliError {
+    CliError::Calyx(CalyxError {
+        code: CALYX_VAULT_FORMAT_SHADOW_UNSUPPORTED,
+        message: format!(
+            "{} is a Leapable shadow vault (MANIFEST begins with CXSHDW1!), but shadow-vault \
+             readback was removed from this workspace with the leapable.ai migration harness \
+             (#1526/#1637 rescope)",
+            vault.display()
+        ),
+        remediation: "shadow-vault (CXSHDW1!) readback is not available in Calyx; open the \
+                      vault with the leapable.ai tooling that owns the shadow format, or \
+                      materialize a native Aster vault (with a CURRENT pointer) and re-run \
+                      --show-manifest against it",
+    })
 }
 
 fn unrecognized_vault(vault: &Path) -> CliError {

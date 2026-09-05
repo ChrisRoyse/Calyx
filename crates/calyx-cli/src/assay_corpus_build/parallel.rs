@@ -432,6 +432,8 @@ mod tests {
             recall_delta: calyx_registry::spec::default_recall_delta(),
             max_batch: None,
             max_tokens: None,
+            representation: None,
+            special_tokens: None,
             batch_policy: None,
         };
         let path = root.join(format!("{name}.json"));

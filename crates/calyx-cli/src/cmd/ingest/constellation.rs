@@ -8,6 +8,7 @@ use calyx_aster::vault::AsterVault;
 use calyx_core::{
     AbsentReason, CalyxError, CalyxErrorCode, Constellation, CxFlags, Input, InputRef, LedgerRef,
     LensId, MeasurementGroupKey, Modality, Placement, SlotId, SlotState, SlotVector,
+    StructuredRecord,
 };
 use calyx_registry::VaultPanelState;
 pub(crate) use calyx_registry::measure::{absent, input_hash};
@@ -32,10 +33,11 @@ pub(crate) fn ensure_content_panel_floor(
     cx: &Constellation,
     state: &VaultPanelState,
 ) -> CliResult<()> {
+    let has_structured = StructuredRecord::from_persisted(&cx.scalars, &cx.metadata)?.is_some();
     let mut declared = 0usize;
     let mut absent: Vec<String> = Vec::new();
     for slot in &state.panel.slots {
-        if !slot.counts_toward_degraded(cx.modality) {
+        if !slot.counts_toward_degraded_for(cx.modality, has_structured) {
             continue;
         }
         declared += 1;
@@ -191,19 +193,42 @@ pub(crate) fn measure_constellation_microbatch_with_runtime_limit(
     let mut gpu_lenses: Vec<ApplicableLens> = Vec::new();
     let mut cpu_lenses: Vec<ApplicableLens> = Vec::new();
     for slot in &state.panel.slots {
-        if slot.state == SlotState::Active
-            && slot.modality == batch_modality
-            && state.registry.contains(slot.lens_id)
-        {
-            let lens = ApplicableLens {
-                lens_id: slot.lens_id,
-                slot_id: slot.slot_id,
-                placement: slot.resource.placement,
-            };
-            match slot.resource.placement {
-                Placement::Gpu => gpu_lenses.push(lens),
-                Placement::Cpu => cpu_lenses.push(lens),
+        if slot.state != SlotState::Active {
+            continue;
+        }
+        if !state.registry.contains(slot.lens_id) {
+            // A missing *content* structured lens is real signal loss and stays
+            // fail-closed. A compute-on-recall sidecar has no frozen model by
+            // design and is recorded NotApplicable below (#1947).
+            if slot.modality == Modality::Structured && !slot.is_compute_on_recall_sidecar() {
+                return Err(CalyxError::lens_unreachable(format!(
+                    "active structured slot {} references unregistered lens {}",
+                    slot.slot_id.get(),
+                    slot.lens_id
+                ))
+                .into());
             }
+            continue;
+        }
+        let requires_structured = state.registry.requires_structured_record(slot.lens_id)?;
+        let applicable = requires_structured
+            || inputs
+                .iter()
+                .map(|input| state.registry.accepts_input(slot.lens_id, input))
+                .collect::<calyx_core::Result<Vec<_>>>()?
+                .into_iter()
+                .all(|accepts| accepts);
+        if !applicable {
+            continue;
+        }
+        let lens = ApplicableLens {
+            lens_id: slot.lens_id,
+            slot_id: slot.slot_id,
+            placement: slot.resource.placement,
+        };
+        match slot.resource.placement {
+            Placement::Gpu => gpu_lenses.push(lens),
+            Placement::Cpu => cpu_lenses.push(lens),
         }
     }
     ingest_runtime_log(format_args!(
@@ -312,36 +337,43 @@ pub(crate) fn measure_constellation_microbatch_with_runtime_limit(
         for slot in &state.panel.slots {
             let vector = if slot.state != SlotState::Active {
                 absent(AbsentReason::LensInactive)
-            } else if slot.modality != input.modality {
+            } else if !state.registry.contains(slot.lens_id) && slot.is_compute_on_recall_sidecar()
+            {
+                // Declared compute-on-recall: absence here is the contract, not a
+                // failure, and is exempt from degradation (#1947).
                 absent(AbsentReason::NotApplicable)
+            } else if !state.registry.contains(slot.lens_id)
+                && slot.modality == Modality::Structured
+            {
+                return Err(CalyxError::lens_unreachable(format!(
+                    "active structured slot {} references unregistered lens {}",
+                    slot.slot_id.get(),
+                    slot.lens_id
+                ))
+                .into());
             } else if !state.registry.contains(slot.lens_id) {
                 absent(AbsentReason::LensUnavailable)
+            } else if state.registry.requires_structured_record(slot.lens_id)? {
+                measured_vector(&measured, slot, i)?
+            } else if !state.registry.accepts_input(slot.lens_id, input)? {
+                absent(AbsentReason::NotApplicable)
             } else {
-                match measured.get(&slot.lens_id) {
-                    Some(vectors) if i < vectors.len() => vectors[i].clone(),
-                    Some(vectors) => {
-                        return Err(CalyxError::lens_dim_mismatch(format!(
-                            "lens {} produced {} vectors, missing input index {i}",
-                            slot.lens_id,
-                            vectors.len()
-                        ))
-                        .into());
-                    }
-                    None => {
-                        return Err(CalyxError::lens_unreachable(format!(
-                            "active registered slot {} lens {} was not measured",
-                            slot.slot_id.get(),
-                            slot.lens_id
-                        ))
-                        .into());
-                    }
-                }
+                measured_vector(&measured, slot, i)?
             };
-            degraded |= slot.counts_toward_degraded(input.modality) && vector.is_absent();
+            degraded |= slot
+                .counts_toward_degraded_for(input.modality, input.structured().is_some())
+                && vector.is_absent();
             slots.insert(slot.slot_id, vector);
         }
+        let cx_id = {
+            let identity = input.identity_bytes()?;
+            vault.cx_id_for_input(identity.as_ref(), state.panel.version)
+        };
+        let mut scalars = BTreeMap::new();
+        let mut metadata = BTreeMap::new();
+        input.persist_structured(&mut scalars, &mut metadata)?;
         out.push(Constellation {
-            cx_id: vault.cx_id_for_input(&input.bytes, state.panel.version),
+            cx_id,
             vault_id: vault.vault_id(),
             panel_version: state.panel.version,
             created_at: now,
@@ -352,8 +384,8 @@ pub(crate) fn measure_constellation_microbatch_with_runtime_limit(
             },
             modality: input.modality,
             slots,
-            scalars: BTreeMap::new(),
-            metadata: BTreeMap::new(),
+            scalars,
+            metadata,
             anchors: Vec::new(),
             provenance: LedgerRef {
                 seq: vault.latest_seq().saturating_add(1),
@@ -376,6 +408,28 @@ pub(crate) fn measure_constellation_microbatch_with_runtime_limit(
         started.elapsed().as_millis()
     ));
     Ok(out)
+}
+
+fn measured_vector(
+    measured: &std::collections::BTreeMap<LensId, Vec<SlotVector>>,
+    slot: &calyx_core::Slot,
+    input_index: usize,
+) -> CliResult<SlotVector> {
+    match measured.get(&slot.lens_id) {
+        Some(vectors) if input_index < vectors.len() => Ok(vectors[input_index].clone()),
+        Some(vectors) => Err(CalyxError::lens_dim_mismatch(format!(
+            "lens {} produced {} vectors, missing input index {input_index}",
+            slot.lens_id,
+            vectors.len()
+        ))
+        .into()),
+        None => Err(CalyxError::lens_unreachable(format!(
+            "active registered slot {} lens {} was not measured",
+            slot.slot_id.get(),
+            slot.lens_id
+        ))
+        .into()),
+    }
 }
 
 mod resident_batch;

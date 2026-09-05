@@ -48,23 +48,23 @@ proptest! {
 }
 
 #[test]
-fn all_oov_and_empty_return_zero_safe_unit_vector() {
+fn all_oov_and_empty_fail_closed_without_synthetic_vector() {
+    // Issue #1904 removed the `zero_safe_unit` synthetic fallback: a document
+    // that produces no vocabulary-backed tokens (all OOV) or is empty must fail
+    // closed rather than fabricate a unit vector, so downstream meaning is never
+    // silently substituted.
     let fixture = Fixture::new("fallback", &[[0, 0, 0], [3, 0, 0], [0, 4, 0], [0, 0, 5]]);
     let lens = fixture.lens(None).unwrap();
 
     let oov = lens
         .measure(&Input::new(Modality::Text, b"doesnotexist".to_vec()))
-        .unwrap();
+        .unwrap_err();
+    assert_eq!(oov.code, "CALYX_LENS_NO_KNOWN_TOKENS");
+
     let empty = lens
         .measure(&Input::new(Modality::Text, b"  ".to_vec()))
-        .unwrap();
-
-    let expected = SlotVector::Dense {
-        dim: 3,
-        data: vec![1.0, 0.0, 0.0],
-    };
-    assert_eq!(oov, expected);
-    assert_eq!(empty, expected);
+        .unwrap_err();
+    assert_eq!(empty.code, "CALYX_LENS_EMPTY_INPUT");
 }
 
 #[test]

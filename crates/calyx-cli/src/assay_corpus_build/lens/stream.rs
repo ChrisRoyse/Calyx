@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use calyx_core::Input;
+use calyx_core::{Input, StructuredRecord};
 
 use crate::lens_commands::support::dim;
 
@@ -87,11 +87,31 @@ impl BuildLens {
 pub(crate) fn measure_text_batch(
     lens: &BuildLens,
     texts: &[String],
+    records: &[Option<StructuredRecord>],
     batch_size: usize,
 ) -> Result<Vec<Vec<f32>>, String> {
+    if texts.len() != records.len() {
+        return Err(format!(
+            "CALYX_FSV_ASSAY_CORPUS_BUILD_STRUCTURED_ALIGNMENT: lens={} received {} texts but {} structured records; every row must carry an aligned record slot",
+            lens.name(),
+            texts.len(),
+            records.len()
+        ));
+    }
     let inputs = texts
         .iter()
-        .map(|text| Input::new(lens.spec.modality, text.as_bytes().to_vec()))
+        .zip(records)
+        .map(|(text, record)| {
+            // Mirror the ingest `prepared_hybrid_text_input` shape: text bytes plus
+            // the optional canonical typed record. A structured lens reads only the
+            // attached record, so a hybrid input yields byte-identical slot vectors
+            // to the ingest path while text lenses keep measuring the byte payload.
+            let input = Input::new(lens.spec.modality, text.as_bytes().to_vec());
+            match record {
+                Some(record) => input.with_structured(record.clone()),
+                None => input,
+            }
+        })
         .collect::<Vec<_>>();
     let slots = measure_batches(lens, &inputs, lens.effective_batch_size(batch_size))?;
     assay_vectors(lens, slots).map(|(vectors, _)| vectors)

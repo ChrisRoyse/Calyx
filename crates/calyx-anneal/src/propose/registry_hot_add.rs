@@ -4,8 +4,8 @@ use calyx_core::{
     Asymmetry, CalyxError, Constellation, Modality, Panel, Placement, QuantPolicy, Result, Ts,
 };
 use calyx_registry::{
-    AlgorithmicLens, CommissionRequest, Registry, SlotSpec, SwapController, commission_lens,
-    register_commissioned,
+    AlgorithmicLens, CommissionRequest, LensSpec, Registry, SlotSpec, SwapController,
+    commission_lens, register_commissioned,
 };
 
 use super::{
@@ -65,10 +65,17 @@ impl LensHotAdder for RegistryHotAdder<'_> {
     ) -> Result<HotAddReceipt> {
         match candidate {
             CandidateLens::Algorithmic { .. } => {
-                let (lens, spec) = candidate_slot_spec(candidate)?;
+                let (lens, spec, runtime_kind) = candidate_slot_spec(candidate)?;
                 let contract = lens.contract().clone();
                 if !self.registry.contains(spec.lens_id) {
-                    self.registry.register_frozen(lens, contract)?;
+                    let lens_spec = LensSpec::algorithmic_content(
+                        &contract,
+                        runtime_kind,
+                        spec.axis.clone(),
+                        spec.quant,
+                    );
+                    self.registry
+                        .register_frozen_with_spec(lens, contract, lens_spec)?;
                 }
                 add_slot(controller, self.registry, spec, now)
             }
@@ -117,7 +124,9 @@ fn add_slot(
     })
 }
 
-fn candidate_slot_spec(candidate: &CandidateLens) -> Result<(AlgorithmicLens, SlotSpec)> {
+fn candidate_slot_spec(
+    candidate: &CandidateLens,
+) -> Result<(AlgorithmicLens, SlotSpec, &'static str)> {
     let (name, lens, modality, axis) = match candidate {
         CandidateLens::Algorithmic { kind, params } => {
             let name = format!("anneal-{}-{}", algorithmic_key(*kind), params.seed);
@@ -182,7 +191,21 @@ fn candidate_slot_spec(candidate: &CandidateLens) -> Result<(AlgorithmicLens, Sl
         retrieval_only: false,
         excluded_from_dedup: false,
     };
-    Ok((lens, spec))
+    let runtime_kind = match candidate {
+        CandidateLens::Algorithmic {
+            kind: super::AlgorithmicKind::Tfidf,
+            ..
+        } => "byte-features",
+        CandidateLens::Algorithmic { .. } => "scalar",
+        CandidateLens::Commission { .. } => {
+            return Err(CalyxError {
+                code: CALYX_REGISTRY_HOT_ADD_FAIL,
+                message: "commissioned candidate has no algorithmic runtime kind".to_string(),
+                remediation: "route commissioned candidates through the conversion target hot-add path",
+            });
+        }
+    };
+    Ok((lens, spec, runtime_kind))
 }
 
 fn primary_target(spec: &CommissionSpec) -> Result<ConversionTarget> {

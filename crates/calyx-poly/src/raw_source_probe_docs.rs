@@ -1,0 +1,36 @@
+pub(crate) fn docs() -> Vec<String> {
+    vec![
+        "https://docs.polymarket.com/llms.txt".to_string(),
+        "https://docs.polymarket.com/api-reference/introduction".to_string(),
+        "https://docs.polymarket.com/api-reference/markets/list-markets".to_string(),
+        "https://docs.polymarket.com/api-reference/search/search-markets-events-and-profiles"
+            .to_string(),
+        "https://docs.polymarket.com/api-reference/market-data/get-order-book".to_string(),
+        "https://docs.polymarket.com/trading/orderbook".to_string(),
+        "https://docs.polymarket.com/api-reference/market-data/get-order-books-request-body"
+            .to_string(),
+        "https://docs.polymarket.com/api-reference/market-data/get-market-prices-request-body"
+            .to_string(),
+        "https://docs.polymarket.com/api-reference/market-data/get-midpoint-prices-request-body"
+            .to_string(),
+        "https://docs.polymarket.com/api-reference/market-data/get-spreads".to_string(),
+        "https://docs.polymarket.com/api-reference/market-data/get-last-trade-prices-request-body"
+            .to_string(),
+        "https://docs.polymarket.com/api-reference/markets/get-batch-prices-history".to_string(),
+        "https://docs.polymarket.com/api-reference/core/get-user-activity".to_string(),
+        "https://docs.polymarket.com/market-data/websocket/overview".to_string(),
+        "https://docs.polymarket.com/market-data/websocket/market-channel".to_string(),
+        "https://docs.polymarket.com/api-reference/wss/market".to_string(),
+        "https://docs.polymarket.com/market-data/websocket/sports".to_string(),
+        "https://docs.polymarket.com/api-reference/wss/sports".to_string(),
+        "https://docs.polymarket.com/market-data/websocket/rtds".to_string(),
+        "https://docs.polymarket.com/resources/contracts".to_string(),
+        "https://docs.polymarket.com/v2-migration".to_string(),
+        "https://docs.goldsky.com/chains/polymarket".to_string(),
+        "https://thegraph.com/docs/en/subgraphs/guides/polymarket/".to_string(),
+        "https://huggingface.co/datasets/SimpleFunctions/settled-markets".to_string(),
+        "https://huggingface.co/datasets/cognocracy-agent/polymarket-gamma-dataset".to_string(),
+        "https://huggingface.co/datasets/TimeSeventeen/Polymarket-v1".to_string(),
+        "https://huggingface.co/docs/hub/api".to_string(),
+    ]
+}

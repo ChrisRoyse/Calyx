@@ -2,6 +2,7 @@ use std::collections::BTreeMap;
 
 use calyx_core::{Constellation, CxId, SlotId};
 use calyx_sextant::{DroppedGuardHit, FusionStrategy, Hit, RrfProfile};
+use serde::{Deserialize, Serialize};
 
 use crate::persisted::PersistedSearchGeneration;
 
@@ -10,7 +11,7 @@ use crate::error::{CliResult, SearchError};
 /// Fusion strategy choice (transport-agnostic; the CLI flag parser and the HTTP
 /// request both map onto this, then it resolves to a concrete `FusionStrategy`
 /// against the live slot set).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum FusionChoice {
     Rrf,
     WeightedRrf,
@@ -52,13 +53,13 @@ impl FusionChoice {
 }
 
 /// Guard choice for a search.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum GuardChoice {
     Off,
     InRegion,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SearchFreshness {
     Fresh,
     StaleOk,
@@ -69,6 +70,7 @@ pub enum SearchFreshness {
 /// profile-backed guarding applies per-slot calibrated taus and reports
 /// `None` here; the hits carry their guard verdict evidence), and the
 /// candidates the profile-backed guard dropped (#1094, MCP parity).
+#[derive(Debug, Serialize, Deserialize)]
 pub struct SearchOutcome {
     pub hits: Vec<Hit>,
     pub guard_tau: Option<f32>,

@@ -9,6 +9,9 @@ use calyx_core::{
 use serde::{Deserialize, Serialize};
 
 use crate::frozen::{FrozenLensContract, LensDType, NormPolicy};
+use crate::runtime::tei_segmented::TeiSegmentationPolicy;
+
+mod algorithmic;
 
 const LENS_UNREACHABLE: &str = "CALYX_LENS_UNREACHABLE";
 #[cfg(not(feature = "candle-cuda"))]
@@ -55,6 +58,10 @@ pub enum LensRuntime {
     },
     TeiHttp {
         endpoint: String,
+    },
+    TeiHttpSegmented {
+        endpoint: String,
+        policy: TeiSegmentationPolicy,
     },
     CandleLocal {
         model_id: String,
@@ -188,7 +195,9 @@ impl LensSpec {
                 files,
                 ..
             } => multimodal_adapter_health(adapter_config.as_ref(), files),
-            LensRuntime::TeiHttp { endpoint } => probe_http(endpoint),
+            LensRuntime::TeiHttp { endpoint } | LensRuntime::TeiHttpSegmented { endpoint, .. } => {
+                probe_http(endpoint)
+            }
             LensRuntime::CandleLocal { files, .. } => candle_local_health(files),
             LensRuntime::Onnx { files, .. }
             | LensRuntime::OnnxColbert { files, .. }

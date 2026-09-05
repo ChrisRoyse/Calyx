@@ -1,7 +1,7 @@
 use crate::cf::ColumnFamily;
 use calyx_core::{
     AbsentReason, CalyxError, Constellation, CxFlags, CxId, InputRef, LedgerRef, Modality, Result,
-    SlotId, SlotVector, SparseEntry, VaultId,
+    SegmentVector, SegmentationProvenance, SlotId, SlotVector, SparseEntry, VaultId,
 };
 use std::collections::BTreeMap;
 
@@ -55,6 +55,7 @@ pub enum EncodedSlotVectorShape {
     Absent,
     Sparse { dim: u32, entry_count: u32 },
     Multi { token_dim: u32, token_count: u32 },
+    SegmentedMulti { token_dim: u32, segment_count: u32 },
 }
 
 /// A borrowed, allocation-free view of an encoded multi-vector slot payload.
@@ -308,6 +309,40 @@ pub fn encode_slot_vector(vector: &SlotVector) -> Result<Vec<u8>> {
                 }
             }
         }
+        SlotVector::SegmentedMulti {
+            token_dim,
+            provenance,
+            segments,
+        } => {
+            out.push(4);
+            out.extend_from_slice(&token_dim.to_be_bytes());
+            out.extend_from_slice(&provenance.policy_version.to_be_bytes());
+            out.extend_from_slice(&provenance.policy_hash);
+            out.extend_from_slice(&provenance.source_hash);
+            out.extend_from_slice(&provenance.source_byte_len.to_be_bytes());
+            out.extend_from_slice(&provenance.source_token_count.to_be_bytes());
+            out.extend_from_slice(&provenance.max_input_tokens.to_be_bytes());
+            out.extend_from_slice(&provenance.special_tokens.to_be_bytes());
+            out.extend_from_slice(&provenance.overlap_tokens.to_be_bytes());
+            out.extend_from_slice(&provenance.max_source_bytes.to_be_bytes());
+            out.extend_from_slice(&provenance.max_segments.to_be_bytes());
+            let segment_count = u32::try_from(segments.len()).map_err(|_| {
+                CalyxError::aster_corrupt_shard(
+                    "segmented multi slot has more than u32::MAX segments",
+                )
+            })?;
+            out.extend_from_slice(&segment_count.to_be_bytes());
+            for segment in segments {
+                out.extend_from_slice(&segment.byte_start.to_be_bytes());
+                out.extend_from_slice(&segment.byte_end.to_be_bytes());
+                out.extend_from_slice(&segment.token_start.to_be_bytes());
+                out.extend_from_slice(&segment.token_end.to_be_bytes());
+                out.extend_from_slice(&segment.measured_tokens.to_be_bytes());
+                for value in &segment.data {
+                    out.extend_from_slice(&value.to_bits().to_be_bytes());
+                }
+            }
+        }
     }
     Ok(out)
 }
@@ -393,6 +428,45 @@ pub fn inspect_slot_vector(bytes: &[u8]) -> Result<EncodedSlotVectorShape> {
                 token_count,
             }
         }
+        4 => {
+            const HEADER_BYTES: usize = 107;
+            const SEGMENT_METADATA_BYTES: usize = 28;
+            let token_dim = cursor.u32()?;
+            let _policy_version = cursor.u16()?;
+            let _policy_hash = cursor.bytes(32)?;
+            let _source_hash = cursor.bytes(32)?;
+            let _source_byte_len = cursor.u64()?;
+            let _source_token_count = cursor.u32()?;
+            let _max_input_tokens = cursor.u32()?;
+            let _special_tokens = cursor.u16()?;
+            let _overlap_tokens = cursor.u16()?;
+            let _max_source_bytes = cursor.u64()?;
+            let _max_segments = cursor.u32()?;
+            let segment_count = cursor.u32()?;
+            require_nonzero_slot_count("segmented multi token_dim", token_dim)?;
+            require_nonzero_slot_count("segmented multi segment_count", segment_count)?;
+            let segment_width = checked_encoded_len(
+                SEGMENT_METADATA_BYTES,
+                token_dim as usize,
+                4,
+                "segmented multi component",
+            )?;
+            require_slot_vector_len(
+                "segmented_multi",
+                bytes.len(),
+                checked_encoded_len(
+                    HEADER_BYTES,
+                    segment_count as usize,
+                    segment_width,
+                    "segmented multi segment",
+                )?,
+                format!("segment_count={segment_count}, token_dim={token_dim}"),
+            )?;
+            EncodedSlotVectorShape::SegmentedMulti {
+                token_dim,
+                segment_count,
+            }
+        }
         tag => {
             return Err(CalyxError::aster_corrupt_shard(format!(
                 "unknown slot vector tag {tag}"
@@ -450,6 +524,53 @@ pub fn decode_slot_vector(bytes: &[u8]) -> Result<SlotVector> {
                 tokens.push(token);
             }
             SlotVector::Multi { token_dim, tokens }
+        }
+        EncodedSlotVectorShape::SegmentedMulti {
+            token_dim,
+            segment_count,
+        } => {
+            let encoded_dim = cursor.u32()?;
+            debug_assert_eq!(encoded_dim, token_dim);
+            let provenance = SegmentationProvenance {
+                policy_version: cursor.u16()?,
+                policy_hash: cursor.array()?,
+                source_hash: cursor.array()?,
+                source_byte_len: cursor.u64()?,
+                source_token_count: cursor.u32()?,
+                max_input_tokens: cursor.u32()?,
+                special_tokens: cursor.u16()?,
+                overlap_tokens: cursor.u16()?,
+                max_source_bytes: cursor.u64()?,
+                max_segments: cursor.u32()?,
+            };
+            let encoded_count = cursor.u32()?;
+            debug_assert_eq!(encoded_count, segment_count);
+            let mut segments = reserved_vec(segment_count as usize, "segmented multi segments")?;
+            for _ in 0..segment_count {
+                let byte_start = cursor.u64()?;
+                let byte_end = cursor.u64()?;
+                let token_start = cursor.u32()?;
+                let token_end = cursor.u32()?;
+                let measured_tokens = cursor.u32()?;
+                let mut data =
+                    reserved_vec(token_dim as usize, "segmented multi vector components")?;
+                for _ in 0..token_dim {
+                    data.push(f32::from_bits(cursor.u32()?));
+                }
+                segments.push(SegmentVector {
+                    byte_start,
+                    byte_end,
+                    token_start,
+                    token_end,
+                    measured_tokens,
+                    data,
+                });
+            }
+            SlotVector::SegmentedMulti {
+                token_dim,
+                provenance,
+                segments,
+            }
         }
     };
     vector.validate_schema().map_err(|error| {

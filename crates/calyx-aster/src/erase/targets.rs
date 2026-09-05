@@ -1,11 +1,18 @@
 use super::{EraseScope, METADATA_SUBJECT_ID, subject_metadata_value};
 use crate::cf::{
-    ColumnFamily, KeyRange, anchor_prefix_range, base_key, recurrence_prefix_range, slot_key,
-    temporal_xterm_prefix_range, xterm_prefix_range,
+    ColumnFamily, KeyRange, WEAVE_XTERM_GENERATION_SCHEMA, WEAVE_XTERM_STORAGE_SCHEMA_DETAIL,
+    anchor_prefix_range, base_key, recurrence_prefix_range, slot_key, temporal_xterm_prefix_range,
+    weave_xterm_generation_cx_prefix_range, xterm_prefix_range,
+};
+use crate::plain_graph::{
+    GRAPH_GENERATION_STORAGE_COLLECTION_DETAIL, GRAPH_GENERATION_STORAGE_SCHEMA,
+    GRAPH_GENERATION_STORAGE_SCHEMA_DETAIL, GraphCollectionLifecycle, PlainGraph,
+    graph_generation_storage_collection, graph_storage_collections,
 };
 use crate::vault::{AsterVault, encode};
 use calyx_core::{Clock, Constellation, CxId, Result};
 use calyx_ledger::SubjectId;
+use std::collections::BTreeSet;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) struct EraseTarget {
@@ -108,6 +115,8 @@ where
         &anchor_prefix_range(cx_id),
         &mut targets.rows,
     )?;
+    collect_graph_targets(vault, snapshot, cx_id, &mut targets.rows)?;
+    collect_generation_xterm_targets(vault, snapshot, cx_id, &mut targets.rows)?;
     collect_range_targets(
         vault,
         snapshot,
@@ -125,6 +134,105 @@ where
     collect_temporal_xterm_targets(vault, snapshot, cx_id, &mut targets.rows)?;
     collect_scalar_targets(vault, snapshot, cx_id, &mut targets.rows)?;
     Ok(targets)
+}
+
+fn collect_graph_targets<C>(
+    vault: &AsterVault<C>,
+    snapshot: u64,
+    cx_id: CxId,
+    targets: &mut Vec<EraseTarget>,
+) -> Result<()>
+where
+    C: Clock,
+{
+    let lifecycle = GraphCollectionLifecycle::new(vault)?;
+    let mut collections = graph_storage_collections(vault, snapshot)?
+        .into_iter()
+        .collect::<BTreeSet<_>>();
+    for row in lifecycle.list_states(snapshot)? {
+        collections.insert(row.state.collection.clone());
+        match row.state.detail.get(GRAPH_GENERATION_STORAGE_SCHEMA_DETAIL) {
+            None => {
+                if row
+                    .state
+                    .detail
+                    .contains_key(GRAPH_GENERATION_STORAGE_COLLECTION_DETAIL)
+                {
+                    return Err(calyx_core::CalyxError::aster_corrupt_shard(format!(
+                        "cannot erase cx {cx_id}: graph generation {}/{} names storage collection without a storage schema",
+                        row.state.collection, row.state.generation
+                    )));
+                }
+            }
+            Some(schema) if schema == GRAPH_GENERATION_STORAGE_SCHEMA => {
+                let expected = graph_generation_storage_collection(
+                    &row.state.collection,
+                    &row.state.generation,
+                )?;
+                let actual = row
+                    .state
+                    .detail
+                    .get(GRAPH_GENERATION_STORAGE_COLLECTION_DETAIL)
+                    .ok_or_else(|| {
+                        calyx_core::CalyxError::aster_corrupt_shard(format!(
+                            "cannot erase cx {cx_id}: graph generation {}/{} omits storage collection",
+                            row.state.collection, row.state.generation
+                        ))
+                    })?;
+                if actual != &expected {
+                    return Err(calyx_core::CalyxError::aster_corrupt_shard(format!(
+                        "cannot erase cx {cx_id}: graph generation {}/{} storage collection {actual} does not match deterministic {expected}",
+                        row.state.collection, row.state.generation
+                    )));
+                }
+                collections.insert(expected);
+            }
+            Some(schema) => {
+                return Err(calyx_core::CalyxError::aster_corrupt_shard(format!(
+                    "cannot erase cx {cx_id}: graph generation {}/{} names unsupported storage schema {schema}",
+                    row.state.collection, row.state.generation
+                )));
+            }
+        }
+    }
+
+    for collection in collections {
+        let graph = PlainGraph::new(vault, &collection)?;
+        for key in graph.erasure_keys_for_node(snapshot, cx_id)? {
+            push_unique(targets, ColumnFamily::Graph, key);
+        }
+    }
+    Ok(())
+}
+
+fn collect_generation_xterm_targets<C>(
+    vault: &AsterVault<C>,
+    snapshot: u64,
+    cx_id: CxId,
+    targets: &mut Vec<EraseTarget>,
+) -> Result<()>
+where
+    C: Clock,
+{
+    let lifecycle = GraphCollectionLifecycle::new(vault)?;
+    for row in lifecycle.list_states(snapshot)? {
+        let Some(schema) = row.state.detail.get(WEAVE_XTERM_STORAGE_SCHEMA_DETAIL) else {
+            continue;
+        };
+        if schema != WEAVE_XTERM_GENERATION_SCHEMA {
+            return Err(calyx_core::CalyxError::aster_corrupt_shard(format!(
+                "cannot erase cx {cx_id}: graph generation {}/{} names unsupported XTerm schema {schema}",
+                row.state.collection, row.state.generation
+            )));
+        }
+        let range = weave_xterm_generation_cx_prefix_range(
+            &row.state.collection,
+            &row.state.generation,
+            cx_id,
+        )?;
+        collect_range_targets(vault, snapshot, ColumnFamily::XTerm, &range, targets)?;
+    }
+    Ok(())
 }
 
 fn collect_slot_targets<C>(

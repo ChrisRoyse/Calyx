@@ -137,19 +137,55 @@ pub(super) fn measure_chunk_lenses(
     let policy = require_parallel_policy()?;
     let floor_us = overlap_floor_ms()?.saturating_mul(1000);
     let mut runnable = Vec::new();
+    let registry = &service.state.build.registry;
     for slot in &service.state.build.panel.slots {
         if slot.state != SlotState::Active
-            || slot.modality != modality
-            || !service.state.build.registry.contains(slot.lens_id)
+            || !registry.contains(slot.lens_id)
             || runnable
                 .iter()
                 .any(|seen: &&calyx_core::Slot| seen.lens_id == slot.lens_id)
         {
             continue;
         }
+        let mut accepted = 0usize;
+        let mut rejected = None;
+        for input in chunk {
+            if registry.accepts_input(slot.lens_id, input)? {
+                accepted += 1;
+            } else if rejected.is_none() {
+                rejected = Some(input);
+            }
+        }
+        if registry.requires_structured_record(slot.lens_id)? && accepted != chunk.len() {
+            let rejected = rejected.ok_or_else(|| {
+                super::input_wire::contract_error(format!(
+                    "resident structured lens {} acceptance count {accepted} disagrees with {} typed {modality:?} inputs",
+                    slot.lens_id,
+                    chunk.len()
+                ))
+            })?;
+            match registry.measure(slot.lens_id, rejected) {
+                Err(error) => return Err(error.into()),
+                Ok(_) => {
+                    return Err(super::input_wire::contract_error(format!(
+                        "resident structured lens {} measured an input its frozen acceptance contract rejected",
+                        slot.lens_id
+                    )));
+                }
+            }
+        }
+        if accepted == 0 {
+            continue;
+        }
+        if accepted != chunk.len() {
+            return Err(super::input_wire::contract_error(format!(
+                "resident lens {} accepts {accepted} of {} typed {modality:?} inputs; one batch cannot silently change slot applicability by row",
+                slot.lens_id,
+                chunk.len()
+            )));
+        }
         runnable.push(slot);
     }
-    let registry = &service.state.build.registry;
     let mut jobs: Vec<MeasurementJob<'_>> = Vec::new();
     let mut grouped_jobs: BTreeMap<MeasurementGroupKey, usize> = BTreeMap::new();
     for slot in runnable {

@@ -8,19 +8,19 @@ REPO_ROOT=$(cd -- "$SCRIPT_DIR/../.." && pwd -P)
 
 CALYX_HOME=${CALYX_HOME:-/home/${USER}/calyx}
 FSV_HOME=${LAWDEMO_FSV_HOME:-$CALYX_HOME/fsv}
-BINARY=${LAWDEMO_BINARY:-$FSV_HOME/issue1855-answer-ledger-785d3368-20260717T014500Z/runtime/calyx}
+BINARY=${LAWDEMO_BINARY:-$CALYX_HOME/repo/target/release/calyx}
 PYTHON=${LAWDEMO_PYTHON:-$FSV_HOME/epic1460-canonical-f58beaba-20260714T211800Z/venv/bin/python}
-VAULT=${LAWDEMO_VAULT:-/zfs/hot/calyx/vaults/01KXJQ6Y8SSREK6D8NPKYMJB9G}
+VAULT=${LAWDEMO_VAULT:-$CALYX_HOME/vaults/01KXZZH7EA4B4BAMPC434X84Q4}
 RESIDENT_ADDR=${LAWDEMO_RESIDENT_ADDR:-127.0.0.1:18401}
 ENV_FILE=${LAWDEMO_ENV_FILE:-$FSV_HOME/issue1837-weave-weight-bfe31521-20260716T210747Z/source/env.sh}
 
 D1_ROOT=${LAWDEMO_D1_ROOT:-$FSV_HOME/issue1476-doctrine-kernel-27f7c730-20260716T225955Z}
-D1_VAULT=${LAWDEMO_D1_VAULT:-/zfs/hot/calyx/vaults/01KXPJJDQCG3TMAT4KBHPB5GGF}
-D1_KERNEL=b8f96b5deea45b743229242283234f9e
+D1_VAULT=${LAWDEMO_D1_VAULT:-$CALYX_HOME/vaults/01KY050EW43QWJM2XSABEHRJJ1}
+D1_KERNEL=6b8282b621212651cda5f5addb422092
 
 D2_ROOT=${LAWDEMO_D2_ROOT:-$FSV_HOME/issue1477-judge-intel-27f7c730-20260716T232602Z}
-D2_VAULT=${LAWDEMO_D2_VAULT:-/zfs/hot/calyx/vaults/01KXPMAF2PCXYEKCA502NQKACT}
-D2_KERNEL=b38822aad594ab8c521b64683c118f36
+D2_VAULT=${LAWDEMO_D2_VAULT:-$CALYX_HOME/vaults/01KY068KMQ9PJQVPVKY17KK8VR}
+D2_KERNEL=fc7b3f92caa373180f1d5cf383d077aa
 
 D3_ROOT=${LAWDEMO_D3_ROOT:-$FSV_HOME/issue1478-sanctions-shield-ebc7e31a-20260717T004700Z}
 D4_ROOT=${LAWDEMO_D4_ROOT:-$FSV_HOME/issue1479-dissent-aefbd247-20260717T012900Z}
@@ -174,9 +174,9 @@ capture_command "$OUT_DIR/resident.before.json" "$OUT_DIR/resident.before.stderr
   "$BINARY" panel resident ready --addr "$RESIDENT_ADDR"
 jq -e '
   .ready == true and
-  .gpu_content_lens_count == 10 and
+  .gpu_content_lens_count == 9 and
   .cpu_content_lens_count == 0 and
-  .warmed_lens_count == 10
+  .warmed_lens_count == 9
 ' "$OUT_DIR/resident.before.json" >/dev/null
 
 capture_command "$OUT_DIR/live-base.json" "$OUT_DIR/live-base.stderr" \
@@ -195,10 +195,10 @@ printf 'Mode: fresh scoped-vault kernel readback plus live Base join of a verifi
 printf 'Why precomputed: ingest and graph construction are build steps, not a 15-minute stage action.\n'
 
 printf '%s  %s\n' \
-  '69075c08d47cd0c93c8784f17d325e67993f32e6e985a24938fb96f91b4d1fc3' \
+  'df764a94aa8f9b144b64d36b5cfeddc8253430d8c891f2a501121f02c74f482c' \
   "$D1_ROOT/kernel-health.json" | sha256sum -c -
 printf '%s  %s\n' \
-  'd15e041b09c357371a478ab425a5c0d41a76cd108e86e7933101b1889d751f5a' \
+  '4a25f8c8e9244d3fc9aa98213be9d3eb01fddda7f993091b7043e1a9c1fc0f83' \
   "$D1_ROOT/kernel-top40-physical.json" | sha256sum -c -
 
 capture_command "$OUT_DIR/demo1-kernel-health.json" "$OUT_DIR/demo1-kernel-health.stderr" \
@@ -239,7 +239,7 @@ printf 'Mode: fresh judge-vault kernel/Base readback plus verified citation-diet
 printf 'Use boundary: descriptive corpus history, never a vote or outcome prediction.\n'
 
 printf '%s  %s\n' \
-  'c3d5862a2778cca0bc63a475b63f19049eea727a06796aea46357a9435d1fbfd' \
+  '9f2a4a28f3e815703de0940cf1b33336055245bd0e7dbecba08f70c4565f1f27' \
   "$D2_ROOT/judge-intel-core.json" | sha256sum -c -
 capture_command "$OUT_DIR/demo2-kernel-health.json" "$OUT_DIR/demo2-kernel-health.stderr" \
   "$BINARY" readback kernel-health --root "$D2_VAULT" --kernel-id "$D2_KERNEL"
@@ -287,7 +287,7 @@ cmp "$SCRIPT_DIR/fixtures/sanctions_shield_output.json" \
   "$D3_ROOT/generation/cite_check_report.json"
 printf 'VERIFIED committed cite-check output is byte-identical to the accepted generation\n'
 jq '
-  .[] | select(.cx_id == "0dac1b2f00404b57cfebaf298257f361")
+  .[] | select(.cx_id == "94c933e0453ecd05571c9d170dd496ba")
   | {
       cx_id,
       case_name: .metadata.case_name,
@@ -317,7 +317,7 @@ printf 'Mode: verified accepted analytics plus a fresh opinion-type census over 
 printf 'The citation-traction result is a structural null, not a legal conclusion.\n'
 
 printf '%s  %s\n' \
-  'e23c4d97ee83484d2c23603c9a273aeebb745f51d2dda67af71f7d8e1e5bf4d5' \
+  'c8087cc7d6118bb71e81bf897d79abf8216d4b0b3eb75ef4251ef0571c47f936' \
   "$D4_ROOT/dissent-intelligence.json" | sha256sum -c -
 jq '
   group_by(.metadata.opinion_type)
@@ -423,7 +423,7 @@ capture_command "$OUT_DIR/resident.after.json" "$OUT_DIR/resident.after.stderr" 
   "$BINARY" panel resident ready --addr "$RESIDENT_ADDR"
 jq -e '
   .ready == true and
-  .gpu_content_lens_count == 10 and
+  .gpu_content_lens_count == 9 and
   .cpu_content_lens_count == 0 and
   .process_id == $pid
 ' --argjson pid "$(jq '.process_id' "$OUT_DIR/resident.before.json")" \

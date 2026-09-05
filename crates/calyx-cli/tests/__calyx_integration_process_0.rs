@@ -26,8 +26,6 @@ mod audit_cli_hardening;
 mod checkpoint_scan;
 #[path = "dedup_qqp_paws_fsv.rs"]
 mod dedup_qqp_paws_fsv;
-#[path = "migrate_verify_cli.rs"]
-mod migrate_verify_cli;
 #[path = "navigate_fsv.rs"]
 mod navigate_fsv;
 #[path = "periodic_recall_readback.rs"]

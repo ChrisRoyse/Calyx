@@ -3,7 +3,6 @@ use crate::sst::write_sst;
 use calyx_core::{CalyxError, Result, SlotId};
 use std::collections::BTreeSet;
 use std::env;
-use std::fs;
 use std::path::{Path, PathBuf};
 
 /// Hot/cold physical storage tier.
@@ -117,8 +116,7 @@ impl TieringPolicy {
         }
         let placement = self.place_cf(cf, panel_version);
         let dir = placement.absolute_dir();
-        fs::create_dir_all(&dir)
-            .map_err(|error| CalyxError::disk_pressure(format!("create tier dir: {error}")))?;
+        crate::private_fs::create_private_dir_all(&dir)?;
         let path = dir.join(file_name);
         let summary = write_sst(&path, entries)?;
         Ok(TierWrite {

@@ -180,7 +180,8 @@ fn register_lens(registry: &mut Registry, spec: LensSpec) -> CliResult<LensId> {
         LensRuntime::TeiHttp { endpoint } => {
             let dim = dense_dim(spec.output)?;
             let contract = FrozenLensContract::tei_http(&spec.name, endpoint, spec.modality, dim);
-            let lens = TeiHttpLens::new(&spec.name, endpoint, spec.modality, dim);
+            let lens = TeiHttpLens::new(&spec.name, endpoint, spec.modality, dim)
+                .with_declared_max_batch(spec.max_batch)?;
             Ok(registry.register_frozen_with_spec(lens, contract, spec)?)
         }
         other => Err(CliError::runtime(format!(

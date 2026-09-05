@@ -125,6 +125,36 @@ impl Slot {
     pub fn counts_toward_degraded(&self, input_modality: Modality) -> bool {
         self.state == SlotState::Active && self.modality == input_modality && !self.retrieval_only
     }
+
+    /// Returns true when this slot is a compute-on-recall sidecar.
+    ///
+    /// Such a slot feeds neither content identity nor dedup, so its producing
+    /// encoder is parameterized at execution time (see the temporal E2/E3/E4
+    /// lenses, whose identity derives from a run-time `TemporalContext`) and has
+    /// no frozen registry model to pin at panel-publish time. Ingest therefore
+    /// records these slots `AbsentReason::NotApplicable` instead of demanding a
+    /// registered lens; `counts_toward_degraded_for` already exempts them, so the
+    /// absence is benign and never marks a constellation degraded (#1947).
+    ///
+    /// This is the single definition of the exemption. Callers must not re-derive
+    /// it from the raw flags, or the ingest, preflight, and panel-publish paths
+    /// will drift apart.
+    pub fn is_compute_on_recall_sidecar(&self) -> bool {
+        self.retrieval_only && self.excluded_from_dedup
+    }
+
+    /// Returns true when this slot is a required primary or attached-structured
+    /// measurement for the current input.
+    pub fn counts_toward_degraded_for(
+        &self,
+        input_modality: Modality,
+        has_structured_record: bool,
+    ) -> bool {
+        self.state == SlotState::Active
+            && (self.modality == input_modality
+                || (self.modality == Modality::Structured && has_structured_record))
+            && !self.retrieval_only
+    }
 }
 
 /// Versioned panel of slots.

@@ -130,6 +130,7 @@ impl BatchIngestSession {
         resolved: &ResolvedVault,
         batch_path: &Path,
         validation: &BatchValidation,
+        identity: &super::command::batch_identity::BatchSnapshotIdentity,
         requested_session_id: Option<&str>,
     ) -> CliResult<Self> {
         signals::install().map_err(|error| {
@@ -157,14 +158,14 @@ impl BatchIngestSession {
         let parent = root
             .parent()
             .ok_or_else(|| session_invalid("missing session parent"))?;
-        fs::create_dir_all(parent).map_err(|error| {
-            session_write_error(format!(
-                "create ingest session parent {}: {error}",
-                parent.display()
-            ))
-        })?;
+        // Ingest session directory holds owner-only runtime evidence
+        // (status.json); create the parent and root owner-only (0700) so no
+        // world/group access is inherited from the operator umask (issue #1931).
+        crate::private_fs::create_private_dir_all(parent)?;
         match fs::create_dir(&root) {
-            Ok(()) => {}
+            Ok(()) => {
+                crate::private_fs::harden_private_dir(&root)?;
+            }
             Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
                 return Err(session_error(
                     CALYX_INGEST_SESSION_EXISTS,
@@ -194,7 +195,19 @@ impl BatchIngestSession {
                 CliError::io(format!("stat batch {}: {error}", canonical_batch.display()))
             })?
             .len();
+        // Re-hash the on-disk bytes and prove they still match the immutable
+        // snapshot captured before any authoritative work (issue #1923). This makes
+        // the recorded `batch_sha256` an actively verified identity rather than a
+        // decorative field, and fails the session before it claims any precondition.
         let batch_sha256 = file_sha256(&canonical_batch)?;
+        identity.verify_observed(
+            &canonical_batch,
+            &super::command::batch_identity::ObservedBatchBytes {
+                sha256: batch_sha256.clone(),
+                byte_len: batch_bytes,
+            },
+            "ingest session start",
+        )?;
         let status_path = root.join(STATUS_FILE);
         let now = now_ms();
         let status = IngestSessionStatus {

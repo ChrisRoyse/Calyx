@@ -1,11 +1,13 @@
 //! Engine trait boundaries shared by Calyx crates.
 
+use std::borrow::Cow;
 use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
 use crate::{
     Anchor, Constellation, CxId, LensId, Modality, Result, Seq, Signal, SlotShape, SlotVector,
+    StructuredRecord,
 };
 
 /// Raw input presented to a frozen lens.
@@ -17,6 +19,9 @@ pub struct Input {
     pub bytes: Vec<u8>,
     /// Optional pointer to retained source bytes.
     pub pointer: Option<String>,
+    /// Canonical explicit fields measured by structured lenses.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub structured: Option<StructuredRecord>,
 }
 
 impl Input {
@@ -26,6 +31,7 @@ impl Input {
             modality,
             bytes: bytes.into(),
             pointer: None,
+            structured: None,
         }
     }
 
@@ -33,6 +39,73 @@ impl Input {
     pub fn with_pointer(mut self, pointer: impl Into<String>) -> Self {
         self.pointer = Some(pointer.into());
         self
+    }
+
+    /// Attaches independently typed explicit fields without flattening them
+    /// into the primary byte payload.
+    pub fn with_structured(mut self, record: StructuredRecord) -> Self {
+        self.structured = Some(record);
+        self
+    }
+
+    /// Returns the attached typed record, when this is structured or hybrid input.
+    pub fn structured(&self) -> Option<&StructuredRecord> {
+        self.structured.as_ref()
+    }
+
+    /// Returns whether the primary byte payload has the declared modality.
+    /// Binding-aware lenses may additionally accept attached structured state
+    /// through [`Lens::accepts_input`].
+    pub fn supports_modality(&self, modality: Modality) -> bool {
+        self.modality == modality
+    }
+
+    /// Returns stable bytes used to content-address this exact measurement input.
+    ///
+    /// Legacy byte-only inputs preserve their historical identity exactly.
+    /// Structured and hybrid inputs use a domain-separated, length-delimited
+    /// identity containing the primary bytes plus the canonical record.
+    pub fn identity_bytes(&self) -> Result<Cow<'_, [u8]>> {
+        let Some(record) = &self.structured else {
+            return Ok(Cow::Borrowed(&self.bytes));
+        };
+        let record = record.canonical_bytes()?;
+        let mut bytes = Vec::with_capacity(8 + 1 + 8 + self.bytes.len() + 8 + record.len());
+        bytes.extend_from_slice(b"CXINPUT1");
+        bytes.push(modality_tag(self.modality));
+        bytes.extend_from_slice(&(self.bytes.len() as u64).to_be_bytes());
+        bytes.extend_from_slice(&self.bytes);
+        bytes.extend_from_slice(&(record.len() as u64).to_be_bytes());
+        bytes.extend_from_slice(&record);
+        Ok(Cow::Owned(bytes))
+    }
+
+    /// Persists exact structured source state into constellation scalar and
+    /// reserved metadata columns.
+    pub fn persist_structured(
+        &self,
+        scalars: &mut BTreeMap<String, f64>,
+        metadata: &mut BTreeMap<String, String>,
+    ) -> Result<()> {
+        if let Some(record) = &self.structured {
+            record.persist_into(scalars, metadata)?;
+        }
+        Ok(())
+    }
+}
+
+const fn modality_tag(modality: Modality) -> u8 {
+    match modality {
+        Modality::Text => 0,
+        Modality::Code => 1,
+        Modality::Image => 2,
+        Modality::Audio => 3,
+        Modality::Video => 4,
+        Modality::Protein => 5,
+        Modality::Dna => 6,
+        Modality::Molecule => 7,
+        Modality::Structured => 8,
+        Modality::Mixed => 9,
     }
 }
 
@@ -68,6 +141,17 @@ pub trait Lens: Send + Sync {
 
     /// Modality this lens accepts.
     fn modality(&self) -> Modality;
+
+    /// Returns whether this exact frozen instrument can measure `input`.
+    /// The default is strict primary-modality equality.
+    fn accepts_input(&self, input: &Input) -> bool {
+        input.supports_modality(self.modality())
+    }
+
+    /// Returns whether the lens is bound to canonical structured fields.
+    fn requires_structured_record(&self) -> bool {
+        false
+    }
 
     /// Deterministically measures one input.
     fn measure(&self, input: &Input) -> Result<SlotVector>;

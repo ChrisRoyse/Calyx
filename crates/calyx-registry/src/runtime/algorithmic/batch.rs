@@ -6,8 +6,11 @@ use calyx_core::{Input, Result, SlotVector};
 use serde::{Deserialize, Serialize};
 
 #[cfg(feature = "cuda")]
-use super::cpu::{byte_features_from_raw, sparse_keywords_from_hashes, token_vectors_from_words};
-use super::cpu::{tokenize_sparse, tokenize_token_hash};
+use super::cpu::{
+    byte_features_from_raw, sparse_keywords_from_hashes, sparse_keywords_raw_tf_from_hashes,
+    token_vectors_from_words,
+};
+use super::cpu::{tokenize_sparse, tokenize_sparse_raw_tf, tokenize_token_hash};
 use super::{AlgorithmicEncoder, AlgorithmicLens};
 use crate::lens::ensure_input_modality;
 
@@ -99,23 +102,47 @@ pub(super) fn measure_batch(lens: &AlgorithmicLens, inputs: &[Input]) -> Result<
     for input in inputs {
         ensure_input_modality(lens, input)?;
     }
-    match lens.encoder {
+    if lens.is_structured() {
+        return cpu_batch(
+            lens,
+            inputs,
+            inputs.len(),
+            "structured encoder is CPU-native",
+        );
+    }
+    let encoder = lens.builtin_encoder().ok_or_else(|| {
+        calyx_core::CalyxError::lens_unreachable(
+            "algorithmic lens has neither a built-in nor structured runtime",
+        )
+    })?;
+    match encoder {
         AlgorithmicEncoder::ByteFeatures => byte_batch(lens, inputs),
-        AlgorithmicEncoder::SparseKeywords { dim } => sparse_batch(lens, inputs, dim),
+        AlgorithmicEncoder::SparseKeywords { dim } => {
+            sparse_batch(lens, inputs, dim, SparseKeywordWeighting::Normalized)
+        }
+        AlgorithmicEncoder::SparseKeywordsRawTf { dim } => {
+            sparse_batch(lens, inputs, dim, SparseKeywordWeighting::RawTf)
+        }
         AlgorithmicEncoder::TokenHash { token_dim } => token_batch(lens, inputs, token_dim),
         _ => cpu_batch(lens, inputs, inputs.len(), "encoder is CPU-native"),
     }
 }
 
-pub(super) fn cpu_stats(
-    encoder: AlgorithmicEncoder,
+#[derive(Clone, Copy)]
+enum SparseKeywordWeighting {
+    Normalized,
+    RawTf,
+}
+
+pub(super) fn cpu_stats_label(
+    encoder: String,
     inputs: &[Input],
     work_items: usize,
     reason: &str,
 ) -> AlgorithmicBatchStats {
     AlgorithmicBatchStats {
         provider: AlgorithmicBatchProvider::Cpu,
-        encoder: format!("{encoder:?}"),
+        encoder,
         rows: inputs.len() as u64,
         input_bytes: input_bytes(inputs) as u64,
         work_items: work_items as u64,
@@ -134,8 +161,12 @@ fn cpu_batch(
         .iter()
         .map(|input| lens.measure_cpu(input))
         .collect::<Result<Vec<_>>>()?;
-    lens.batch
-        .record(cpu_stats(lens.encoder, inputs, work_items, reason));
+    lens.batch.record(cpu_stats_label(
+        lens.stats_label(),
+        inputs,
+        work_items,
+        reason,
+    ));
     Ok(output)
 }
 
@@ -149,6 +180,12 @@ fn byte_batch(lens: &AlgorithmicLens, inputs: &[Input]) -> Result<Vec<SlotVector
     #[cfg(feature = "cuda")]
     {
         let context = lens.batch.cuda()?;
+        let encoder = lens.builtin_encoder().ok_or_else(|| {
+            calyx_core::CalyxError::lens_unreachable(
+                "byte batch requires a built-in algorithmic encoder",
+            )
+        })?;
+        let dim = encoder.dim();
         let rows = inputs
             .iter()
             .map(|input| input.bytes.as_slice())
@@ -158,12 +195,12 @@ fn byte_batch(lens: &AlgorithmicLens, inputs: &[Input]) -> Result<Vec<SlotVector
         let output = raw
             .into_iter()
             .map(|row| SlotVector::Dense {
-                dim: lens.encoder.dim(),
+                dim,
                 data: byte_features_from_raw(row.values),
             })
             .collect();
         lens.batch.record(cuda_stats(
-            lens.encoder,
+            encoder,
             inputs,
             forge_stats,
             "byte batch met measured CUDA crossover",
@@ -172,11 +209,22 @@ fn byte_batch(lens: &AlgorithmicLens, inputs: &[Input]) -> Result<Vec<SlotVector
     }
 }
 
-fn sparse_batch(lens: &AlgorithmicLens, inputs: &[Input], dim: u32) -> Result<Vec<SlotVector>> {
-    let token_rows = inputs
-        .iter()
-        .map(|input| tokenize_sparse(&input.bytes))
-        .collect::<Vec<_>>();
+fn sparse_batch(
+    lens: &AlgorithmicLens,
+    inputs: &[Input],
+    dim: u32,
+    weighting: SparseKeywordWeighting,
+) -> Result<Vec<SlotVector>> {
+    let token_rows = match weighting {
+        SparseKeywordWeighting::Normalized => inputs
+            .iter()
+            .map(|input| tokenize_sparse(&input.bytes))
+            .collect::<Vec<_>>(),
+        SparseKeywordWeighting::RawTf => inputs
+            .iter()
+            .map(|input| tokenize_sparse_raw_tf(&input.bytes))
+            .collect::<Result<Vec<_>>>()?,
+    };
     let tokens = token_rows.iter().map(Vec::len).sum::<usize>();
     if tokens < SPARSE_KEYWORDS_CUDA_MIN_TOKENS {
         return cpu_batch(lens, inputs, tokens, "below sparse-keyword CUDA crossover");
@@ -224,13 +272,24 @@ fn sparse_batch(lens: &AlgorithmicLens, inputs: &[Input], dim: u32) -> Result<Ve
             .iter()
             .map(|row| {
                 let end = offset + row.len();
-                let output = sparse_keywords_from_hashes(&hashes[offset..end], dim);
+                let output = match weighting {
+                    SparseKeywordWeighting::Normalized => {
+                        sparse_keywords_from_hashes(&hashes[offset..end], dim)
+                    }
+                    SparseKeywordWeighting::RawTf => {
+                        sparse_keywords_raw_tf_from_hashes(&hashes[offset..end], dim)
+                    }
+                };
                 offset = end;
                 output
             })
             .collect::<Result<Vec<_>>>()?;
         lens.batch.record(cuda_stats(
-            lens.encoder,
+            lens.builtin_encoder().ok_or_else(|| {
+                calyx_core::CalyxError::lens_unreachable(
+                    "CUDA sparse batch requires a built-in algorithmic encoder",
+                )
+            })?,
             inputs,
             forge_stats,
             "sparse batch met measured CUDA crossover",
@@ -301,7 +360,11 @@ fn token_batch(
             })
             .collect();
         lens.batch.record(cuda_stats(
-            lens.encoder,
+            lens.builtin_encoder().ok_or_else(|| {
+                calyx_core::CalyxError::lens_unreachable(
+                    "CUDA token batch requires a built-in algorithmic encoder",
+                )
+            })?,
             inputs,
             forge_stats,
             "token batch met measured CUDA crossover",

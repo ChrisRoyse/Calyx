@@ -2,3 +2,6 @@
 /.gitattributes text eol=lf
 *.sh text eol=lf
 *.pdf binary
+# Real-opinion test fixture (#1983): freeze exact bytes so byte-offset windows
+# reproduce identically on every platform.
+crates/calyx-registry/src/runtime/testdata/oversized_opinion.txt -text

@@ -33,6 +33,7 @@ pub(crate) struct I8binEnsembleEvidence {
     pub(crate) assay_cf_subject_counts: BTreeMap<String, usize>,
     pub(crate) ensemble_card_row_present: bool,
     pub(crate) ensemble_card_payload_readback: bool,
+    pub(crate) gpu_reservation_admission: Option<calyx_forge::vram::HostGpuReservationSnapshot>,
     pub(crate) report: I8binEnsembleReport,
 }
 
@@ -112,6 +113,7 @@ pub(crate) fn write_outputs(
         assay_cf_subject_counts: persistence.subject_counts,
         ensemble_card_row_present: persistence.card_row_present,
         ensemble_card_payload_readback: persistence.card_payload_readback,
+        gpu_reservation_admission: None,
         report: report.clone(),
     })
 }

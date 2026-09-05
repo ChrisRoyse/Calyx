@@ -11,7 +11,21 @@ use crate::{LodestarError, Result};
 
 mod clustering;
 
-pub const SPECTRAL_COMMUNITY_SCHEMA_VERSION: u32 = 2;
+pub const SPECTRAL_COMMUNITY_SCHEMA_VERSION: u32 = 3;
+
+/// Versioned, frozen assignment method (#1749, #1973).
+///
+/// `v3` extends `v2` (`normalized-laplacian-row-l2-farthest-first-lloyd-v2`)
+/// with a principled, deterministic treatment of disconnected nodes: nodes on
+/// the main connected component(s) receive the *unchanged* v2 spectral k-means,
+/// and nodes whose embedding row carries no signal (isolated / small components
+/// left over after #1857's `edge_score_threshold` sparsification) are grouped
+/// by connected component and assigned community ids above the spectral range,
+/// ordered by each component's minimum cx_id. On a graph with no degenerate
+/// nodes the method is numerically bit-identical to v2 (`degenerate_node_count`
+/// is 0 and no extra communities are produced).
+const ASSIGNMENT_METHOD_V3: &str =
+    "normalized-laplacian-row-l2-farthest-first-lloyd-v3-disconnected-components";
 const EDGE_WEIGHT: f32 = 0.50;
 const BRIDGE_CENTRALITY_WEIGHT: f32 = 0.35;
 const BRIDGE_FREQUENCY_WEIGHT: f32 = 0.15;
@@ -94,6 +108,12 @@ pub struct SpectralCommunityReport {
     pub node_count: usize,
     pub edge_count: usize,
     pub assignment_method: String,
+    /// Number of nodes that carried no spectral signal (disconnected / isolated
+    /// after #1857 edge sparsification) and were assigned a deterministic
+    /// per-connected-component community rather than the main spectral k-means
+    /// (#1973). `0` for a fully connected graph, in which case the numerics are
+    /// bit-identical to the v2 method.
+    pub degenerate_node_count: usize,
     pub requested_communities: usize,
     pub embedding_dimensions: usize,
     pub cluster_iterations: usize,
@@ -167,7 +187,8 @@ pub fn spectral_community_report(
         schema_version: SPECTRAL_COMMUNITY_SCHEMA_VERSION,
         node_count: graph.node_count(),
         edge_count: graph.edge_count(),
-        assignment_method: "normalized-laplacian-row-l2-farthest-first-lloyd-v2".to_string(),
+        assignment_method: ASSIGNMENT_METHOD_V3.to_string(),
+        degenerate_node_count: clustering.degenerate_node_count,
         requested_communities: params.community_count,
         embedding_dimensions: params.community_count,
         cluster_iterations: clustering.iterations,

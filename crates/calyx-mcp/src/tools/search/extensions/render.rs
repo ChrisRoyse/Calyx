@@ -29,6 +29,16 @@ fn vector_json(vector: SlotVector) -> Value {
         SlotVector::Multi { token_dim, tokens } => {
             json!({ "kind": "multi", "token_dim": token_dim, "tokens": tokens })
         }
+        SlotVector::SegmentedMulti {
+            token_dim,
+            provenance,
+            segments,
+        } => json!({
+            "kind": "segmented_multi",
+            "token_dim": token_dim,
+            "provenance": provenance,
+            "segments": segments,
+        }),
         SlotVector::Absent { reason } => json!({ "kind": "absent", "reason": reason }),
     }
 }

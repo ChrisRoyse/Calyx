@@ -41,11 +41,11 @@ fn issue1497_issue1545_real_bgem3_group_is_one_session_and_one_forward() -> Resu
             .expect("CALYX_BGE_M3_ARTIFACT_ROOT must name the immutable joint artifact"),
     );
     let dense_spec =
-        crate::lens_spec_from_manifest_path(&artifact_root.join("manifest-dense.json"))?;
+        crate::lens_spec_from_manifest_path(artifact_root.join("manifest-dense.json"))?;
     let sparse_spec =
-        crate::lens_spec_from_manifest_path(&artifact_root.join("manifest-sparse.json"))?;
+        crate::lens_spec_from_manifest_path(artifact_root.join("manifest-sparse.json"))?;
     let colbert_spec =
-        crate::lens_spec_from_manifest_path(&artifact_root.join("manifest-colbert.json"))?;
+        crate::lens_spec_from_manifest_path(artifact_root.join("manifest-colbert.json"))?;
     let dense = FastembedBgem3Lens::from_lens_spec(&dense_spec)?;
     let sparse = FastembedBgem3Lens::from_lens_spec(&sparse_spec)?;
     let colbert = FastembedBgem3Lens::from_lens_spec(&colbert_spec)?;

@@ -49,6 +49,8 @@ fn lensforge_manifest_round_trips_to_stable_lens_spec() {
         recall_delta: crate::spec::default_recall_delta(),
         max_batch: None,
         max_tokens: None,
+        representation: None,
+        special_tokens: None,
         batch_policy: None,
     };
     let manifest_path = root.join("manifest.json");
@@ -135,6 +137,8 @@ fn model2vec_manifest_maps_to_static_lookup_runtime() {
         recall_delta: crate::spec::default_recall_delta(),
         max_batch: None,
         max_tokens: None,
+        representation: None,
+        special_tokens: None,
         batch_policy: None,
     };
     let manifest_path = root.join("manifest.json");
@@ -196,6 +200,8 @@ fn candle_fp16_manifest_preserves_runtime_dtype_and_pooling() {
         recall_delta: crate::spec::default_recall_delta(),
         max_batch: None,
         max_tokens: None,
+        representation: None,
+        special_tokens: None,
         batch_policy: None,
     };
     let manifest_path = root.join("manifest.json");
@@ -251,6 +257,8 @@ fn tei_manifest_maps_descriptor_to_http_runtime() {
         recall_delta: crate::spec::default_recall_delta(),
         max_batch: None,
         max_tokens: None,
+        representation: None,
+        special_tokens: None,
         batch_policy: None,
     };
     let manifest_path = root.join("manifest.json");
@@ -272,6 +280,63 @@ fn tei_manifest_maps_descriptor_to_http_runtime() {
         hex_from_bytes(&spec.weights_sha256),
         manifest.artifact_set_sha256.unwrap()
     );
+}
+
+#[test]
+fn segmented_tei_manifest_maps_to_segmented_runtime_with_frozen_window() {
+    let root = temp_root("tei-segmented-runtime");
+    let descriptor_bytes =
+        br#"{"source_hf_id":"freelawproject/modernbert-embed-base_finetune_8192","endpoint":"http://127.0.0.1:8090/embed","dim":768}"#;
+    let descriptor = write(&root, "tei-descriptor.json", descriptor_bytes);
+    let make = |runtime: &str, max_tokens: Option<usize>| LensForgeManifest {
+        name: "domain-modernbert-legal-tei".to_string(),
+        modality: Modality::Text,
+        runtime: runtime.to_string(),
+        dim: 768,
+        shape: None,
+        dtype: "f32".to_string(),
+        weights_sha256: plain_sha256_hex(descriptor_bytes),
+        artifact_set_sha256: Some(artifact_hash(&[descriptor_bytes])),
+        files: vec![file("model", &descriptor, descriptor_bytes)],
+        pooling: "mean".to_string(),
+        norm: "unit".to_string(),
+        source_hf_id: "freelawproject/modernbert-embed-base_finetune_8192".to_string(),
+        endpoint: Some("http://127.0.0.1:8090/embed".to_string()),
+        license: None,
+        non_commercial: false,
+        quant_default: QuantPolicy::turboquant_default(),
+        truncate_dim: None,
+        recall_delta: crate::spec::default_recall_delta(),
+        max_batch: None,
+        max_tokens,
+        representation: None,
+        special_tokens: None,
+        batch_policy: None,
+    };
+
+    let segmented = make("tei-http-segmented", Some(8192));
+    let spec = lens_spec_from_manifest_with_license_override(&segmented, &root, false).unwrap();
+    assert_eq!(spec.output, SlotShape::Multi { token_dim: 768 });
+    match &spec.runtime {
+        LensRuntime::TeiHttpSegmented { endpoint, policy } => {
+            assert_eq!(endpoint, "http://127.0.0.1:8090/embed");
+            assert_eq!(policy.max_input_tokens, 8192);
+            assert_eq!(policy.special_tokens, 2);
+            policy.validate().unwrap();
+        }
+        other => panic!("expected TeiHttpSegmented, got {other:?}"),
+    }
+
+    // A segmented lens mints a distinct frozen identity from the plain
+    // dense TEI lens over the same artifacts/endpoint (v8 re-commission).
+    let dense = make("tei", None);
+    let dense_spec = lens_spec_from_manifest_with_license_override(&dense, &root, false).unwrap();
+    assert_ne!(spec.lens_id(), dense_spec.lens_id());
+
+    // Fail closed when the frozen per-segment window is not declared.
+    let missing = make("tei-http-segmented", None);
+    let err = lens_spec_from_manifest_with_license_override(&missing, &root, false).unwrap_err();
+    assert_eq!(err.code, "CALYX_LENS_CONFIG_INVALID");
 }
 
 #[test]
@@ -309,6 +374,8 @@ fn adapter_manifest_maps_to_multimodal_runtime() {
         recall_delta: 0.03,
         max_batch: None,
         max_tokens: None,
+        representation: None,
+        special_tokens: None,
         batch_policy: None,
     };
 
@@ -347,6 +414,8 @@ fn algorithmic_manifest_supports_sparse_code_lenses_without_artifacts() {
         recall_delta: crate::spec::default_recall_delta(),
         max_batch: None,
         max_tokens: None,
+        representation: None,
+        special_tokens: None,
         batch_policy: None,
     };
     let ast = LensForgeManifest {
@@ -370,6 +439,8 @@ fn algorithmic_manifest_supports_sparse_code_lenses_without_artifacts() {
         recall_delta: crate::spec::default_recall_delta(),
         max_batch: None,
         max_tokens: None,
+        representation: None,
+        special_tokens: None,
         batch_policy: None,
     };
 
@@ -425,6 +496,8 @@ fn noncommercial_manifest_requires_explicit_allow_flag() {
         recall_delta: crate::spec::default_recall_delta(),
         max_batch: None,
         max_tokens: None,
+        representation: None,
+        special_tokens: None,
         batch_policy: None,
     };
 

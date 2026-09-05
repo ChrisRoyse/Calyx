@@ -1,5 +1,5 @@
-use std::collections::BTreeSet;
-use std::fs::{self, File};
+use std::collections::{BTreeMap, BTreeSet};
+use std::fs;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -54,6 +54,15 @@ pub struct VaultPanelState {
     pub registry_snapshot: Option<VaultRegistrySnapshot>,
 }
 
+/// Authenticated frozen panel metadata for operations that only consume vectors
+/// already persisted in Aster. This state deliberately exposes no `Registry`,
+/// so callers cannot accidentally measure inputs or probe historical runtimes.
+#[derive(Clone, Debug, PartialEq)]
+pub struct VaultStoredVectorPanelState {
+    pub panel: Panel,
+    pub registry_snapshot: VaultRegistrySnapshot,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RegistrySnapshotMeasureStats {
     pub input_count: usize,
@@ -100,6 +109,14 @@ pub fn persist_vault_panel_state(
     let mut manifest = store.load_current()?;
     let panel_ref = assets::write_panel_asset(vault_dir, panel)?;
     let registry_ref = assets::write_registry_asset(vault_dir, &panel_ref, registry)?;
+    if manifest.panel_ref == panel_ref && manifest.registry_ref.as_ref() == Some(&registry_ref) {
+        return Ok(VaultPanelWrite {
+            manifest_seq: manifest.manifest_seq,
+            durable_seq: manifest.durable_seq,
+            panel_ref,
+            registry_ref,
+        });
+    }
     manifest.manifest_seq = manifest
         .manifest_seq
         .checked_add(1)
@@ -137,4 +154,76 @@ pub fn load_vault_panel_state(vault_dir: impl AsRef<Path>) -> Result<VaultPanelS
         registry,
         registry_snapshot: snapshot,
     })
+}
+
+/// Loads and validates the immutable panel/registry contract without loading or
+/// contacting any lens runtime. Use this only when every consumed vector is
+/// already stored in the vault.
+pub fn load_vault_stored_vector_panel_state(
+    vault_dir: impl AsRef<Path>,
+) -> Result<VaultStoredVectorPanelState> {
+    let (panel, registry_snapshot, _) = load_vault_panel_contract_components(vault_dir.as_ref())?;
+    Ok(VaultStoredVectorPanelState {
+        panel,
+        registry_snapshot,
+    })
+}
+
+/// Loads the authenticated panel and frozen registry contracts without
+/// reconstructing or probing any external runtime. The returned registry is
+/// deliberately measurement-incapable: callers may inspect roster membership
+/// and validate already-measured vectors, but any local measurement fails
+/// closed.
+pub fn load_vault_panel_contract_state(vault_dir: impl AsRef<Path>) -> Result<VaultPanelState> {
+    let (panel, registry_snapshot, registry) =
+        load_vault_panel_contract_components(vault_dir.as_ref())?;
+    Ok(VaultPanelState {
+        panel,
+        registry,
+        registry_snapshot: Some(registry_snapshot),
+    })
+}
+
+fn load_vault_panel_contract_components(
+    vault_dir: &Path,
+) -> Result<(Panel, VaultRegistrySnapshot, Registry)> {
+    let (_, panel, snapshot) = assets::load_manifest_panel_registry_snapshot(vault_dir)?;
+    let registry = lazy::rebuild_stored_vector_registry(&snapshot)?;
+    let snapshots = snapshot
+        .lenses
+        .iter()
+        .map(|lens| (lens.lens_id, lens))
+        .collect::<BTreeMap<_, _>>();
+
+    for slot in panel
+        .slots
+        .iter()
+        .filter(|slot| !slot.is_compute_on_recall_sidecar())
+    {
+        let lens = snapshots.get(&slot.lens_id).ok_or_else(|| {
+            CalyxError::aster_corrupt_shard(format!(
+                "panel slot {} ({}) references lens {}, but the authenticated registry snapshot has no matching frozen contract",
+                slot.slot_id.get(),
+                slot.slot_key.key(),
+                slot.lens_id
+            ))
+        })?;
+        if !registry.contains(slot.lens_id)
+            || lens.contract.shape() != slot.shape
+            || lens.contract.modality() != slot.modality
+        {
+            return Err(CalyxError::aster_corrupt_shard(format!(
+                "panel slot {} ({}) contract mismatch for lens {}: panel shape={:?} modality={:?}, registry shape={:?} modality={:?}",
+                slot.slot_id.get(),
+                slot.slot_key.key(),
+                slot.lens_id,
+                slot.shape,
+                slot.modality,
+                lens.contract.shape(),
+                lens.contract.modality()
+            )));
+        }
+    }
+
+    Ok((panel, snapshot, registry))
 }

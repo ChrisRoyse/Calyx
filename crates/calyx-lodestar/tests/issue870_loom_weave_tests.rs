@@ -188,6 +188,7 @@ fn synthetic_graph() -> (AssocGraph, Vec<calyx_lodestar::LoomAssocEdgeProvenance
             agreement: 1.0,
             directional_confidence: 0.5,
             edge_weight: 0.5,
+            typed_evidence: None,
         }],
     )
 }

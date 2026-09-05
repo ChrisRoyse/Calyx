@@ -7,8 +7,11 @@ use calyx_core::{
 use calyx_registry::frozen::sha256_digest;
 use calyx_registry::{
     AlgorithmicLens, ExternalCmdLens, FrozenLensContract, LensDType, LensRuntime, LensSpec,
-    NormPolicy, ProfileProbe, Registry, TeiHttpLens,
+    NormPolicy, ProfileProbe, Registry, StructuredBinding, TeiHttpLens, TeiSegmentedLens,
 };
+
+mod segmented;
+mod structured;
 
 use crate::error::{CliError, CliResult};
 
@@ -25,6 +28,7 @@ pub(super) struct BuiltLens {
 enum BuiltRuntime {
     Algorithmic(AlgorithmicLens, FrozenLensContract),
     Tei(TeiHttpLens, FrozenLensContract),
+    TeiSegmented(TeiSegmentedLens, FrozenLensContract),
     External(ExternalCmdLens, FrozenLensContract),
     Declared(DeclaredLens, FrozenLensContract),
 }
@@ -36,6 +40,9 @@ impl BuiltLens {
                 registry.register_frozen_with_spec(lens, contract, self.spec)
             }
             BuiltRuntime::Tei(lens, contract) => {
+                registry.register_frozen_with_spec(lens, contract, self.spec)
+            }
+            BuiltRuntime::TeiSegmented(lens, contract) => {
                 registry.register_frozen_with_spec(lens, contract, self.spec)
             }
             BuiltRuntime::External(lens, contract) => {
@@ -57,13 +64,27 @@ pub(super) fn build_lens(
     modality: Option<&str>,
 ) -> CliResult<BuiltLens> {
     validate_lens_name(name)?;
-    let modality = parse_modality(modality.unwrap_or("text"))?;
     let runtime_key = runtime.replace('_', "-");
+    let default_modality = if runtime_key == "algorithmic:structured" {
+        "structured"
+    } else {
+        "text"
+    };
+    let modality = parse_modality(modality.unwrap_or(default_modality))?;
     if runtime_key == "tei-http" {
         return build_tei_lens(name, endpoint, shape, modality);
     }
+    if runtime_key == "tei-http-segmented" {
+        return segmented::build_segmented_tei_lens(name, endpoint, shape, modality);
+    }
+    if runtime_key == "tei-http-segmented-pooled" {
+        return segmented::build_pooled_segmented_tei_lens(name, endpoint, shape, modality);
+    }
     if runtime_key == "external-cmd" {
         return build_external_lens(name, endpoint, shape, modality);
+    }
+    if runtime_key == "algorithmic:structured" {
+        return structured::build_structured_lens(name, weights, shape, modality);
     }
     if let Some(kind) = runtime_key
         .strip_prefix("algorithmic:")
@@ -76,8 +97,18 @@ pub(super) fn build_lens(
 
 pub(super) fn profile_probes(
     path: Option<&Path>,
-    modality: Modality,
+    registry: &Registry,
+    lens_id: LensId,
 ) -> CliResult<Vec<ProfileProbe>> {
+    let spec = registry
+        .lens_spec(lens_id)
+        .ok_or_else(|| CalyxError::registry_unavailable(format!("lens {lens_id} missing spec")))?;
+    if let LensRuntime::Algorithmic { kind } = &spec.runtime
+        && StructuredBinding::is_runtime_kind(kind)
+    {
+        return structured::structured_profile_probes(path, kind);
+    }
+    let modality = spec.modality;
     let values = if let Some(path) = path {
         fs::read_to_string(path)?
             .lines()
@@ -100,15 +131,6 @@ pub(super) fn profile_probes(
         .collect())
 }
 
-pub(super) fn built_modality(registry: &Registry, lens_id: LensId) -> CliResult<Modality> {
-    registry
-        .lens_spec(lens_id)
-        .map(|spec| spec.modality)
-        .ok_or_else(|| {
-            CalyxError::registry_unavailable(format!("lens {lens_id} missing spec")).into()
-        })
-}
-
 fn build_algorithmic_lens(
     name: &str,
     kind: &str,
@@ -116,92 +138,8 @@ fn build_algorithmic_lens(
     modality: Modality,
 ) -> CliResult<BuiltLens> {
     let requested = shape.map(parse_shape).transpose()?;
-    let lens = match kind {
-        "byte" | "byte-features" => AlgorithmicLens::byte_features(name, modality),
-        "scalar" => AlgorithmicLens::scalar(name, modality),
-        "ast-style" => AlgorithmicLens::ast_style(name, modality),
-        "gdelt-cameo" | "gdelt_cameo" => AlgorithmicLens::gdelt_cameo(name, modality),
-        "gdelt-actor-geo" | "gdelt_actor_geo" => AlgorithmicLens::gdelt_actor_geo(
-            name,
-            modality,
-            sparse_dim(requested.unwrap_or(SlotShape::Sparse(512)))?,
-        ),
-        "gdelt-source-domain" | "gdelt_source_domain" => AlgorithmicLens::gdelt_source_domain(
-            name,
-            modality,
-            sparse_dim(requested.unwrap_or(SlotShape::Sparse(512)))?,
-        ),
-        "gdelt-event-geo" | "gdelt_event_geo" => AlgorithmicLens::gdelt_event_geo(
-            name,
-            modality,
-            sparse_dim(requested.unwrap_or(SlotShape::Sparse(512)))?,
-        ),
-        "gdelt-actor-pair" | "gdelt_actor_pair" => AlgorithmicLens::gdelt_actor_pair(
-            name,
-            modality,
-            sparse_dim(requested.unwrap_or(SlotShape::Sparse(512)))?,
-        ),
-        "gdelt-event-actor" | "gdelt_event_actor" => AlgorithmicLens::gdelt_event_actor(
-            name,
-            modality,
-            sparse_dim(requested.unwrap_or(SlotShape::Sparse(512)))?,
-        ),
-        "gdelt-tone-signal" | "gdelt_tone_signal" => AlgorithmicLens::gdelt_tone_signal(
-            name,
-            modality,
-            sparse_dim(requested.unwrap_or(SlotShape::Sparse(512)))?,
-        ),
-        "gdelt-source-event" | "gdelt_source_event" => AlgorithmicLens::gdelt_source_event(
-            name,
-            modality,
-            sparse_dim(requested.unwrap_or(SlotShape::Sparse(512)))?,
-        ),
-        "sparse" | "sparse-keywords" => AlgorithmicLens::sparse_keywords(
-            name,
-            modality,
-            sparse_dim(requested.unwrap_or(SlotShape::Sparse(30_522)))?,
-        ),
-        "token-hash" | "multi-hash" => AlgorithmicLens::token_hash(
-            name,
-            modality,
-            token_dim(requested.unwrap_or(SlotShape::Multi { token_dim: 16 }))?,
-        ),
-        value if value.starts_with("one-hot:") => {
-            let buckets = value["one-hot:".len()..]
-                .parse::<u32>()
-                .map_err(|err| CliError::usage(format!("parse algorithmic buckets: {err}")))?;
-            AlgorithmicLens::one_hot(name, modality, buckets)
-        }
-        value if value.starts_with("sparse-keywords:") => {
-            let dim = value["sparse-keywords:".len()..]
-                .parse::<u32>()
-                .map_err(|err| CliError::usage(format!("parse sparse keyword dim: {err}")))?;
-            AlgorithmicLens::sparse_keywords(name, modality, dim)
-        }
-        value if value.starts_with("token-hash:") || value.starts_with("multi-hash:") => {
-            let dim = value
-                .split_once(':')
-                .map(|(_, dim)| dim)
-                .expect("prefix matched")
-                .parse::<u32>()
-                .map_err(|err| CliError::usage(format!("parse token dim: {err}")))?;
-            AlgorithmicLens::token_hash(name, modality, dim)
-        }
-        other => {
-            return Err(CliError::usage(format!(
-                "unknown algorithmic runtime kind {other}"
-            )));
-        }
-    };
-    if let Some(requested) = requested
-        && requested != lens.shape()
-    {
-        return Err(CalyxError::lens_dim_mismatch(format!(
-            "requested shape {requested:?} does not match algorithmic {kind} shape {:?}",
-            lens.shape()
-        ))
-        .into());
-    }
+    let declared = requested.unwrap_or(default_algorithmic_shape(kind)?);
+    let lens = AlgorithmicLens::from_runtime_kind(name, modality, kind, declared)?;
     let contract = lens.contract().clone();
     let spec = spec_from_contract(
         name,
@@ -214,6 +152,57 @@ fn build_algorithmic_lens(
         lens_id: contract.lens_id(),
         spec,
         runtime: BuiltRuntime::Algorithmic(lens, contract),
+    })
+}
+
+fn default_algorithmic_shape(kind: &str) -> CliResult<SlotShape> {
+    if StructuredBinding::is_runtime_kind(kind) {
+        return Ok(StructuredBinding::from_runtime_kind(kind)?.shape());
+    }
+    let normalized = kind.to_ascii_lowercase().replace('_', "-");
+    let base = normalized
+        .split_once(':')
+        .map_or(normalized.as_str(), |(base, _)| base);
+    let encoded_dim = normalized
+        .split_once(':')
+        .map(|(_, value)| {
+            value
+                .parse::<u32>()
+                .map_err(|error| CliError::usage(format!("parse algorithmic dimension: {error}")))
+        })
+        .transpose()?;
+    Ok(match base {
+        "byte" | "byte-features" => SlotShape::Dense(16),
+        "scalar" => SlotShape::Dense(1),
+        "ast-style" => SlotShape::Dense(8),
+        "legal-document-structure" => SlotShape::Dense(32),
+        "gdelt-cameo" => SlotShape::Dense(16),
+        "gdelt-actor-geo"
+        | "gdelt-source-domain"
+        | "gdelt-event-geo"
+        | "gdelt-actor-pair"
+        | "gdelt-event-actor"
+        | "gdelt-tone-signal"
+        | "gdelt-source-event"
+        | "gdelt-action-geo"
+        | "gdelt-actor-country"
+        | "gdelt-source-host"
+        | "gdelt-sqldate"
+        | "gdelt-event-code" => SlotShape::Sparse(encoded_dim.unwrap_or(512)),
+        "sparse" | "sparse-keywords" | "sparse-keywords-raw-tf" => {
+            SlotShape::Sparse(encoded_dim.unwrap_or(30_522))
+        }
+        "token-hash" | "multi-hash" => SlotShape::Multi {
+            token_dim: encoded_dim.unwrap_or(16),
+        },
+        "one-hot" => SlotShape::Dense(encoded_dim.ok_or_else(|| {
+            CliError::usage("algorithmic one-hot requires an explicit dimension or shape")
+        })?),
+        other => {
+            return Err(CliError::usage(format!(
+                "unknown algorithmic runtime kind {other}"
+            )));
+        }
     })
 }
 
@@ -345,7 +334,7 @@ fn declared_runtime(
             files: weights.into_iter().map(Path::to_path_buf).collect(),
         }),
         other => Err(CliError::usage(format!(
-            "unknown runtime {other}; expected algorithmic, tei-http, external-cmd, candle-local, onnx, or multimodal-adapter"
+            "unknown runtime {other}; expected algorithmic, tei-http, tei-http-segmented, tei-http-segmented-pooled, external-cmd, candle-local, onnx, or multimodal-adapter"
         ))),
     }
 }
@@ -414,26 +403,6 @@ fn dense_dim(shape: SlotShape) -> CliResult<u32> {
         SlotShape::Dense(dim) => Ok(dim),
         other => Err(CalyxError::lens_dim_mismatch(format!(
             "runtime requires dense output, got {other:?}"
-        ))
-        .into()),
-    }
-}
-
-fn sparse_dim(shape: SlotShape) -> CliResult<u32> {
-    match shape {
-        SlotShape::Sparse(dim) => Ok(dim),
-        other => Err(CalyxError::lens_dim_mismatch(format!(
-            "runtime requires sparse output, got {other:?}"
-        ))
-        .into()),
-    }
-}
-
-fn token_dim(shape: SlotShape) -> CliResult<u32> {
-    match shape {
-        SlotShape::Multi { token_dim } => Ok(token_dim),
-        other => Err(CalyxError::lens_dim_mismatch(format!(
-            "runtime requires multi output, got {other:?}"
         ))
         .into()),
     }

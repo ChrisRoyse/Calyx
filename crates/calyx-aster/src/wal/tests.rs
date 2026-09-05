@@ -422,9 +422,147 @@ fn record_golden_and_edge_cases_are_byte_exact() {
         max_encoded.len(),
         record::HEADER_LEN + record::MAX_RECORD_BYTES as usize
     );
+    // `record::encode` is the single physical-record encoder: one physical
+    // record still caps at MAX_RECORD_BYTES. Logical payloads larger than this
+    // are no longer rejected by the WAL — the writer fragments them across a
+    // CXW2 chain (see `oversized_payload_fragments_and_replays_byte_exact`).
     let too_large = record::encode(9, &[0_u8; record::MAX_RECORD_BYTES as usize + 1])
-        .expect_err("max+1 rejected");
+        .expect_err("max+1 rejected by the single-record encoder");
     assert_eq!(too_large.kind(), ErrorKind::InvalidInput);
+}
+
+#[test]
+fn oversized_payload_fragments_and_replays_byte_exact() {
+    let dir = test_dir("fragment-roundtrip");
+    let mut wal = Wal::open(&dir, WalOptions::default()).expect("open wal");
+
+    let prologue = wal.append(b"prologue").expect("append prologue");
+    // Exceed the per-record cap so the writer must emit a CXW2 fragment chain.
+    let big: Vec<u8> = (0..(record::MAX_RECORD_BYTES as usize + 4096))
+        .map(|index| (index % 251) as u8)
+        .collect();
+    let big_ack = wal.append(&big).expect("append oversized payload");
+    let epilogue = wal.append(b"epilogue").expect("append epilogue");
+    drop(wal);
+
+    // One logical seq per commit; fragmentation does not consume extra seqs.
+    assert_eq!(prologue.seq + 1, big_ack.seq);
+    assert_eq!(big_ack.seq + 1, epilogue.seq);
+    // The whole chain lands in a single segment file (fragments never straddle).
+    assert_ne!(big_ack.segment_path, prologue.segment_path);
+    assert_ne!(big_ack.segment_path, epilogue.segment_path);
+
+    let replay = replay_dir(&dir).expect("replay fragmented wal");
+    assert_eq!(replay.torn_tail, None);
+    assert_eq!(replay.records.len(), 3);
+
+    assert!(!replay.records[0].fragmented);
+    assert_eq!(replay.records[0].payload, b"prologue");
+
+    let reassembled = &replay.records[1];
+    assert_eq!(reassembled.seq, big_ack.seq);
+    assert!(
+        reassembled.fragmented,
+        "oversized commit must reassemble a chain"
+    );
+    assert_eq!(
+        reassembled.payload, big,
+        "fragment chain must round-trip byte-exact"
+    );
+    assert_eq!(reassembled.segment_path, big_ack.segment_path);
+    assert_eq!(reassembled.start_offset, big_ack.start_offset);
+    assert_eq!(reassembled.end_offset, big_ack.end_offset);
+
+    assert!(!replay.records[2].fragmented);
+    assert_eq!(replay.records[2].payload, b"epilogue");
+    cleanup(dir);
+}
+
+#[test]
+fn torn_fragment_chain_tail_discards_whole_logical_record() {
+    let dir = test_dir("fragment-torn");
+    // Large segment so the durable record and the chain share one segment.
+    let options = WalOptions {
+        max_segment_bytes: 512 * 1024 * 1024,
+        ..WalOptions::default()
+    };
+    let mut wal = Wal::open(&dir, options).expect("open wal");
+    let durable = wal.append(b"durable-record").expect("append durable");
+    let big: Vec<u8> = (0..(record::MAX_RECORD_BYTES as usize + 4096))
+        .map(|index| (index % 251) as u8)
+        .collect();
+    let torn = wal.append(&big).expect("append oversized payload");
+    drop(wal);
+    assert_eq!(durable.segment_path, torn.segment_path);
+    assert_eq!(torn.start_offset, durable.end_offset);
+
+    // Truncate inside the first fragment so the chain is incomplete at the tail.
+    let file = OpenOptions::new()
+        .write(true)
+        .open(&torn.segment_path)
+        .expect("open segment for truncation");
+    file.set_len(torn.start_offset + 64)
+        .expect("truncate mid-chain");
+    file.sync_data().expect("fsync truncation");
+    drop(file);
+
+    let replay = replay_dir(&dir).expect("replay torn chain");
+    let tail = replay.torn_tail.expect("torn tail reported");
+    assert_eq!(tail.code, "CALYX_ASTER_TORN_WAL");
+    assert_eq!(tail.offset, torn.start_offset);
+    assert_eq!(replay.records.len(), 1);
+    assert_eq!(replay.records[0].seq, durable.seq);
+    assert_eq!(replay.records[0].payload, b"durable-record");
+    // The entire torn logical record was truncated away.
+    assert_eq!(
+        fs::metadata(&torn.segment_path)
+            .expect("segment metadata")
+            .len(),
+        torn.start_offset
+    );
+    cleanup(dir);
+}
+
+#[test]
+fn logical_payload_above_ceiling_fails_closed_without_disk_pressure() {
+    let dir = test_dir("payload-ceiling");
+    let mut wal = Wal::open(&dir, WalOptions::default()).expect("open wal");
+    let over = vec![0u8; (record::MAX_LOGICAL_PAYLOAD_BYTES + 1) as usize];
+
+    let error = wal
+        .append(&over)
+        .expect_err("payload above ceiling rejected");
+    assert_eq!(error.code, CALYX_WAL_PAYLOAD_TOO_LARGE);
+    assert_ne!(error.code, "CALYX_DISK_PRESSURE");
+    assert!(
+        error.message.contains("single-commit ceiling"),
+        "{}",
+        error.message
+    );
+    // Fail-closed: nothing was written to the WAL.
+    let replay = replay_dir(&dir).expect("replay after rejected append");
+    assert!(replay.records.is_empty());
+    cleanup(dir);
+}
+
+#[test]
+fn legacy_cxw1_segments_still_replay() {
+    let dir = test_dir("legacy-cxw1");
+    // Bytes written by the original single-format encoder must replay unchanged.
+    let first = record::encode(1, b"legacy-one").expect("encode legacy one");
+    let second = record::encode(2, b"legacy-two").expect("encode legacy two");
+    let bytes = [first.as_slice(), second.as_slice()].concat();
+    fs::write(dir.join("00000000000000000000.wal"), &bytes).expect("write legacy segment");
+
+    let replay = replay_dir(&dir).expect("replay legacy segment");
+    assert_eq!(replay.torn_tail, None);
+    assert_eq!(replay.records.len(), 2);
+    assert_eq!(replay.records[0].seq, 1);
+    assert_eq!(replay.records[0].payload, b"legacy-one");
+    assert!(!replay.records[0].fragmented);
+    assert_eq!(replay.records[1].seq, 2);
+    assert_eq!(replay.records[1].payload, b"legacy-two");
+    cleanup(dir);
 }
 
 #[test]
@@ -460,6 +598,169 @@ proptest! {
         }
         cleanup(dir);
     }
+}
+
+#[test]
+fn recover_tip_seq_reads_highest_seq_without_materializing_payloads() {
+    // Issue #1992: attaching a fresh write handle to a large multi-segment WAL
+    // must recover next_seq via header-seek scans, not by decoding every
+    // payload into the heap. The final record is multi-MiB, so a payload-
+    // materializing recovery would copy it; the header-only path reads none.
+    let dir = test_dir("recover-tip-seq");
+    let options = WalOptions {
+        max_segment_bytes: 64,
+        ..WalOptions::default()
+    };
+    let mut wal = Wal::open(&dir, options).expect("open wal");
+    for index in 0..6u8 {
+        wal.append(format!("tip-record-{index:03}").as_bytes())
+            .expect("append");
+    }
+    let big = vec![0xAB_u8; 4 * 1024 * 1024];
+    let last = wal.append(&big).expect("append big");
+    drop(wal);
+
+    // Segments actually rolled, so this exercises the backwards multi-segment
+    // scan, and the tip is the highest committed seq.
+    assert!(super::segment::list_segments(&dir).unwrap().len() >= 2);
+    let tip = super::recover_tip_seq_locked(&dir).expect("recover tip");
+    assert_eq!(tip, last.seq);
+    cleanup(dir);
+}
+
+#[test]
+fn recover_tip_seq_is_zero_for_empty_wal() {
+    let dir = test_dir("recover-tip-empty");
+    let _wal = Wal::open(&dir, WalOptions::default()).expect("open empty wal");
+    assert_eq!(super::recover_tip_seq_locked(&dir).expect("recover"), 0);
+    cleanup(dir);
+}
+
+#[test]
+fn recover_tip_seq_walks_back_over_empty_newest_segment() {
+    // A freshly rotated newest segment can be empty; recovery must walk back to
+    // the previous non-empty segment for the highest seq.
+    let dir = test_dir("recover-tip-walkback");
+    let options = WalOptions {
+        max_segment_bytes: 1,
+        ..WalOptions::default()
+    };
+    let mut wal = Wal::open(&dir, options).expect("open wal");
+    let last = wal.append(b"only-record").expect("append");
+    drop(wal);
+    let next_index = super::segment::list_segments(&dir)
+        .unwrap()
+        .last()
+        .unwrap()
+        .0
+        + 1;
+    fs::write(dir.join(format!("{next_index:020}.wal")), b"").expect("empty segment");
+
+    assert_eq!(
+        super::recover_tip_seq_locked(&dir).expect("recover"),
+        last.seq
+    );
+    cleanup(dir);
+}
+
+#[test]
+fn fresh_handle_refreshes_next_seq_after_external_multi_segment_appends() {
+    // The wal-prune / ingest reproduction: a handle whose cached active segment
+    // is stale must recover the correct next_seq through the header-seek
+    // refresh path (issue #1992) and append at the contiguous next seq — never
+    // via a payload-materializing full replay.
+    let dir = test_dir("external-refresh");
+    let options = WalOptions {
+        max_segment_bytes: 1,
+        ..WalOptions::default()
+    };
+    let mut first = Wal::open(&dir, options).expect("open first");
+    assert_eq!(first.append(b"r1").expect("append r1").seq, 1);
+
+    {
+        let mut second = Wal::open(&dir, options).expect("open second");
+        for index in 0..5u8 {
+            second
+                .append(format!("ext-{index}").as_bytes())
+                .expect("external append");
+        }
+    }
+
+    let next = first
+        .append(b"after-refresh")
+        .expect("append after refresh");
+    assert_eq!(next.seq, 7, "next_seq must recover to the external tip + 1");
+
+    drop(first);
+    let replay = replay_dir(&dir).expect("replay");
+    assert_eq!(
+        replay
+            .records
+            .iter()
+            .map(|record| record.seq)
+            .collect::<Vec<_>>(),
+        (1..=7).collect::<Vec<_>>(),
+        "seqs must be contiguous with no gaps or duplicates"
+    );
+    cleanup(dir);
+}
+
+#[test]
+fn for_each_record_payload_after_skips_below_floor_and_reuses_buffer() {
+    let dir = test_dir("payload-after-floor");
+    let options = WalOptions {
+        max_segment_bytes: 1,
+        ..WalOptions::default()
+    };
+    let mut wal = Wal::open(&dir, options).expect("open wal");
+    for index in 0..6u8 {
+        wal.append(format!("payload-{index}").as_bytes())
+            .expect("append");
+    }
+    drop(wal);
+
+    // Floor 3: seqs 1..=3 header-skipped (no payload read), seqs 4..=6 decoded.
+    let mut seen = Vec::new();
+    super::for_each_record_payload_after(&dir, 3, |seq, payload| {
+        seen.push((seq, payload.to_vec()));
+        Ok(true)
+    })
+    .expect("scan");
+    assert_eq!(
+        seen,
+        vec![
+            (4, b"payload-3".to_vec()),
+            (5, b"payload-4".to_vec()),
+            (6, b"payload-5".to_vec()),
+        ]
+    );
+    cleanup(dir);
+}
+
+#[test]
+fn for_each_record_payload_reverse_visits_newest_first_and_stops_early() {
+    let dir = test_dir("payload-reverse");
+    let options = WalOptions {
+        max_segment_bytes: 1,
+        ..WalOptions::default()
+    };
+    let mut wal = Wal::open(&dir, options).expect("open wal");
+    for index in 0..5u8 {
+        wal.append(format!("rev-{index}").as_bytes())
+            .expect("append");
+    }
+    drop(wal);
+
+    // Stop after the first (newest) record: proves newest-first + early stop, so
+    // a bounded lookup never decodes the whole WAL.
+    let mut visited = Vec::new();
+    super::for_each_record_payload_reverse(&dir, |seq, payload| {
+        visited.push((seq, payload.to_vec()));
+        Ok(false)
+    })
+    .expect("reverse scan");
+    assert_eq!(visited, vec![(5, b"rev-4".to_vec())]);
+    cleanup(dir);
 }
 
 fn assert_torn_contains(bytes: &[u8], expected: &str) {

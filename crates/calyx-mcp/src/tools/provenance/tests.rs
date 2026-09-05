@@ -170,8 +170,15 @@ fn missing_aster_ledger_state_maps_to_aster_corrupt_for_mcp() {
 
 #[test]
 fn reproduce_missing_and_mismatch_fail_closed() {
+    // Absent subject (zero ledger rows) -> reproduce-discipline insufficiency,
+    // NOT an access-control denial (issue #1865). Envelope must match calyx-cli.
     let missing = core::reproduce_report(&[], b"missing").unwrap_err();
-    assert_eq!(err_code(&missing), "CALYX_VAULT_ACCESS_DENIED");
+    assert_eq!(err_code(&missing), "CALYX_REPRODUCE_INSUFFICIENT");
+    assert!(
+        tool_error_message(&missing).contains("is absent (no ledger rows)"),
+        "absent message: {}",
+        tool_error_message(&missing)
+    );
     let answer_id = b"answer-1".to_vec();
     let entry = LedgerEntry::new(
         0,
@@ -214,6 +221,66 @@ fn reproduce_rejects_malformed_reproduce_payload() {
 
     assert_eq!(err_code(&err), "CALYX_LEDGER_CORRUPT");
     assert!(tool_error_message(&err).contains("decode ledger payload seq=7 kind=Admin"));
+}
+
+fn answer_row(answer_id: &[u8], seq: u64, payload: Value) -> LedgerEntry {
+    LedgerEntry::new(
+        seq,
+        [0; 32],
+        EntryKind::Answer,
+        SubjectId::Query(answer_id.to_vec()),
+        serde_json::to_vec(&payload).unwrap(),
+        ActorId::Service("unit".to_string()),
+        1,
+    )
+}
+
+#[test]
+fn reproduce_completed_answer_without_reproduce_row_is_insufficient() {
+    let answer_id = b"answer-complete".to_vec();
+    let completion = answer_row(
+        &answer_id,
+        0,
+        json!({"type": "kernel_answer_v2", "answer_id": core::hex(&answer_id), "complete": true}),
+    );
+
+    let err = core::reproduce_report(&[completion], &answer_id).unwrap_err();
+
+    assert_eq!(err_code(&err), "CALYX_REPRODUCE_INSUFFICIENT");
+    assert!(
+        tool_error_message(&err)
+            .contains("has a completed answer but no recorded reproduce evidence"),
+        "completed message: {}",
+        tool_error_message(&err)
+    );
+}
+
+#[test]
+fn reproduce_incomplete_lifecycle_is_insufficient() {
+    let answer_id = b"answer-partial".to_vec();
+    let hops: Vec<LedgerEntry> = (0..3_u64)
+        .map(|hop_index| {
+            answer_row(
+                &answer_id,
+                hop_index,
+                json!({
+                    "type": "kernel_answer_hop_v1",
+                    "answer_id": core::hex(&answer_id),
+                    "hop_index": hop_index,
+                }),
+            )
+        })
+        .collect();
+
+    let err = core::reproduce_report(&hops, &answer_id).unwrap_err();
+
+    assert_eq!(err_code(&err), "CALYX_REPRODUCE_INSUFFICIENT");
+    assert!(
+        tool_error_message(&err)
+            .contains("lifecycle is incomplete or aborted (3 rows, no completion)"),
+        "incomplete message: {}",
+        tool_error_message(&err)
+    );
 }
 
 #[test]

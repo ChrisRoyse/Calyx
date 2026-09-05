@@ -16,8 +16,8 @@ use std::sync::{Arc, RwLock};
 /// Default per-CF compaction target used for debt scoring (PRD 24 §8).
 pub const DEFAULT_COMPACTION_TARGET_BYTES: u64 = 64 * 1024 * 1024;
 const WRITE_AMP_SCALE: u64 = 1_000;
-const COMPACTION_ADOPTION_FIRST_INDEX: usize = 9_000;
-const COMPACTION_ADOPTION_LAST_INDEX: usize = 9_999;
+pub(crate) const COMPACTION_ADOPTION_FIRST_INDEX: usize = 9_000;
+pub(crate) const COMPACTION_ADOPTION_LAST_INDEX: usize = 9_999;
 
 pub(crate) use rolling::RollingSstWriter;
 use rolling::compact_shards_with_target;

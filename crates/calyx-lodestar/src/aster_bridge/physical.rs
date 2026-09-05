@@ -1,13 +1,17 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use calyx_aster::plain_graph::PhysicalPlainGraph;
-use calyx_core::{AnchorKind, CxId, Ts};
+use calyx_core::{AnchorKind, CalyxError, CxId, Ts};
 use calyx_paths::AssocGraph;
 
 use crate::scope::{AssocStore, CollectionId, FilterExpr, TenantId};
-use crate::{LodestarError, Result};
+use crate::{LodestarError, RecallTestParams, Result};
 
-use super::{AsterAssocNodeProps, DEFAULT_ASTER_ASSOC_COLLECTION, PhysicalAsterAssocSnapshot};
+use super::recall::build_recall_inputs;
+use super::{
+    ASTER_ASSOC_METADATA_KEY, AsterAssocMetadata, AsterAssocNodeProps, AsterRecallInputs,
+    PhysicalAsterAssocSnapshot,
+};
 
 impl PhysicalAsterAssocSnapshot {
     pub fn latest(vault_dir: impl AsRef<std::path::Path>, collection: &str) -> Result<Self> {
@@ -32,7 +36,23 @@ impl PhysicalAsterAssocSnapshot {
                 ),
             });
         }
-        Ok(Self { graph, props })
+        let metadata = plain
+            .get_metadata(ASTER_ASSOC_METADATA_KEY)?
+            .map(|bytes| {
+                serde_json::from_slice::<AsterAssocMetadata>(&bytes).map_err(|error| {
+                    LodestarError::KernelIndexCodec {
+                        detail: format!("decode physical Aster assoc metadata: {error}"),
+                    }
+                })
+            })
+            .transpose()?
+            .unwrap_or_default();
+        Ok(Self {
+            graph,
+            props,
+            metadata,
+            collection: collection.to_string(),
+        })
     }
 
     pub fn node_props(&self, id: CxId) -> Result<&AsterAssocNodeProps> {
@@ -42,6 +62,31 @@ impl PhysicalAsterAssocSnapshot {
                 detail: format!("physical Aster graph node {id} is missing node props"),
             })
     }
+
+    pub fn metadata(&self) -> &AsterAssocMetadata {
+        &self.metadata
+    }
+
+    /// Re-derives recall inputs purely from the physical graph CF readback
+    /// (node props + sealed metadata), so an FSV can prove the panel corpus and
+    /// its per-lane recall are grounded in the on-disk bytes — not the live vault.
+    /// Resolves through the same sealed-contract logic as the live snapshot.
+    pub fn panel_recall_inputs(
+        &self,
+        params: RecallTestParams,
+    ) -> std::result::Result<Option<AsterRecallInputs>, CalyxError> {
+        let nodes = self
+            .props
+            .iter()
+            .map(|(id, props)| (*id, props.clone()))
+            .collect::<Vec<_>>();
+        build_recall_inputs(
+            &self.metadata,
+            nodes,
+            format!("aster:{}@physical", self.collection),
+            params,
+        )
+    }
 }
 
 impl AssocStore for PhysicalAsterAssocSnapshot {
@@ -50,7 +95,7 @@ impl AssocStore for PhysicalAsterAssocSnapshot {
     }
 
     fn collection_nodes(&self, id: &CollectionId) -> Result<Option<BTreeSet<CxId>>> {
-        if id.0 != DEFAULT_ASTER_ASSOC_COLLECTION {
+        if id.0 != self.collection {
             return Ok(None);
         }
         Ok(Some(self.graph.node_ids().collect()))

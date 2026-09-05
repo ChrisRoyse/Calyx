@@ -8,6 +8,8 @@ mod __calyx_shared_memory_assoc_support_mod_rs;
 mod issue1013_lp_mincut_solver_fsv;
 #[path = "issue1203_cross_vault_chain_tests.rs"]
 mod issue1203_cross_vault_chain_tests;
+#[path = "issue1860_panel_summarize_recall_fsv.rs"]
+mod issue1860_panel_summarize_recall_fsv;
 #[path = "issue576_summarize_tests.rs"]
 mod issue576_summarize_tests;
 #[path = "issue577_ph72_integration_fsv.rs"]

@@ -1,0 +1,15 @@
+{
+  "physical_opinions_n": 12596,
+  "dissents_n": 55,
+  "concurrence_family_n": 42,
+  "opinion_type_counts": {
+    "majority_and_other": 12499,
+    "dissent": 55,
+    "concurrence": 30,
+    "concurrence_in_judgment": 12
+  },
+  "citation_overlay": {
+    "accepted_unique_edges_n": 28834,
+    "edges_targeting_dissents_n": 0
+  }
+}

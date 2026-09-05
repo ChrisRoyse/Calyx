@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 #[cfg(test)]
 use std::collections::BTreeMap;
 use std::collections::BTreeSet;
@@ -103,14 +104,26 @@ pub(super) fn search(
     if k == 0 {
         return Ok(Vec::new());
     }
-    let SlotVector::Multi {
-        token_dim,
-        tokens: query_tokens,
-    } = query
-    else {
-        return Err(stale(format!(
-            "persistent multi search slot {slot} received non-multi query"
-        )));
+    let (token_dim, query_tokens): (u32, Cow<'_, [Vec<f32>]>) = match query {
+        SlotVector::Multi { token_dim, tokens } => (*token_dim, Cow::Borrowed(tokens)),
+        SlotVector::SegmentedMulti {
+            token_dim,
+            segments,
+            ..
+        } => (
+            *token_dim,
+            Cow::Owned(
+                segments
+                    .iter()
+                    .map(|segment| segment.data.clone())
+                    .collect(),
+            ),
+        ),
+        _ => {
+            return Err(stale(format!(
+                "persistent multi search slot {slot} received non-multi query"
+            )));
+        }
     };
     query.validate_schema().map_err(|err| {
         stale(format!(
@@ -118,7 +131,7 @@ pub(super) fn search(
             err.message
         ))
     })?;
-    if entry.require_token_dim(slot)? != *token_dim {
+    if entry.require_token_dim(slot)? != token_dim {
         return Err(stale(format!(
             "persistent multi slot {slot} token_dim {} != query token_dim {token_dim}; reingest/backfill the vault",
             entry.require_token_dim(slot)?
@@ -131,7 +144,7 @@ pub(super) fn search(
             entry,
             manifest_base_seq,
             slot,
-            query_tokens,
+            query_tokens.as_ref(),
             k,
             candidates,
         )
@@ -141,14 +154,59 @@ pub(super) fn search(
             entry,
             manifest_base_seq,
             slot,
-            query_tokens,
+            query_tokens.as_ref(),
             k,
             candidates,
         )
     } else {
         let index = read_json(vault_dir, entry, manifest_base_seq, slot)?;
-        Ok(ranked(top_k(score(&index, query_tokens, candidates), k)))
+        Ok(ranked(top_k(
+            score(&index, query_tokens.as_ref(), candidates),
+            k,
+        )))
     }
+}
+
+/// Forced GPU multi-vector candidate search (#1963/#1997). Candidate scores
+/// are not evidence: the downstream panel rerank recomputes exact MaxSim.
+/// Search the token CAGRA sidecar here and return its document-ID union.
+#[cfg(feature = "cuda")]
+pub(super) fn search_gpu_forced(
+    vault_dir: &Path,
+    entry: &SearchIndexEntry,
+    _manifest_base_seq: u64,
+    slot: SlotId,
+    query: &SlotVector,
+    k: usize,
+    cache: &TokenAnnCache,
+) -> CliResult<Vec<IndexSearchHit>> {
+    let mut rows = token_ann::search_gpu_batch(
+        vault_dir,
+        entry,
+        slot,
+        std::slice::from_ref(query),
+        k,
+        cache,
+    )?;
+    Ok(rows.pop().expect("one token ANN query row"))
+}
+
+#[cfg(feature = "cuda")]
+pub(super) fn search_gpu_forced_batch(
+    vault_dir: &Path,
+    entry: &SearchIndexEntry,
+    _manifest_base_seq: u64,
+    slot: SlotId,
+    queries: &[SlotVector],
+    k: usize,
+    cache: &TokenAnnCache,
+) -> CliResult<Vec<Vec<IndexSearchHit>>> {
+    if entry.kind != "multi_maxsim_segments" {
+        return Err(stale(format!(
+            "persistent multi GPU candidate batch slot {slot} requires a segmented MaxSim index with a token ANN sidecar; rebuild the vault search indexes"
+        )));
+    }
+    token_ann::search_gpu_batch(vault_dir, entry, slot, queries, k, cache)
 }
 
 pub(super) fn ensure_bounded_sidecar(
@@ -157,20 +215,55 @@ pub(super) fn ensure_bounded_sidecar(
     slot: SlotId,
 ) -> CliResult {
     if entry.kind == "multi_maxsim_segments" {
+        #[cfg(feature = "cuda")]
+        {
+            let manifest =
+                segments::read_segments_manifest(vault_dir, entry, entry.built_at_seq, slot)?;
+            let specs = segments::pinned_segment_specs(
+                vault_dir,
+                slot,
+                entry.require_token_dim(slot)?,
+                &manifest,
+            )?;
+            // The verified resident decode is itself the strongest bounded
+            // validation pass. Populate it here so candidate rerank reuses
+            // the same generation instead of rereading and rehashing every
+            // multi-GiB segment immediately afterward.
+            let _ = pinned::pinned_index(vault_dir, entry, slot, &specs)?;
+            let mut files = vec![segments_manifest_file(vault_dir, entry, slot)?];
+            files.extend(specs.iter().map(|spec| pinned::BoundedSegmentFile {
+                path: spec.path.clone(),
+                index_rel: spec.index_rel.clone(),
+                expected_bytes: spec.byte_len,
+            }));
+            pinned::memoize_bounded_segment_files(
+                vault_dir,
+                slot,
+                entry.require_sha256(slot)?,
+                files,
+            )?;
+            return Ok(());
+        }
+        #[cfg(not(feature = "cuda"))]
         let entry_sha256 = entry.require_sha256(slot)?;
+        #[cfg(not(feature = "cuda"))]
         if let Some(files) = pinned::memoized_bounded_segment_files(vault_dir, slot, entry_sha256)?
         {
             return pinned::stat_check_segment_files(slot, &files);
         }
+        #[cfg(not(feature = "cuda"))]
         let manifest =
             segments::read_segments_manifest(vault_dir, entry, entry.built_at_seq, slot)?;
+        #[cfg(not(feature = "cuda"))]
         let mut files = vec![segments_manifest_file(vault_dir, entry, slot)?];
+        #[cfg(not(feature = "cuda"))]
         files.extend(segments::validate_segment_files(
             vault_dir,
             slot,
             entry.require_token_dim(slot)?,
             &manifest,
         )?);
+        #[cfg(not(feature = "cuda"))]
         pinned::memoize_bounded_segment_files(vault_dir, slot, entry_sha256, files)?;
     } else if binary::is_binary_sidecar(entry.require_index_rel(slot)?) {
         ensure_binary_entry_bounded(vault_dir, entry, slot)?;
@@ -327,6 +420,11 @@ pub(super) fn predicted_pin_bytes(entry: &SearchIndexEntry, token_dim: u32) -> C
 #[path = "multi/segments.rs"]
 mod segments;
 
+#[path = "multi/token_ann.rs"]
+mod token_ann;
+#[cfg(feature = "cuda")]
+pub(in crate::persisted) use token_ann::TokenAnnCache;
+
 fn validate(
     index: &MultiIndex,
     entry: &SearchIndexEntry,
@@ -439,13 +537,22 @@ pub(super) fn validate_entry(
     slot: SlotId,
 ) -> CliResult {
     if entry.kind == "multi_maxsim_segments" {
-        return ensure_bounded_sidecar(vault_dir, entry, slot);
+        ensure_bounded_sidecar(vault_dir, entry, slot)?;
+        return token_ann::validate_entry(vault_dir, entry, slot);
     }
     if binary::is_binary_sidecar(entry.require_index_rel(slot)?) {
         return ensure_binary_entry_bounded(vault_dir, entry, slot);
     }
     let _ = read_json(vault_dir, entry, manifest_base_seq, slot)?;
     Ok(())
+}
+
+pub(super) fn validate_token_ann_gpu_assets(
+    vault_dir: &Path,
+    entry: &SearchIndexEntry,
+    slot: SlotId,
+) -> CliResult {
+    token_ann::validate_gpu_assets(vault_dir, entry, slot)
 }
 
 #[cfg(test)]

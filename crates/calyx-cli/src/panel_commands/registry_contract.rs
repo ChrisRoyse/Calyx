@@ -4,6 +4,7 @@ use calyx_core::{CalyxError, Modality, SlotId, SlotShape};
 use calyx_registry::{
     RegistryContractAudit, RegistryContractRepairChange, VaultRegistryContractRepairAllWrite,
     VaultRegistryContractRepairWrite, audit_vault_registry_contracts, load_vault_panel_state,
+    load_vault_stored_vector_panel_state, registry_contract_audit_error,
     repair_vault_registry_contracts_from_specs, repair_vault_registry_slot_from_spec,
 };
 use serde::Serialize;
@@ -78,8 +79,19 @@ pub(super) fn registry_audit(args: &[String]) -> CliResult {
     let vault = resolve_registry_vault(&flags.vault)?;
     let audit = audit_vault_registry_contracts(&vault)?;
     let valid = audit.valid;
+    // The contract-drift audit compares every frozen registry lens with its
+    // derivation spec, but stored-vector consumers have an additional
+    // invariant: every persisted panel slot except an explicit
+    // compute-on-recall sidecar must resolve to one of those authenticated
+    // frozen contracts. Exercise the same loader used by weave/search before
+    // reporting this vault as valid so an incomplete snapshot cannot receive
+    // a false-green audit (#2012).
+    if valid {
+        load_vault_stored_vector_panel_state(&vault)?;
+    }
     let checked_count = audit.checked_count;
     let diff_count = audit.diffs.len();
+    let report_audit = audit.clone();
     print_json(&RegistryAuditReport {
         status: if valid {
             "registry_contracts_valid"
@@ -97,13 +109,12 @@ pub(super) fn registry_audit(args: &[String]) -> CliResult {
     if valid {
         Ok(())
     } else {
-        Err(CliError::from(CalyxError {
-            code: "CALYX_REGISTRY_CONTRACT_DRIFT",
-            message: format!(
-                "persisted registry contract audit failed for {diff_count} of {checked_count} lens(es); see stdout audit report for per-lens diffs"
-            ),
-            remediation: "run `calyx panel registry-repair --vault <vault> --slot <slot>` after inspecting the emitted registry diff",
-        }))
+        // Dispatch through the shared classifier so a drift fully explained by
+        // a recorded derivation change reports as a typed migration event with
+        // its policy delta. Pointing an operator at `registry-repair` for a
+        // measurement-changing drift would send them at a path that now
+        // (correctly) refuses them.
+        Err(CliError::from(registry_contract_audit_error(&report_audit)))
     }
 }
 

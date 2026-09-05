@@ -1,8 +1,6 @@
 use calyx_aster::vault::AsterVault;
 use calyx_core::{CalyxError, Clock, SlotId};
-use calyx_lodestar::{
-    AsterAssocMetadata, PANEL_ASTER_ASSOC_COLLECTION, PANEL_RRF_K, write_assoc_metadata,
-};
+use calyx_lodestar::{AsterAssocMetadata, PANEL_RRF_K, write_assoc_metadata};
 use serde::Serialize;
 
 use super::WeaveLoomArgs;
@@ -16,6 +14,10 @@ pub(super) struct GraphContract {
     graph_source_seq: u64,
     knn: usize,
     edge_score_threshold: f32,
+    /// Candidate-generation device pinned in provenance (#1963). Candidate sets
+    /// may differ CPU-vs-GPU (both valid under the recall contract); the
+    /// per-pair similarity evidence is bit-identical regardless.
+    candidate_device: &'static str,
 }
 
 impl GraphContract {
@@ -27,19 +29,24 @@ impl GraphContract {
     ) -> Self {
         Self {
             embedding_slots,
-            fusion: "rrf",
+            fusion: "typed_block_rrf",
             rrf_k: PANEL_RRF_K,
             panel_version,
             graph_source_seq,
             knn: args.knn,
             edge_score_threshold: args.edge_score_threshold,
+            candidate_device: args.candidate_device.as_str(),
         }
     }
 
-    pub(super) fn persist<C: Clock>(&self, vault: &AsterVault<C>) -> Result<(), CalyxError> {
+    pub(super) fn persist<C: Clock>(
+        &self,
+        vault: &AsterVault<C>,
+        storage_collection: &str,
+    ) -> Result<(), CalyxError> {
         write_assoc_metadata(
             vault,
-            PANEL_ASTER_ASSOC_COLLECTION,
+            storage_collection,
             &AsterAssocMetadata {
                 retention_horizon: None,
                 embedding_slot: None,

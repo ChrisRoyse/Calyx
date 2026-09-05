@@ -21,8 +21,6 @@ mod dedup_audit_readback;
 mod dedup_rolled_undo_readback;
 #[path = "issue757_summarize_cli.rs"]
 mod issue757_summarize_cli;
-#[path = "leapable_issue612.rs"]
-mod leapable_issue612;
 #[path = "manifest_readback_show_manifest_fsv.rs"]
 mod manifest_readback_show_manifest_fsv;
 #[path = "ph42_readback_schema.rs"]

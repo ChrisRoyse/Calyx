@@ -1,6 +1,9 @@
 //! Vault-owned retained source bytes used for deterministic replay.
 
-use std::fs::{self, OpenOptions};
+mod pending;
+mod permissions;
+
+use std::fs;
 use std::io::{ErrorKind, Write};
 use std::path::{Component, Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -9,23 +12,52 @@ use calyx_core::{CalyxError, Input, InputRef, Modality, Result};
 
 use crate::cf::full_content_hash;
 
+pub(crate) use pending::{
+    PendingRetentionBatch, pending_entries_exist, reconcile_pending_retained_inputs, rollback_error,
+};
+
 pub const VAULT_INPUT_POINTER_PREFIX: &str = "calyx-vault://inputs/";
 pub const CALYX_INPUT_POINTER_INVALID: &str = "CALYX_INPUT_POINTER_INVALID";
 pub const CALYX_INPUT_BLOB_WRITE_FAILED: &str = "CALYX_INPUT_BLOB_WRITE_FAILED";
 pub const CALYX_INPUT_BLOB_UNAVAILABLE: &str = "CALYX_INPUT_BLOB_UNAVAILABLE";
 pub const CALYX_INPUT_BLOB_HASH_MISMATCH: &str = "CALYX_INPUT_BLOB_HASH_MISMATCH";
+pub const CALYX_INPUT_RETENTION_REQUIRES_DURABLE_VAULT: &str =
+    "CALYX_INPUT_RETENTION_REQUIRES_DURABLE_VAULT";
+pub const CALYX_INPUT_RETENTION_ROLLBACK_FAILED: &str = "CALYX_INPUT_RETENTION_ROLLBACK_FAILED";
+pub const CALYX_INPUT_RETENTION_RECONCILIATION_REQUIRED: &str =
+    "CALYX_INPUT_RETENTION_RECONCILIATION_REQUIRED";
+pub const CALYX_INPUT_PERMISSIONS_UNSAFE: &str = "CALYX_INPUT_PERMISSIONS_UNSAFE";
 
 const INPUT_DIR: &str = "inputs";
 static NEXT_TEMP: AtomicU64 = AtomicU64::new(0);
 
-/// Retains text bytes under their raw BLAKE3 digest and returns a replayable input.
-pub fn retain_text_input(vault_dir: &Path, text: &str) -> Result<Input> {
+/// Prepares a replayable text input without mutating durable vault state.
+///
+/// Ingest callers must hand the measured constellation and these exact bytes to
+/// an Aster retained-input commit primitive. Preparing an input is deliberately
+/// pure so lens/preflight failures cannot strand source objects.
+pub fn prepare_text_input(text: &str) -> Input {
     let bytes = text.as_bytes();
     let hash = raw_input_hash(bytes);
     let pointer = canonical_text_pointer(&hash);
-    let path = retained_pointer_path(vault_dir, &pointer)?;
+    Input::new(Modality::Text, bytes).with_pointer(pointer)
+}
+
+/// Retains text bytes immediately for explicit non-ingest callers.
+///
+/// Production ingest uses [`prepare_text_input`] plus the Aster-owned commit
+/// boundary. This compatibility surface remains for fixtures and migrations
+/// that intentionally install an object outside constellation creation.
+pub fn retain_text_input(vault_dir: &Path, text: &str) -> Result<Input> {
+    let input = prepare_text_input(text);
+    let pointer = input
+        .pointer
+        .as_deref()
+        .expect("prepared retained text always has a pointer");
+    let bytes = input.bytes.as_slice();
+    let path = retained_pointer_path(vault_dir, pointer)?;
     install_blob(&path, bytes)?;
-    let readback = read_retained_bytes(vault_dir, &pointer, &hash)?;
+    let readback = read_retained_bytes(vault_dir, pointer, &raw_input_hash(bytes))?;
     if readback != bytes {
         return Err(input_error(
             CALYX_INPUT_BLOB_HASH_MISMATCH,
@@ -66,13 +98,8 @@ pub fn read_retained_bytes(
     expected_hash: &[u8; 32],
 ) -> Result<Vec<u8>> {
     let path = retained_pointer_path(vault_dir, pointer)?;
-    let bytes = fs::read(&path).map_err(|error| {
-        input_error(
-            CALYX_INPUT_BLOB_UNAVAILABLE,
-            format!("read retained input {}: {error}", path.display()),
-            "restore the named vault input blob from authoritative source bytes",
-        )
-    })?;
+    permissions::validate_private_directory(&vault_dir.join(INPUT_DIR))?;
+    let bytes = permissions::read_private_file(&path, false)?;
     verify_input_hash(&bytes, expected_hash, pointer, &path)?;
     Ok(bytes)
 }
@@ -121,18 +148,13 @@ fn validate_pointer_syntax(pointer: &str) -> Result<&str> {
 }
 
 fn install_blob(path: &Path, bytes: &[u8]) -> Result<()> {
-    match fs::read(path) {
-        Ok(existing) => return verify_exact_existing(path, &existing, bytes),
-        Err(error) if error.kind() == ErrorKind::NotFound => {}
-        Err(error) => return Err(write_error(format!("read {}: {error}", path.display()))),
-    }
     let parent = path
         .parent()
         .ok_or_else(|| write_error(format!("retained input {} has no parent", path.display())))?;
-    fs::create_dir_all(parent)
-        .map_err(|error| write_error(format!("create {}: {error}", parent.display())))?;
-    crate::fsync::sync_parent(parent, "retained input directory")
-        .map_err(|error| write_error(error.to_string()))?;
+    permissions::ensure_private_directory(parent)?;
+    if let Some(existing) = permissions::read_private_file_if_exists(path, true)? {
+        return verify_exact_existing(path, &existing, bytes);
+    }
 
     let temp = path.with_extension(format!(
         "bin.tmp-{}-{}",
@@ -140,11 +162,7 @@ fn install_blob(path: &Path, bytes: &[u8]) -> Result<()> {
         NEXT_TEMP.fetch_add(1, Ordering::Relaxed)
     ));
     let write_result = (|| {
-        let mut file = OpenOptions::new()
-            .create_new(true)
-            .write(true)
-            .open(&temp)
-            .map_err(|error| write_error(format!("create {}: {error}", temp.display())))?;
+        let mut file = permissions::create_private_file(&temp)?;
         file.write_all(bytes)
             .map_err(|error| write_error(format!("write {}: {error}", temp.display())))?;
         file.sync_all()
@@ -152,9 +170,7 @@ fn install_blob(path: &Path, bytes: &[u8]) -> Result<()> {
         match fs::hard_link(&temp, path) {
             Ok(()) => Ok(()),
             Err(error) if error.kind() == ErrorKind::AlreadyExists => {
-                let existing = fs::read(path).map_err(|read_error| {
-                    write_error(format!("read raced blob {}: {read_error}", path.display()))
-                })?;
+                let existing = permissions::read_private_file(path, true)?;
                 verify_exact_existing(path, &existing, bytes)
             }
             Err(error) => Err(write_error(format!(

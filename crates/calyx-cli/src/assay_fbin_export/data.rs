@@ -2,6 +2,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use calyx_core::SlotShape;
 use calyx_registry::lens_spec_from_manifest_path;
 use serde::Deserialize;
 
@@ -275,6 +276,16 @@ fn lens_meta(corpus_dir: &Path, lens: &BuildLensRef) -> CliResult<LensMeta> {
             "fix the frozen lens manifest referenced by corpus_build_report.json",
         )
     })?;
+    if matches!(spec.output, SlotShape::Multi { .. }) {
+        return Err(local_error(
+            "CALYX_FSV_ASSAY_MULTI_VECTOR_COLLAPSE_REFUSED",
+            format!(
+                "lens {} declares {:?}; the existing fixed-row corpus cannot be promoted as typed Multi/MaxSim evidence",
+                spec.name, spec.output
+            ),
+            "rebuild with a native dense or sparse lens, or implement a typed multi-vector/MaxSim export, truth, and index path",
+        ));
+    }
     Ok(LensMeta {
         lens_id: spec.lens_id().to_string(),
         weights_sha256: hex32(&spec.weights_sha256),

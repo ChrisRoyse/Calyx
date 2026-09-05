@@ -115,6 +115,11 @@ fn corrupt_scheduler_state_fails_closed() {
     assert_eq!(error.code, "CALYX_STALE_DERIVED");
 }
 
+/// Exercises the post-rename fault injection hook, which is compiled only in
+/// debug builds (`post_rename_failure_marker` / `injected_post_rename_failure`
+/// are `#[cfg(debug_assertions)]`). Without this gate the test target fails to
+/// compile under `--release`, which is how the real-model suites are run.
+#[cfg(debug_assertions)]
 #[test]
 fn post_rename_persist_failure_rolls_back_file_and_state() {
     let path = test_path("post_rename_persist_failure_rolls_back_file_and_state");

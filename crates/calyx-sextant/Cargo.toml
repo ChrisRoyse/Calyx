@@ -1,4 +1,5 @@
 [package]
+autobenches = false
 autotests = false
 name = "calyx-sextant"
 version.workspace = true
@@ -48,25 +49,50 @@ calyx-loom = { path = "../calyx-loom" }
 calyx-oracle = { path = "../calyx-oracle" }
 calyx-testkit = { path = "../calyx-testkit" }
 criterion.workspace = true
+nix.workspace = true
 proptest.workspace = true
 sha2.workspace = true
 
 [[bench]]
+test = false
+bench = false
 name = "bench_diskann_1e6"
 harness = false
+
+# Owns its own process so it can set a permissive umask without racing the
+# aggregated integration harness threads (#1989).
+[[test]]
+test = false
+name = "issue1989_private_index_modes_fsv"
+path = "tests/issue1989_private_index_modes_fsv.rs"
+
+# Packed raw-sidecar format FSV (#1990); standalone so it is not swept into the
+# regenerated aggregate suite (autotests = false).
+[[test]]
+test = false
+name = "issue1990_packed_raw_sidecar_fsv"
+path = "tests/issue1990_packed_raw_sidecar_fsv.rs"
 
 # BEGIN generated integration harnesses (issue #1546)
 
 [[test]]
+test = false
 name = "__calyx_integration_process_0"
 path = "tests/__calyx_integration_process_0.rs"
 
 [[test]]
+test = false
 name = "__calyx_integration_suite_0"
 path = "tests/__calyx_integration_suite_0.rs"
 
 [[test]]
+test = false
 name = "__calyx_integration_suite_1"
 path = "tests/__calyx_integration_suite_1.rs"
 
 # END generated integration harnesses (issue #1546)
+
+[lib]
+test = false
+doctest = false
+bench = false

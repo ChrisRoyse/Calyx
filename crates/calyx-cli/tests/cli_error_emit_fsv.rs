@@ -59,7 +59,7 @@ fn bogus_command_exits_2_with_structured_stderr_envelope() {
 }
 
 #[test]
-fn catalog_failure_exits_2_with_byte_identical_calyx_error_envelope() {
+fn missing_turso_database_exits_2_with_byte_identical_calyx_error_envelope() {
     let root = std::env::temp_dir().join(format!(
         "calyx-cli-catalog-error-fsv-{}-{}",
         std::process::id(),
@@ -69,15 +69,13 @@ fn catalog_failure_exits_2_with_byte_identical_calyx_error_envelope() {
             .as_nanos()
     ));
     std::fs::create_dir_all(&root).expect("create temp root");
-    let sqlite = root.join("malformed.sqlite");
-    let vault = root.join("vault.calyx");
-    std::fs::write(&sqlite, b"").expect("write empty sqlite");
+    let database = root.join("missing.turso");
 
     let output = run(&[
-        "migrate",
-        "vault",
-        sqlite.to_str().expect("sqlite path utf-8"),
-        vault.to_str().expect("vault path utf-8"),
+        "relational",
+        "status",
+        database.to_str().expect("Turso path utf-8"),
+        "missing-dataset",
     ]);
 
     assert_eq!(
@@ -93,9 +91,12 @@ fn catalog_failure_exits_2_with_byte_identical_calyx_error_envelope() {
     );
 
     let expected = CalyxError {
-        code: "CALYX_MIGRATE_SQLITE_SCHEMA",
-        message: "chunks table missing required column chunk_id".to_string(),
-        remediation: "provide a Leapable Vault SQLite DB with chunks(chunk_id,database_name,content,embedding)",
+        code: "CALYX_TURSO_OPEN",
+        message: format!(
+            "Turso database {} does not exist; initialize it explicitly",
+            database.display()
+        ),
+        remediation: "inspect the database path, permissions, and emitted Turso engine detail",
     };
     let expected_stderr = format!("{}\n", serde_json::to_string(&expected).unwrap());
     let actual_stderr = String::from_utf8(output.stderr).expect("stderr is utf-8");

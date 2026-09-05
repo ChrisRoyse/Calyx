@@ -1,0 +1,3302 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Leapable Law — Ohio Research Console</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230c7a69'/%3E%3Ctext x='16' y='23' font-family='Georgia,serif' font-size='20' font-weight='700' text-anchor='middle' fill='%23ffffff'%3EC%3C/text%3E%3C/svg%3E" />
+<style>
+/* ============================================================================
+   Leapable Law — Ohio Research Console
+   A dedicated full-page surface modelled on the ChatGPT / Claude.ai anatomy:
+   left rail · centered answer-first stream · right Inspector (Artifacts analog).
+   Single-file, self-contained (system fonts, inline CSS/JS, no external asset),
+   CSP-safe, renders offline over an SSH tunnel. Light-first; dark retained via
+   prefers-color-scheme AND the explicit data-theme toggle.
+   ========================================================================== */
+:root {
+  --font-body: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --font-display: "Iowan Old Style", "Palatino Linotype", Georgia, "Times New Roman", serif;
+  --font-mono: ui-monospace, "Cascadia Code", "SF Mono", "Consolas", "Liberation Mono", monospace;
+  --rail-w: 264px;
+  /* Bounded fluid evidence column: preserve readable cards without consuming a
+     fixed 440px on scaled laptop viewports. */
+  --research-panel-w: clamp(320px, 31vw, 440px);
+  --radius: 12px;
+  --radius-sm: 8px;
+
+  /* Light-first token set (default). */
+  --bg: #f7f7f5;
+  --surface: #ffffff;
+  --surface-2: #f2f1ec;
+  --surface-3: #ecebe4;
+  --rail-bg: #f0efe9;
+  --border: #e2e0d6;
+  --border-strong: #cfccbe;
+  --ink: #1f2328;
+  --ink-soft: #33393f;
+  --muted: #5c6570;
+  --faint: #8b939c;
+  --teal: #0c7a69;
+  --teal-strong: #0a6355;
+  --teal-ghost: rgba(12, 122, 105, 0.10);
+  --amber: #9c6a14;
+  --amber-ghost: rgba(156, 106, 20, 0.12);
+  --crimson: #b0453a;
+  --crimson-ghost: rgba(176, 69, 58, 0.10);
+  --shadow: 0 10px 30px rgba(40, 45, 60, 0.10);
+  --shadow-sm: 0 2px 8px rgba(40, 45, 60, 0.07);
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0b0e13;
+    --surface: #131a23;
+    --surface-2: #1a232f;
+    --surface-3: #212c39;
+    --rail-bg: #0e141b;
+    --border: #26333f;
+    --border-strong: #34434f;
+    --ink: #eaeef3;
+    --ink-soft: #d4dbe2;
+    --muted: #9dabb8;
+    --faint: #647280;
+    --teal: #37cbb2;
+    --teal-strong: #52dcc4;
+    --teal-ghost: rgba(55, 203, 178, 0.13);
+    --amber: #e6ad51;
+    --amber-ghost: rgba(230, 173, 81, 0.14);
+    --crimson: #e77163;
+    --crimson-ghost: rgba(231, 113, 99, 0.14);
+    --shadow: 0 14px 40px rgba(0, 0, 0, 0.45);
+    --shadow-sm: 0 2px 10px rgba(0, 0, 0, 0.35);
+    color-scheme: dark;
+  }
+}
+/* Explicit toggle wins over the media query, both directions. */
+:root[data-theme="light"] {
+  --bg: #f7f7f5; --surface: #ffffff; --surface-2: #f2f1ec; --surface-3: #ecebe4;
+  --rail-bg: #f0efe9; --border: #e2e0d6; --border-strong: #cfccbe;
+  --ink: #1f2328; --ink-soft: #33393f; --muted: #5c6570; --faint: #8b939c;
+  --teal: #0c7a69; --teal-strong: #0a6355; --teal-ghost: rgba(12,122,105,0.10);
+  --amber: #9c6a14; --amber-ghost: rgba(156,106,20,0.12);
+  --crimson: #b0453a; --crimson-ghost: rgba(176,69,58,0.10);
+  --shadow: 0 10px 30px rgba(40,45,60,0.10); --shadow-sm: 0 2px 8px rgba(40,45,60,0.07);
+  color-scheme: light;
+}
+:root[data-theme="dark"] {
+  --bg: #0b0e13; --surface: #131a23; --surface-2: #1a232f; --surface-3: #212c39;
+  --rail-bg: #0e141b; --border: #26333f; --border-strong: #34434f;
+  --ink: #eaeef3; --ink-soft: #d4dbe2; --muted: #9dabb8; --faint: #647280;
+  --teal: #37cbb2; --teal-strong: #52dcc4; --teal-ghost: rgba(55,203,178,0.13);
+  --amber: #e6ad51; --amber-ghost: rgba(230,173,81,0.14);
+  --crimson: #e77163; --crimson-ghost: rgba(231,113,99,0.14);
+  --shadow: 0 14px 40px rgba(0,0,0,0.45); --shadow-sm: 0 2px 10px rgba(0,0,0,0.35);
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html, body { height: 100%; }
+body {
+  margin: 0;
+  font-family: var(--font-body);
+  font-size: 15px;
+  line-height: 1.55;
+  color: var(--ink);
+  background: var(--bg);
+  -webkit-font-smoothing: antialiased;
+  overscroll-behavior: none;
+}
+button { font-family: inherit; font-size: inherit; cursor: pointer; }
+a { color: var(--teal); text-decoration: none; }
+:focus-visible { outline: 2px solid var(--teal); outline-offset: 2px; border-radius: 4px; }
+.mono { font-family: var(--font-mono); }
+.muted { color: var(--muted); }
+
+/* --- App grid ------------------------------------------------------------ */
+.app {
+  display: grid;
+  grid-template-columns: var(--rail-w) minmax(0, 1fr) 0;
+  /* Pin the single row to the viewport with a minmax(0,...) track. Without an
+     explicit row the implicit `auto` track sizes to the max-content of .main
+     (the full un-scrolled stream), grows past 100vh, and `overflow:hidden`
+     below clips it — so .stream-wrap never becomes shorter than its content
+     and never scrolls. minmax(0,1fr) forces the row to exactly the viewport
+     height and lets the inner flex containers own the overflow. (#1978) */
+  grid-template-rows: minmax(0, 1fr);
+  height: 100vh;
+  height: 100dvh;
+  inline-size: 100%;
+  max-inline-size: 100vw;
+  overflow: hidden;
+  transition: grid-template-columns 0.22s ease;
+}
+.app.rail-collapsed { grid-template-columns: 0 minmax(0, 1fr) var(--research-panel-w-cur, 0); }
+.app.research-panel-open { --research-panel-w-cur: var(--research-panel-w); grid-template-columns: var(--rail-w) minmax(0, 1fr) var(--research-panel-w); }
+.app.rail-collapsed.research-panel-open { grid-template-columns: 0 minmax(0, 1fr) var(--research-panel-w); }
+.rail-scrim { display: none; }
+@media (prefers-reduced-motion: reduce) { .app { transition: none; } }
+/* At common 12–14 inch laptop widths (including browser zoom/display scaling),
+   make navigation a drawer before it can squeeze the conversation and evidence. */
+@media (max-width: 1280px) {
+  .app.research-panel-open { grid-template-columns: 0 minmax(0,1fr) var(--research-panel-w); }
+  .app.research-panel-open .main { grid-column: 2; }
+  .app.research-panel-open .research-panel { grid-column: 3; }
+  .rail {
+    position: fixed;
+    z-index: 40;
+    inset: 0 auto 0 0;
+    width: min(88vw, 340px);
+    height: 100vh;
+    height: 100dvh;
+    transform: translateX(-102%);
+    transition: transform 0.2s ease;
+    box-shadow: var(--shadow);
+  }
+  .app.mobile-rail-open .rail { transform: translateX(0); }
+  .rail-scrim {
+    position: fixed;
+    z-index: 35;
+    inset: 0;
+    display: none;
+    width: 100%;
+    height: 100%;
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    background: rgba(11, 14, 19, 0.46);
+    cursor: default;
+  }
+  .app.mobile-rail-open .rail-scrim { display: block; }
+}
+/* Once two useful columns no longer fit, keep both surfaces fully in-frame by
+   stacking the independently scrollable evidence panel below the conversation. */
+@media (max-width: 900px) {
+  .app.research-panel-open {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(0, 3fr) minmax(200px, 2fr);
+  }
+  .app.research-panel-open .main { grid-column: 1; grid-row: 1; }
+  .app.research-panel-open .research-panel { grid-column: 1; grid-row: 2; border-left: none; border-top: 1px solid var(--border); }
+}
+
+/* --- Left rail ----------------------------------------------------------- */
+.rail {
+  background: var(--rail-bg);
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  overflow: hidden;
+}
+.rail-top { padding: 14px 14px 6px; }
+.wordmark { display: flex; align-items: center; gap: 9px; font-family: var(--font-display); font-weight: 700; font-size: 19px; color: var(--ink); letter-spacing: 0.2px; }
+.wordmark .mk { width: 26px; height: 26px; border-radius: 7px; background: var(--teal); color: #fff; display: grid; place-items: center; font-size: 15px; }
+.newchat {
+  margin: 12px 0 6px; width: 100%; display: flex; align-items: center; gap: 8px;
+  padding: 10px 12px; border: 1px solid var(--border-strong); border-radius: var(--radius);
+  background: var(--surface); color: var(--ink); font-weight: 600; box-shadow: var(--shadow-sm);
+}
+.newchat:hover { border-color: var(--teal); color: var(--teal); }
+.nav { display: flex; gap: 3px; padding: 4px 8px 8px; }
+.nav button {
+  flex: 1; display: flex; flex-direction: column; align-items: center; gap: 3px;
+  padding: 7px 2px; border: 1px solid transparent; border-radius: var(--radius-sm);
+  background: transparent; color: var(--muted); font-size: 10.5px; font-weight: 600;
+}
+.nav button .ic { font-size: 15px; }
+.nav button:hover { background: var(--surface-2); color: var(--ink); }
+.nav button.active { background: var(--teal-ghost); color: var(--teal-strong); border-color: var(--teal-ghost); }
+.rail-body { flex: 1; overflow-y: auto; padding: 4px 8px 8px; min-height: 0; }
+.rail-section-label { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.6px; color: var(--faint); padding: 10px 8px 6px; }
+.recent { width: 100%; text-align: left; padding: 9px 10px; border: 1px solid transparent; border-radius: var(--radius-sm); background: transparent; color: var(--ink-soft); margin-bottom: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.recent:hover { background: var(--surface-2); }
+.recent.active { background: var(--surface); border-color: var(--border); font-weight: 600; }
+.recent .rt { font-size: 10px; color: var(--faint); }
+.recents-empty { color: var(--faint); font-size: 13px; padding: 10px 8px; }
+
+/* Capabilities catalog in the rail */
+.cap-group { margin-bottom: 12px; }
+.cap-group > h4 { margin: 8px 6px 4px; font-size: 11.5px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--teal-strong); }
+.cap-item { border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface); padding: 9px 10px; margin-bottom: 6px; }
+.cap-item .cn { font-weight: 700; font-size: 13px; }
+.cap-item .cn .mono { font-size: 11px; color: var(--muted); font-weight: 500; }
+.cap-item .cd { font-size: 12px; color: var(--muted); margin: 3px 0 6px; line-height: 1.4; }
+.cap-item .cl { font-size: 11px; color: var(--faint); font-style: italic; }
+.cap-seed { margin-top: 6px; width: 100%; text-align: left; padding: 6px 8px; border: 1px dashed var(--border-strong); border-radius: 6px; background: var(--surface-2); color: var(--teal-strong); font-size: 12px; }
+.cap-seed:hover { border-color: var(--teal); border-style: solid; }
+
+.rail-badge { border-top: 1px solid var(--border); padding: 11px 14px; font-size: 11.5px; color: var(--muted); display: flex; align-items: center; gap: 8px; }
+.rail-badge .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--teal); flex: none; box-shadow: 0 0 0 3px var(--teal-ghost); }
+
+/* --- Main column --------------------------------------------------------- */
+/* min-height:0 lets the flex-column shrink below its content so .stream-wrap
+   scrolls internally rather than expanding .main past the pinned grid row.
+   position:relative anchors the absolutely-positioned #jump-live affordance. (#1978) */
+.main { display: flex; flex-direction: column; min-width: 0; min-height: 0; position: relative; background: var(--bg); }
+.topbar { display: flex; align-items: center; gap: 10px; padding: 10px 16px; border-bottom: 1px solid var(--border); background: var(--surface); }
+.iconbtn { width: 34px; height: 34px; display: grid; place-items: center; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--ink); font-size: 16px; }
+.iconbtn:hover { border-color: var(--teal); color: var(--teal); }
+.topbar .title { font-weight: 700; font-family: var(--font-display); font-size: 16px; }
+.topbar .title .sub { font-weight: 500; font-family: var(--font-body); font-size: 12px; color: var(--muted); margin-left: 8px; }
+.topbar .spacer { flex: 1; }
+.mobile-research-toggle, .mobile-research-back { display: none; }
+.mobile-research-toggle {
+  min-height: 38px; align-items: center; gap: 6px; padding: 6px 9px;
+  border: 1px solid var(--border); border-radius: 9px; background: var(--surface);
+  color: var(--ink-soft); font-size: 11.5px; font-weight: 750; white-space: nowrap;
+}
+.mobile-research-toggle:hover { border-color: var(--teal); color: var(--teal-strong); }
+.mobile-research-toggle .tab-badge {
+  min-width: 18px; height: 18px; padding: 0 5px; border-radius: 999px;
+  background: var(--teal); color: #fff; font-size: 10px; line-height: 18px;
+}
+.mobile-research-back {
+  width: 44px; height: 44px; flex: none; place-items: center; border: 1px solid var(--border);
+  border-radius: 9px; background: var(--surface); color: var(--ink); font-size: 18px;
+}
+.mobile-research-back:hover { border-color: var(--teal); color: var(--teal-strong); }
+
+/* Status strip */
+.status-strip { display: flex; flex-wrap: wrap; gap: 6px; padding: 8px 16px; border-bottom: 1px solid var(--border); background: var(--surface-2); }
+.chip { display: inline-flex; align-items: center; gap: 6px; font-size: 11.5px; padding: 4px 10px; border: 1px solid var(--border); border-radius: 999px; background: var(--surface); color: var(--ink-soft); white-space: nowrap; }
+.chip b { color: var(--ink); }
+.chip .cdot { width: 7px; height: 7px; border-radius: 50%; background: var(--faint); flex: none; }
+.chip.ok .cdot { background: var(--teal); }
+.chip.warn .cdot { background: var(--amber); }
+.chip.tealline { border-color: var(--teal); color: var(--teal-strong); }
+
+/* Stream */
+.stream-wrap { flex: 1; overflow-y: auto; min-height: 0; scroll-behavior: smooth; overscroll-behavior: contain; }
+/* The scroll region is keyboard-focusable (tabindex) so PgUp/PgDn/Home/End work,
+   but a teal ring framing the whole pane is noise — keep it focusable, drop the ring. */
+.stream-wrap:focus, .stream-wrap:focus-visible { outline: none; }
+@media (prefers-reduced-motion: reduce) { .stream-wrap { scroll-behavior: auto; } }
+.stream { max-width: 780px; margin: 0 auto; padding: 26px 22px 40px; }
+
+/* Empty state */
+.empty { max-width: 720px; margin: 0 auto; padding: 7vh 22px 3vh; text-align: center; }
+.empty h1 { font-family: var(--font-display); font-weight: 600; font-size: 30px; margin: 0 0 6px; }
+.empty p.lede { color: var(--muted); font-size: 15px; margin: 0 0 22px; }
+.suggests { display: grid; gap: 8px; margin-top: 18px; text-align: left; }
+.suggest {
+  display: flex; align-items: center; gap: 12px; padding: 13px 15px; border: 1px solid var(--border);
+  border-radius: var(--radius); background: var(--surface); box-shadow: var(--shadow-sm); color: var(--ink);
+}
+.suggest:hover { border-color: var(--teal); }
+.suggest .si { font-size: 18px; flex: none; }
+.suggest .sk { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.4px; color: var(--teal-strong); }
+.suggest .sq { font-size: 13.5px; color: var(--ink-soft); }
+.suggest.dare { border-style: dashed; }
+.suggest.dare .sk { color: var(--amber); }
+
+/* Composer */
+.composer-dock { padding: 12px 22px 20px; background: linear-gradient(to top, var(--bg) 62%, transparent); }
+.composer-dock.center { padding: 0; background: none; }
+.composer { max-width: 780px; margin: 0 auto; }
+.composer-work { display: flex; align-items: center; gap: 7px; min-width: 0; margin: 0 8px 8px; color: var(--muted); font-family: var(--font-mono); font-size: 11.5px; line-height: 1.4; }
+.composer-work[hidden] { display: none; }
+.composer-work .work-dot { width: 7px; height: 7px; flex: none; border-radius: 50%; background: var(--teal); animation: pulse 1.35s ease-in-out infinite; }
+.composer-work .work-label { flex: none; color: var(--ink-soft); font-weight: 750; }
+.composer-work .work-phase { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.composer-work .work-meta { flex: none; color: var(--faint); }
+.composer form { border: 1px solid var(--border-strong); border-radius: 16px; background: var(--surface); box-shadow: var(--shadow); padding: 10px 12px 8px; }
+.composer form:focus-within { border-color: var(--teal); box-shadow: 0 0 0 3px var(--teal-ghost), var(--shadow); }
+.composer textarea {
+  width: 100%; border: none; resize: none; background: transparent; color: var(--ink);
+  font-family: inherit; font-size: 15px; line-height: 1.5; max-height: 200px; padding: 4px 4px 2px;
+}
+.composer textarea:focus { outline: none; }
+.composer textarea::placeholder { color: var(--faint); }
+.composer .crow { display: flex; align-items: center; gap: 10px; margin-top: 4px; }
+.composer .model { font-size: 11.5px; color: var(--muted); display: inline-flex; align-items: center; gap: 6px; }
+.composer .model .cdot { width: 7px; height: 7px; border-radius: 50%; background: var(--teal); }
+.composer .cspacer { flex: 1; }
+.sendbtn { width: 36px; height: 36px; border-radius: 10px; border: none; background: var(--teal); color: #fff; display: grid; place-items: center; font-size: 17px; }
+.sendbtn:hover { background: var(--teal-strong); }
+.sendbtn:disabled { opacity: 0.4; cursor: not-allowed; }
+.stopbtn { display: inline-flex; align-items: center; gap: 7px; padding: 7px 13px; border-radius: 10px; border: 1px solid var(--crimson); background: var(--crimson-ghost); color: var(--crimson); font-weight: 600; }
+.stopbtn .sq { width: 9px; height: 9px; background: var(--crimson); border-radius: 2px; }
+.composer .note { font-size: 11px; color: var(--faint); text-align: center; margin-top: 8px; }
+
+/* Messages */
+.msg-user { display: flex; justify-content: flex-end; margin: 8px 0 16px; }
+.msg-user .bub { background: var(--teal-ghost); border: 1px solid var(--border); color: var(--ink); padding: 10px 15px; border-radius: 16px 16px 4px 16px; max-width: 78%; font-size: 15px; }
+.msg-assistant { margin: 0 0 26px; }
+
+/* Thought disclosure (ChatGPT-style) */
+.thought { margin: 2px 0 12px; }
+.thought > summary { list-style: none; cursor: pointer; display: inline-flex; align-items: center; gap: 8px; color: var(--muted); font-size: 13px; padding: 5px 10px; border: 1px solid var(--border); border-radius: 999px; background: var(--surface); }
+.thought > summary::-webkit-details-marker { display: none; }
+.thought > summary:hover { color: var(--ink); border-color: var(--border-strong); }
+.thought > summary .cw { color: var(--faint); }
+.thought[open] > summary { border-radius: 12px 12px 0 0; margin-bottom: -1px; }
+.thought .tbody { border: 1px solid var(--border); border-radius: 0 12px 12px 12px; background: var(--surface-2); padding: 12px 14px; font-size: 13px; color: var(--muted); }
+.thought .tturn { margin-bottom: 12px; }
+.thought .tturn:last-child { margin-bottom: 0; }
+.thought .tlabel { font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--faint); margin-bottom: 3px; }
+.thought .ttext { white-space: pre-wrap; line-height: 1.5; }
+.thought .adapt { border-left: 2px solid var(--amber); padding-left: 10px; color: var(--ink-soft); font-style: italic; margin: 8px 0; }
+
+/* Step pills (inline tool trail) */
+.steps { display: flex; flex-direction: column; gap: 6px; margin: 4px 0 14px; }
+.step { display: inline-flex; align-items: center; gap: 9px; align-self: flex-start; max-width: 100%; padding: 7px 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); color: var(--ink-soft); font-size: 13px; text-align: left; }
+.step:hover { border-color: var(--teal); }
+.step .sic { font-size: 14px; flex: none; }
+.step .sbody { display: flex; flex-direction: column; gap: 2px; min-width: 0; overflow: hidden; }
+.step .sv { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Failed-step detail: the real CALYX_* error code + short reason, bound from the
+   tool_result payload (never a generic "unavailable"). (#1977) */
+.step.failed { align-items: flex-start; }
+.step.failed .sic { margin-top: 1px; }
+.step .serr { display: block; font-size: 11px; color: var(--amber); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.step .serr .ecode { font-weight: 700; }
+.step .serr .ereason { color: var(--muted); }
+.step .sx { margin-left: auto; font-size: 11px; color: var(--faint); flex: none; }
+.step .spin { width: 12px; height: 12px; border: 2px solid var(--border-strong); border-top-color: var(--teal); border-radius: 50%; animation: spin 0.8s linear infinite; flex: none; }
+@keyframes spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .step .spin { animation: none; } }
+.step.done .sic { color: var(--teal); }
+.step.skipped { background: var(--surface-2); color: var(--muted); border-style: dashed; }
+.step.skipped .sic { color: var(--amber); }
+
+/* Answer prose */
+.answer { font-size: 15.5px; line-height: 1.7; color: var(--ink); }
+.answer h4 { font-family: var(--font-display); font-size: 17px; margin: 18px 0 6px; color: var(--ink); }
+.answer h4:first-child { margin-top: 4px; }
+.answer p { margin: 0 0 11px; }
+.answer ul { margin: 0 0 11px; padding-left: 20px; }
+.answer li { margin: 3px 0; }
+.answer strong { color: var(--ink); }
+.cx-chip { display: inline-flex; align-items: center; font-family: var(--font-mono); font-size: 11px; padding: 1px 6px; border-radius: 5px; background: var(--surface-3); border: 1px solid var(--border); color: var(--muted); cursor: pointer; vertical-align: baseline; }
+.cx-chip.verified { background: var(--teal-ghost); border-color: var(--teal); color: var(--teal-strong); }
+.cx-chip:hover { border-color: var(--teal); }
+.ground-badge { display: inline-flex; align-items: center; gap: 8px; font-size: 12.5px; padding: 6px 12px; border-radius: 999px; margin-bottom: 14px; }
+.ground-badge.sealed { background: var(--teal-ghost); border: 1px solid var(--teal); color: var(--teal-strong); font-weight: 600; }
+.ground-badge.none { background: var(--surface-2); border: 1px solid var(--border); color: var(--muted); }
+.ans-footer { margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--border); font-size: 12px; color: var(--muted); display: flex; flex-wrap: wrap; gap: 10px; justify-content: space-between; }
+
+/* Error / refusal / stopped panels */
+.panel { border-radius: var(--radius); padding: 14px 16px; margin: 6px 0; border: 1px solid var(--border); background: var(--surface-2); }
+.panel.err { border-color: var(--crimson); background: var(--crimson-ghost); }
+.panel.refusal { border-color: var(--amber); background: var(--amber-ghost); }
+.panel .pt { font-weight: 700; display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
+.panel .pm { font-size: 13.5px; color: var(--ink-soft); }
+.panel .pr { font-size: 12.5px; color: var(--muted); margin-top: 6px; }
+.panel .tag { font-family: var(--font-mono); font-size: 11px; padding: 1px 6px; border-radius: 5px; background: var(--surface-3); border: 1px solid var(--border); }
+.retry { margin-top: 10px; display: inline-flex; align-items: center; gap: 7px; padding: 7px 13px; border: 1px solid var(--border-strong); border-radius: 9px; background: var(--surface); color: var(--ink); font-weight: 600; }
+.retry:hover { border-color: var(--teal); color: var(--teal); }
+
+/* --- Research details ---------------------------------------------------- */
+.research-panel { background: var(--surface); border-left: 1px solid var(--border); display: flex; flex-direction: column; min-width: 0; max-width: 100%; overflow: hidden; }
+.insp-head { display: flex; align-items: center; gap: 8px; padding: 12px 14px 0; }
+.insp-head .it { font-weight: 700; font-family: var(--font-display); font-size: 15px; flex: 1; }
+.insp-tabs { display: flex; gap: 2px; padding: 8px 10px 0; border-bottom: 1px solid var(--border); overflow-x: auto; }
+.insp-tab { padding: 8px 11px; border: none; background: transparent; color: var(--muted); font-size: 12.5px; font-weight: 600; border-bottom: 2px solid transparent; white-space: nowrap; display: inline-flex; align-items: center; gap: 6px; }
+.insp-tab:hover { color: var(--ink); }
+.insp-tab.active { color: var(--teal-strong); border-bottom-color: var(--teal); }
+.insp-tab .tab-badge { font-size: 10px; font-weight: 700; min-width: 16px; height: 16px; padding: 0 4px; border-radius: 999px; background: var(--teal-ghost); color: var(--teal-strong); display: inline-grid; place-items: center; line-height: 1; }
+.insp-tab.active .tab-badge { background: var(--teal); color: #fff; }
+/* A read-but-uncited opinion is honest, distinct evidence (not a verified cite). */
+.src-card.uncited { border-style: dashed; }
+.sc-uncited { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; color: var(--amber); font-weight: 700; }
+/* Honest "tool unavailable this episode" note (real forwarded failure code). */
+.unavail { border: 1px solid var(--amber); background: var(--amber-ghost); border-radius: var(--radius-sm); padding: 11px 12px; margin-bottom: 10px; }
+.unavail .ut { font-weight: 700; color: var(--amber); font-size: 13px; display: flex; align-items: center; gap: 7px; }
+.unavail .uc { font-family: var(--font-mono); font-size: 11px; color: var(--ink-soft); margin-top: 5px; word-break: break-word; }
+.unavail .um { font-size: 12px; color: var(--muted); margin-top: 4px; line-height: 1.5; }
+.seed-inline { margin-top: 10px; width: 100%; text-align: left; padding: 8px 11px; border: 1px dashed var(--border-strong); border-radius: 8px; background: var(--surface-2); color: var(--teal-strong); font-size: 12.5px; }
+.seed-inline:hover { border-color: var(--teal); border-style: solid; }
+.prov-anchor-note { font-size: 11px; color: var(--faint); font-style: italic; margin: 6px 0 4px; }
+.insp-body { flex: 1; overflow-y: auto; padding: 14px; min-height: 0; }
+.insp-empty { color: var(--faint); font-size: 13px; text-align: center; padding: 30px 10px; line-height: 1.6; }
+
+.i-h { font-size: 13px; font-weight: 700; margin: 2px 0 8px; color: var(--ink); }
+.i-sub { font-size: 12px; color: var(--muted); margin: -4px 0 12px; }
+.card { border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface-2); padding: 11px 12px; margin-bottom: 8px; }
+.card.excluded { opacity: 0.7; border-style: dashed; }
+.lens-top { display: flex; align-items: center; gap: 8px; }
+.lens-top .ln { font-weight: 700; font-size: 12.5px; }
+.lens-top .lp { font-size: 10px; font-weight: 700; padding: 1px 7px; border-radius: 999px; text-transform: uppercase; letter-spacing: 0.3px; }
+.lp.gpu { background: var(--teal-ghost); color: var(--teal-strong); }
+.lp.cpu { background: var(--amber-ghost); color: var(--amber); }
+.lp.off { background: var(--surface-3); color: var(--muted); }
+.lens-meta { font-size: 11.5px; color: var(--muted); margin-top: 5px; display: flex; flex-wrap: wrap; gap: 4px 12px; }
+.lens-meta .mono { color: var(--ink-soft); }
+.bar { height: 5px; background: var(--surface-3); border-radius: 999px; overflow: hidden; margin-top: 6px; }
+.bar > i { display: block; height: 100%; background: var(--teal); border-radius: 999px; }
+.headline-stat { display: flex; align-items: baseline; gap: 8px; padding: 10px 12px; background: var(--teal-ghost); border: 1px solid var(--teal); border-radius: var(--radius-sm); margin-bottom: 12px; }
+.headline-stat .n { font-size: 26px; font-weight: 800; color: var(--teal-strong); font-family: var(--font-display); line-height: 1; }
+.headline-stat .l { font-size: 12px; color: var(--ink-soft); }
+
+.src-card .sc-name { font-weight: 700; font-size: 13.5px; }
+.src-card .sc-meta { font-size: 11.5px; color: var(--muted); margin: 3px 0 8px; display: flex; flex-wrap: wrap; gap: 3px 10px; }
+.src-verified { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; color: var(--teal-strong); font-weight: 700; }
+.src-unverified { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; color: var(--crimson); font-weight: 700; }
+.source-locator { margin: 10px 0 8px; padding: 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); }
+.source-locator .sl-title { margin-bottom: 7px; font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.45px; color: var(--teal-strong); }
+.source-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+.source-link, .source-copy, .authority-action {
+  display: inline-flex; align-items: center; gap: 5px; padding: 6px 9px; border: 1px solid var(--border-strong);
+  border-radius: 7px; background: var(--surface-2); color: var(--ink-soft); font-size: 11.5px; font-weight: 700;
+}
+.source-link.primary { border-color: var(--teal); background: var(--teal-ghost); color: var(--teal-strong); }
+.source-link:hover, .source-copy:hover, .authority-action:hover { border-color: var(--teal); color: var(--teal-strong); }
+.source-copy.copied { border-color: var(--teal); color: var(--teal-strong); }
+.source-copy.failed { border-color: var(--crimson); background: var(--crimson-ghost); color: var(--crimson); }
+.source-grid { display: grid; grid-template-columns: minmax(92px, 0.8fr) minmax(0, 1.2fr); gap: 5px 10px; font-size: 11.5px; }
+.source-grid .sk { color: var(--muted); }
+.source-grid .sv { color: var(--ink-soft); text-align: right; overflow-wrap: anywhere; }
+.source-missing { color: var(--muted); font-size: 11.5px; line-height: 1.45; margin-bottom: 7px; }
+.source-audit { margin: 12px 0 0; padding-top: 8px; border-top: 1px solid var(--border); }
+.source-audit > summary { cursor: pointer; color: var(--muted); font-size: 12px; font-weight: 700; }
+.source-audit-body { margin-top: 10px; }
+.source-excerpts { margin-top: 10px; border-top: 1px solid var(--border); }
+.source-excerpts-title { padding: 10px 0 7px; color: var(--muted); font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.45px; }
+.source-excerpt-record { padding: 10px 0; border-top: 1px solid var(--border); scroll-margin: 18px; }
+.source-excerpt-record:first-of-type { border-top: none; padding-top: 5px; }
+.source-excerpt-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; margin-bottom: 3px; }
+.source-excerpt-name { color: var(--ink); font-size: 12.5px; font-weight: 750; }
+.source-excerpt-id { color: var(--muted); font-family: var(--font-mono); font-size: 10.5px; text-align: right; }
+.source-excerpt-status { color: var(--amber); font-size: 10.5px; font-weight: 700; margin-bottom: 7px; }
+.source-excerpt-status.cited { color: var(--teal-strong); }
+.source-excerpt-status.error { color: var(--crimson); }
+.source-excerpt-number { color: var(--muted); font-size: 10.5px; font-weight: 700; margin: 7px 0 4px; }
+.excerpt { font-size: 12.5px; line-height: 1.6; color: var(--ink-soft); background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 9px 11px; max-height: 220px; overflow-y: auto; white-space: pre-wrap; font-family: var(--font-mono); }
+.excerpt mark { background: var(--amber-ghost); color: var(--ink); padding: 0 2px; border-radius: 3px; }
+/* A cited authority without retained opinion text is a broken research-state
+   invariant. Keep the failure visible and diagnostic; never replace it with an
+   on-demand fetch or an existence-only summary. */
+.source-excerpt-error { margin-top: 5px; padding: 10px 11px; border: 1px solid var(--crimson); border-radius: 7px; background: var(--crimson-ghost); color: var(--ink-soft); font-size: 12px; line-height: 1.5; }
+.source-excerpt-error .code { display: block; margin-bottom: 4px; color: var(--crimson); font-family: var(--font-mono); font-size: 10.5px; font-weight: 800; overflow-wrap: anywhere; }
+/* Chip → card focus: a brief highlight ring so a clicked in-text citation visibly lands
+   on its Inspector source card. */
+@keyframes src-focus-pulse { 0% { box-shadow: 0 0 0 0 var(--teal); } 100% { box-shadow: 0 0 0 4px var(--teal-ghost); } }
+.src-card.src-focus, .source-excerpt-record.src-focus, .prov-anchor.src-focus { border-color: var(--teal); box-shadow: 0 0 0 3px var(--teal-ghost); animation: src-focus-pulse 0.9s ease-in-out 2; }
+.source-excerpt-record.src-focus { border-radius: 7px; }
+@media (prefers-reduced-motion: reduce) { .src-card.src-focus, .source-excerpt-record.src-focus, .prov-anchor.src-focus { animation: none; } }
+
+.prov-row { display: flex; justify-content: space-between; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--border); font-size: 12.5px; }
+.prov-row:last-child { border-bottom: none; }
+.prov-row .k { color: var(--muted); }
+.prov-row .v { font-family: var(--font-mono); color: var(--ink); text-align: right; word-break: break-all; }
+.prov-row .v.ok { color: var(--teal-strong); font-weight: 700; }
+.parity { border: 1px solid var(--teal); background: var(--teal-ghost); border-radius: var(--radius-sm); padding: 11px 12px; margin: 8px 0; }
+.parity .pl { font-weight: 700; color: var(--teal-strong); display: flex; align-items: center; gap: 7px; font-size: 13px; }
+.parity .ph { font-family: var(--font-mono); font-size: 11px; color: var(--ink-soft); word-break: break-all; margin-top: 5px; }
+
+.census-bar { margin: 5px 0; }
+.census-bar .cl { display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 2px; }
+.census-bar .cl .cn { color: var(--ink-soft); }
+.census-bar .cl .cv { color: var(--muted); font-family: var(--font-mono); }
+.census-bar .ct { height: 8px; background: var(--surface-3); border-radius: 999px; overflow: hidden; }
+.census-bar .ct > i { display: block; height: 100%; background: var(--teal); }
+
+.seg-map { display: flex; gap: 3px; flex-wrap: wrap; margin-top: 6px; }
+.seg { flex: 1 1 22px; min-width: 22px; height: 26px; border-radius: 4px; background: var(--teal); opacity: 0.85; display: grid; place-items: center; color: #fff; font-size: 10px; font-weight: 700; }
+
+/* JSON payload viewer */
+details.payload { margin-top: 8px; }
+details.payload > summary { cursor: pointer; font-size: 12px; color: var(--muted); }
+pre.json { font-family: var(--font-mono); font-size: 11px; line-height: 1.5; background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 10px; overflow-x: auto; max-height: 320px; color: var(--ink-soft); margin: 6px 0 0; }
+.tok-key { color: var(--teal-strong); } .tok-str { color: var(--amber); } .tok-num { color: #2b62c9; } .tok-bool { color: var(--crimson); } .tok-null { color: var(--faint); }
+:root[data-theme="dark"] .tok-num { color: #7aa2f7; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .tok-num { color: #7aa2f7; } }
+
+/* SVG graph */
+.graph-svg { width: 100%; height: auto; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface); }
+.graph-svg .edge { stroke: var(--border-strong); stroke-width: 1.5; }
+.graph-svg .edge.in { stroke: var(--amber); }
+.graph-svg .edge.out { stroke: var(--teal); }
+.graph-svg .edge.frontier { stroke-dasharray: 4 4; opacity: 0.8; }
+.graph-svg .edge.hop { stroke: var(--teal); stroke-width: 2; }
+.graph-svg text { font-family: var(--font-body); fill: var(--ink); }
+.graph-svg .nlabel { font-size: 10px; fill: var(--ink-soft); }
+.graph-svg .nscore { font-size: 9px; fill: var(--muted); }
+.graph-node[data-cx] { cursor: pointer; }
+.graph-node[data-cx]:hover rect, .graph-node[data-cx]:focus rect { stroke: var(--teal); stroke-width: 2; }
+.graph-hero { padding: 13px; border: 1px solid var(--teal); border-radius: 10px; background: linear-gradient(135deg, var(--teal-ghost), var(--surface)); margin-bottom: 12px; }
+.graph-hero .gh-title { font-family: var(--font-display); font-size: 17px; font-weight: 700; color: var(--ink); }
+.graph-hero .gh-copy { margin-top: 3px; font-size: 12px; color: var(--muted); line-height: 1.5; }
+.graph-direct { border: 1px solid var(--teal); border-radius: 9px; background: var(--teal-ghost); padding: 10px 11px; margin: 8px 0 12px; }
+.graph-direct .gd-title { color: var(--teal-strong); font-size: 12.5px; font-weight: 800; }
+.graph-direct .gd-copy { color: var(--ink-soft); font-size: 11.5px; line-height: 1.5; margin-top: 3px; }
+.graph-direct .gd-anchor { color: var(--muted); font-family: var(--font-mono); font-size: 10.5px; margin-top: 5px; }
+.graph-stat-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px; margin: 9px 0 12px; }
+.graph-stat { padding: 9px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface-2); }
+.graph-stat .gs-n { display: block; font-family: var(--font-display); font-size: 21px; line-height: 1.1; color: var(--teal-strong); font-weight: 800; }
+.graph-stat .gs-l { display: block; margin-top: 2px; color: var(--muted); font-size: 10.5px; line-height: 1.3; }
+.graph-legend { display: flex; flex-wrap: wrap; gap: 6px 10px; margin: 8px 0; font-size: 10.5px; color: var(--muted); }
+.legend-key { display: inline-flex; align-items: center; gap: 5px; }
+.legend-key i { width: 16px; height: 2px; background: var(--teal); }
+.legend-key.in i { background: var(--amber); }
+.legend-key.frontier i { background: repeating-linear-gradient(90deg, var(--muted) 0 4px, transparent 4px 7px); }
+.authority-list { display: grid; gap: 7px; margin-top: 9px; }
+.authority-card { border: 1px solid var(--border); border-radius: 8px; background: var(--surface-2); padding: 10px 11px; }
+.authority-top { display: flex; gap: 8px; align-items: flex-start; justify-content: space-between; }
+.authority-name { font-weight: 700; font-size: 12.5px; line-height: 1.35; }
+.direction-pill { flex: none; font-size: 9.5px; font-weight: 800; padding: 2px 7px; border-radius: 999px; background: var(--teal-ghost); color: var(--teal-strong); }
+.direction-pill.in { background: var(--amber-ghost); color: var(--amber); }
+.authority-meta { display: flex; flex-wrap: wrap; gap: 3px 9px; color: var(--muted); font-size: 10.5px; margin-top: 4px; }
+.authority-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 7px; }
+.authority-action { padding: 4px 8px; font-size: 10.5px; }
+.evidence-panel { margin-bottom: 12px; }
+.graph-filters { display: flex; gap: 6px; overflow-x: auto; padding: 1px 1px 8px; scrollbar-width: thin; }
+.graph-filter { flex: none; padding: 6px 9px; border: 1px solid var(--border-strong); border-radius: 999px; background: var(--surface-2); color: var(--muted); font-size: 10.5px; font-weight: 750; }
+.graph-filter:hover { border-color: var(--teal); color: var(--teal-strong); }
+.graph-filter.active { border-color: var(--teal); background: var(--teal-ghost); color: var(--teal-strong); }
+.graph-map-note { color: var(--muted); font-size: 10.5px; line-height: 1.45; margin: 6px 2px; }
+.graph-svg .edge.evidence { stroke: var(--border-strong); stroke-width: 1.4; }
+.graph-svg .edge.evidence.cited { stroke: var(--teal); stroke-width: 2; }
+.graph-svg .edge.evidence.read { stroke: var(--amber); }
+.graph-svg .edge.evidence.identified, .graph-svg .edge.evidence.matched, .graph-svg .edge.evidence.candidate { stroke: var(--muted); stroke-dasharray: 4 4; }
+.evidence-node rect { fill: var(--surface-2); stroke: var(--border-strong); }
+.evidence-node.query rect { fill: var(--ink); stroke: var(--ink); }
+.evidence-node.query .nlabel, .evidence-node.query .nscore { fill: var(--surface); }
+.evidence-node.answer rect { fill: var(--teal); stroke: var(--teal-strong); }
+.evidence-node.answer .nlabel, .evidence-node.answer .nscore { fill: #fff; }
+.evidence-node.cited rect { fill: var(--teal-ghost); stroke: var(--teal); }
+.evidence-node.read rect { fill: var(--amber-ghost); stroke: var(--amber); }
+.evidence-node.identified rect, .evidence-node.matched rect, .evidence-node.candidate rect { stroke: var(--muted); stroke-dasharray: 4 3; }
+.evidence-node.interactive { cursor: pointer; }
+.evidence-node.interactive:hover rect, .evidence-node.interactive:focus rect { stroke-width: 2.5; filter: drop-shadow(0 2px 4px rgba(0,0,0,.14)); }
+.evidence-list { margin-top: 8px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface-2); }
+.evidence-list > summary { cursor: pointer; padding: 9px 10px; color: var(--ink-soft); font-size: 11.5px; font-weight: 750; }
+.evidence-list-body { border-top: 1px solid var(--border); }
+.evidence-row { display: flex; align-items: center; gap: 8px; padding: 9px 10px; border-top: 1px solid var(--border); }
+.evidence-row:first-child { border-top: 0; }
+.evidence-row::before { content: ""; width: 7px; height: 7px; flex: none; border-radius: 999px; background: var(--muted); }
+.evidence-row.cited::before { background: var(--teal); }
+.evidence-row.read::before { background: var(--amber); }
+.evidence-row-copy { min-width: 0; flex: 1; }
+.evidence-row-name { color: var(--ink); font-size: 11.5px; font-weight: 750; line-height: 1.35; }
+.evidence-row-meta { color: var(--muted); font-size: 10px; line-height: 1.4; margin-top: 2px; }
+
+.overlay-note { font-size: 11px; color: var(--faint); font-style: italic; margin-top: 10px; line-height: 1.5; }
+
+/* Scrollbars */
+.rail-body::-webkit-scrollbar, .stream-wrap::-webkit-scrollbar, .insp-body::-webkit-scrollbar, .excerpt::-webkit-scrollbar, pre.json::-webkit-scrollbar { width: 9px; height: 9px; }
+.rail-body::-webkit-scrollbar-thumb, .stream-wrap::-webkit-scrollbar-thumb, .insp-body::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 999px; }
+
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); border: 0; }
+
+/* Thinking indicator live dot */
+.thought > summary .live-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--teal); animation: pulse 1.1s ease-in-out infinite; }
+@keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.3; } }
+@media (prefers-reduced-motion: reduce) {
+  .thought > summary .live-dot, .composer-work .work-dot { animation: none; }
+}
+
+/* Jump-to-live */
+.jump-live { position: absolute; left: 50%; transform: translateX(-50%); bottom: 118px; z-index: 5; display: inline-flex; align-items: center; gap: 7px; padding: 7px 14px; border: 1px solid var(--border-strong); border-radius: 999px; background: var(--surface); color: var(--ink); font-size: 12.5px; font-weight: 600; box-shadow: var(--shadow); }
+.jump-live:hover { border-color: var(--teal); color: var(--teal); }
+.jump-live[hidden] { display: none; }
+
+/* Message hover actions */
+.msg-assistant { position: relative; }
+.msg-actions { display: flex; gap: 6px; margin-top: 10px; opacity: 0; transition: opacity 0.15s ease; }
+.msg-assistant:hover .msg-actions, .msg-actions:focus-within { opacity: 1; }
+.msg-user:hover .msg-actions, .msg-user .msg-actions:focus-within { opacity: 1; }
+.msg-user { position: relative; flex-direction: column; align-items: flex-end; }
+.msg-user .msg-actions { justify-content: flex-end; }
+@media (prefers-reduced-motion: reduce) { .msg-actions { transition: none; } }
+.act { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; padding: 5px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--muted); }
+.act:hover { color: var(--teal); border-color: var(--teal); }
+.act.copied { color: var(--teal-strong); border-color: var(--teal); }
+.edit-box { width: 78%; max-width: 78%; }
+.edit-box textarea { width: 100%; border: 1px solid var(--teal); border-radius: 12px; background: var(--surface); color: var(--ink); font-family: inherit; font-size: 15px; padding: 10px 13px; resize: vertical; }
+.edit-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 6px; }
+
+/* Recap line (opens Inspector) */
+.recap { display: inline-flex; align-items: center; gap: 8px; margin-top: 14px; padding: 7px 13px; border: 1px solid var(--border); border-radius: 999px; background: var(--surface-2); color: var(--ink-soft); font-size: 12.5px; }
+.recap:hover { border-color: var(--teal); color: var(--teal-strong); }
+.recap .ra { color: var(--faint); }
+
+/* Answer mini table-of-contents */
+.toc { display: flex; flex-wrap: wrap; gap: 6px; margin: 2px 0 14px; padding-bottom: 10px; border-bottom: 1px solid var(--border); }
+.toc a { font-size: 11.5px; padding: 3px 10px; border: 1px solid var(--border); border-radius: 999px; background: var(--surface); color: var(--muted); }
+.toc a:hover { border-color: var(--teal); color: var(--teal-strong); }
+
+/* Copy button on JSON / excerpt blocks */
+.blk { position: relative; }
+.copybtn { position: absolute; top: 6px; right: 6px; font-size: 10.5px; padding: 3px 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); color: var(--muted); }
+.copybtn:hover { color: var(--teal); border-color: var(--teal); }
+.copybtn.copied { color: var(--teal-strong); border-color: var(--teal); }
+
+/* Phone layout: primary conversation and supporting research are navigable
+   full-height panes. Keeping both simultaneously visible left only 265px for the
+   conversation and 240px for evidence at 360x800, hiding presets below a clipped
+   scroll pane and reducing Graph/Sources to thumbnail-sized work surfaces. */
+@media (max-width: 720px) {
+  .topbar {
+    min-height: 52px;
+    padding: max(6px, env(safe-area-inset-top)) max(10px, env(safe-area-inset-right)) 6px max(10px, env(safe-area-inset-left));
+  }
+  .iconbtn, .sendbtn { width: 44px; height: 44px; }
+  .topbar .title { min-width: 0; flex: 1; font-size: 15px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .topbar .title .sub { display: none; }
+  .status-strip {
+    flex-wrap: nowrap;
+    gap: 6px;
+    padding: 6px max(10px, env(safe-area-inset-right)) 6px max(10px, env(safe-area-inset-left));
+    overflow-x: auto;
+    scrollbar-width: none;
+    overscroll-behavior-inline: contain;
+  }
+  .status-strip::-webkit-scrollbar { display: none; }
+  .chip { flex: none; }
+  .stream { padding: 18px max(14px, env(safe-area-inset-right)) 26px max(14px, env(safe-area-inset-left)); }
+  .empty { padding: 22px 12px 18px; text-align: left; }
+  .empty h1 { font-size: 26px; line-height: 1.18; }
+  .empty p.lede { margin-bottom: 14px; font-size: 13.5px; line-height: 1.48; }
+  .suggests {
+    display: flex; gap: 10px; margin: 10px -12px 0; padding: 2px 12px 12px;
+    overflow-x: auto; overscroll-behavior-inline: contain; scroll-snap-type: x proximity;
+    scrollbar-width: none;
+  }
+  .suggests::-webkit-scrollbar { display: none; }
+  .suggest { flex: 0 0 min(82vw, 300px); min-height: 112px; align-items: flex-start; scroll-snap-align: start; }
+  .msg-user .bub, .edit-box { width: 94%; max-width: 94%; }
+  .msg-actions { opacity: 1; }
+  .composer-dock {
+    padding: 8px max(10px, env(safe-area-inset-right)) max(10px, env(safe-area-inset-bottom)) max(10px, env(safe-area-inset-left));
+    background: var(--bg);
+  }
+  .composer form { border-radius: 13px; padding: 7px 8px 6px 11px; }
+  .composer-work { margin-inline: 4px; font-size: 11px; }
+  .composer-work .work-hint { display: none; }
+  .composer textarea { min-height: 28px; font-size: 16px; }
+  .composer .note { display: none; }
+  .jump-live { bottom: calc(88px + env(safe-area-inset-bottom)); min-height: 44px; }
+  .insp-head { padding: 8px max(12px, env(safe-area-inset-right)) 0 max(12px, env(safe-area-inset-left)); }
+  .insp-tabs {
+    padding: 3px max(8px, env(safe-area-inset-right)) 0 max(8px, env(safe-area-inset-left));
+    scrollbar-width: none;
+  }
+  .insp-tabs::-webkit-scrollbar { display: none; }
+  .insp-tab { min-height: 44px; padding: 8px 10px; }
+  .insp-body { padding: 11px max(12px, env(safe-area-inset-right)) max(14px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left)); }
+  .source-grid { grid-template-columns: minmax(0, 1fr); gap: 1px; }
+  .source-grid .sk { margin-top: 5px; }
+  .source-grid .sv { text-align: left; }
+  .source-actions, .authority-actions { display: grid; grid-template-columns: minmax(0, 1fr); }
+  .source-link, .source-copy, .authority-action, .cap-seed, .act, .retry, .seed-inline {
+    min-height: 44px;
+    align-items: center;
+  }
+  .authority-top { flex-wrap: wrap; }
+  .graph-stat-grid { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  .graph-svg { min-width: 0; max-width: 100%; }
+  pre.json { max-width: 100%; }
+  .rail-top { padding-top: max(14px, env(safe-area-inset-top)); }
+  .rail-badge { padding-bottom: max(11px, env(safe-area-inset-bottom)); }
+}
+/* Compact portrait and short landscape viewports use one full workspace pane at
+   a time. The same state and DOM remain authoritative; only the visible pane
+   changes, so resizing cannot duplicate or discard an episode. */
+@media (max-width: 720px), (max-height: 600px) and (max-width: 1000px) {
+  .app.research-panel-open {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr);
+  }
+  .app.research-panel-open .main { grid-column: 1; grid-row: 1; }
+  .app.research-panel-open .research-panel {
+    display: none; grid-column: 1; grid-row: 1; border: 0; min-height: 0;
+  }
+  .app.research-panel-open.mobile-research-open .main { display: none; }
+  .app.research-panel-open.mobile-research-open .research-panel { display: flex; }
+  .mobile-research-toggle { display: inline-flex; min-height: 44px; }
+  .mobile-research-back { display: grid; }
+  .insp-head {
+    min-height: 58px;
+    padding: max(7px, env(safe-area-inset-top)) max(12px, env(safe-area-inset-right)) 7px max(12px, env(safe-area-inset-left));
+    border-bottom: 1px solid var(--border);
+  }
+  .insp-head .it { font-size: 17px; }
+  .insp-tabs { flex: none; }
+  .graph-svg { width: min(100%, 560px); margin-inline: auto; }
+}
+@media (max-width: 380px) {
+  .graph-stat-grid { grid-template-columns: minmax(0, 1fr); }
+  .stream { padding-inline: 10px; }
+  .insp-body { padding-inline: 10px; }
+}
+@media (max-height: 600px) and (max-width: 1000px) and (orientation: landscape) {
+  .status-strip { display: none; }
+  .composer-dock { padding: 7px 16px 9px; background: var(--bg); }
+  .composer form { padding: 6px 9px 5px 11px; }
+  .composer textarea { min-height: 26px; font-size: 16px; }
+  .composer .note { display: none; }
+  .empty {
+    display: grid; grid-template-columns: minmax(220px, 0.8fr) minmax(0, 1.2fr);
+    grid-template-rows: auto minmax(0, 1fr); gap: 4px 18px;
+    max-width: 780px; padding: 12px 14px; text-align: left;
+  }
+  .empty h1 { grid-column: 1; grid-row: 1; align-self: end; font-size: 23px; line-height: 1.15; }
+  .empty p.lede { grid-column: 1; grid-row: 2; margin: 4px 0 0; font-size: 12.5px; line-height: 1.4; }
+  .empty .suggests {
+    grid-column: 2; grid-row: 1 / span 2; display: flex; gap: 9px; min-width: 0;
+    margin: 0; padding: 1px 2px 8px; overflow-x: auto; overscroll-behavior-inline: contain;
+    scroll-snap-type: x proximity; scrollbar-width: none;
+  }
+  .empty .suggests::-webkit-scrollbar { display: none; }
+  .empty .suggest { flex: 0 0 min(52vw, 360px); min-height: 132px; align-items: flex-start; scroll-snap-align: start; }
+}
+@media (prefers-reduced-motion: reduce) and (max-width: 1280px) {
+  .rail { transition: none; }
+}
+@media (pointer: coarse) and (max-width: 1280px) {
+  .iconbtn, .sendbtn, .insp-tab, .source-link, .source-copy, .authority-action,
+  .cap-seed, .act, .retry, .seed-inline, .graph-filter, .mobile-research-toggle, .mobile-research-back, .suggest {
+    min-height: 44px;
+  }
+  .iconbtn, .sendbtn { min-width: 44px; }
+  .msg-actions { opacity: 1; }
+}
+</style>
+</head>
+<body>
+<div class="app research-panel-open" id="app">
+  <!-- ============ LEFT RAIL ============ -->
+  <aside class="rail" id="rail" aria-label="Navigation">
+    <div class="rail-top">
+      <div class="wordmark"><span class="mk">L</span> Leapable Law</div>
+      <button class="newchat" id="new-chat" type="button"><span aria-hidden="true">＋</span> New chat</button>
+    </div>
+    <nav class="nav" id="nav" aria-label="Views">
+      <button data-view="new" type="button"><span class="ic" aria-hidden="true">✎</span>New</button>
+      <button data-view="capabilities" class="active" type="button"><span class="ic" aria-hidden="true">✦</span>Capabilities</button>
+    </nav>
+    <div class="rail-body" id="rail-body"></div>
+    <div class="rail-badge"><span class="dot" aria-hidden="true"></span><span><b>Ohio</b> · <span id="corpus-badge-count">verifying corpus…</span> · statewide + local case law</span></div>
+  </aside>
+  <button class="rail-scrim" id="rail-scrim" type="button" aria-label="Close navigation" tabindex="-1"></button>
+
+  <!-- ============ MAIN COLUMN ============ -->
+  <main class="main">
+    <div class="topbar">
+      <button class="iconbtn" id="rail-toggle" type="button" aria-label="Toggle navigation" aria-controls="rail" aria-expanded="true" title="Toggle navigation">☰</button>
+      <div class="title">Ohio Research Console<span class="sub" id="scope-sub">verifying accepted production corpus…</span></div>
+      <div class="spacer"></div>
+      <button class="mobile-research-toggle" id="mobile-research-toggle" type="button" aria-label="Open research details" aria-controls="research-panel" aria-expanded="false">
+        Research <span class="tab-badge" id="mobile-research-count" hidden></span>
+      </button>
+      <button class="iconbtn" id="theme-toggle" type="button" aria-label="Toggle light/dark theme" title="Toggle theme">◐</button>
+    </div>
+    <div class="status-strip" id="status-strip" aria-label="System status"></div>
+    <!-- The scroll container. tabindex makes it focusable so PgUp/PgDn/Home/End
+         (and Space/arrows) scroll it; wheel + touch work natively. (#1978) -->
+    <div class="stream-wrap" id="stream-wrap" data-testid="stream-scroll" tabindex="0" role="region" aria-label="Conversation" aria-live="polite" aria-relevant="additions text">
+      <div class="stream" id="stream"></div>
+    </div>
+    <button class="jump-live" id="jump-live" data-testid="jump-to-latest" type="button" hidden aria-label="Jump to the live answer">↓ Jump to live</button>
+    <div class="composer-dock" id="composer-dock">
+      <div class="composer">
+        <div class="composer-work" id="composer-work" data-testid="composer-work-status" hidden>
+          <span class="work-dot" aria-hidden="true"></span>
+          <span class="work-label" aria-hidden="true">Working</span>
+          <span aria-hidden="true">·</span>
+          <span class="work-phase" id="work-phase" aria-hidden="true">Starting research</span>
+          <span class="work-meta" aria-hidden="true">(<span id="work-elapsed">0s</span><span class="work-hint"> · Esc to interrupt</span>)</span>
+          <span class="sr-only" id="work-announcement" role="status" aria-live="polite" aria-atomic="true"></span>
+        </div>
+        <form id="composer-form" autocomplete="off">
+          <textarea id="composer-input" rows="1" maxlength="4000" placeholder="Ask the Ohio corpus anything…" aria-label="Ask a question" disabled></textarea>
+          <div class="crow">
+            <span class="model"><span class="cdot" aria-hidden="true"></span><span id="model-name">DeepSeek Reasoner</span></span>
+            <span class="cspacer"></span>
+            <button class="sendbtn" id="send-btn" type="submit" aria-label="Send" disabled>↑</button>
+          </div>
+        </form>
+        <div class="note" id="composer-note">Answer-first. The agent mines real Calyx tools; every citation is verified in the corpus or the answer is refused.</div>
+      </div>
+    </div>
+  </main>
+
+  <!-- ============ RESEARCH DETAILS ============ -->
+  <aside class="research-panel" id="research-panel" aria-label="Research details">
+    <div class="insp-head">
+      <button class="mobile-research-back" id="mobile-research-back" type="button" aria-label="Back to conversation">←</button>
+      <div class="it">Research details</div>
+    </div>
+    <div class="insp-tabs" id="insp-tabs" role="tablist" aria-label="Research details"></div>
+    <div class="insp-body" id="insp-body" role="tabpanel" tabindex="0"></div>
+  </aside>
+</div>
+
+<script>
+"use strict";
+/* ============================================================================
+   Console logic — vanilla JS, no framework, no external fetch. It renders the
+   SAME SSE events the backend already emits (see src/chat/event.rs). Every
+   number/edge/lens/citation in the Inspector is bound to a REAL payload field.
+   ========================================================================== */
+const $ = (s, r = document) => r.querySelector(s);
+const fmt = (n) => (typeof n === "number" ? n.toLocaleString("en-US") : n);
+function scopeText(scope) {
+  if (typeof scope === "string") return scope;
+  if (!scope || typeof scope !== "object") return "";
+  if (typeof scope.physical_opinions === "number" && Array.isArray(scope.collections)) {
+    return fmt(scope.physical_opinions) + " Ohio opinions · Supreme Court + Eighth District";
+  }
+  return typeof scope.description === "string" ? scope.description : "";
+}
+function el(tag, attrs, ...kids) {
+  const n = document.createElement(tag);
+  if (attrs) for (const k in attrs) {
+    if (k === "html") n.innerHTML = attrs[k];
+    else if (k === "hidden") { if (attrs[k]) n.hidden = true; }
+    else n.setAttribute(k, attrs[k]);
+  }
+  for (const c of kids) { if (c == null) continue; n.append(c.nodeType ? c : document.createTextNode(String(c))); }
+  return n;
+}
+function esc(s) { return String(s == null ? "" : s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c])); }
+const reduceMotion = () => window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+/* --- Theme --------------------------------------------------------------- */
+(function initTheme() {
+  const saved = localStorage.getItem("calyx-theme");
+  if (saved) document.documentElement.setAttribute("data-theme", saved);
+})();
+$("#theme-toggle").addEventListener("click", () => {
+  const isLight = (document.documentElement.getAttribute("data-theme") || (window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light")) !== "dark";
+  const next = isLight ? "dark" : "light";
+  document.documentElement.setAttribute("data-theme", next);
+  localStorage.setItem("calyx-theme", next);
+  if (STATE.activeId) renderInspector(); // re-tint SVG strokes etc.
+});
+
+/* --- Capabilities catalog (sourced from src/chat/tools.rs + system_prompt.md) - */
+const CAPABILITIES = [
+  { group: "Find & Read Law", tools: [
+    { name: "corpus_search", label: "Find relevant opinions", desc: "Search all 109,133 Ohio Supreme Court and Cuyahoga Eighth District opinions by legal issue, facts, court, date, judge, docket, and other case details.", ex: "Find opinions on prolonged traffic stops and reasonable suspicion.", limit: "Best for finding likely authorities; the opinion itself controls." },
+    { name: "case_read", label: "Review case details", desc: "See a case name, court, docket, filing date, opinion type, and links that help you retrieve the original opinion.", ex: "Show the filing details and original sources for State v. Aalim, docket 2015-0677.", limit: "Identifies the authority; use the opinion text to assess its holding." },
+    { name: "case_segments", label: "Review a long opinion completely", desc: "Confirm that a long opinion was considered across all of its sections, instead of only an opening excerpt.", ex: "Review the final 2017 State v. Aalim opinion, docket 2015-0677, and tell me whether every section was included in the research.", limit: "Explains coverage of the document, not its legal significance." },
+    { name: "case_text", label: "Read the opinion", desc: "Open the retained text of an opinion so the answer can quote and explain what the court actually said.", ex: "Read the final 2017 State v. Aalim opinion, docket 2015-0677, and quote what it says about mandatory juvenile transfer.", limit: "Read enough context to distinguish a holding from dicta or quoted authority." },
+  ]},
+  { group: "Compare Rules & Authorities", tools: [
+    { name: "kernel_answer", label: "Trace a legal rule", desc: "Follow a legal issue through the strongest connected authorities and show the cases supporting the result.", ex: "When does prolonging a traffic stop require suppressing evidence?", limit: "Limited to the Ohio courts presently included in this research collection." },
+    { name: "kernel_inspect", label: "Check the authority set", desc: "See how many opinions support a focused area of law and whether the collection is complete enough to answer responsibly.", ex: "How many opinions are in the traffic-stop authority set, and does it meet the system's coverage threshold?", limit: "Describes the supporting collection, not the outcome of an individual case." },
+  ]},
+  { group: "Citation Research", tools: [
+    { name: "citation_graph", label: "Explore the citation network", desc: "See the size and reach of the real citation network represented in the collection.", ex: "How many opinions and citation links are in this collection's citation network, and is the graph ready?", limit: "A collection-wide view; select a case to inspect its specific authorities." },
+    { name: "citation_neighbors", label: "See citing and cited authorities", desc: "For one opinion, show what it cites and which later opinions cite it, with readable in-collection cases clearly marked.", ex: "For the final 2017 State v. Aalim opinion, docket 2015-0677, what authorities does it cite, and which later in-collection opinions cite it?", limit: "Some cited authorities may fall outside the current Ohio collection." },
+    { name: "cite_check", label: "Confirm a case is available", desc: "Look up a case by name and state clearly whether it is present in the research collection.", ex: "Does the collection contain State v. Bonnell?", limit: "Confirms availability; read the opinion before relying on its holding." },
+  ]},
+  { group: "Judge History", tools: [
+    { name: "judge_profile", label: "Review a judge's record", desc: "Summarize the available authored opinions and dissents for the configured Cuyahoga judge research profile.", ex: "How often does Judge Mary J. Boyle dissent?", limit: "Historical description only; it does not predict how a judge will rule." },
+    { name: "judge_census", label: "Count a judge's opinions", desc: "Count opinions attributed to a named Eighth District judge and disclose gaps in author information.", ex: "How many Eighth District opinions are attributed to Judge Blackmon, and how complete is the author information?", limit: "Counts are a documented floor when an opinion does not identify its author." },
+  ]},
+  { group: "Coverage & Trust", tools: [
+    { name: "corpus_stats", label: "See collection coverage", desc: "Review the live number of opinions, included courts, opinion types, citation links, and search readiness.", ex: "What courts and opinions are available to research right now?", limit: "Reports the production collection as it exists at this moment." },
+    { name: "reproduce", label: "Re-run a grounded result", desc: "Repeat a prior grounded result and confirm that the same recorded research produces the same answer.", ex: "Answer when prolonging a traffic stop requires suppression, then reproduce that grounded result and confirm whether it is unchanged.", limit: "Requires a result created by the focused doctrine workflow." },
+    { name: "ledger_verify", label: "Verify research history", desc: "Confirm that the system's recorded research history is complete and has not been altered.", ex: "Verify the integrity of the recorded research history.", limit: "Checks the research record as a whole, not whether a legal conclusion is persuasive." },
+    { name: "ledger_tail", label: "Review recent research records", desc: "Show the most recently recorded research actions for audit and troubleshooting.", ex: "List and explain the five most recent research actions recorded in the ledger.", limit: "Shows only the most recent portion of the record." },
+  ]},
+];
+const TOOL_GROUP = {};
+CAPABILITIES.forEach((g) => g.tools.forEach((t) => { TOOL_GROUP[t.name] = g.group; }));
+
+const STEP_ICON = {
+  corpus_search: "🔎", cite_check: "🔎", case_read: "📄", case_segments: "🧩", case_text: "📖",
+  kernel_answer: "🎯", kernel_inspect: "🧠", reproduce: "🔁", judge_profile: "⚖️", judge_census: "⚖️",
+  citation_graph: "🕸️", citation_neighbors: "🕸️", corpus_stats: "📊", ledger_verify: "🔗", ledger_tail: "🧾",
+};
+/* Which Inspector tab a tool's evidence belongs to. */
+const TOOL_TAB = {
+  corpus_search: "graph", kernel_answer: "graph", citation_neighbors: "graph", citation_graph: "graph",
+  case_text: "sources", case_read: "graph", cite_check: "graph", judge_profile: "corpus",
+  judge_census: "corpus", corpus_stats: "corpus", case_segments: "corpus",
+  reproduce: "sources", ledger_verify: "sources", ledger_tail: "sources", kernel_inspect: "corpus",
+};
+
+/* --- Global state -------------------------------------------------------- */
+const STATE = {
+  threads: [],        // { id, question, ts, reasoning[], adapt[], steps[], toolResults[], validation, answerHtml, answerText, citations[], footer, error, cancelled, t0, thoughtMs, running }
+  activeId: null,
+  railView: "capabilities",
+  inspectorOpen: true,
+  inspectorTab: "graph",
+  streaming: false,
+  controller: null,
+};
+let HEALTH = null;
+let HEALTH_ERROR = null;
+let SEQ = 1;
+const activeThread = () => STATE.threads.find((t) => t.id === STATE.activeId) || null;
+const compactNav = window.matchMedia("(max-width: 1280px)");
+const compactWorkspace = window.matchMedia("(max-width: 720px), (max-height: 600px) and (max-width: 1000px)");
+
+function syncSurfaceInert() {
+  const app = $("#app");
+  const railOpen = compactNav.matches && app.classList.contains("mobile-rail-open");
+  const researchOpen = compactWorkspace.matches && app.classList.contains("mobile-research-open");
+  $(".main").toggleAttribute("inert", railOpen || researchOpen);
+  $("#research-panel").toggleAttribute("inert", railOpen || (compactWorkspace.matches && !researchOpen));
+  $("#mobile-research-toggle").setAttribute("aria-expanded", String(researchOpen));
+}
+
+function setMobileResearchOpen(open, restoreFocus) {
+  const app = $("#app");
+  const next = compactWorkspace.matches && !!open;
+  if (next && app.classList.contains("mobile-rail-open")) setMobileRailOpen(false, false);
+  app.classList.toggle("mobile-research-open", next);
+  syncSurfaceInert();
+  if (next) {
+    (window.requestAnimationFrame || setTimeout)(() => {
+      const activeTab = $("#insp-tab-" + STATE.inspectorTab);
+      if (activeTab) activeTab.focus();
+    });
+  } else if (restoreFocus) {
+    $("#mobile-research-toggle").focus();
+  }
+}
+
+function syncCompactWorkspace() {
+  if (!compactWorkspace.matches) $("#app").classList.remove("mobile-research-open");
+  syncSurfaceInert();
+  if (STATE.inspectorOpen) renderInspector();
+}
+
+function setMobileRailOpen(open, restoreFocus) {
+  const app = $("#app");
+  const next = compactNav.matches && !!open;
+  app.classList.toggle("mobile-rail-open", next);
+  $("#rail-toggle").setAttribute("aria-expanded", String(next));
+  syncSurfaceInert();
+  if (next) {
+    (window.requestAnimationFrame || setTimeout)(() => $("#new-chat").focus());
+  } else if (restoreFocus) {
+    $("#rail-toggle").focus();
+  }
+}
+function syncRailToggle() {
+  if (compactNav.matches) {
+    setMobileRailOpen(false, false);
+    return;
+  }
+  $("#app").classList.remove("mobile-rail-open");
+  syncSurfaceInert();
+  $("#rail-toggle").setAttribute("aria-expanded", String(!$("#app").classList.contains("rail-collapsed")));
+}
+compactNav.addEventListener("change", syncRailToggle);
+compactWorkspace.addEventListener("change", syncCompactWorkspace);
+
+/* --- Rail ---------------------------------------------------------------- */
+function setRailView(v) {
+  STATE.railView = v;
+  [...$("#nav").children].forEach((b) => b.classList.toggle("active", b.dataset.view === v));
+  if (v === "new") { newChat(); return; }
+  renderRail();
+}
+
+$("#nav").addEventListener("click", (e) => {
+  const b = e.target.closest("button[data-view]"); if (!b) return;
+  setRailView(b.dataset.view);
+});
+/* New chat STOPS the running agent first (#2061). Before this it only swapped the
+   rail view: the old episode kept running server-side AND `STATE.streaming` stayed
+   true, so the fresh chat could not even be used. */
+$("#new-chat").addEventListener("click", () => { startNewChat(); });
+
+function renderRail() {
+  const body = $("#rail-body"); body.innerHTML = "";
+  if (STATE.railView === "capabilities") { renderCapabilities(body); return; }
+  // default: Recents (this session's threads, ephemeral)
+  body.append(el("div", { class: "rail-section-label" }, "Recents · this session"));
+  if (!STATE.threads.length) {
+    body.append(el("div", { class: "recents-empty" }, "No conversations yet. Ask a question to begin — threads live only in this browser session."));
+    return;
+  }
+  STATE.threads.forEach((t) => {
+    const b = el("button", { class: "recent" + (t.id === STATE.activeId ? " active" : ""), type: "button", title: t.question });
+    b.append(el("div", {}, t.question.length > 46 ? t.question.slice(0, 46) + "…" : t.question));
+    b.append(el("div", { class: "rt" }, new Date(t.ts).toLocaleTimeString() + (t.running ? " · running…" : "")));
+    b.addEventListener("click", () => {
+      selectThread(t.id);
+      if (compactNav.matches) setMobileRailOpen(false, false);
+    });
+    body.append(b);
+  });
+}
+function renderCapabilities(body) {
+  body.append(el("div", { class: "rail-section-label" }, "What this console can do"));
+  CAPABILITIES.forEach((g) => {
+    const grp = el("div", { class: "cap-group" });
+    grp.append(el("h4", {}, g.group));
+    g.tools.forEach((t) => {
+      const item = el("div", { class: "cap-item" });
+      item.append(el("div", { class: "cn" }, t.label || pretty(t.name)));
+      item.append(el("div", { class: "cd" }, t.desc));
+      item.append(el("div", { class: "cl" }, "Keep in mind: " + t.limit));
+      const seed = el("button", { class: "cap-seed", type: "button" }, "“" + t.ex + "”");
+      seed.addEventListener("click", () => { seedComposer(t.ex); });
+      item.append(seed);
+      grp.append(item);
+    });
+    body.append(grp);
+  });
+}
+function pretty(name) { return name.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()); }
+function seedComposer(q) {
+  const i = $("#composer-input");
+  i.value = q;
+  autoGrow(i);
+  if (compactNav.matches) setMobileRailOpen(false, false);
+  i.focus();
+}
+
+/* --- Rail / persistent inspector ---------------------------------------- */
+$("#rail-toggle").addEventListener("click", () => {
+  if (compactNav.matches) {
+    setMobileRailOpen(!$("#app").classList.contains("mobile-rail-open"), true);
+    return;
+  }
+  $("#app").classList.toggle("rail-collapsed");
+  syncRailToggle();
+});
+$("#rail-scrim").addEventListener("click", () => setMobileRailOpen(false, true));
+$("#mobile-research-toggle").addEventListener("click", () => setMobileResearchOpen(true, false));
+$("#mobile-research-back").addEventListener("click", () => setMobileResearchOpen(false, true));
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && $("#app").classList.contains("mobile-rail-open")) {
+    event.preventDefault();
+    setMobileRailOpen(false, true);
+    return;
+  }
+  if (event.key === "Escape" && $("#app").classList.contains("mobile-research-open")) {
+    event.preventDefault();
+    setMobileResearchOpen(false, true);
+    return;
+  }
+  if (event.key === "Escape" && STATE.streaming) {
+    event.preventDefault();
+    interruptEpisode("keyboard");
+  }
+});
+function openInspector(tab) {
+  STATE.inspectorOpen = true;
+  if (tab) STATE.inspectorTab = requireInspectorTab(tab, "openInspector");
+  $("#app").classList.add("research-panel-open");
+  renderInspector();
+  if (compactWorkspace.matches) setMobileResearchOpen(true, false);
+}
+/* Land a clicked in-text citation chip on its Sources card. A validated answer citation
+   must have a Sources card; absence is a broken UI-state invariant and fails explicitly. */
+function focusCitationCard(cx) {
+  openInspector("sources");
+  const land = () => {
+    const body = $("#insp-body");
+    const record = body.querySelector('.source-excerpt-record[data-cx="' + cx + '"]');
+    const card = record ? record.closest(".src-card") : body.querySelector('.src-card[data-cx="' + cx + '"]');
+    if (card) {
+      const target = record || card;
+      highlightCard(target);
+      return;
+    }
+    failInspector("CALYX_LAWDEMO_SOURCE_CARD_MISSING", {
+      cx_id: cx,
+      active_thread_id: STATE.activeId,
+      rendered_source_cards: body.querySelectorAll('[data-testid="source-card"]').length,
+    });
+  };
+  (window.requestAnimationFrame || setTimeout)(land);
+}
+function highlightCard(node) {
+  node.scrollIntoView({ behavior: reduceMotion() ? "auto" : "smooth", block: "center" });
+  node.classList.add("src-focus");
+  setTimeout(() => node.classList.remove("src-focus"), 2200);
+}
+
+/* --- Status strip -------------------------------------------------------- */
+function renderStatus() {
+  const strip = $("#status-strip"); strip.innerHTML = "";
+  const t = activeThread();
+  const healthLoaded = HEALTH !== null;
+  const resident = HEALTH && HEALTH.resident ? HEALTH.resident : null;
+  const residentProcessReady = !!(resident && resident.ready);
+  const residentReady = !!(HEALTH && HEALTH.ready && residentProcessReady);
+  // The "learned lenses warmed" tile reflects the LIVE resident readback
+  // (/api/health resident.warmed_lens_count), never a hardcoded number: it must
+  // match what the resident is actually serving. The
+  // per-query fired-lens count lives in the Lenses inspector tab, not here.
+  const warmedLenses = resident && typeof resident.warmed_lens_count === "number" ? resident.warmed_lens_count : null;
+  const corpus = HEALTH && HEALTH.corpus ? HEALTH.corpus : null;
+  const corpusReady = !!(corpus && corpus.verified);
+  const physicalOpinions = corpus && typeof corpus.physical_opinions === "number" ? corpus.physical_opinions : null;
+  $("#corpus-badge-count").textContent = corpusReady && physicalOpinions != null
+    ? fmt(physicalOpinions) + " physically verified opinions"
+    : "corpus manifest unverified";
+  const ledger = t && t.ledgerHeight != null ? t.ledgerHeight : null;
+  const chatOn = HEALTH && HEALTH.modes && HEALTH.modes.chat;
+  const scope = HEALTH && HEALTH.scope && typeof HEALTH.scope === "object" ? HEALTH.scope : null;
+  const collections = scope && Array.isArray(scope.collections) ? scope.collections : [];
+  const supremeCourt = collections.find((collection) => /supreme/i.test(collection.court || ""));
+  const eighthDistrict = collections.find((collection) => /eighth/i.test(collection.court || ""));
+  const expectedLenses = corpus && typeof corpus.expected_content_lenses === "number" ? corpus.expected_content_lenses : null;
+  const chips = [];
+  if (HEALTH_ERROR) {
+    chips.push({ cls: "warn", html: "health readback unavailable · " + esc(HEALTH_ERROR) });
+  } else if (!healthLoaded) {
+    chips.push({ cls: "", html: "verifying physical corpus…" });
+    chips.push({ cls: "", html: "verifying GPU lens resident…" });
+  } else {
+    chips.push({
+      cls: corpusReady ? "ok" : "warn",
+      html: "<b>" + (physicalOpinions != null ? fmt(physicalOpinions) : "unknown") + "</b> physical opinions" + (corpusReady ? " · manifest verified" : " · manifest unverified"),
+    });
+    if (supremeCourt && eighthDistrict) {
+      chips.push({
+        cls: corpusReady ? "ok" : "",
+        html: "<b>" + fmt(supremeCourt.physical_opinions) + "</b> Ohio Supreme Court · <b>" + fmt(eighthDistrict.physical_opinions) + "</b> Eighth District",
+      });
+    }
+    chips.push({
+      cls: residentReady && warmedLenses != null ? "ok" : "warn",
+      html: residentReady && warmedLenses != null
+        ? "<b>" + warmedLenses + "/" + (expectedLenses != null ? expectedLenses : warmedLenses) + "</b> learned lenses GPU-warmed"
+        : residentProcessReady
+          ? "GPU resident is ready but its vault/lens binding is unverified"
+          : "GPU lens resident offline",
+    });
+  }
+  if (ledger != null) {
+    chips.push({ cls: "ok", html: "verified ledger height <b>" + fmt(ledger) + "</b> · bit-exact replay" });
+  } else {
+    chips.push({ cls: "", html: "ledger proof + replay appear with each grounded answer" });
+  }
+  chips.push({ cls: "tealline", html: "answer LLM is excluded from retrieval / grounding" });
+  chips.forEach((c) => strip.append(el("span", { class: "chip " + (c.cls || ""), html: '<span class="cdot"></span>' + c.html })));
+  const operational = corpusReady && residentReady && chatOn !== false;
+  $("#composer-input").disabled = !operational;
+  $("#send-btn").disabled = !operational;
+  const model = HEALTH && HEALTH.chat && HEALTH.chat.model;
+  if (model) { $("#model-name").textContent = prettyModel(model); }
+  if (chatOn === false) {
+    $("#composer-note").textContent = "Chat is disabled in this deployment (LAWDEMO_WEB_CHAT_ENABLED unset). This deployment is not operational until the setting is corrected.";
+  } else if (!corpusReady) {
+    $("#composer-note").textContent = "Research is locked until the search and accepted jurisdiction manifests independently verify the full production corpus.";
+  } else if (!residentReady) {
+    $("#composer-note").textContent = residentProcessReady
+      ? "Research is locked until the resident proves it serves this exact production vault and all expected content lenses."
+      : "Research is locked until all production content lenses are resident and ready.";
+  } else {
+    $("#composer-note").textContent = "Answer-first. The agent mines real Calyx tools; every citation is verified in the corpus or the answer is refused.";
+  }
+}
+function prettyModel(m) { return /reasoner/i.test(m) ? "DeepSeek Reasoner" : m; }
+
+/* --- Markdown (hand-rolled, no libs) ------------------------------------ */
+function mdToHtml(src) {
+  const inline = (s) => esc(s)
+    .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
+    .replace(/\[cx:([A-Za-z0-9_\-]+)\]/g, (m, id) => '<span class="cx-chip" data-cx="' + esc(id) + '" title="' + esc(id) + '">cx:' + esc(id.slice(0, 8)) + "…</span>");
+  const lines = String(src || "").split(/\r?\n/);
+  let html = "", inList = false;
+  for (const raw of lines) {
+    const line = raw.replace(/\s+$/, "");
+    if (/^#{2,4}\s+/.test(line)) { if (inList) { html += "</ul>"; inList = false; } html += "<h4>" + inline(line.replace(/^#{2,4}\s+/, "")) + "</h4>"; }
+    else if (/^[-*]\s+/.test(line)) { if (!inList) { html += "<ul>"; inList = true; } html += "<li>" + inline(line.replace(/^[-*]\s+/, "")) + "</li>"; }
+    else if (line === "") { if (inList) { html += "</ul>"; inList = false; } }
+    else { if (inList) { html += "</ul>"; inList = false; } html += "<p>" + inline(line) + "</p>"; }
+  }
+  if (inList) html += "</ul>";
+  return html;
+}
+function hlJson(obj) {
+  const raw = JSON.stringify(obj, null, 2);
+  return esc(raw).replace(/&quot;(?:\\.|[^&\\])*?&quot;(?:\s*:)?|\b(?:true|false|null)\b|-?\d+(?:\.\d+)?(?:[eE][+\-]?\d+)?/g, (m) => {
+    let cls = "tok-num";
+    if (m.indexOf("&quot;") === 0) cls = /:\s*$/.test(m) ? "tok-key" : "tok-str";
+    else if (m === "true" || m === "false") cls = "tok-bool";
+    else if (m === "null") cls = "tok-null";
+    return '<span class="' + cls + '">' + m + "</span>";
+  });
+}
+
+/* --- Composer ------------------------------------------------------------ */
+const input = $("#composer-input");
+function autoGrow(t) { t.style.height = "auto"; t.style.height = Math.min(200, t.scrollHeight) + "px"; }
+input.addEventListener("input", () => autoGrow(input));
+input.addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); $("#composer-form").requestSubmit(); } });
+$("#composer-form").addEventListener("submit", (e) => {
+  e.preventDefault();
+  const q = input.value.trim(); if (!q || STATE.streaming) return;
+  input.value = ""; autoGrow(input);
+  ask(q);
+});
+
+/* --- Empty state --------------------------------------------------------- */
+function newChat() {
+  STATE.activeId = null;
+  renderStream();
+  renderRail();
+  renderStatus();
+  if (STATE.inspectorOpen) renderInspector();
+}
+function renderEmpty() {
+  const stream = $("#stream"); stream.innerHTML = "";
+  $("#composer-dock").classList.remove("center");
+  const wrap = el("div", { class: "empty" });
+  wrap.append(el("h1", {}, "What would you like to research?"));
+  const corpusReady = !!(HEALTH && HEALTH.corpus && HEALTH.corpus.verified);
+  const residentReady = !!(HEALTH && HEALTH.ready && HEALTH.resident && HEALTH.resident.ready);
+  if (!corpusReady || !residentReady) {
+    wrap.append(el("p", { class: "lede" }, "Verifying the accepted production corpus and resident content lenses. Research controls unlock only after both physical readbacks pass."));
+    stream.append(wrap);
+    return;
+  }
+  const scope = HEALTH.scope;
+  const collections = scope && Array.isArray(scope.collections) ? scope.collections : [];
+  const supremeCourt = collections.find((collection) => /supreme/i.test(collection.court || ""));
+  const eighthDistrict = collections.find((collection) => /eighth/i.test(collection.court || ""));
+  wrap.append(el("p", { class: "lede" }, "Research " + fmt(scope.physical_opinions) + " canonical Ohio opinions: " + fmt(supremeCourt.physical_opinions) + " Supreme Court of Ohio opinions plus " + fmt(eighthDistrict.physical_opinions) + " Cuyahoga Eighth District opinions. Compare statewide doctrine with local application, inspect retained text and citations, and open Research for the real graph, sources, lenses, and cryptographic evidence behind each answer."));
+  const sugg = el("div", { class: "suggests" });
+  const seeds = [
+    { k: "Supreme Court holding", i: "🏛️", q: "Read State v. Aalim, docket 2015-0677, and explain only what the Supreme Court of Ohio opinion says about mandatory juvenile transfer." },
+    { k: "High court → local application", i: "↔️", q: "What does the Supreme Court of Ohio say Crim.R. 32(C) requires, and how did the Eighth District apply that doctrine in State v. Bonnell?" },
+    { k: "Cross-court doctrine", i: "🎯", q: "Find the most relevant Supreme Court of Ohio and Eighth District opinions on prolonged traffic stops, then compare the rules they actually state." },
+    { k: "Production corpus audit", i: "📊", q: "Read the physical production manifests and live resident, verify both court-collection counts and all learned lenses, then verify the ledger chain." },
+    { k: "Try to make it hallucinate", i: "🧪", dare: true, q: "Does the corpus contain State v. Fauntleroy-Whitmarsh (2029), and what did that court hold about qualified immunity?" },
+  ];
+  seeds.forEach((s) => {
+    const b = el("button", { class: "suggest" + (s.dare ? " dare" : ""), type: "button" });
+    b.append(el("span", { class: "si" }, s.i), el("span", {}, el("span", { class: "sk" }, s.k), el("div", { class: "sq" }, s.q)));
+    b.addEventListener("click", () => ask(s.q));
+    sugg.append(b);
+  });
+  wrap.append(sugg);
+  stream.append(wrap);
+}
+
+/* --- Stream rendering (from stored thread state) ------------------------- */
+function selectThread(id) { STATE.activeId = id; renderStream(); renderRail(); renderStatus(); if (STATE.inspectorOpen) renderInspector(); }
+function renderStream() {
+  const t = activeThread();
+  if (!t) { renderEmpty(); renderWorkStatus(); return; }
+  $("#composer-dock").classList.remove("center");
+  const stream = $("#stream"); stream.innerHTML = "";
+  // User message with edit-and-resend action.
+  const um = el("div", { class: "msg-user" });
+  um.append(el("div", { class: "bub" }, t.question));
+  const uacts = el("div", { class: "msg-actions" });
+  const editBtn = el("button", { class: "act", type: "button" }, "✎ Edit");
+  editBtn.addEventListener("click", () => beginEdit(t, um));
+  uacts.append(editBtn);
+  um.append(uacts);
+  stream.append(um);
+
+  const a = el("div", { class: "msg-assistant" });
+  t._nodes = {};
+
+  // Thought disclosure (Claude/ChatGPT pattern): a Thinking indicator with a LIVE
+  // elapsed timer while reasoning; collapses to "Thought for Ns" when done.
+  const thought = el("details", { class: "thought" });
+  const summaryInner = el("span", {}, t.running ? "Thinking" : ("Thought" + (t.thoughtMs != null ? " for " + Math.round(t.thoughtMs / 1000) + "s" : "")));
+  const sum = el("summary", {});
+  if (t.running) sum.append(el("span", { class: "live-dot", "aria-hidden": "true" }));
+  sum.append(summaryInner, el("span", { class: "cw" }, "▸"));
+  thought.append(sum);
+  const tbody = el("div", { class: "tbody" });
+  thought.append(tbody);
+  t._nodes.thought = thought; t._nodes.tbody = tbody; t._nodes.thoughtSummary = summaryInner;
+  a.append(thought);
+  renderThought(t);
+  if (t.running) startThinkTimer(t);
+
+  // Steps
+  const steps = el("div", { class: "steps" });
+  t._nodes.steps = steps; a.append(steps);
+  t.steps.forEach((s) => steps.append(buildStep(t, s)));
+
+  // Answer / error / cancelled
+  const ans = el("div", { class: "answer" });
+  t._nodes.answer = ans; a.append(ans);
+  // Assistant hover actions: Copy + Regenerate (client-side re-ask of same Q).
+  const aacts = el("div", { class: "msg-actions" });
+  addCopy(aacts, () => t.answerText || "", "act");
+  const regen = el("button", { class: "act", type: "button" }, "↻ Regenerate");
+  regen.addEventListener("click", () => ask(t.question));
+  aacts.append(regen);
+  t._nodes.assistantActions = aacts;
+  aacts.hidden = true;
+
+  if (t.error) { ans.append(errorPanel(t.error)); ans.append(retryBtn(t)); }
+  else if (t.cancelled) { ans.append(stoppedPanel(t)); ans.append(retryBtn(t)); }
+  else if (t.answerText) { paintAnswer(t); }
+  a.append(aacts);
+  stream.append(a);
+  renderWorkStatus();
+  scrollStreamToEnd();
+}
+
+/* Live "Thinking · Ns" elapsed timer (TTFT is the felt metric; DeepSeek reasoning
+   has long TTFT, so show progress immediately). Stops on first answer or terminal. */
+function startThinkTimer(t) {
+  stopThinkTimer(t);
+  if (t.t0 == null) t.t0 = performance.now();
+  t._timer = setInterval(() => {
+    const node = t._nodes && t._nodes.thoughtSummary;
+    if (!node || !t.running || t.answerText) { stopThinkTimer(t); return; }
+    node.textContent = "Thinking · " + Math.round((performance.now() - t.t0) / 1000) + "s";
+  }, 250);
+}
+function stopThinkTimer(t) { if (t._timer) { clearInterval(t._timer); t._timer = null; } }
+
+/* Persistent composer-adjacent activity indicator. It reports only observed episode
+   phases from live SSE events; elapsed time is a clock, never a fabricated percentage. */
+function workingThread() {
+  return STATE.threads.find((t) => t.running && !t.answerText && !t.error && !t.cancelled) || null;
+}
+function workElapsed(startedAt) {
+  const seconds = Math.max(0, Math.floor((performance.now() - startedAt) / 1000));
+  if (seconds < 60) return seconds + "s";
+  return Math.floor(seconds / 60) + "m " + (seconds % 60) + "s";
+}
+function renderWorkStatus() {
+  const line = $("#composer-work");
+  const t = workingThread();
+  if (!t) {
+    line.hidden = true;
+    $("#stream-wrap").setAttribute("aria-busy", "false");
+    if (STATE.workTimer) { clearInterval(STATE.workTimer); STATE.workTimer = null; }
+    return;
+  }
+  if (t.workStartedAt == null) t.workStartedAt = performance.now();
+  const phase = t.workPhase || "Starting research";
+  line.hidden = false;
+  $("#work-phase").textContent = phase;
+  $("#work-elapsed").textContent = workElapsed(t.workStartedAt);
+  $("#stream-wrap").setAttribute("aria-busy", "true");
+  const announcement = $("#work-announcement");
+  if (announcement.dataset.phase !== phase) {
+    announcement.dataset.phase = phase;
+    announcement.textContent = "Research status: " + phase + ".";
+  }
+  if (!STATE.workTimer) {
+    STATE.workTimer = setInterval(() => {
+      const active = workingThread();
+      if (!active) { renderWorkStatus(); return; }
+      $("#work-elapsed").textContent = workElapsed(active.workStartedAt);
+    }, 1000);
+  }
+}
+function setWorkPhase(t, phase) {
+  if (t && phase && t.workPhase !== phase) t.workPhase = phase;
+  renderWorkStatus();
+}
+
+/* Edit-and-resend (v1 = client-side re-ask with edited text). The full ChatGPT
+   node-tree branching (sibling versions per edit) is a documented non-goal here. */
+function beginEdit(t, um) {
+  const box = el("div", { class: "edit-box" });
+  const ta = el("textarea", { rows: "3" }); ta.value = t.question;
+  box.append(ta);
+  const acts = el("div", { class: "edit-actions" });
+  const cancel = el("button", { class: "act", type: "button" }, "Cancel");
+  const save = el("button", { class: "retry", type: "button" }, "Send");
+  cancel.addEventListener("click", () => renderStream());
+  save.addEventListener("click", () => { const q = ta.value.trim(); if (q) ask(q); });
+  acts.append(cancel, save); box.append(acts);
+  um.replaceWith(box);
+  ta.focus();
+}
+function renderThought(t) {
+  const tb = t._nodes && t._nodes.tbody; if (!tb) return;
+  tb.innerHTML = "";
+  if (!t.reasoning.length && !t.adapt.length) { tb.append(el("div", { class: "muted" }, "No model reasoning captured for this turn.")); return; }
+  t.reasoning.forEach((r) => {
+    const turn = el("div", { class: "tturn" });
+    turn.append(el("div", { class: "tlabel" }, "Turn " + r.turn + " · " + fmt(r.tokens) + " reasoning tokens"));
+    turn.append(el("div", { class: "ttext" }, r.text));
+    tb.append(turn);
+  });
+  t.adapt.forEach((x) => tb.append(el("div", { class: "adapt" }, "Adapting: " + x)));
+}
+function buildStep(t, s) {
+  const failed = s.ok === false;
+  const step = el("button", { class: "step" + (s.done ? " done" : "") + (failed ? " skipped failed" : ""), type: "button", "data-testid": "step-pill" });
+  const ic = s.running ? el("span", { class: "spin" }) : el("span", { class: "sic" }, failed ? "⚠" : (STEP_ICON[s.name] || "⚙️"));
+  step.append(ic);
+  // Body is a column so a failed step can carry the real CALYX_* error code +
+  // short reason on a second line, bound from the tool_result payload. (#1977)
+  const body = el("span", { class: "sbody" });
+  const label = failed ? neutralFail(s) : s.verb;
+  body.append(el("span", { class: "sv" }, label));
+  if (failed && s.failure && s.failure.code) {
+    step.setAttribute("data-code", s.failure.code);
+    const reason = shortReason(s.failure.message);
+    body.append(el("span", { class: "serr" },
+      el("span", { class: "ecode mono" }, s.failure.code),
+      reason ? el("span", { class: "ereason" }, " · " + reason) : null));
+    step.title = s.failure.code + (s.failure.message ? " — " + s.failure.message : "");
+  }
+  step.append(body);
+  if (s.latency != null && s.done) step.append(el("span", { class: "sx" }, fmt(s.latency) + "ms"));
+  step.addEventListener("click", () => { openInspector(bestInspectorTab(t, s.name)); });
+  return step;
+}
+/* First sentence / bounded slice of a forwarded error message for the pill's second
+   line (the full message is on the pill's title/tooltip). */
+function shortReason(msg) {
+  if (!msg) return "";
+  let s = String(msg).trim().replace(/\s+/g, " ");
+  const stop = s.search(/[.;\n]/);
+  if (stop > 0 && stop < 96) s = s.slice(0, stop);
+  return s.length > 96 ? s.slice(0, 95) + "…" : s;
+}
+function neutralFail(s) {
+  const nice = {
+    kernel_answer: "Doctrine kernel · unavailable, adapted via search",
+    kernel_inspect: "Kernel health · unavailable, skipped",
+    reproduce: "Reproduce · no prior answer to replay",
+    citation_graph: "Citation graph · mid-rebuild, skipped",
+    citation_neighbors: "Citation neighbors · none resolved in-corpus",
+  };
+  return nice[s.name] || (pretty(s.name) + " · unavailable, adapted");
+}
+function paintAnswer(t) {
+  const ans = t._nodes.answer; ans.innerHTML = "";
+  const v = t.validation;
+  if (v) {
+    const nValid = (v.valid || []).length, nCited = (v.cited || []).length, nInvalid = (v.invalid || []).length;
+    let badge;
+    if (nCited > 0 && nInvalid === 0) badge = el("div", { class: "ground-badge sealed" }, "✓ " + nValid + "/" + nCited + " citations verified in the corpus");
+    else if (nCited === 0) badge = el("div", { class: "ground-badge none" }, "Corpus support stated in-line — no citation token needed");
+    else badge = el("div", { class: "ground-badge none" }, nValid + "/" + nCited + " verified · " + nInvalid + " refused");
+    ans.append(badge);
+  }
+  const prose = el("div", { html: mdToHtml(t.answerText) });
+  // Mini table-of-contents for long, multi-section answers (beats the known
+  // Claude weakness: long answers aren't skimmable/anchored). Built from headings.
+  const heads = [...prose.querySelectorAll("h4")];
+  if (heads.length >= 2) {
+    const toc = el("div", { class: "toc" });
+    heads.forEach((h, i) => { const id = t.id + "-h" + i; h.id = id; const a2 = el("a", { href: "#" + id }, h.textContent); a2.addEventListener("click", (e) => { e.preventDefault(); h.scrollIntoView({ behavior: reduceMotion() ? "auto" : "smooth", block: "start" }); }); toc.append(a2); });
+    ans.append(toc);
+  }
+  ans.append(prose);
+  // wire cx chips + mark verified
+  const byCx = {}; (t.citations || []).forEach((c) => { byCx[c.cx_id] = c; });
+  ans.querySelectorAll(".cx-chip").forEach((chip) => {
+    const cx = chip.getAttribute("data-cx"); const c = byCx[cx];
+    if (c) {
+      chip.classList.add("verified");
+      const source = c.source || {};
+      const locator = [c.case_name, c.year ? "(" + c.year + ")" : "", displayCourt(source), source.docket_number ? "docket " + source.docket_number : ""].filter(Boolean).join(" · ");
+      chip.title = locator || "View this authority in Sources";
+    }
+    chip.setAttribute("data-testid", "cx-chip");
+    // A clicked in-text citation lands on its Sources card by full cx_id.
+    chip.addEventListener("click", () => focusCitationCard(cx));
+  });
+  // Post-answer recap line (ChatGPT's post-search recap pattern) — ALSO the
+  // click-target that opens the Inspector to the full depth.
+  const nSources = (t.citations || []).filter((c) => c.verified).length;
+  const nTools = t.footer ? t.footer.tool_calls_used : t.toolResults.length;
+  const secs = t.footer ? (t.footer.wall_ms / 1000).toFixed(1) : (t.thoughtMs != null ? (t.thoughtMs / 1000).toFixed(1) : null);
+  const recap = el("button", { class: "recap", type: "button" });
+  recap.append(el("span", {}, "Used " + nSources + " source" + (nSources === 1 ? "" : "s") + " · " + nTools + " tool call" + (nTools === 1 ? "" : "s") + (secs != null ? " · " + secs + "s" : "")), el("span", { class: "ra" }, "· view research →"));
+  recap.addEventListener("click", () => openInspector((t.kernelAnswer || t.lensProvenance) ? "graph" : "sources"));
+  ans.append(recap);
+  if (t.footer) {
+    const f = el("div", { class: "ans-footer" });
+    f.append(el("span", {}, "🔒 " + t.footer.note));
+    f.append(el("span", { class: "mono" }, t.footer.tool_calls_used + "/" + t.footer.max_tool_calls + " tools · " + t.footer.turns + " turns · " + fmt(t.footer.wall_ms) + "ms"));
+    ans.append(f);
+  }
+}
+function errorPanel(d) {
+  const refusal = d.code === "CALYX_LAWDEMO_CHAT_UNGROUNDED";
+  const p = el("div", { class: "panel " + (refusal ? "refusal" : "err") });
+  p.append(el("div", { class: "pt" }, refusal ? "⛔ Answer refused (fail-closed grounding)" : "⚠ " + (d.code || "Error"), el("span", { class: "tag" }, d.code || "ERROR")));
+  p.append(el("div", { class: "pm" }, d.message || (refusal ? "The model cited sources that no tool returned; the answer was refused rather than shown." : "Something went wrong.")));
+  if (d.remediation) p.append(el("div", { class: "pr" }, d.remediation));
+  return p;
+}
+function stoppedPanel(t) {
+  const p = el("div", { class: "panel" });
+  p.append(el("div", { class: "pt" }, "■ Stopped"));
+  p.append(el("div", { class: "pm" }, (t.cancelled && t.cancelled.note) || "Episode stopped at your request. No authority was written."));
+  return p;
+}
+function retryBtn(t) { const b = el("button", { class: "retry", type: "button" }, "↻ Retry this question"); b.addEventListener("click", () => ask(t.question)); return b; }
+
+/* Auto-scroll: stick-to-bottom while streaming; release on user scroll-up; a
+   "jump to live" affordance reappears. Scroll writes are batched to one rAF so a
+   burst of SSE events never thrashes layout. */
+let _scrollQueued = false;
+function scrollStreamToEnd() {
+  if (STATE.follow === false) return;
+  if (_scrollQueued) return;
+  _scrollQueued = true;
+  requestAnimationFrame(() => { _scrollQueued = false; const w = $("#stream-wrap"); w.scrollTop = w.scrollHeight; updateJumpLive(); });
+}
+function updateJumpLive() {
+  const w = $("#stream-wrap");
+  const atBottom = w.scrollHeight - w.scrollTop - w.clientHeight < 80;
+  $("#jump-live").hidden = !(STATE.streaming && !atBottom);
+}
+$("#stream-wrap").addEventListener("scroll", () => {
+  const w = $("#stream-wrap");
+  STATE.follow = w.scrollHeight - w.scrollTop - w.clientHeight < 80;
+  updateJumpLive();
+});
+$("#jump-live").addEventListener("click", () => { STATE.follow = true; const w = $("#stream-wrap"); w.scrollTop = w.scrollHeight; updateJumpLive(); });
+
+/* Copy-to-clipboard affordance (answers, quoted passages, JSON payloads). */
+function addCopy(container, getText, cls) {
+  const b = el("button", { class: (cls || "copybtn"), type: "button" }, "Copy");
+  b.addEventListener("click", async () => {
+    try { await navigator.clipboard.writeText(getText()); } catch (_) {
+      const ta = el("textarea", {}); ta.value = getText(); document.body.append(ta); ta.select();
+      try { document.execCommand("copy"); } catch (e) {} ta.remove();
+    }
+    b.classList.add("copied"); b.textContent = "Copied"; setTimeout(() => { b.classList.remove("copied"); b.textContent = "Copy"; }, 1400);
+  });
+  container.append(b);
+  return b;
+}
+/* A JSON block with syntax highlight + copy (the "code/JSON block" pattern). */
+function jsonBlock(obj, label) {
+  const det = el("details", { class: "payload" });
+  det.append(el("summary", {}, label || "view raw payload"));
+  const blk = el("div", { class: "blk" });
+  blk.append(el("pre", { class: "json", html: hlJson(obj) }));
+  addCopy(blk, () => JSON.stringify(obj, null, 2));
+  det.append(blk);
+  return det;
+}
+
+/* ========================================================================
+   Event dispatch — one function updates the active thread's state AND its
+   live DOM. Called only from the live SSE reader.
+   ======================================================================== */
+function dispatch(t, ev, d) {
+  switch (ev) {
+    case "opened": t.episodeId = d.episode_id || null; setWorkPhase(t, "Starting secure research"); break;
+    case "episode_start":
+      t.model = d.model; t.budget = (d.budget && d.budget.max_tool_calls) || 40; t.t0 = performance.now();
+      setWorkPhase(t, "Analyzing the question");
+      break;
+    case "reasoning":
+      t.reasoning.push({ turn: d.turn, tokens: d.reasoning_tokens || 0, text: d.text || "" });
+      renderThought(t);
+      setWorkPhase(t, "Thinking through the law");
+      break;
+    case "rationale":
+      if (d.text && d.text.trim()) { t.adapt.push(d.text.trim()); renderThought(t); setWorkPhase(t, "Refining the research plan"); }
+      break;
+    case "tool_call": {
+      const s = { id: d.id, name: d.name, verb: d.verb, args: d.args, running: true, done: false, ok: null };
+      t.steps.push(s);
+      if (t._nodes && t._nodes.steps) t._nodes.steps.append(buildStep(t, s));
+      setWorkPhase(t, d.verb || "Running legal research");
+      break;
+    }
+    case "tool_result": {
+      const s = t.steps.find((x) => x.id === d.id);
+      // For a FAILED tool, lift the real CALYX_* code + short reason out of the
+      // forwarded payload ({code,message} | {upstream:{code|raw_stderr}}) so the step
+      // pill can name exactly why it was unavailable instead of "unavailable, adapted"
+      // with no detail. `case_read` 0ms failures are pre-spawn arg rejections
+      // (CALYX_LAWDEMO_CHAT_TOOL_ARG) — this surfaces that code in the pill. (#1977)
+      const failure = d.ok ? null : failureReason(d.payload || {});
+      if (s) { s.running = false; s.done = true; s.ok = d.ok; s.headline = d.headline; s.latency = d.latency_ms; s.payload = d.payload; s.failure = failure; }
+      t.toolResults.push({ id: d.id, name: d.name, ok: d.ok, headline: d.headline, latency: d.latency_ms, payload: d.payload, cx_ids: d.cx_ids || [], failure });
+      captureEvidence(t, d);
+      // re-render the one step node in place
+      if (s && t._nodes && t._nodes.steps) {
+        const nodes = t._nodes.steps.children;
+        const idx = t.steps.indexOf(s);
+        if (nodes[idx]) t._nodes.steps.replaceChild(buildStep(t, s), nodes[idx]);
+      }
+      // Claude Artifacts pattern: the panel slides in when there's something to
+      // show — on the FIRST tool result that yields Inspector-bound evidence
+      // (a success payload OR a captured failure note). Landing tab is the tool's
+      // own tab when it has content, else the first tab that does.
+      const landed = d.ok || t.searchFailure || t.kernelFailure;
+      if (landed && t.id === STATE.activeId && !t._inspectorAuto) {
+        t._inspectorAuto = true;
+        const tab = bestInspectorTab(t, d.name);
+        if (!STATE.inspectorOpen) openInspector(tab);
+        else { STATE.inspectorTab = tab; renderInspector(); }
+      } else if (STATE.inspectorOpen) renderInspector();
+      renderStatus();
+      setWorkPhase(t, d.ok ? "Reviewing the research results" : "Reviewing a research error");
+      break;
+    }
+    case "validation": t.validation = d; setWorkPhase(t, "Verifying answer citations"); break;
+    case "answer": t.answerText = d.text; stopThinkTimer(t); renderWorkStatus(); if (t._nodes) { paintAnswer(t); if (t._nodes.assistantActions) t._nodes.assistantActions.hidden = false; } break;
+    case "citations": t.citations = d.items || []; if (t._nodes && t.answerText) paintAnswer(t); if (STATE.inspectorOpen) renderInspector(); break;
+    case "footer": t.footer = d; if (t._nodes && t.answerText) paintAnswer(t); break;
+    case "error": t.error = d; finishThread(t); break;
+    case "cancelled": t.cancelled = d; finishThread(t); break;
+    case "done": finishThread(t); break;
+  }
+  renderWorkStatus();
+  if (t.id === STATE.activeId) scrollStreamToEnd();
+}
+function captureEvidence(t, d) {
+  const p = d.payload || {};
+  // Record the GPU/kernel tool FAILURES the live box hits (resident offline / kernel
+  // not built) so the Lenses & Graph tabs can explain the gap honestly instead of
+  // sitting blank while the agent adapts via the DB-native tools.
+  if (!d.ok) {
+    if (d.name === "corpus_search") t.searchFailure = failureReason(p);
+    if (d.name === "kernel_answer") t.kernelFailure = failureReason(p);
+    return;
+  }
+  if (d.name === "corpus_search") {
+    if (p.lens_provenance) t.lensProvenance = p.lens_provenance;
+    const hits = Array.isArray(p) ? p : (Array.isArray(p.hits) ? p.hits : []);
+    if (hits.length) t.searchHits = (t.searchHits || []).concat(hits);
+  }
+  if (d.name === "kernel_answer" && Array.isArray(p.hops)) t.kernelAnswer = p;
+  if (d.name === "citation_neighbors") t.neighbors = p;
+  if (d.name === "citation_graph") t.citationGraph = p;
+  if (d.name === "case_text") rememberCaseText(t, p);
+  if (d.name === "case_read" || d.name === "case_segments") {
+    const row = firstRow(p);
+    if (row && row.cx_id) { t.caseReads = t.caseReads || []; if (!t.caseReads.some((r) => r && r.cx_id === row.cx_id)) t.caseReads.push(row); }
+  }
+  if (d.name === "case_segments") t.segments = firstRow(p);
+  if (d.name === "cite_check") { t.citeChecks = t.citeChecks || []; t.citeChecks.push(p); }
+  if (d.name === "corpus_stats") {
+    if (p.physical_opinions_n != null) t.census = p;                 // opinion_types dimension
+    else if (p.status != null) t.manifest = p;                       // manifest / verify-chain dimension
+  }
+  if (d.name === "ledger_verify") { t.ledgerVerify = p; const c = findNum(p, ["verified_count", "entry_count", "checked"]); if (c != null) t.ledgerHeight = c; }
+  if (d.name === "ledger_tail") { t.ledgerTail = p; const c = p.verify && findNum(p.verify, ["verified_count", "checked"]); if (c != null) t.ledgerHeight = c; }
+  if (d.name === "reproduce") t.reproduce = p;
+  if (d.name === "kernel_inspect" || d.name === "judge_profile") t.kernelHealth = p;
+  if (d.name === "judge_census") t.judgeCensus = p;
+}
+/* Lift a real, secret-free failure code+message from a forwarded tool-error payload
+   ({code,message,upstream:{code|raw_stderr}}) so a failed GPU tool reads as an honest
+   "unavailable this episode" note rather than a blank tab. */
+function failureReason(p) {
+  const up = p && p.upstream;
+  if (up && up.code) return { code: up.code, message: up.message || "" };
+  if (up && up.raw_stderr) {
+    const m = String(up.raw_stderr).match(/"code":"([A-Z0-9_]+)","message":"([^"]+)"/);
+    if (m) return { code: m[1], message: m[2] };
+    return { code: (p && p.code) || "error", message: String(up.raw_stderr).slice(0, 220) };
+  }
+  return { code: (p && p.code) || "error", message: (p && p.message) || "" };
+}
+function firstRow(p) { return Array.isArray(p) ? p[0] : p; }
+function findNum(obj, keys) {
+  if (obj == null || typeof obj !== "object") return null;
+  for (const k of keys) if (typeof obj[k] === "number") return obj[k];
+  for (const v of Object.values(obj)) { const r = findNum(v, keys); if (r != null) return r; }
+  return null;
+}
+function finishThread(t) {
+  t.running = false;
+  // The episode has reached its terminal event. This is what tells the reattach
+  // driver to stop rejoining: a stream that ends WITHOUT this is a break, not an end.
+  t.terminal = true;
+  stopThinkTimer(t);
+  if (t.thoughtMs == null && t.t0 != null) t.thoughtMs = performance.now() - t.t0;
+  if (t._nodes) {
+    if (t._nodes.thoughtSummary) t._nodes.thoughtSummary.textContent = "Thought" + (t.thoughtMs != null ? " for " + Math.round(t.thoughtMs / 1000) + "s" : "");
+    const ld = t._nodes.thought && t._nodes.thought.querySelector(".live-dot"); if (ld) ld.remove();
+    if (t._nodes.assistantActions && (t.answerText || t.error || t.cancelled)) t._nodes.assistantActions.hidden = false;
+  }
+  renderWorkStatus();
+  updateJumpLive();
+  renderRail();
+}
+
+/* ========================================================================
+   Inspector — four distinct tabs, each bound to REAL tool payload fields.
+   ======================================================================== */
+const INSPECTOR_TABS = [
+  { id: "graph", label: "Graph" }, { id: "sources", label: "Sources" },
+  { id: "corpus", label: "Corpus" },
+];
+function failInspector(code, context) {
+  const detail = { code, ...context };
+  console.error("[Calyx Inspector]", detail);
+  throw new Error(code + ": " + JSON.stringify(context));
+}
+function requireInspectorTab(tab, caller) {
+  if (INSPECTOR_TABS.some((candidate) => candidate.id === tab)) return tab;
+  return failInspector("CALYX_LAWDEMO_INSPECTOR_TAB_INVALID", {
+    caller,
+    requested_tab: tab,
+    allowed_tabs: INSPECTOR_TABS.map((candidate) => candidate.id),
+  });
+}
+function updateMobileResearchToggle(t) {
+  const count = INSPECTOR_TABS.reduce((sum, tab) => sum + tabCount(t, tab.id), 0);
+  const badge = $("#mobile-research-count");
+  badge.hidden = count === 0;
+  badge.textContent = count ? String(count) : "";
+  $("#mobile-research-toggle").setAttribute(
+    "aria-label",
+    count ? "Open research details with " + count + " evidence items" : "Open research details"
+  );
+}
+function renderInspector() {
+  const tabs = $("#insp-tabs"); tabs.innerHTML = "";
+  const t = activeThread();
+  updateMobileResearchToggle(t);
+  const activeTab = requireInspectorTab(STATE.inspectorTab, "renderInspector");
+  const tabChanged = STATE._renderedInspectorTab !== activeTab;
+  INSPECTOR_TABS.forEach((tb) => {
+    const selected = tb.id === activeTab;
+    const b = el("button", {
+      class: "insp-tab" + (selected ? " active" : ""),
+      type: "button",
+      role: "tab",
+      id: "insp-tab-" + tb.id,
+      "aria-controls": "insp-body",
+      "aria-selected": String(selected),
+      tabindex: selected ? "0" : "-1",
+    }, tb.label);
+    const n = tabCount(t, tb.id);
+    if (n) b.append(el("span", { class: "tab-badge" }, String(n)));
+    b.addEventListener("click", () => { STATE.inspectorTab = tb.id; renderInspector(); });
+    b.addEventListener("keydown", (event) => {
+      const current = INSPECTOR_TABS.findIndex((candidate) => candidate.id === tb.id);
+      let next = null;
+      if (event.key === "ArrowRight") next = (current + 1) % INSPECTOR_TABS.length;
+      if (event.key === "ArrowLeft") next = (current - 1 + INSPECTOR_TABS.length) % INSPECTOR_TABS.length;
+      if (event.key === "Home") next = 0;
+      if (event.key === "End") next = INSPECTOR_TABS.length - 1;
+      if (next == null) return;
+      event.preventDefault();
+      STATE.inspectorTab = INSPECTOR_TABS[next].id;
+      renderInspector();
+      $("#insp-tab-" + STATE.inspectorTab).focus();
+    });
+    tabs.append(b);
+  });
+  const body = $("#insp-body"); body.innerHTML = "";
+  body.setAttribute("aria-labelledby", "insp-tab-" + activeTab);
+  const R = { graph: inspGraph, sources: inspSources, corpus: inspCorpus }[activeTab];
+  if (typeof R !== "function") {
+    return failInspector("CALYX_LAWDEMO_INSPECTOR_RENDERER_MISSING", {
+      active_tab: activeTab,
+      active_thread_id: STATE.activeId,
+    });
+  }
+  R(body, t);
+  if (tabChanged) body.scrollTop = 0;
+  STATE._renderedInspectorTab = activeTab;
+}
+function emptyTab(body, msg) { body.append(el("div", { class: "insp-empty" }, msg)); }
+
+/* Every tool has exactly one intentional Inspector destination. Unknown or stale
+   mappings are programming errors, not a reason to silently select another tab. */
+function bestInspectorTab(t, toolName) {
+  const preferred = TOOL_TAB[toolName];
+  if (!preferred) {
+    return failInspector("CALYX_LAWDEMO_INSPECTOR_TOOL_UNMAPPED", {
+      tool_name: toolName,
+      active_thread_id: t && t.id,
+    });
+  }
+  return requireInspectorTab(preferred, "bestInspectorTab:" + toolName);
+}
+/* The real evidence anchors surfaced in Sources integrity details: every cx the
+   episode touched that carries a ledger sequence — from validated citations, case_read
+   `provenance.seq` (+chain hash), and from search-hit `provenance.ledger_seq`. */
+function provAnchors(t) {
+  const out = [], seen = new Set();
+  const push = (a) => { const key = a.cx + ":" + a.seq; if (!seen.has(key)) { seen.add(key); out.push(a); } };
+  ((t && t.citations) || []).forEach((c) => { if (c.ledger_seq != null) push({ name: c.case_name || c.cx_id, cx: c.cx_id, seq: c.ledger_seq, verified: true }); });
+  ((t && t.caseReads) || []).forEach((r) => { const s = r && r.provenance && r.provenance.seq; if (s != null) push({ name: (r.metadata && r.metadata.case_name) || r.cx_id, cx: r.cx_id, seq: s, hash: r.provenance && r.provenance.hash }); });
+  ((t && t.searchHits) || []).forEach((h) => { const s = h.provenance && (h.provenance.ledger_seq != null ? h.provenance.ledger_seq : h.provenance.seq); if (s != null) push({ name: (h.metadata && h.metadata.case_name) || h.cx_id, cx: h.cx_id, seq: s }); });
+  return out;
+}
+/* Distinct original sources the Sources tab will render. Multiple retained opinion
+   records/excerpts from one authoritative case record are nested under one card. */
+function sourceCount(t) {
+  return sourceGroups(t).length;
+}
+function integrityCount(t) {
+  if (!t) return 0;
+  let n = provAnchors(t).length;
+  if (t.ledgerHeight != null || t.ledgerVerify) n += 1;
+  if (t.ledgerTail && Array.isArray(t.ledgerTail.entries)) n += t.ledgerTail.entries.length;
+  if (t.reproduce) n += 1;
+  return n;
+}
+/* Per-tab count badge: how many REAL items the tab is about to render. */
+function tabCount(t, id) {
+  if (!t) return 0;
+  switch (id) {
+    case "graph": {
+      return graphAssociationCount(t);
+    }
+    case "sources": return sourceCount(t);
+    case "corpus": {
+      let n = 0; const c = t.census;
+      if (c) n += Object.keys(c.by_type || c.opinion_type_counts || {}).length;
+      if (HEALTH && HEALTH.scope && Array.isArray(HEALTH.scope.collections)) n += HEALTH.scope.collections.length;
+      if (t.judgeCensus) n += 1;
+      if (t.segments) n += 1;
+      if (t.kernelHealth) n += 1;
+      return n;
+    }
+  }
+  return 0;
+}
+
+/* Tab 1: Lenses — multi-lens fusion made visible (real roster + timings). */
+function inspLenses(body, t) {
+  const lp = t && t.lensProvenance;
+  if (!lp) {
+    if (t && t.searchFailure) {
+      const f = t.searchFailure;
+      const u = el("div", { class: "unavail" });
+      u.append(el("div", { class: "ut" }, "⚠ Multi-lens search was unavailable this episode"));
+      u.append(el("div", { class: "uc" }, f.code || "error"));
+      u.append(el("div", { class: "um" }, (f.message ? f.message + " " : "") + "The GPU-resident lens panel did not answer, so the agent grounded this answer through the DB-native tools (cite_check · case_read · case_text) instead — see Sources. No lens roster is shown because none fired; nothing here is invented."));
+      body.append(u);
+      return;
+    }
+    emptyTab(body, "Run a search to reveal the multi-lens fusion. Calyx measures each query live against independent GPU-learned lenses; this tab shows exactly which fired, on what hardware, and how fast — parsed from the search's real CALYX_SEARCH_SLOTS roster.");
+    return;
+  }
+  const gpu = lp.resident_gpu || [], cpu = lp.local_cpu || [], parked = lp.parked_excluded || [], retired = lp.retired_excluded || [], unreg = lp.unregistered_excluded || [];
+  const fired = gpu.length + cpu.length;
+  body.append(el("div", { class: "headline-stat" }, el("span", { class: "n" }, String(fired)), el("span", { class: "l" }, "independent learned lenses voted on this query. Each measured the question separately; their rankings were fused." )));
+  const timings = {}; (lp.slot_timings || []).forEach((s) => { timings[s.slot] = s; });
+  const maxMs = Math.max(1, ...(lp.slot_timings || []).map((s) => s.slot_elapsed_ms || 0));
+  const lensCard = (slot, place) => {
+    const tm = timings[slot.slot] || {};
+    const card = el("div", { class: "card" + (place === "off" ? " excluded" : "") });
+    const top = el("div", { class: "lens-top" });
+    top.append(el("span", { class: "ln" }, slot.key), el("span", { class: "lp " + place }, place === "off" ? "excluded" : place));
+    card.append(top);
+    const meta = el("div", { class: "lens-meta" });
+    meta.append(el("span", {}, "slot " + slot.slot));
+    if (tm.backend) meta.append(el("span", { class: "mono" }, tm.backend));
+    if (tm.placement) meta.append(el("span", { class: "mono" }, tm.placement));
+    if (tm.slot_elapsed_ms != null) meta.append(el("span", {}, tm.slot_elapsed_ms + "ms"));
+    if (tm.count != null) meta.append(el("span", {}, tm.count + " candidates"));
+    card.append(meta);
+    if (tm.slot_elapsed_ms != null) { const bar = el("div", { class: "bar" }); bar.append(el("i", { style: "width:" + Math.round((tm.slot_elapsed_ms / maxMs) * 100) + "%" })); card.append(bar); }
+    return card;
+  };
+  body.append(el("div", { class: "i-h" }, "Firing lenses · GPU-resident"));
+  gpu.forEach((s) => body.append(lensCard(s, "gpu")));
+  if (cpu.length) { body.append(el("div", { class: "i-h" }, "Firing lenses · CPU-measured")); cpu.forEach((s) => body.append(lensCard(s, "cpu"))); }
+  const excluded = [].concat(parked.map((s) => [s, "parked"]), retired.map((s) => [s, "retired"]), unreg.map((s) => [s, "unregistered"]));
+  if (excluded.length) {
+    body.append(el("div", { class: "i-h" }, "Honestly excluded"));
+    excluded.forEach(([s, why]) => { const c = lensCard(s, "off"); c.querySelector(".lens-meta").append(el("span", {}, why)); body.append(c); });
+  }
+  body.append(el("div", { class: "overlay-note" }, "Per-hit per-lens contribution scores are not exposed by the default search payload, so none are shown here — only the real roster and per-lens latency the search actually emits. No score is invented."));
+  body.append(jsonBlock(lp, "view raw lens roster (parsed from CALYX_SEARCH_SLOTS)"));
+}
+
+/* Tab 2: Graph — an actionable map built only from this episode's real edges. */
+function inspGraph(body, t) {
+  const ka = t && t.kernelAnswer, nb = t && t.neighbors, cg = t && t.citationGraph;
+  const overlay = graphOverlay(t);
+  const hops = ka && Array.isArray(ka.hops) ? ka.hops : [];
+  const hasKernel = !!ka;
+  const hasHops = hops.length > 0;
+  const hasNb = nb && (Array.isArray(nb.neighbors) || nb.matched != null);
+  const evidence = graphEvidenceItems(t);
+  if (!hasKernel && !hasNb && !evidence.length && !overlay && !(t && t.kernelFailure)) {
+    emptyTab(body, "Ask a legal research question to build an evidence map. As the console finds, reads, cites, or connects authorities, this tab shows only those observed relationships and links each available opinion to its source record.");
+    return;
+  }
+  const neighborRows = hasNb && Array.isArray(nb.neighbors) ? nb.neighbors : [];
+  const incoming = neighborRows.filter((n) => n.direction === "in" && !n.outside_corpus).length;
+  const outgoing = neighborRows.filter((n) => n.direction === "out" && !n.outside_corpus).length;
+  const frontier = neighborRows.filter((n) => n.outside_corpus).length;
+  const hero = el("div", { class: "graph-hero" });
+  hero.append(el("div", { class: "gh-title" }, hasNb ? "How this authority fits the law" : "How this research is grounded"));
+  hero.append(el("div", { class: "gh-copy" }, hasNb
+    ? "Follow the real citation links in either direction. In-collection opinions can be opened and read; outside authorities remain clearly marked."
+    : "Trace the question through every source the episode actually matched, reviewed, or cited. No relationship appears unless a live research result established it."));
+  body.append(hero);
+  const stats = el("div", { class: "graph-stat-grid" });
+  if (hasNb) {
+    stats.append(graphStat(nb.matched != null ? nb.matched : neighborRows.length, "citation links matched"));
+    stats.append(graphStat(incoming, "later opinions citing this case"));
+    stats.append(graphStat(outgoing, "authorities cited by this case"));
+    stats.append(graphStat(frontier, "authorities outside this collection"));
+  }
+  if (evidence.length) {
+    stats.append(graphStat(evidence.length, "distinct source records"));
+    stats.append(graphStat(evidence.reduce((sum, item) => sum + item.recordCount, 0), "opinion records collected"));
+    const citedCount = evidence.filter((item) => item.kind === "cited").length;
+    if (citedCount) stats.append(graphStat(citedCount, "sources cited in the answer"));
+  }
+  if (hasHops) stats.append(graphStat(hops.length, "measured authority hops"));
+  if (hasKernel && ka.nearest_score != null) stats.append(graphStat(Number(ka.nearest_score).toFixed(3), "closest kernel match"));
+  if (stats.children.length) body.append(stats);
+  if (hasHops) {
+    body.append(el("div", { class: "i-h" }, "Authority path"));
+    body.append(el("div", { class: "i-sub" }, "Each step below was returned by the focused doctrine search for this answer."));
+    body.append(hopChainSvg(ka, t));
+  } else if (hasKernel) {
+    const direct = el("div", { class: "graph-direct" });
+    direct.append(el("div", { class: "gd-title" }, "Direct kernel match"));
+    direct.append(el("div", { class: "gd-copy" }, "The focused doctrine search returned an anchor match but no multi-hop path. The evidence map below therefore uses the separately observed source, review, and citation relationships from this episode."));
+    if (ka.anchor_kernel_node_id) direct.append(el("div", { class: "gd-anchor" }, "Anchor " + String(ka.anchor_kernel_node_id).slice(0, 12) + "…"));
+    body.append(direct);
+  } else if (t && t.kernelFailure) {
+    const f = t.kernelFailure;
+    const u = el("div", { class: "unavail" });
+    u.append(el("div", { class: "ut" }, "⚠ The sealed doctrine kernel was unavailable this episode"));
+    u.append(el("div", { class: "uc" }, f.code || "error"));
+    u.append(el("div", { class: "um" }, (f.message ? f.message + " " : "") + "No hop chain could be measured. A corpus citation overlay appears only when this episode returns a live citation_graph payload."));
+    body.append(u);
+  }
+  if (evidence.length) {
+    body.append(el("div", { class: "i-h", style: "margin-top:14px;" }, "Research evidence map"));
+    body.append(el("div", { class: "i-sub" }, "Solid teal paths support the answer; amber paths were reviewed but not cited; dashed paths are matched candidates. Select any available authority to open its grouped excerpts in Sources."));
+    body.append(graphEvidencePanel(t, evidence));
+  }
+  if (hasNb) {
+    body.append(el("div", { class: "i-h", style: "margin-top:14px;" }, "Connected authorities"));
+    body.append(el("div", { class: "graph-legend" },
+      legendKey("in", "Cites this opinion"),
+      legendKey("out", "Cited by this opinion"),
+      legendKey("frontier", "Outside collection")));
+    body.append(neighborsSvg(nb, t));
+    body.append(authorityCards(nb, t));
+  }
+  if (overlay) {
+    body.append(el("div", { class: "i-h", style: "margin-top:14px;" }, "Collection-wide citation map"));
+    const grid = el("div", { class: "graph-stat-grid" });
+    overlay.rows.forEach(([k, v]) => grid.append(graphStat(fmt(v), k)));
+    body.append(grid);
+    body.append(el("div", { class: "overlay-note" }, "These totals were read live from the production citation map. They describe collection coverage, while the connected-authority view above shows the specific opinion links returned in this research session."));
+  }
+}
+function graphAssociationCount(t) {
+  if (!t) return 0;
+  const evidence = graphEvidenceItems(t).length;
+  const hops = t.kernelAnswer && Array.isArray(t.kernelAnswer.hops) ? t.kernelAnswer.hops.length : 0;
+  const neighbors = t.neighbors && Array.isArray(t.neighbors.neighbors) ? t.neighbors.neighbors.length : 0;
+  return evidence + hops + neighbors + (t.kernelAnswer ? 1 : 0);
+}
+function graphEvidenceItems(t) {
+  if (!t) return [];
+  const items = [], byKey = new Map();
+  sourceGroups(t).forEach((group) => {
+    const rep = group.representative;
+    const md = rep.metadata || metadataForCx(t, rep.cx_id);
+    const item = {
+      key: group.key,
+      cx_id: rep.cx_id,
+      name: md.case_name || rep.cx_id,
+      metadata: md,
+      kind: group.kind,
+      recordCount: group.entries.length,
+      available: true,
+    };
+    byKey.set(item.key, item);
+    items.push(item);
+  });
+  const addCandidate = (candidate, kind) => {
+    if (!candidate || !candidate.cx_id) return;
+    const key = sourceIdentity(t, candidate.cx_id);
+    const existing = byKey.get(key);
+    if (existing) {
+      if (!["cited", "read"].includes(existing.kind)) {
+        existing._records = existing._records || new Set([existing.cx_id]);
+        existing._records.add(candidate.cx_id);
+        existing.recordCount = existing._records.size;
+        const rank = { identified: 0, matched: 1, candidate: 2 };
+        if ((rank[kind] ?? 3) < (rank[existing.kind] ?? 3)) existing.kind = kind;
+      }
+      return;
+    }
+    const md = metadataForCx(t, candidate.cx_id);
+    const item = {
+      key,
+      cx_id: candidate.cx_id,
+      name: md.case_name || candidate.cx_id,
+      metadata: md,
+      kind: kind || "candidate",
+      recordCount: 1,
+      available: false,
+      _records: new Set([candidate.cx_id]),
+    };
+    byKey.set(key, item);
+    items.push(item);
+  };
+  (t.searchHits || []).forEach((hit) => addCandidate(hit, "candidate"));
+  (t.citeChecks || []).forEach((check) => (check.found || []).forEach((found) => addCandidate(found, "matched")));
+  (t.caseReads || []).forEach((read) => addCandidate(read, "identified"));
+  const order = { cited: 0, read: 1, identified: 2, matched: 3, candidate: 4 };
+  return items.sort((a, b) => order[a.kind] - order[b.kind]);
+}
+function graphEvidencePanel(t, items) {
+  const panel = el("div", { class: "evidence-panel" });
+  const modes = [
+    ["all", "All evidence", items.length],
+    ["cited", "Cited", items.filter((item) => item.kind === "cited").length],
+    ["reviewed", "Reviewed", items.filter((item) => item.kind === "cited" || item.kind === "read").length],
+    ["candidates", "Candidates", items.filter((item) => ["identified", "matched", "candidate"].includes(item.kind)).length],
+  ].filter((mode) => mode[2] > 0);
+  const validModes = new Set(modes.map((mode) => mode[0]));
+  const selected = validModes.has(t._graphFilter) ? t._graphFilter : "all";
+  t._graphFilter = selected;
+  if (modes.length > 1) {
+    const filters = el("div", { class: "graph-filters", role: "group", "aria-label": "Filter research evidence" });
+    modes.forEach(([id, label, count]) => {
+      const button = el("button", {
+        class: "graph-filter" + (id === selected ? " active" : ""),
+        type: "button",
+        "aria-pressed": String(id === selected),
+      }, label + " " + count);
+      button.addEventListener("click", () => { t._graphFilter = id; renderInspector(); });
+      filters.append(button);
+    });
+    panel.append(filters);
+  }
+  const filtered = items.filter((item) => {
+    if (selected === "cited") return item.kind === "cited";
+    if (selected === "reviewed") return item.kind === "cited" || item.kind === "read";
+    if (selected === "candidates") return ["identified", "matched", "candidate"].includes(item.kind);
+    return true;
+  });
+  panel.append(evidenceMapSvg(t, filtered));
+  if (filtered.length > 8) panel.append(el("div", { class: "graph-map-note" }, "Showing the first 8 source nodes in the map. All " + filtered.length + " remain available in the evidence list below."));
+  panel.append(evidenceList(t, filtered));
+  return panel;
+}
+function evidenceMapSvg(t, items) {
+  const visible = items.slice(0, 8);
+  const compact = compactWorkspace.matches;
+  const cols = compact || visible.length === 1 ? 1 : 2;
+  const rows = Math.ceil(visible.length / cols);
+  const width = compact ? 360 : 400, sourceW = cols === 1 ? width - 40 : 174, sourceH = 50;
+  const sourceTop = 92, rowGap = 74;
+  const answerTop = sourceTop + Math.max(1, rows) * rowGap + 10;
+  const hasAnswer = !!(t && t.answerText);
+  const height = answerTop + (hasAnswer ? 64 : 12);
+  const titleId = "evidence-map-title-" + String(t.id || "active");
+  const descId = "evidence-map-desc-" + String(t.id || "active");
+  const svg = svgEl("svg", {
+    class: "graph-svg evidence-map",
+    viewBox: "0 0 " + width + " " + height,
+    preserveAspectRatio: "xMidYMin meet",
+    role: "img",
+    "aria-labelledby": titleId + " " + descId,
+  });
+  svg.append(svgEl("title", { id: titleId }));
+  svg.lastChild.textContent = "Research evidence map";
+  svg.append(svgEl("desc", { id: descId }));
+  svg.lastChild.textContent = visible.map((item) => graphKindLabel(item.kind) + ": " + item.name).join(". ");
+  const queryX = 20, queryY = 14, queryW = width - 40, queryH = 48;
+  visible.forEach((item, index) => {
+    const col = cols === 1 ? 0 : index % cols;
+    const row = Math.floor(index / cols);
+    const x = cols === 1 ? 20 : 14 + col * 188;
+    const y = sourceTop + row * rowGap;
+    const edge = svgEl("line", {
+      class: "edge evidence " + item.kind,
+      x1: width / 2,
+      y1: queryY + queryH,
+      x2: x + sourceW / 2,
+      y2: y,
+    });
+    svg.append(edge);
+    if (hasAnswer && item.kind === "cited") {
+      svg.append(svgEl("line", {
+        class: "edge evidence cited",
+        x1: x + sourceW / 2,
+        y1: y + sourceH,
+        x2: width / 2,
+        y2: answerTop,
+      }));
+    }
+  });
+  svg.append(evidenceSvgNode("Question", String(t.question || "").slice(0, 54), "query", queryX, queryY, queryW, queryH));
+  visible.forEach((item, index) => {
+    const col = cols === 1 ? 0 : index % cols;
+    const row = Math.floor(index / cols);
+    const x = cols === 1 ? 20 : 14 + col * 188;
+    const y = sourceTop + row * rowGap;
+    const sub = graphKindLabel(item.kind) + " · " + item.recordCount + " opinion record" + (item.recordCount === 1 ? "" : "s");
+    const node = evidenceSvgNode(item.name, sub, item.kind, x, y, sourceW, sourceH);
+    if (item.available) {
+      node.classList.add("interactive");
+      node.setAttribute("data-cx", item.cx_id);
+      node.setAttribute("role", "button");
+      node.setAttribute("tabindex", "0");
+      node.setAttribute("aria-label", "Open " + item.name + " in Sources");
+      const open = () => focusCitationCard(item.cx_id);
+      node.addEventListener("click", open);
+      node.addEventListener("keydown", (event) => {
+        if (event.key === "Enter" || event.key === " ") { event.preventDefault(); open(); }
+      });
+    }
+    svg.append(node);
+  });
+  if (hasAnswer) svg.append(evidenceSvgNode("Grounded answer", "Only cited paths continue here", "answer", 20, answerTop, width - 40, 48));
+  return svg;
+}
+function evidenceSvgNode(label, sub, kind, x, y, width, height) {
+  const group = svgEl("g", { class: "evidence-node " + kind, transform: "translate(" + x + " " + y + ")" });
+  group.append(svgEl("rect", { width, height, rx: 9 }));
+  group.append(svgTextEl(label, 10, sub ? 20 : 29, "nlabel", width - 20));
+  if (sub) group.append(svgTextEl(sub, 10, 37, "nscore", width - 20));
+  return group;
+}
+function evidenceList(t, items) {
+  const details = el("details", { class: "evidence-list" });
+  details.append(el("summary", {}, "Evidence list · " + items.length + " source" + (items.length === 1 ? "" : "s")));
+  const list = el("div", { class: "evidence-list-body", role: "list" });
+  items.forEach((item) => {
+    const row = el("div", { class: "evidence-row " + item.kind, role: "listitem" });
+    const copy = el("div", { class: "evidence-row-copy" });
+    copy.append(el("div", { class: "evidence-row-name" }, item.name));
+    const metadata = [graphKindLabel(item.kind), item.metadata.date_filed, item.metadata.docket_number ? "Docket " + item.metadata.docket_number : null, item.recordCount + " opinion record" + (item.recordCount === 1 ? "" : "s")].filter(Boolean);
+    copy.append(el("div", { class: "evidence-row-meta" }, metadata.join(" · ")));
+    row.append(copy);
+    const button = el("button", { class: "authority-action", type: "button" }, item.available ? "Open source" : "Review source");
+    if (item.available) button.addEventListener("click", () => focusCitationCard(item.cx_id));
+    else button.addEventListener("click", () => reviewGraphSource(t, item.cx_id, button));
+    row.append(button);
+    list.append(row);
+  });
+  details.append(list);
+  return details;
+}
+function graphKindLabel(kind) {
+  return {
+    cited: "Cited in answer",
+    read: "Reviewed, not cited",
+    identified: "Case details reviewed",
+    matched: "Matched by case name",
+    candidate: "Search candidate",
+  }[kind] || "Observed source";
+}
+function graphStat(value, label) {
+  const item = el("div", { class: "graph-stat" });
+  item.append(el("span", { class: "gs-n" }, String(value)), el("span", { class: "gs-l" }, label));
+  return item;
+}
+function legendKey(kind, label) {
+  const key = el("span", { class: "legend-key " + kind });
+  key.append(el("i", { "aria-hidden": "true" }), el("span", {}, label));
+  return key;
+}
+/* Corpus-scale citation-graph totals come only from the current episode's live
+   citation_graph payload. Missing live data stays visibly absent. */
+function graphOverlay(t) {
+  const cg = t && t.citationGraph;
+  if (cg) {
+    const rows = [];
+    const edges = findNum(cg, ["edge_n", "edges", "accepted_unique_edges_n"]);
+    const nodes = findNum(cg, ["node_n", "nodes", "latest_logical_graph_keys_n"]);
+    if (nodes != null) rows.push(["opinions represented", nodes]);
+    if (edges != null) rows.push(["citation links", edges]);
+    if (Array.isArray(cg.generations)) rows.push(["map versions", cg.generations.length]);
+    if (cg.status) rows.push(["current status", cg.status]);
+    if (rows.length) return { live: true, rows };
+  }
+  return null;
+}
+function mergePresent(target, source) {
+  if (!source || typeof source !== "object") return target;
+  Object.entries(source).forEach(([key, value]) => {
+    if (value !== null && value !== undefined && String(value).trim() !== "") target[key] = value;
+  });
+  return target;
+}
+/* Consolidate only source fields actually returned during this episode. Search-hit
+   metadata is authoritative Base data; later reads/text/citations can add fields but
+   no URL or identifier is inferred. */
+function metadataForCx(t, cx) {
+  const out = {};
+  if (!t || !cx) return out;
+  (t.searchHits || []).filter((h) => h && h.cx_id === cx).forEach((h) => mergePresent(out, h.metadata || {}));
+  (t.citeChecks || []).forEach((check) => (check.found || []).filter((f) => f && f.cx_id === cx).forEach((f) => {
+    mergePresent(out, f.metadata || {});
+    mergePresent(out, f);
+  }));
+  const read = (t.caseReads || []).find((r) => r && r.cx_id === cx);
+  if (read) mergePresent(out, read.metadata || {});
+  const text = (t.caseTexts || []).find((x) => x && x.cx_id === cx);
+  if (text) {
+    mergePresent(out, text.source || {});
+    mergePresent(out, { case_name: text.case_name, opinion_type: text.opinion_type });
+  }
+  const cite = (t.citations || []).find((c) => c && c.cx_id === cx);
+  if (cite) {
+    mergePresent(out, cite.source || {});
+    mergePresent(out, { case_name: cite.case_name, year: cite.year });
+  }
+  if (!out.source_url && out.url) out.source_url = out.url;
+  if (!out.courtlistener_download_url && out.download_url) out.courtlistener_download_url = out.download_url;
+  return out;
+}
+function sourceIdentity(t, cx) {
+  const md = metadataForCx(t, cx);
+  if (md.cluster_id !== null && md.cluster_id !== undefined && String(md.cluster_id).trim()) {
+    return "courtlistener-case:" + String(md.cluster_id).trim();
+  }
+  // Only use a metadata composite when it is specific enough to avoid collapsing
+  // separate decisions that happen to share a case name and docket.
+  const court = displayCourt(md).trim().toLowerCase();
+  const docket = String(md.docket_number || "").trim().toLowerCase();
+  const filed = String(md.date_filed || "").trim();
+  const name = String(md.case_name || "").trim().toLowerCase().replace(/\s+/g, " ");
+  if (docket && filed && (court || name)) {
+    return "source-record:" + [court, docket, filed, name].join("|");
+  }
+  return "calyx-opinion:" + cx;
+}
+function sourceGroups(t) {
+  if (!t) return [];
+  const entries = new Map(), entryOrder = [];
+  const ensure = (cx) => {
+    if (!cx) return null;
+    if (!entries.has(cx)) {
+      entries.set(cx, { cx_id: cx, citations: [], texts: [] });
+      entryOrder.push(cx);
+    }
+    return entries.get(cx);
+  };
+  (t.citations || []).forEach((c) => { const e = c && ensure(c.cx_id); if (e) e.citations.push(c); });
+  (t.caseTexts || []).forEach((x) => {
+    const e = x && ensure(x.cx_id);
+    if (e && !e.texts.some((prior) => String(prior.text || "") === String(x.text || ""))) e.texts.push(x);
+  });
+
+  const groups = [], byIdentity = new Map();
+  entryOrder.forEach((cx) => {
+    const entry = entries.get(cx);
+    entry.metadata = metadataForCx(t, cx);
+    const key = sourceIdentity(t, cx);
+    let group = byIdentity.get(key);
+    if (!group) {
+      group = { key, entries: [], representative: entry, kind: "read" };
+      byIdentity.set(key, group);
+      groups.push(group);
+    }
+    group.entries.push(entry);
+    if (entry.citations.length && !group.representative.citations.length) group.representative = entry;
+    else if (entry.texts.length && !group.representative.citations.length && !group.representative.texts.length) group.representative = entry;
+  });
+  groups.forEach((group) => {
+    if (group.entries.some((entry) => entry.citations.length)) {
+      group.kind = "cited";
+      group.verified = group.entries.some((entry) => entry.citations.some((citation) => citation.verified));
+    }
+  });
+  return groups;
+}
+function safeSourceUrl(raw) {
+  if (!raw) return null;
+  try {
+    const url = new URL(String(raw));
+    const host = url.hostname.toLowerCase();
+    return url.protocol === "https:" && (host === "courtlistener.com" || host.endsWith(".courtlistener.com")) ? url.href : null;
+  } catch (_) {
+    return null;
+  }
+}
+function nameForCx(t, cx) {
+  const md = metadataForCx(t, cx);
+  return md.case_name || (cx ? cx.slice(0, 10) + "…" : "Unknown opinion");
+}
+function hopChainSvg(ka, t) {
+  const hops = ka.hops || [];
+  const nodes = [{ label: "Query", sub: "" }];
+  nodes.push({ label: "Sealed kernel", sub: ka.anchor_kernel_node_id ? "anchor " + ka.anchor_kernel_node_id.slice(0, 8) : "" });
+  hops.slice(0, 5).forEach((h, i) => nodes.push({ label: nameForCx(t, h.to_cx_id || ""), sub: "authority " + (h.hop_index != null ? h.hop_index : i + 1) + (h.hop_score != null ? " · match " + Number(h.hop_score).toFixed(3) : "") }));
+  nodes.push({ label: "Grounded answer", sub: ka.answer_id ? ka.answer_id.slice(0, 10) + "…" : "" });
+  return chainSvgFromNodes(nodes);
+}
+function chainSvgFromNodes(nodes) {
+  const w = 400, rowH = 62, pad = 14, boxW = 360, boxH = 40;
+  const h = pad * 2 + nodes.length * rowH - (rowH - boxH);
+  const svg = svgEl("svg", { class: "graph-svg", viewBox: "0 0 " + w + " " + h, preserveAspectRatio: "xMidYMin meet" });
+  nodes.forEach((n, i) => {
+    const y = pad + i * rowH;
+    if (i < nodes.length - 1) svg.append(svgEl("line", { class: "edge hop", x1: w / 2, y1: y + boxH, x2: w / 2, y2: y + rowH }));
+  });
+  nodes.forEach((n, i) => {
+    const y = pad + i * rowH, x = (w - boxW) / 2;
+    const g = svgEl("g", {});
+    const isEnd = i === 0 || i === nodes.length - 1;
+    g.append(svgEl("rect", { x: x, y: y, width: boxW, height: boxH, rx: 9, fill: isEnd ? "var(--teal-ghost)" : "var(--surface-2)", stroke: isEnd ? "var(--teal)" : "var(--border-strong)" }));
+    g.append(svgTextEl(n.label, x + 12, y + (n.sub ? 17 : 24), "nlabel", 320));
+    if (n.sub) g.append(svgTextEl(n.sub, x + 12, y + 31, "nscore", 320));
+    svg.append(g);
+  });
+  return svg;
+}
+function neighborsSvg(nb, t) {
+  const list = (nb.neighbors || []).slice(0, 10);
+  if (!list.length) { const d = el("div", { class: "overlay-note" }, "No in-corpus neighbor edges resolved for this opinion (the graph may be mid-rebuild, or its citations point to out-of-corpus frontier authorities)."); return d; }
+  const left = list.filter((n) => n.direction === "in");
+  const right = list.filter((n) => n.direction !== "in");
+  const rows = Math.max(left.length, right.length, 1);
+  const w = 400, cx = w / 2, cy = Math.max(64, 34 + rows * 26);
+  const h = Math.max(180, 68 + rows * 52);
+  const svg = svgEl("svg", { class: "graph-svg", viewBox: "0 0 " + w + " " + h });
+  const defs = svgEl("defs", {});
+  const amberArrow = svgEl("marker", { id: "arrow-in", markerWidth: 8, markerHeight: 8, refX: 7, refY: 3, orient: "auto", markerUnits: "strokeWidth" });
+  amberArrow.append(svgEl("path", { d: "M0,0 L0,6 L7,3 z", fill: "var(--amber)" }));
+  const tealArrow = svgEl("marker", { id: "arrow-out", markerWidth: 8, markerHeight: 8, refX: 7, refY: 3, orient: "auto", markerUnits: "strokeWidth" });
+  tealArrow.append(svgEl("path", { d: "M0,0 L0,6 L7,3 z", fill: "var(--teal)" }));
+  defs.append(amberArrow, tealArrow); svg.append(defs);
+  const nodeW = 142, nodeH = 38, leftX = 12, rightX = w - nodeW - 12;
+  const yFor = (i, count) => Math.max(14, cy - ((count - 1) * 52) / 2 + i * 52 - nodeH / 2);
+  left.forEach((n, i) => {
+    const y = yFor(i, left.length);
+    svg.append(svgEl("line", { class: "edge in" + (n.outside_corpus ? " frontier" : ""), x1: leftX + nodeW, y1: y + nodeH / 2, x2: cx - 63, y2: cy, "marker-end": "url(#arrow-in)" }));
+    svg.append(graphSvgNode(n, t, leftX, y, nodeW, nodeH));
+  });
+  right.forEach((n, i) => {
+    const y = yFor(i, right.length);
+    svg.append(svgEl("line", { class: "edge out" + (n.outside_corpus ? " frontier" : ""), x1: cx + 63, y1: cy, x2: rightX, y2: y + nodeH / 2, "marker-end": "url(#arrow-out)" }));
+    svg.append(graphSvgNode(n, t, rightX, y, nodeW, nodeH));
+  });
+  const subjectCx = nb.cx_id || "";
+  const subject = svgEl("g", { class: "graph-node" + (subjectCx ? "" : " static"), transform: "translate(" + (cx - 63) + " " + (cy - 24) + ")" });
+  if (subjectCx) { subject.setAttribute("data-cx", subjectCx); subject.setAttribute("role", "button"); subject.setAttribute("tabindex", "0"); }
+  subject.append(svgEl("rect", { width: 126, height: 48, rx: 10, fill: "var(--teal)", stroke: "var(--teal-strong)" }));
+  const subjectLabel = svgTextEl(nameForCx(t, subjectCx), 9, 20, "nlabel", 108); subjectLabel.setAttribute("fill", "#fff");
+  const subjectSub = svgTextEl("Opinion being researched", 9, 35, "nscore", 108); subjectSub.setAttribute("fill", "#fff");
+  subject.append(subjectLabel, subjectSub); svg.append(subject);
+  svg.querySelectorAll(".graph-node[data-cx]").forEach((node) => {
+    const open = () => focusCitationCard(node.getAttribute("data-cx"));
+    node.addEventListener("click", open);
+    node.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); open(); } });
+  });
+  return svg;
+}
+function graphSvgNode(n, t, x, y, w, h) {
+  const cx = n.readable_cx_id || (!n.outside_corpus ? n.cx_id : null);
+  const ext = externalOpinionId(n);
+  const label = cx ? nameForCx(t, cx) : (ext ? "Opinion #" + ext : "Outside authority");
+  const g = svgEl("g", { class: "graph-node" + (n.outside_corpus ? " frontier" : ""), transform: "translate(" + x + " " + y + ")" });
+  if (cx) { g.setAttribute("data-cx", cx); g.setAttribute("role", "button"); g.setAttribute("tabindex", "0"); }
+  g.append(svgEl("rect", { width: w, height: h, rx: 8, fill: "var(--surface-2)", stroke: n.outside_corpus ? "var(--muted)" : (n.direction === "in" ? "var(--amber)" : "var(--teal)"), "stroke-dasharray": n.outside_corpus ? "4 3" : "" }));
+  g.append(svgTextEl(label, 9, 16, "nlabel", w - 18));
+  g.append(svgTextEl(n.outside_corpus ? "Outside collection" : (n.direction === "in" ? "Cites this opinion" : "Cited by this opinion"), 9, 29, "nscore", w - 18));
+  return g;
+}
+function externalOpinionId(n) {
+  if (!n) return null;
+  if (n.external_opinion_id != null) return String(n.external_opinion_id);
+  const edge = n.edge_value || {};
+  const raw = n.direction === "in" ? edge.citing_opinion_id : edge.cited_opinion_id;
+  return raw == null ? null : String(raw);
+}
+function authorityCards(nb, t) {
+  const list = el("div", { class: "authority-list" });
+  (nb.neighbors || []).slice(0, 20).forEach((n) => {
+    const cx = n.readable_cx_id || (!n.outside_corpus ? n.cx_id : null);
+    const ext = externalOpinionId(n);
+    const md = cx ? metadataForCx(t, cx) : {};
+    const card = el("div", { class: "authority-card" });
+    const top = el("div", { class: "authority-top" });
+    top.append(el("div", { class: "authority-name" }, cx ? nameForCx(t, cx) : (ext ? "CourtListener opinion #" + ext : "Authority outside this collection")));
+    top.append(el("span", { class: "direction-pill " + (n.direction === "in" ? "in" : "") }, n.direction === "in" ? "Cites this opinion" : "Cited by this opinion"));
+    card.append(top);
+    const meta = el("div", { class: "authority-meta" });
+    if (displayCourt(md)) meta.append(el("span", {}, displayCourt(md)));
+    if (md.date_filed) meta.append(el("span", {}, md.date_filed));
+    if (md.docket_number) meta.append(el("span", {}, "Docket " + md.docket_number));
+    if (ext) meta.append(el("span", {}, "Opinion #" + ext));
+    meta.append(el("span", {}, n.outside_corpus ? "Outside the current collection" : "Full opinion available"));
+    card.append(meta);
+    const actions = el("div", { class: "authority-actions" });
+    if (cx) {
+      const read = el("button", { class: "authority-action", type: "button" }, "Read in Sources");
+      read.addEventListener("click", () => reviewGraphSource(t, cx, read));
+      actions.append(read);
+    }
+    const sourceUrl = safeSourceUrl(md.source_url || md.url);
+    if (sourceUrl) actions.append(el("a", { class: "authority-action", href: sourceUrl, target: "_blank", rel: "noopener noreferrer" }, "Open original ↗"));
+    if (actions.children.length) card.append(actions);
+    list.append(card);
+  });
+  return list;
+}
+async function reviewGraphSource(t, cx, button) {
+  if (!t || !cx || button.disabled) return;
+  button.disabled = true; button.textContent = "Reading…";
+  try {
+    const payload = await fetchOpinionExcerpt(cx);
+    rememberCaseText(t, payload);
+    openInspector("sources");
+    requestAnimationFrame(() => focusCitationCard(cx));
+  } catch (error) {
+    button.disabled = false;
+    button.textContent = "Could not read · " + (error && error.message ? error.message : "error");
+  }
+}
+function svgEl(tag, attrs) { const n = document.createElementNS("http://www.w3.org/2000/svg", tag); for (const k in attrs) n.setAttribute(k, attrs[k]); return n; }
+function svgTextEl(text, x, y, cls, maxW) {
+  const t = svgEl("text", { x: x, y: y, class: cls });
+  let s = String(text); if (maxW && s.length > maxW / 6) s = s.slice(0, Math.floor(maxW / 6)) + "…";
+  t.textContent = s; return t;
+}
+
+/* Tab 3: Sources — lawyer-usable original-source locators plus opinion excerpts. */
+function inspSources(body, t) {
+  const groups = sourceGroups(t);
+  if (!groups.length && !integrityCount(t)) { emptyTab(body, "Cited authorities and opinions actually read during this research appear here with their excerpts. Search matches that were not opened remain in Graph as candidates; they are not presented as sources."); return; }
+  const question = (t && t.question) || "";
+  const cited = groups.filter((group) => group.kind === "cited");
+  const read = groups.filter((group) => group.kind === "read");
+
+  cited.forEach((group) => body.append(sourceGroupCard(t, group, question)));
+  if (read.length) {
+    body.append(el("div", { class: "i-h", style: "margin-top:6px;" }, "Opinions reviewed but not cited"));
+    read.forEach((group) => body.append(sourceGroupCard(t, group, question)));
+  }
+  appendSourceIntegrity(body, t);
+}
+function sourceGroupCard(t, group, question) {
+  const representative = group.representative;
+  const md = representative.metadata || metadataForCx(t, representative.cx_id);
+  const cited = group.kind === "cited";
+  const card = el("div", {
+    class: "card src-card" + (cited ? "" : " uncited"),
+    "data-cx": representative.cx_id,
+    "data-source-key": group.key,
+    "data-testid": "source-card",
+  });
+  card.append(el("div", { class: "sc-name" }, md.case_name || representative.cx_id));
+  const meta = el("div", { class: "sc-meta" });
+  if (displayCourt(md)) meta.append(el("span", {}, displayCourt(md)));
+  if (md.date_filed || md.year) meta.append(el("span", {}, md.date_filed || md.year));
+  if (md.docket_number) meta.append(el("span", {}, "Docket " + md.docket_number));
+  card.append(meta);
+  if (cited && group.verified) card.append(el("div", { class: "src-verified" }, "✓ Authority matched to the research collection"));
+  else if (cited) card.append(el("div", { class: "src-unverified" }, "⚠ Citation verification failed"));
+  else if (group.kind === "read") card.append(el("div", { class: "sc-uncited" }, "● Reviewed during research · not cited in the answer"));
+
+  const memberCxs = group.entries.map((entry) => entry.cx_id);
+  card.append(sourceLocator(t, representative.cx_id, md.case_name, memberCxs));
+  const collection = el("div", { class: "source-excerpts", "data-testid": "source-excerpts" });
+  collection.append(el("div", { class: "source-excerpts-title" }, "Opinion excerpts used in this research"));
+  group.entries.forEach((entry, index) => {
+    const emd = entry.metadata || metadataForCx(t, entry.cx_id);
+    const record = el("section", {
+      class: "source-excerpt-record",
+      "data-cx": entry.cx_id,
+      "data-testid": "source-excerpt-record",
+    });
+    const heading = el("div", { class: "source-excerpt-head" });
+    const label = emd.opinion_type ? sourceOpinionTypeLabel(emd.opinion_type) : "Court opinion";
+    heading.append(el("span", { class: "source-excerpt-name" }, label || "Opinion excerpt"));
+    if (emd.opinion_id) heading.append(el("span", { class: "source-excerpt-id" }, "Opinion #" + emd.opinion_id));
+    else if (group.entries.length > 1) heading.append(el("span", { class: "source-excerpt-id" }, "Record " + (index + 1)));
+    record.append(heading);
+    if (entry.citations.some((citation) => citation.verified)) {
+      record.append(el("div", { class: "source-excerpt-status cited" }, "Cited in the answer"));
+    } else if (entry.citations.length) {
+      record.append(el("div", { class: "source-excerpt-status error" }, "Cited in the answer · citation verification failed"));
+    } else record.append(el("div", { class: "source-excerpt-status" }, "Reviewed during research · not cited"));
+    const texts = entry.texts.filter((text) => text && text.text);
+    texts.forEach((text, textIndex) => {
+      if (texts.length > 1) record.append(el("div", { class: "source-excerpt-number" }, "Excerpt " + (textIndex + 1)));
+      record.append(excerptBlock(text.text, question));
+    });
+    if (!texts.length) {
+      record.append(sourceExcerptError(t, entry, group));
+    }
+    collection.append(record);
+  });
+  card.append(collection);
+  return card;
+}
+function courtLabel(id) {
+  const labels = {
+    ohioctapp8: "Ohio Court of Appeals, Eighth District",
+    ohioctapp: "Ohio Court of Appeals",
+    ohio: "Supreme Court of Ohio",
+    ohiosupct: "Supreme Court of Ohio",
+  };
+  return labels[String(id || "").toLowerCase()] || String(id || "");
+}
+function displayCourt(md) {
+  if (!md) return "";
+  if (md.court_name) return String(md.court_name);
+  const base = md.court_id ? courtLabel(md.court_id) : "";
+  return md.appellate_district && base
+    ? base + ", " + md.appellate_district + " District"
+    : base;
+}
+function sourceLocator(t, cx, fallbackName, memberCxs) {
+  const md = metadataForCx(t, cx);
+  const members = [...new Set((memberCxs && memberCxs.length ? memberCxs : [cx]).filter(Boolean))];
+  const memberMetadata = members.map((memberCx) => ({ cx: memberCx, md: metadataForCx(t, memberCx) }));
+  const sourceRecords = [], seenSourceUrls = new Set();
+  memberMetadata.forEach((member) => {
+    const sourceUrl = safeSourceUrl(member.md.source_url || member.md.url);
+    if (sourceUrl && !seenSourceUrls.has(sourceUrl)) {
+      seenSourceUrls.add(sourceUrl);
+      sourceRecords.push({ url: sourceUrl, opinion_id: member.md.opinion_id });
+    }
+  });
+  const downloadRecords = [], seenDownloadUrls = new Set();
+  memberMetadata.forEach((member) => {
+    const downloadUrl = safeSourceUrl(member.md.courtlistener_download_url || member.md.download_url);
+    if (downloadUrl && !seenDownloadUrls.has(downloadUrl) && !seenSourceUrls.has(downloadUrl)) {
+      seenDownloadUrls.add(downloadUrl);
+      downloadRecords.push({ url: downloadUrl, opinion_id: member.md.opinion_id });
+    }
+  });
+  const opinionIds = [...new Set(memberMetadata.map((member) => member.md.opinion_id).filter((value) => value !== null && value !== undefined && String(value).trim()))];
+  const box = el("div", { class: "source-locator", "data-testid": "source-locator" });
+  box.append(el("div", { class: "sl-title" }, "Original opinion details"));
+  const actions = el("div", { class: "source-actions" });
+  sourceRecords.forEach((record, index) => {
+    const suffix = sourceRecords.length > 1
+      ? (record.opinion_id ? " " + record.opinion_id : " " + (index + 1))
+      : "";
+    actions.append(el("a", { class: "source-link primary", href: record.url, target: "_blank", rel: "noopener noreferrer" }, "Open original opinion" + suffix + " ↗"));
+  });
+  downloadRecords.forEach((record, index) => {
+    const suffix = downloadRecords.length > 1
+      ? (record.opinion_id ? " " + record.opinion_id : " " + (index + 1))
+      : "";
+    actions.append(el("a", { class: "source-link", href: record.url, target: "_blank", rel: "noopener noreferrer" }, "Download original opinion" + suffix + " ↗"));
+  });
+  if (!sourceRecords.length && !downloadRecords.length) box.append(el("div", { class: "source-missing" }, "No public link was returned for this opinion. Use the court, filing date, docket, and CourtListener record number below to locate it independently."));
+  const details = [
+    ["Court", displayCourt(md) || null],
+    ["Appellate district", md.appellate_district],
+    ["Filed", md.date_filed || md.year],
+    ["Docket", md.docket_number],
+    ["CourtListener case #", md.cluster_id],
+    [opinionIds.length === 1 ? "CourtListener opinion #" : "CourtListener opinion records", opinionIds.join(", ")],
+    ["Opinion status", md.precedential_status],
+  ].filter((row) => row[1] !== null && row[1] !== undefined && String(row[1]).trim() !== "");
+  if (details.length) {
+    const grid = el("div", { class: "source-grid" });
+    details.forEach(([key, value]) => grid.append(el("span", { class: "sk" }, key), el("span", { class: "sv" }, String(value))));
+    box.append(grid);
+  }
+  const copyParts = [
+    md.case_name || fallbackName,
+    displayCourt(md) || null,
+    md.date_filed ? "Filed " + md.date_filed : null,
+    md.docket_number ? "Docket " + md.docket_number : null,
+    opinionIds.length ? "CourtListener opinion records " + opinionIds.join(", ") : null,
+    ...sourceRecords.map((record) => record.url),
+    ...downloadRecords.map((record) => record.url),
+  ].filter(Boolean);
+  if (copyParts.length) {
+    const copy = el("button", { class: "source-copy", type: "button" }, "Copy citation details");
+    copy.addEventListener("click", async () => {
+      copy.classList.remove("failed");
+      try {
+        await copyPlainText(copyParts.join(" · "));
+        copy.classList.add("copied"); copy.textContent = "Copied";
+        setTimeout(() => { copy.classList.remove("copied"); copy.textContent = "Copy citation details"; }, 1400);
+      } catch (error) {
+        copy.classList.add("failed"); copy.textContent = "Copy failed";
+        copy.setAttribute("aria-label", "Copy citation details failed; inspect the browser console");
+      }
+    });
+    actions.append(copy);
+  }
+  if (actions.children.length) box.insertBefore(actions, box.children[1] || null);
+  return box;
+}
+async function copyPlainText(value) {
+  const code = "CALYX_LAWDEMO_CLIPBOARD_WRITE_FAILED";
+  if (!navigator.clipboard || typeof navigator.clipboard.writeText !== "function") {
+    const error = new Error(code + ": Clipboard API is unavailable in this browser context.");
+    console.error("[Calyx Sources]", { code, reason: "clipboard_api_unavailable", secure_context: window.isSecureContext });
+    throw error;
+  }
+  try {
+    await navigator.clipboard.writeText(value);
+  } catch (cause) {
+    console.error("[Calyx Sources]", {
+      code,
+      reason: "clipboard_write_rejected",
+      secure_context: window.isSecureContext,
+      error_name: cause && cause.name,
+      message: cause && cause.message,
+    });
+    throw new Error(code + ": Clipboard write was rejected.", { cause });
+  }
+}
+function sourceExcerptError(t, entry, group) {
+  const code = "CALYX_LAWDEMO_SOURCE_EXCERPT_MISSING";
+  t._sourceExcerptErrors = t._sourceExcerptErrors || new Set();
+  if (!t._sourceExcerptErrors.has(entry.cx_id)) {
+    t._sourceExcerptErrors.add(entry.cx_id);
+    console.error("[Calyx Sources]", {
+      code,
+      cx_id: entry.cx_id,
+      source_key: group.key,
+      cited: entry.citations.length > 0,
+      citation_count: entry.citations.length,
+      active_thread_id: t.id,
+    });
+  }
+  const error = el("div", { class: "source-excerpt-error", role: "alert", "data-testid": "source-excerpt-error" });
+  error.append(el("span", { class: "code" }, code));
+  error.append(el("span", {}, "The research record identifies this authority but contains no retained opinion excerpt. The source cannot be presented as verified text; inspect the recorded tool trace and server logs for this opinion."));
+  return error;
+}
+function rememberCaseText(t, payload) {
+  if (!t || !payload || !payload.cx_id) return;
+  t.caseTexts = t.caseTexts || [];
+  const at = t.caseTexts.findIndex((x) => x && x.cx_id === payload.cx_id);
+  if (at >= 0) t.caseTexts[at] = payload;
+  else t.caseTexts.push(payload);
+}
+async function fetchOpinionExcerpt(cx) {
+  const response = await fetch("/api/opinion/" + encodeURIComponent(cx) + "/excerpt");
+  let payload;
+  try {
+    payload = await response.json();
+  } catch (error) {
+    console.error("[Calyx Sources]", {
+      code: "CALYX_LAWDEMO_EXCERPT_JSON_INVALID",
+      cx_id: cx,
+      http_status: response.status,
+      message: error && error.message,
+    });
+    throw new Error("CALYX_LAWDEMO_EXCERPT_JSON_INVALID");
+  }
+  if (!response.ok) throw new Error((payload && payload.code) || ("HTTP " + response.status));
+  if (!payload || !payload.text) throw new Error("CALYX_LAWDEMO_EXCERPT_EMPTY");
+  return payload;
+}
+/* A quoted-passage block (ChatGPT's tether_quote surface) with a copy button. */
+function excerptBlock(text, question) {
+  const blk = el("div", { class: "blk" });
+  blk.append(el("div", { class: "excerpt", html: highlight(text, question) }));
+  addCopy(blk, () => String(text));
+  return blk;
+}
+function highlight(text, question) {
+  const terms = (question.toLowerCase().match(/[a-z]{4,}/g) || []).filter((w) => !STOP.has(w));
+  const uniq = [...new Set(terms)].slice(0, 8);
+  let out = esc(text.slice(0, 2400));
+  uniq.forEach((term) => { out = out.replace(new RegExp("\\b(" + term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + ")", "gi"), "<mark>$1</mark>"); });
+  return out;
+}
+const STOP = new Set(["what", "does", "when", "which", "that", "this", "with", "from", "about", "have", "corpus", "hold", "held", "court", "case", "cases", "opinion", "opinions", "require", "there", "many", "make", "most"]);
+
+/* Sources audit detail — ledger height, chain hashes, verify-chain, replay parity. */
+function appendSourceIntegrity(body, t) {
+  const lv = t && t.ledgerVerify, lt = t && t.ledgerTail, rp = t && t.reproduce;
+  const anchors = provAnchors(t);
+  const technical = el("div", { class: "source-audit-body" });
+  if ((t && t.ledgerHeight != null) || lv) {
+    technical.append(el("div", { class: "i-h" }, "Append-only research record"));
+    const wrap = el("div", { class: "card" });
+    if (t && t.ledgerHeight != null) wrap.append(provRow("ledger height", fmt(t.ledgerHeight)));
+    const status = (lv && (lv.status || lv.verify_chain)) || (lt && lt.verify && lt.verify.verify_chain);
+    if (status) wrap.append(provRow("verify-chain", String(status), /intact|ok|verified/i.test(String(status))));
+    const checked = lv && findNum(lv, ["checked", "verified_count", "entry_count"]);
+    if (checked != null && (t == null || t.ledgerHeight == null)) wrap.append(provRow("entries checked", fmt(checked)));
+    const brk = lv && lv.break_at;
+    if (brk != null) wrap.append(provRow("break_at", String(brk)));
+    technical.append(wrap);
+  }
+  if (lt && Array.isArray(lt.entries) && lt.entries.length) {
+    technical.append(el("div", { class: "i-h" }, "Recent record entries"));
+    lt.entries.slice(0, 6).forEach((e) => {
+      const c = el("div", { class: "card" });
+      c.append(provRow("seq", String(e.seq)));
+      if (e.kind) c.append(provRow("kind", e.kind));
+      if (e.entry_hash) c.append(provRow("entry_hash", e.entry_hash));
+      technical.append(c);
+    });
+  }
+  if (anchors.length) {
+    technical.append(el("div", { class: "i-h" }, "Per-source integrity anchors"));
+    technical.append(el("div", { class: "prov-anchor-note" }, "Internal record positions for every opinion touched in this research session."));
+    // Each anchor is its OWN node (data-cx) so a citation chip that isn't in Sources can
+    // still fall back to its chain anchor here (defect 3).
+    anchors.forEach((s) => {
+      const c = el("div", { class: "card prov-anchor", "data-cx": s.cx, "data-testid": "prov-anchor" });
+      c.append(provRow((s.verified ? "✓ " : "") + (s.name || s.cx.slice(0, 10) + "…"), "ledger #" + s.seq, s.verified));
+      if (s.hash) c.append(provRow("chain_hash", String(s.hash)));
+      technical.append(c);
+    });
+  }
+  if (rp) {
+    technical.append(el("div", { class: "i-h" }, "Recorded-result replay"));
+    if (rp.bit_parity === true && rp.original_hash && rp.original_hash === rp.reproduced_hash) {
+      const p = el("div", { class: "parity" });
+      p.append(el("div", { class: "pl" }, "🔒 bit_parity = true — hash-locked"));
+      p.append(el("div", { class: "ph" }, "original   " + rp.original_hash));
+      p.append(el("div", { class: "ph" }, "reproduced " + rp.reproduced_hash));
+      technical.append(p);
+    } else {
+      const c = el("div", { class: "card" });
+      c.append(provRow("bit_parity", String(rp.bit_parity)));
+      if (rp.original_hash) c.append(provRow("original_hash", rp.original_hash));
+      if (rp.reproduced_hash) c.append(provRow("reproduced_hash", rp.reproduced_hash));
+      technical.append(c);
+    }
+    technical.append(jsonBlock(rp, "view raw reproduce payload"));
+  }
+  if (lv) technical.append(jsonBlock(lv, "view raw verify-chain payload"));
+  if (technical.children.length) {
+    const details = el("details", { class: "source-audit" });
+    details.append(el("summary", {}, "Research integrity record"));
+    details.append(technical);
+    body.append(details);
+  }
+}
+function provRow(k, v, ok) { const r = el("div", { class: "prov-row" }); r.append(el("span", { class: "k" }, k), el("span", { class: "v" + (ok ? " ok" : "") }, v)); return r; }
+
+/* CourtListener's legacy bulk-data codes are storage vocabulary, not useful
+   legal-research labels. The v4 aliases are included explicitly so a corpus
+   migration cannot silently reintroduce machine-facing copy. */
+const OPINION_TYPE_LABELS = Object.freeze({
+  "010combined": "Combined opinions",
+  "combined-opinion": "Combined opinions",
+  "015unamimous": "Unanimous opinions",
+  "unanimous-opinion": "Unanimous opinions",
+  "020lead": "Lead opinions",
+  "lead-opinion": "Lead opinions",
+  "025plurality": "Plurality opinions",
+  "plurality-opinion": "Plurality opinions",
+  "030concurrence": "Concurring opinions",
+  "concurrence-opinion": "Concurring opinions",
+  "035concurrenceinpart": "Opinions concurring in part",
+  "in-part-opinion": "Opinions concurring in part",
+  "040dissent": "Dissenting opinions",
+  "dissent": "Dissenting opinions",
+  "050addendum": "Addenda",
+  "addendum": "Addenda",
+  "060remittitur": "Remittitur opinions",
+  "remittitur": "Remittitur opinions",
+  "070rehearing": "Rehearing opinions",
+  "rehearing": "Rehearing opinions",
+  "080onthemerits": "Opinions on the merits",
+  "on-the-merits": "Opinions on the merits",
+  "090onmotiontostrike": "Opinions on motions to strike",
+  "on-motion-to-strike": "Opinions on motions to strike",
+});
+const SOURCE_OPINION_TYPE_LABELS = Object.freeze({
+  "010combined": "Court opinion",
+  "combined-opinion": "Court opinion",
+  "015unamimous": "Unanimous opinion",
+  "unanimous-opinion": "Unanimous opinion",
+  "020lead": "Majority or lead opinion",
+  "lead-opinion": "Majority or lead opinion",
+  "025plurality": "Plurality opinion",
+  "plurality-opinion": "Plurality opinion",
+  "030concurrence": "Concurring opinion",
+  "concurrence-opinion": "Concurring opinion",
+  "035concurrenceinpart": "Opinion concurring in part and dissenting in part",
+  "in-part-opinion": "Opinion concurring in part and dissenting in part",
+  "040dissent": "Dissenting opinion",
+  "dissent": "Dissenting opinion",
+  "050addendum": "Addendum",
+  "addendum": "Addendum",
+  "060remittitur": "Remittitur opinion",
+  "remittitur": "Remittitur opinion",
+  "070rehearing": "Rehearing opinion",
+  "rehearing": "Rehearing opinion",
+  "080onthemerits": "Opinion on the merits",
+  "on-the-merits": "Opinion on the merits",
+  "090onmotiontostrike": "Opinion on motion to strike",
+  "on-motion-to-strike": "Opinion on motion to strike",
+});
+function sourceOpinionTypeLabel(raw) {
+  const label = SOURCE_OPINION_TYPE_LABELS[raw];
+  if (label) return label;
+  console.error("[Calyx Sources]", {
+    code: "CALYX_LAWDEMO_SOURCE_OPINION_TYPE_UNKNOWN",
+    opinion_type: raw,
+    known_types: Object.keys(SOURCE_OPINION_TYPE_LABELS),
+  });
+  throw new Error("CALYX_LAWDEMO_SOURCE_OPINION_TYPE_UNKNOWN: " + String(raw));
+}
+function opinionTypeLabel(raw) {
+  const label = OPINION_TYPE_LABELS[raw];
+  if (label) return label;
+  console.error("[Calyx Corpus]", {
+    code: "CALYX_LAWDEMO_OPINION_TYPE_UNKNOWN",
+    opinion_type: raw,
+    known_types: Object.keys(OPINION_TYPE_LABELS),
+  });
+  throw new Error("CALYX_LAWDEMO_OPINION_TYPE_UNKNOWN: " + String(raw));
+}
+
+/* Tab 4: Corpus / Segmentation — corpus state, kernel health, and segmentation. */
+function inspCorpus(body, t) {
+  const census = t && t.census, seg = t && t.segments, jc = t && t.judgeCensus, mf = t && t.manifest, kh = t && t.kernelHealth;
+  const liveScope = HEALTH && HEALTH.scope && typeof HEALTH.scope === "object" ? HEALTH.scope : null;
+  const liveCorpus = HEALTH && HEALTH.corpus ? HEALTH.corpus : null;
+  if (liveScope && liveCorpus) {
+    body.append(el("div", { class: "i-h" }, "Production corpus · live manifest"));
+    body.append(el("div", { class: "headline-stat" },
+      el("span", { class: "n" }, fmt(liveCorpus.physical_opinions)),
+      el("span", { class: "l" }, "physical opinions · " + fmt(liveCorpus.content_lenses) + " independently indexed content lenses")));
+    const collections = Array.isArray(liveScope.collections) ? liveScope.collections : [];
+    collections.forEach((collection) => {
+      const card = el("div", { class: "card" });
+      card.append(provRow(collection.court, fmt(collection.physical_opinions), !!liveCorpus.verified));
+      body.append(card);
+    });
+    body.append(el("div", { class: "overlay-note" },
+      liveCorpus.verified
+        ? "Read independently from the production search manifest: every content-lens slot names the same physical 109,133-opinion domain."
+        : "The production manifest did not verify. Counts are shown for diagnosis, not claimed as ready."));
+  }
+  if (!census && !seg && !jc && !mf && !kh && !(liveScope && liveCorpus)) { emptyTab(body, "Live corpus state is unavailable. The console will not substitute a cached or demo artifact. Restore /api/health or run corpus_stats, then reopen this tab."); return; }
+  if (census) {
+    body.append(el("div", { class: "i-h", style: liveScope && liveCorpus ? "margin-top:14px;" : "" }, "Opinion-type census · live"));
+    if (census.physical_opinions_n != null) body.append(el("div", { class: "headline-stat" }, el("span", { class: "n" }, fmt(census.physical_opinions_n)), el("span", { class: "l" }, "physical opinions" + (census.dissents_n != null ? " · " + fmt(census.dissents_n) + " dissents" : ""))));
+    const by = census.by_type || census.opinion_type_counts || {};
+    const entries = Object.entries(by).sort((a, b) => b[1] - a[1]);
+    const max = Math.max(1, ...entries.map((e) => e[1]));
+    entries.forEach(([k, v]) => {
+      const cb = el("div", { class: "census-bar" });
+      cb.append(el("div", { class: "cl" }, el("span", { class: "cn" }, opinionTypeLabel(k)), el("span", { class: "cv" }, fmt(v))));
+      const ct = el("div", { class: "ct" }); ct.append(el("i", { style: "width:" + Math.round((v / max) * 100) + "%" })); cb.append(ct);
+      body.append(cb);
+    });
+  }
+  if (mf && !census) {
+    body.append(el("div", { class: "i-h", style: "margin-top:12px;" }, "Vault manifest · live"));
+    const card = el("div", { class: "card" });
+    if (mf.status) card.append(provRow("chain status", String(mf.status), /intact|ok|verified/i.test(String(mf.status))));
+    const checked = findNum(mf, ["checked"]); if (checked != null) card.append(provRow("entries checked", fmt(checked)));
+    if (mf.break_at != null) card.append(provRow("break_at", String(mf.break_at)));
+    body.append(card);
+  }
+  if (jc) {
+    body.append(el("div", { class: "i-h", style: "margin-top:12px;" }, "Judge authorship census"));
+    const c = el("div", { class: "card" });
+    if (jc.authored_count != null) c.append(provRow("authored_count", fmt(jc.authored_count)));
+    if (jc.authored_dissents_n != null) c.append(provRow("authored_dissents", fmt(jc.authored_dissents_n)));
+    if (jc.panel_member_count != null) c.append(provRow("panel_member_count", fmt(jc.panel_member_count)));
+    body.append(c);
+    body.append(el("div", { class: "overlay-note" }, "Descriptive corpus history, never a prediction. Only ~48.7% of opinions carry a resolved author, so counts are a floor."));
+  }
+  if (kh) {
+    body.append(el("div", { class: "i-h", style: "margin-top:12px;" }, "Kernel health"));
+    const c = el("div", { class: "card" });
+    if (kh.size != null) c.append(provRow("members", fmt(kh.size)));
+    if (kh.recall && kh.recall.ratio != null) c.append(provRow("recall", String(kh.recall.ratio)));
+    if (kh.grounded_fraction != null) c.append(provRow("grounded fraction", String(kh.grounded_fraction)));
+    if (!c.children.length) c.append(provRow("status", "Payload returned; inspect raw details"));
+    body.append(c);
+    body.append(jsonBlock(kh, "view raw kernel-health payload"));
+  }
+  if (seg) {
+    body.append(el("div", { class: "i-h", style: "margin-top:12px;" }, "Whole-opinion segmentation"));
+    const slots = collectSegments(seg);
+    if (slots.length) {
+      body.append(el("div", { class: "i-sub" }, (seg.metadata && seg.metadata.case_name ? seg.metadata.case_name + " — " : "") + "measured as whole segments across the lenses (not truncated)."));
+      slots.slice(0, 24).forEach((n, i) => { /* placeholder loop replaced below */ });
+      const map = el("div", { class: "seg-map" });
+      slots.forEach((s) => map.append(el("div", { class: "seg", title: s.label }, String(s.n))));
+      body.append(map);
+    } else {
+      body.append(el("div", { class: "overlay-note" }, "This readback did not carry per-slot segment counts."));
+    }
+  }
+}
+function collectSegments(seg) {
+  // Look for per-slot segment provenance in the readback row (real field names vary;
+  // read segment counts where present, else derive from a slots array).
+  const out = [];
+  const slots = (seg && (seg.slots || (seg.provenance && seg.provenance.slots))) || null;
+  if (Array.isArray(slots)) slots.forEach((s) => out.push({ n: s.segments || s.segment_count || s.n || 1, label: (s.key || s.slot || "") + ": " + (s.segments || s.segment_count || 1) + " segments" }));
+  return out;
+}
+
+/* ========================================================================
+   Live SSE — a RESUMABLE episode stream (#2061)
+
+   The episode lives on the server, not inside this HTTP response. A response is
+   only an ATTACHMENT to it. That inversion is what fixes the three reported
+   defects at one root:
+
+     * Backgrounding a tab. Chrome FREEZES a hidden page, and a frozen page's
+       "freezable tasks ... like JavaScript timers and fetch callbacks don't run";
+       it may then DISCARD the page outright, and mobile browsers suspend the
+       renderer and drop the sockets. Any of those kills this response body. It no
+       longer kills the research: every event carries a monotonic `seq`, we keep
+       the highest one we have dispatched, and a broken stream is rejoined at
+       `/api/chat/stream?episode_id&from_seq` which replays exactly what was
+       missed and then continues live.
+     * Stop. The cancel is CONFIRMED (we await the acknowledgement and read its
+       `outcome`) and we deliberately keep reading, so the terminal `cancelled`
+       event arrives over the stream as the server's own proof that the agent
+       stopped. A failed cancel is surfaced in the UI, never only in the console.
+     * New chat. It stops the running episode first, and waits for that to be
+       acknowledged, so the old agent cannot outlive the thread it belongs to.
+
+   An episode's lifetime is ONE page context: a reload or a close ends the research
+   deliberately, and `pagehide` stops the agent with it. Only an INTERRUPTION of a
+   still-live page is recovered.
+   ======================================================================== */
+
+/* Reattach pacing. The ceiling stays well inside the server's client-grace so a
+   reattach can win the race against the abandoned-episode reaper; the real grace
+   is read from /api/health and overrides these defaults. */
+const REATTACH_BASE_MS = 500;
+const REATTACH_MAX_MS = 8000;
+let RESUME = { route: "/api/chat/stream", clientGraceSecs: 90, retentionSecs: 900 };
+
+/* A reload is a DELIBERATE end of the research, not an interruption to recover from:
+   the page is gone by the user's own action, so the agent should stop with it rather
+   than run on. `pagehide` below is what delivers that, and the episode handle is
+   intentionally NOT persisted anywhere — an episode's lifetime is one page context.
+   (Recovering ACROSS a reload was tried and removed: it is not wanted, and it left a
+   restored thread whose answer panel rendered empty.) */
+
+/* A promise that resolves on the next moment worth retrying: the backoff elapsing,
+   or the page coming back (visible / resumed from frozen / network back). A frozen
+   page runs nothing at all, so the wake-ups are what make the very first act of an
+   unfrozen page a reattach instead of a wait. */
+let _wakeResolvers = [];
+function wakeReattach() { const rs = _wakeResolvers; _wakeResolvers = []; rs.forEach((r) => r()); }
+function reattachDelay(attempt) {
+  const ms = Math.min(REATTACH_MAX_MS, REATTACH_BASE_MS * Math.pow(2, Math.max(0, attempt - 1)));
+  return new Promise((resolve) => {
+    let done = false;
+    const fire = () => { if (!done) { done = true; resolve(); } };
+    _wakeResolvers.push(fire);
+    setTimeout(fire, ms);
+  });
+}
+["visibilitychange", "resume"].forEach((type) => document.addEventListener(type, () => { if (document.visibilityState === "visible" || type === "resume") wakeReattach(); }, { capture: true }));
+["pageshow", "focus", "online"].forEach((type) => window.addEventListener(type, wakeReattach, { capture: true }));
+
+/* Closing OR reloading the tab ends the research, and the agent should stop with it
+   rather than wait out the server grace. `pagehide` with persisted=true means
+   FROZEN/bfcache — the page is coming back, so that case must NOT cancel. Only a true
+   termination (close, reload, navigate away) does. The server-side reaper remains the
+   guarantee for the cases that fire no event at all (a discarded tab, a killed mobile
+   app, a dropped tunnel); this is the fast path for the ones that do. */
+window.addEventListener("pagehide", (event) => {
+  if (event.persisted) return;
+  const t = workingThread();
+  if (!t || !t.episodeId || t.stopped) return;
+  try {
+    navigator.sendBeacon("/api/chat/cancel", new Blob([JSON.stringify({ episode_id: t.episodeId })], { type: "application/json" }));
+  } catch (error) { /* the reaper collects it within the grace period regardless */ }
+});
+
+function newThread(question) {
+  const t = { id: "t" + (SEQ++), question, ts: Date.now(), reasoning: [], adapt: [], steps: [], toolResults: [], citations: [], running: true, t0: null, thoughtMs: null, workStartedAt: performance.now(), workPhase: "Starting research", lastSeq: 0, terminal: false, reattaches: 0 };
+  STATE.threads.unshift(t);
+  STATE.activeId = t.id;
+  return t;
+}
+
+async function ask(question) {
+  if (STATE.streaming) return;
+  const t = newThread(question);
+  STATE.follow = true;
+  renderStream(); renderRail(); renderStatus();
+  if (!(HEALTH && HEALTH.corpus && HEALTH.corpus.verified)) {
+    t.running = false;
+    dispatch(t, "error", { code: "CALYX_LAWDEMO_CORPUS_UNVERIFIED", message: "The accepted production corpus is not physically verified.", remediation: "Repair the search or accepted jurisdiction manifest, then restart the web service." });
+    return;
+  }
+  if (!(HEALTH && HEALTH.resident && HEALTH.resident.ready)) {
+    t.running = false;
+    dispatch(t, "error", { code: "CALYX_LAWDEMO_RESIDENT_NOT_READY", message: "The production content-lens resident is not ready.", remediation: "Inspect resident readiness and restore every production lens before retrying." });
+    return;
+  }
+  const chatOn = HEALTH && HEALTH.modes && HEALTH.modes.chat;
+  if (chatOn === false) {
+    t.running = false;
+    dispatch(t, "error", { code: "CALYX_LAWDEMO_CHAT_DISABLED", message: "The research chat is not enabled in this deployment.", remediation: "Set LAWDEMO_WEB_CHAT_ENABLED=1 and restart the web service." });
+    return;
+  }
+  STATE.streaming = true;
+  showStop(t);
+  let res;
+  try {
+    res = await fetch("/api/chat", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ question }), signal: newAttachSignal() });
+  } catch (e) {
+    console.error("[Calyx Chat]", { code: "CALYX_LAWDEMO_CHAT_REQUEST_FAILED", active_thread_id: t.id, stopped: !!t.stopped, message: e && e.message });
+    STATE.streaming = false; STATE.controller = null; hideStop();
+    if (t.stopped) { dispatch(t, "cancelled", { note: "Stopped before the stream started." }); return; }
+    dispatch(t, "error", { code: "NETWORK", message: "Could not reach the chat endpoint." }); return;
+  }
+  if (!isEventStream(res)) { await failFromEnvelope(t, res, "open"); return; }
+  await driveEpisode(t, res);
+}
+
+/* One attachment attempt against the reattach route. Returns a live response, or
+   null after having already dispatched the typed terminal error. */
+async function attachStream(t) {
+  let res;
+  const url = RESUME.route + "?episode_id=" + encodeURIComponent(t.episodeId) + "&from_seq=" + (t.lastSeq || 0);
+  try {
+    res = await fetch(url, { headers: { "accept": "text/event-stream" }, signal: newAttachSignal() });
+  } catch (e) {
+    return null; // a transport failure is retryable; driveEpisode decides
+  }
+  if (!isEventStream(res)) { await failFromEnvelope(t, res, "reattach"); return null; }
+  return res;
+}
+
+/* The episode driver: consume the stream, and whenever it ends WITHOUT a terminal
+   event, rejoin from the last seq we hold. This is the whole background-tab fix. */
+async function driveEpisode(t, response) {
+  let res = response;
+  let attempt = 0;
+  const deadline = Date.now() + Math.max(120, (RESUME.clientGraceSecs + RESUME.retentionSecs)) * 1000;
+  for (;;) {
+    await consumeStream(t, res);
+    if (t.terminal) break;
+    if (!t.episodeId) {
+      // The stream broke before `opened` landed, so there is nothing to rejoin and
+      // nothing was proven about the episode. Fail loud rather than guess.
+      dispatch(t, "error", { code: "CALYX_LAWDEMO_EPISODE_HANDLE_MISSING", message: "The answer stream broke before the server announced the episode id, so it cannot be rejoined.", remediation: "Ask the question again." });
+      break;
+    }
+    if (Date.now() > deadline) {
+      dispatch(t, "error", { code: "CALYX_LAWDEMO_EPISODE_REATTACH_EXHAUSTED", message: "The answer stream kept dropping for longer than the server retains an episode.", remediation: "Check the network path to leapablelaw.com, then ask the question again." });
+      break;
+    }
+    attempt += 1; t.reattaches += 1;
+    setWorkPhase(t, "Reconnecting to your research");
+    console.warn("[Calyx Chat]", { code: "CALYX_LAWDEMO_EPISODE_REATTACHING", active_thread_id: t.id, episode_id: t.episodeId, from_seq: t.lastSeq, attempt, hidden: document.visibilityState === "hidden" });
+    await reattachDelay(attempt);
+    if (t.terminal) break;
+    const next = await attachStream(t);
+    if (t.terminal) break;      // attachStream dispatched a terminal envelope
+    if (!next) continue;        // retryable transport failure: back off again
+    res = next;
+    attempt = 0;                // a fresh attachment resets the backoff
+  }
+  STATE.streaming = false; STATE.controller = null; hideStop();
+  if (t.running) finishThread(t);
+  renderRail();
+}
+
+/* Read one attachment to its end. Resolves when the stream closes, whether that is
+   a clean terminal event (t.terminal set by dispatch) or a break. */
+async function consumeStream(t, res) {
+  if (!res.body) {
+    dispatch(t, "error", { code: "CALYX_LAWDEMO_SSE_BODY_MISSING", message: "The chat endpoint returned an event-stream response with no readable body.", remediation: "Inspect the reverse proxy in front of leapablelaw.com: an event-stream response must not be buffered or rewritten." });
+    return;
+  }
+  const reader = res.body.getReader(); const dec = new TextDecoder(); let buf = "";
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += dec.decode(value, { stream: true });
+      let i;
+      while ((i = buf.indexOf("\n\n")) >= 0) {
+        const frame = buf.slice(0, i); buf = buf.slice(i + 2);
+        let ev = "message", data = "", id = null;
+        for (const line of frame.split("\n")) {
+          if (line.startsWith("event:")) ev = line.slice(6).trim();
+          else if (line.startsWith("data:")) data += line.slice(5).trim();
+          else if (line.startsWith("id:")) id = line.slice(3).trim();
+        }
+        if (!data) continue;                       // keep-alive comment or bare id
+        let payload;
+        try {
+          payload = JSON.parse(data);
+        } catch (error) {
+          // A malformed payload is a PROTOCOL defect, not a transport break: replaying
+          // from the same seq would deliver the same bad frame forever. Terminal.
+          console.error("[Calyx Chat]", { code: "CALYX_LAWDEMO_SSE_JSON_INVALID", active_thread_id: t.id, event_type: ev, payload_bytes: new TextEncoder().encode(data).length, message: error && error.message });
+          dispatch(t, "error", { code: "CALYX_LAWDEMO_SSE_JSON_INVALID", message: "The answer stream carried an event payload that is not valid JSON.", remediation: "Inspect the calyx-lawdemo-web server logs for the episode that emitted it." });
+          return;
+        }
+        const seq = id == null ? null : Number(id);
+        // Defence in depth against a duplicate delivery: the server replays strictly
+        // after `from_seq`, so this should never fire — if it does, say so.
+        if (seq != null && Number.isFinite(seq) && seq <= t.lastSeq) {
+          console.error("[Calyx Chat]", { code: "CALYX_LAWDEMO_SSE_SEQ_REPLAYED", active_thread_id: t.id, seq, last_seq: t.lastSeq });
+          continue;
+        }
+        dispatch(t, ev, payload);
+        if (seq != null && Number.isFinite(seq)) t.lastSeq = seq;
+      }
+    }
+  } catch (e) {
+    // AbortError is our own deliberate teardown; everything else is a real break.
+    const aborted = e && e.name === "AbortError";
+    if (!aborted && !t.terminal) {
+      console.warn("[Calyx Chat]", { code: "CALYX_LAWDEMO_SSE_STREAM_BROKE", active_thread_id: t.id, episode_id: t.episodeId, last_seq: t.lastSeq, message: e && e.message });
+    }
+  } finally {
+    try { reader.cancel(); } catch (error) { /* already closed */ }
+  }
+}
+
+function isEventStream(res) {
+  return res.ok && (res.headers.get("content-type") || "").includes("text/event-stream");
+}
+
+/* A non-stream response is the closed {code,message,remediation} envelope. Render it
+   verbatim as the thread's terminal error — never a generic "something went wrong". */
+async function failFromEnvelope(t, res, phase) {
+  let env;
+  try {
+    env = await res.json();
+  } catch (error) {
+    console.error("[Calyx Chat]", { code: "CALYX_LAWDEMO_CHAT_RESPONSE_JSON_INVALID", active_thread_id: t.id, phase, http_status: res.status, content_type: res.headers.get("content-type") || "", message: error && error.message });
+    env = { code: "CALYX_LAWDEMO_CHAT_RESPONSE_JSON_INVALID", message: "The chat endpoint returned an invalid error envelope." };
+  }
+  console.error("[Calyx Chat]", { code: env.code || "CALYX_LAWDEMO_CHAT_FAILED", active_thread_id: t.id, phase, http_status: res.status });
+  STATE.streaming = false; STATE.controller = null; hideStop();
+  dispatch(t, "error", env);
+}
+
+/* Each attachment gets its own AbortController so a deliberate teardown (New chat)
+   closes exactly one socket and nothing else. */
+function newAttachSignal() {
+  const controller = new AbortController();
+  STATE.controller = controller;
+  return controller.signal;
+}
+
+function showStop(t) {
+  const send = $("#send-btn");
+  const crow = send.parentNode;
+  hideStop();
+  send.disabled = true;
+  const stop = el("button", { class: "stopbtn", id: "stop-btn", type: "button" }, el("span", { class: "sq" }), "Stop");
+  stop.addEventListener("click", () => { interruptEpisode("button", t); });
+  crow.insertBefore(stop, send);
+}
+function hideStop() { const s = $("#stop-btn"); if (s) s.remove(); $("#send-btn").disabled = false; }
+
+/* STOP. Confirmed, not fire-and-forget.
+   We do NOT abort the stream: we ask the server to cancel, read the acknowledgement,
+   and then keep reading so the terminal `cancelled` event arrives over the same
+   stream as the server's own proof that the agent actually stopped. Returns the
+   acknowledged outcome so callers (New chat) can sequence on it. */
+async function interruptEpisode(source, thread) {
+  const t = thread || workingThread();
+  if (!t || t.stopped) return "noop";
+  t.stopped = true;
+  setWorkPhase(t, "Stopping");
+  if (!t.episodeId) {
+    // No server-side handle yet: there is nothing running to stop. Tear the local
+    // view down honestly rather than claiming a stop we did not perform.
+    if (STATE.controller) STATE.controller.abort();
+    dispatch(t, "cancelled", { note: "Stopped before the server opened the episode." });
+    STATE.streaming = false; STATE.controller = null; hideStop();
+    return "not_started";
+  }
+  let outcome = null;
+  for (let attempt = 1; attempt <= 3 && outcome === null; attempt++) {
+    try {
+      const response = await fetch("/api/chat/cancel", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ episode_id: t.episodeId }) });
+      const ack = await response.json();
+      if (!response.ok) throw new Error("HTTP " + response.status + " " + (ack && ack.code));
+      outcome = (ack && ack.outcome) || (ack && ack.cancelled ? "signalled" : "unknown");
+      console.info("[Calyx Chat]", { code: "CALYX_LAWDEMO_CHAT_CANCEL_ACK", active_thread_id: t.id, episode_id: t.episodeId, source, outcome, attempt });
+    } catch (error) {
+      console.error("[Calyx Chat]", { code: "CALYX_LAWDEMO_CHAT_CANCEL_FAILED", active_thread_id: t.id, episode_id: t.episodeId, source, attempt, message: error && error.message });
+      if (attempt === 3) {
+        // The user asked us to stop and we cannot prove we did. Say so IN THE UI —
+        // a silent failure here is exactly the "stop doesn't stop it" complaint.
+        t.stopped = false;
+        setWorkPhase(t, "Still running — stop could not be delivered");
+        dispatch(t, "error", { code: "CALYX_LAWDEMO_CHAT_CANCEL_FAILED", message: "Stop could not be delivered to the server, so the agent may still be running.", remediation: "Check the network path to leapablelaw.com. The server stops any episode with no attached browser within its client-grace window." });
+        return "failed";
+      }
+      await new Promise((r) => setTimeout(r, 300 * attempt));
+    }
+  }
+  if (outcome === "unknown") {
+    // The server does not hold this episode, so nothing can arrive over the stream.
+    if (STATE.controller) STATE.controller.abort();
+    dispatch(t, "cancelled", { note: "This episode had already ended on the server." });
+    STATE.streaming = false; STATE.controller = null; hideStop();
+  }
+  // "signalled" / "already_finished": the terminal event is on its way over the
+  // stream (or already in the replay log), so we keep reading and let it land.
+  return outcome;
+}
+
+/* NEW CHAT must not leave an agent running behind it. Stop the active episode and
+   WAIT for the acknowledgement before clearing the view, so the new blank thread
+   can never coexist with a live agent from the old one. */
+async function startNewChat() {
+  const t = workingThread();
+  if (t) {
+    await interruptEpisode("new-chat", t);
+    // Let the terminal `cancelled` event land over the open stream; if the socket is
+    // mid-reattach it will not, so bound the wait and then tear it down explicitly.
+    const until = Date.now() + 2000;
+    while (!t.terminal && Date.now() < until) await new Promise((r) => setTimeout(r, 50));
+    if (!t.terminal) {
+      if (STATE.controller) STATE.controller.abort();
+      if (t.running) { t.cancelled = t.cancelled || { note: "Episode stopped to start a new chat." }; finishThread(t); }
+      STATE.streaming = false; STATE.controller = null; hideStop();
+    }
+  }
+  newChat();
+  setRailView("new");
+  if (compactNav.matches) setMobileRailOpen(false, false);
+  $("#composer-input").focus();
+}
+
+/* --- Test hook -----------------------------------------------------------
+   A tiny, read-only-ish seam so the SSE→Inspector binding can be driven headlessly
+   against the REAL live-SSE fixtures (tests/fixtures/console/live_sse_*.txt) without
+   a browser or server. Not used by the app itself; it only exposes the existing
+   dispatch/render functions and state so a test can assert each tab populates. */
+window.__CALYX_TEST__ = {
+  STATE, newThread, dispatch, openInspector, renderInspector, captureEvidence,
+  tabCount, sourceCount, provAnchors, graphOverlay, renderWorkStatus, interruptEpisode,
+  inspBodyText() { return $("#insp-body").textContent || ""; },
+  isEmptyTab() { return !!$("#insp-body .insp-empty"); },
+};
+
+/* --- Boot ---------------------------------------------------------------- */
+async function loadHealth() {
+  try {
+    const r = await fetch("/api/health");
+    if (!r.ok) throw new Error("HTTP " + r.status);
+    HEALTH = await r.json();
+  } catch (error) {
+    HEALTH = {};
+    HEALTH_ERROR = error && error.message ? error.message : "request failed";
+  }
+  if (HEALTH && HEALTH.scope) {
+    const label = scopeText(HEALTH.scope);
+    if (label) $("#scope-sub").textContent = label;
+  }
+  // Take the resume contract from the server rather than duplicating its timings
+  // here, so the client's retry budget can never drift from the real grace period.
+  const resume = HEALTH && HEALTH.chat && HEALTH.chat.resume;
+  if (resume && typeof resume.route === "string") {
+    RESUME = {
+      route: resume.route,
+      clientGraceSecs: Number(resume.client_grace_secs) || RESUME.clientGraceSecs,
+      retentionSecs: Number(resume.retention_secs) || RESUME.retentionSecs,
+    };
+  }
+}
+(async function boot() {
+  syncRailToggle();
+  renderRail();
+  renderStream();
+  await loadHealth();
+  renderStatus();
+  if (!STATE.activeId) renderStream();
+  if (STATE.inspectorOpen) renderInspector();
+  const params = new URLSearchParams(location.search);
+  if (params.get("view") === "capabilities") setRailView("capabilities");
+})();
+</script>
+</body>
+</html>

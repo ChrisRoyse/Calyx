@@ -15,7 +15,14 @@ pub(super) enum Mode {
     Empty,
     DimMismatch,
     Truncated,
-    MissingRaw,
+    /// Packed v2 sidecar truncated on disk -> fail closed (#1990, replaces the
+    /// old per-id `missing-raw` edge, which is meaningless once the sidecar is a
+    /// single packed file).
+    TruncatedRaw,
+    /// Legacy v1 directory-of-files sidecar still reads correctly. This is the
+    /// real deployed pre-#1990 layout, not a mock: production vaults migrate to
+    /// v2 only on their next index rebuild.
+    LegacyDir,
     CorruptPq,
 }
 
@@ -38,6 +45,9 @@ pub(super) struct Request {
 #[derive(Clone)]
 pub(super) struct Paths {
     pub(super) graph_path: PathBuf,
+    /// Path to the raw sidecar. Under #1990 this is the packed v2 regular file
+    /// `graph.raw`; the legacy-dir edge deliberately materializes it as a v1
+    /// directory instead.
     pub(super) raw_dir: PathBuf,
     pub(super) pq_path: PathBuf,
     pub(super) metrics_dir: PathBuf,
@@ -58,7 +68,11 @@ impl Paths {
         if let Some(parent) = paths.graph_path.parent() {
             fs::create_dir_all(parent)?;
         }
-        fs::create_dir_all(&paths.raw_dir)?;
+        // The packed sidecar is a single file the writer creates; make only its
+        // parent (`cf/`) here, not the sidecar path itself.
+        if let Some(parent) = paths.raw_dir.parent() {
+            fs::create_dir_all(parent)?;
+        }
         fs::create_dir_all(&paths.metrics_dir)?;
         Ok(paths)
     }
@@ -72,7 +86,8 @@ impl Request {
             "empty" => Mode::Empty,
             "dim-mismatch" => Mode::DimMismatch,
             "truncated" => Mode::Truncated,
-            "missing-raw" => Mode::MissingRaw,
+            "truncated-raw" => Mode::TruncatedRaw,
+            "legacy-dir" => Mode::LegacyDir,
             "corrupt-pq" => Mode::CorruptPq,
             other => return Err(format!("unknown diskann validation mode: {other}")),
         };
@@ -138,7 +153,29 @@ pub(super) fn approx_rows(raw: &[(CxId, Vec<f32>)]) -> Vec<(CxId, Vec<f32>)> {
         .collect()
 }
 
-pub(super) fn write_raw_sidecar(raw_dir: &Path, raw: &[(CxId, Vec<f32>)]) -> CliResult {
+/// Materialize the packed v2 sidecar through the same public writer the index
+/// builder uses (`calyx_sextant::index::write_packed_raw_sidecar`), so the FSV
+/// harness never duplicates the on-disk byte layout.
+pub(super) fn write_raw_sidecar(raw_path: &Path, raw: &[(CxId, Vec<f32>)]) -> CliResult {
+    let dim = raw
+        .first()
+        .map(|(_, vector)| vector.len())
+        .ok_or_else(|| CliError::runtime("raw sidecar requires at least one vector"))?;
+    let rows: Vec<(u32, Vec<f32>)> = raw
+        .iter()
+        .enumerate()
+        .map(|(id, (_, vector))| (id as u32, vector.clone()))
+        .collect();
+    calyx_sextant::index::write_packed_raw_sidecar(raw_path, &rows, dim)?;
+    Ok(())
+}
+
+/// Write the raw sidecar in the legacy v1 directory-of-files layout: one file
+/// per node named by decimal id, holding `dim * 4` little-endian f32 bytes.
+/// This is exactly the pre-#1990 production on-disk format, reproduced so the
+/// versioned reader can be proven to still read real deployed vaults.
+pub(super) fn write_legacy_raw_sidecar_dir(raw_dir: &Path, raw: &[(CxId, Vec<f32>)]) -> CliResult {
+    fs::create_dir_all(raw_dir)?;
     for (id, (_, vector)) in raw.iter().enumerate() {
         let bytes: Vec<_> = vector
             .iter()
@@ -215,12 +252,6 @@ pub(super) fn cx(idx: usize) -> CxId {
 
 pub(super) fn file_len(path: &Path) -> Option<u64> {
     fs::metadata(path).ok().map(|metadata| metadata.len())
-}
-
-pub(super) fn dir_bytes(path: &Path) -> CliResult<u64> {
-    fs::read_dir(path)?
-        .map(|entry| -> CliResult<u64> { Ok(entry?.metadata()?.len()) })
-        .sum()
 }
 
 pub(super) fn write_json<T: Serialize>(path: &Path, value: &T) -> CliResult {

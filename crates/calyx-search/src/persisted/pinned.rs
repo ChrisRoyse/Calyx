@@ -16,13 +16,17 @@ use calyx_core::CalyxError;
 use crate::error::{CliError, CliResult};
 
 pub(super) const PIN_BUDGET_ENV: &str = "CALYX_SEARCH_PIN_BUDGET_BYTES";
-// The accepted production law panel includes one verified 26.2 GB MaxSim
-// generation plus its dense and sparse siblings. Keep the default above that
-// physically derivable footprint so the supported ten-lens panel does not
-// require an undocumented process override.
-const DEFAULT_PIN_BUDGET_BYTES: u64 = 32 * 1024 * 1024 * 1024;
-const PIN_BUDGET_CODE: &str = "CALYX_SEARCH_PIN_BUDGET_EXCEEDED";
-const PIN_BUDGET_REMEDIATION: &str = "raise CALYX_SEARCH_PIN_BUDGET_BYTES for this process or retire/re-segment the oversized lens; pinned verified search indexes must fit the configured budget";
+// The CPU MaxSim serving path now streams each segment row-by-row and never
+// pins the lens resident (issue #1845), so the old 32 GiB default — sized to
+// hold one ~26.2 GB MaxSim generation resident — is obsolete. The budget now
+// bounds only the genuinely retained pins (flat-dense and sparse sidecars) plus
+// the small streaming working sets, so it is an explicit, enforceable ceiling
+// rather than a rubber stamp. Operators serving an unusually large dense/sparse
+// panel raise CALYX_SEARCH_PIN_BUDGET_BYTES; the failure is fail-closed, never a
+// silent per-query disk scan and never a dropped lens.
+const DEFAULT_PIN_BUDGET_BYTES: u64 = 8 * 1024 * 1024 * 1024;
+pub const SEARCH_PIN_BUDGET_EXCEEDED_CODE: &str = "CALYX_SEARCH_PIN_BUDGET_EXCEEDED";
+pub const SEARCH_PIN_BUDGET_EXCEEDED_REMEDIATION: &str = "raise CALYX_SEARCH_PIN_BUDGET_BYTES for this process or retire/re-segment the oversized lens; pinned verified search indexes must fit the configured budget";
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub(super) struct PinKey {
@@ -131,11 +135,15 @@ fn reserve_in_ledger(ledger: &PinLedger, key: &PinKey, bytes: u64, budget: u64) 
 }
 
 /// Drop the reservation for `key` (used when a load fails after reserving).
+/// Only the resident CUDA candidate-reuse path reserves-then-releases a multi
+/// pin; the CPU serving path streams and never reserves (issue #1845).
+#[cfg(feature = "cuda")]
 pub(super) fn release(key: &PinKey) {
     ledger().lock().expect("pin ledger poisoned").remove(key);
 }
 
 /// Structured fail-closed error for a pinned-index allocation the OS refused.
+#[cfg(feature = "cuda")]
 pub(super) fn pin_allocation_error(key: &PinKey, bytes: u64) -> CliError {
     pin_budget_error(format!(
         "allocating {bytes} bytes for the verified {} index pin for slot {} in {} failed; the process is out of memory for the configured pin budget",
@@ -167,9 +175,9 @@ pub(crate) fn canonical_vault_dir(vault_dir: &Path) -> CliResult<String> {
 
 fn pin_budget_error(message: impl Into<String>) -> CliError {
     CalyxError {
-        code: PIN_BUDGET_CODE,
+        code: SEARCH_PIN_BUDGET_EXCEEDED_CODE,
         message: message.into(),
-        remediation: PIN_BUDGET_REMEDIATION,
+        remediation: SEARCH_PIN_BUDGET_EXCEEDED_REMEDIATION,
     }
     .into()
 }
@@ -202,12 +210,12 @@ mod tests {
         let second = key("test_sparse", 13);
         reserve_in_ledger(&ledger, &first, 800, 1000).unwrap();
         let err = reserve_in_ledger(&ledger, &second, 300, 1000).unwrap_err();
-        assert_eq!(err.code(), PIN_BUDGET_CODE);
+        assert_eq!(err.code(), SEARCH_PIN_BUDGET_EXCEEDED_CODE);
         assert!(err.message().contains("exceeding budget 1000 bytes"));
         let CliError::Calyx(calyx) = err else {
             panic!("expected structured Calyx error");
         };
-        assert_eq!(calyx.remediation, PIN_BUDGET_REMEDIATION);
+        assert_eq!(calyx.remediation, SEARCH_PIN_BUDGET_EXCEEDED_REMEDIATION);
         assert_eq!(ledger.lock().unwrap().get(&second), None);
     }
 }

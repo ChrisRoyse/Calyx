@@ -4,9 +4,12 @@ use std::path::Path;
 
 use calyx_aster::cf::ColumnFamily;
 use calyx_aster::plain_graph::{
-    GraphCollectionGenerationState, GraphCollectionGenerationStatus, GraphCollectionLifecycle,
-    PhysicalGraphCollectionLifecycle, PhysicalPlainGraph, PlainGraph, PlainGraphCsr,
-    PlainGraphCsrEdge, plain_graph_edge_raw_weight, plain_graph_normalized_edge_weight,
+    GRAPH_GENERATION_STORAGE_COLLECTION_DETAIL, GRAPH_GENERATION_STORAGE_SCHEMA,
+    GRAPH_GENERATION_STORAGE_SCHEMA_DETAIL, GraphCollectionGenerationState,
+    GraphCollectionGenerationStatus, GraphCollectionLifecycle, PhysicalGraphCollectionLifecycle,
+    PhysicalPlainGraph, PlainGraph, PlainGraphCsr, PlainGraphCsrEdge,
+    graph_generation_storage_collection, plain_graph_edge_raw_weight,
+    plain_graph_normalized_edge_weight,
 };
 use calyx_aster::vault::{AsterVault, VaultOptions};
 use calyx_core::{AnchorKind, CalyxError, CxId, VaultStore};
@@ -34,6 +37,7 @@ pub(crate) struct CitationOverlayReport {
     pub vault_dir: String,
     pub collection: String,
     pub graph_generation: String,
+    pub graph_storage_collection: String,
     pub provenance_dataset: &'static str,
     pub edge_type: &'static str,
     pub skip_report: SkipReport,
@@ -83,8 +87,8 @@ pub(crate) fn write_to_calyx(
             ..VaultOptions::default()
         },
     )?;
-    let graph = PlainGraph::new(&vault, &collection)?;
     let generation = format!("materialize-citation-overlay-{}", ulid::Ulid::new());
+    let storage_collection = graph_generation_storage_collection(&collection, &generation)?;
     let lifecycle = GraphCollectionLifecycle::new(&vault)?;
     lifecycle.put_state(
         &GraphCollectionGenerationState::new(
@@ -94,8 +98,18 @@ pub(crate) fn write_to_calyx(
             "materialize-citation-overlay",
         )
         .with_reason("citation overlay materialization started")
-        .with_detail("schema", schema),
+        .with_detail("schema", schema)
+        .with_detail(
+            GRAPH_GENERATION_STORAGE_SCHEMA_DETAIL,
+            GRAPH_GENERATION_STORAGE_SCHEMA,
+        )
+        .with_detail(
+            GRAPH_GENERATION_STORAGE_COLLECTION_DETAIL,
+            storage_collection.clone(),
+        ),
     )?;
+    vault.flush()?;
+    let graph = PlainGraph::new_generation(&vault, &collection, &generation)?;
 
     let mut node_values: BTreeMap<CxId, Vec<u8>> = BTreeMap::new();
     let mut graph_batch = Vec::with_capacity(draft.nodes.len() + (draft.edges.len() * 2));
@@ -140,14 +154,29 @@ pub(crate) fn write_to_calyx(
     }))
     .map_err(|error| CliError::runtime(format!("serialize graph metadata: {error}")))?;
     graph.put_metadata("citation_overlay_summary", &metadata_value)?;
-    let projection =
-        build_csr_projection(&collection, vault.snapshot(), &node_values, &edge_values)?;
+    let projection = build_csr_projection(
+        &storage_collection,
+        vault.snapshot(),
+        &node_values,
+        &edge_values,
+    )?;
     graph.write_csr_projection(projection)?;
     vault.flush()?;
     drop(graph);
     drop(vault);
 
-    let physical = PhysicalPlainGraph::open_latest_unchecked(&resolved.path, &collection)?;
+    let physical =
+        PhysicalPlainGraph::open_generation_unchecked(&resolved.path, &collection, &generation)?;
+    if physical.storage_collection() != storage_collection {
+        return Err(CliError::from(CalyxError {
+            code: "CALYX_CITATION_OVERLAY_GENERATION_ROUTE_MISMATCH",
+            message: format!(
+                "citation generation {collection}/{generation} reopened storage {}, expected {storage_collection}",
+                physical.storage_collection()
+            ),
+            remediation: "do not publish the citation generation until its deterministic storage route reads back exactly",
+        }));
+    }
     read_back_nodes(&physical, &node_values)?;
     let physical_edge_out_keys = read_back_edges(&physical, &edge_values)?;
     let raw = physical.read_csr_bytes()?.ok_or_else(|| {
@@ -192,6 +221,7 @@ pub(crate) fn write_to_calyx(
         vault_dir: resolved.path.display().to_string(),
         collection: collection.clone(),
         graph_generation: generation.clone(),
+        graph_storage_collection: storage_collection,
         provenance_dataset: PROVENANCE_DATASET,
         edge_type: if args.frontier.is_some() {
             "cites+cites_outside_corpus"
@@ -200,7 +230,7 @@ pub(crate) fn write_to_calyx(
         },
         skip_report: draft.skip,
         readback: CitationOverlayReadback {
-            source_of_truth: "physical Aster Graph CF via PhysicalPlainGraph node/edge/CSR readback",
+            source_of_truth: "isolated physical Aster Graph CF generation via exact node/edge/CSR readback",
             node_rows_written: draft.nodes.len(),
             edge_rows_written: draft.edges.len(),
             physical_node_keys: node_values.len(),
@@ -217,9 +247,9 @@ pub(crate) fn write_to_calyx(
             graph_wal_rows_per_batch_cap: GRAPH_WAL_ROWS_PER_BATCH,
         },
     };
+    accept_generation(&resolved, &collection, &generation, &report)?;
     write_skip_report(args, &report.skip_report)?;
     write_report(args, &report)?;
-    accept_generation(&resolved, &collection, &generation, &report)?;
     Ok(report)
 }
 
@@ -443,7 +473,15 @@ fn accept_generation(
         )
         .with_detail("node_rows", report.readback.node_rows_written.to_string())
         .with_detail("edge_rows", report.readback.edge_rows_written.to_string())
-        .with_detail("csr_sha256", report.readback.csr_sha256.clone()),
+        .with_detail("csr_sha256", report.readback.csr_sha256.clone())
+        .with_detail(
+            GRAPH_GENERATION_STORAGE_SCHEMA_DETAIL,
+            GRAPH_GENERATION_STORAGE_SCHEMA,
+        )
+        .with_detail(
+            GRAPH_GENERATION_STORAGE_COLLECTION_DETAIL,
+            report.graph_storage_collection.clone(),
+        ),
     )?;
     vault.flush()?;
     drop(vault);
@@ -452,11 +490,59 @@ fn accept_generation(
         row.state.collection == collection
             && row.state.generation == generation
             && row.state.status == GraphCollectionGenerationStatus::Accepted
+            && row
+                .state
+                .detail
+                .get(GRAPH_GENERATION_STORAGE_SCHEMA_DETAIL)
+                .map(String::as_str)
+                == Some(GRAPH_GENERATION_STORAGE_SCHEMA)
+            && row
+                .state
+                .detail
+                .get(GRAPH_GENERATION_STORAGE_COLLECTION_DETAIL)
+                == Some(&report.graph_storage_collection)
+            && row.state.detail.get("csr_sha256") == Some(&report.readback.csr_sha256)
     });
     if !accepted {
-        return Err(CliError::runtime(format!(
-            "accepted graph collection lifecycle row missing after readback: {collection}/{generation}"
-        )));
+        return Err(CliError::from(CalyxError {
+            code: "CALYX_CITATION_OVERLAY_LIFECYCLE_READBACK_MISMATCH",
+            message: format!(
+                "accepted citation lifecycle row or its storage/hash contract is missing after readback: {collection}/{generation}"
+            ),
+            remediation: "do not serve the citation collection until accepted lifecycle metadata reads back exactly",
+        }));
+    }
+    let routed = PhysicalPlainGraph::open_latest_isolated(&resolved.path, collection)?;
+    if routed.storage_collection() != report.graph_storage_collection {
+        return Err(CliError::from(CalyxError {
+            code: "CALYX_CITATION_OVERLAY_ACCEPTED_ROUTE_MISMATCH",
+            message: format!(
+                "accepted citation route resolved to {}, expected {} for {collection}/{generation}",
+                routed.storage_collection(),
+                report.graph_storage_collection
+            ),
+            remediation: "do not serve the citation collection until a cold reader resolves the verified generation",
+        }));
+    }
+    let routed_csr = routed.read_csr_bytes()?.ok_or_else(|| {
+        CliError::from(CalyxError {
+            code: "CALYX_CITATION_OVERLAY_ACCEPTED_CSR_MISSING",
+            message: format!(
+                "accepted citation route has no CSR bytes for {collection}/{generation}"
+            ),
+            remediation: "do not serve the citation collection until its accepted CSR reads back",
+        })
+    })?;
+    let routed_hash = sha256_hex(&routed_csr);
+    if routed_hash != report.readback.csr_sha256 {
+        return Err(CliError::from(CalyxError {
+            code: "CALYX_CITATION_OVERLAY_ACCEPTED_CSR_MISMATCH",
+            message: format!(
+                "accepted citation CSR hash {routed_hash} differs from verified hash {} for {collection}/{generation}",
+                report.readback.csr_sha256
+            ),
+            remediation: "quarantine the accepted generation and inspect physical Graph CF publication",
+        }));
     }
     Ok(())
 }

@@ -5,8 +5,8 @@ use std::path::{Path, PathBuf};
 use calyx_core::{CalyxError, Result};
 
 use super::{
-    HEADER_LEN, IndexEntry, LEGACY_VERSION, MAGIC, RECORD_HEADER_LEN, SstEntry, SstReader, VERSION,
-    record_crc,
+    CHECKSUMMED_VERSION, HEADER_LEN, IndexEntry, LEGACY_VERSION, MAGIC, RECORD_HEADER_LEN,
+    SstEntry, SstReader, VERSION, record_crc,
 };
 
 /// Fully validates an immutable SST once, retains only its small sorted index,
@@ -113,7 +113,7 @@ impl SstPointReader {
             )));
         }
         let version = u32::from_le_bytes(header[4..8].try_into().expect("version"));
-        if version != VERSION && version != LEGACY_VERSION {
+        if version != VERSION && version != CHECKSUMMED_VERSION && version != LEGACY_VERSION {
             return Err(CalyxError::aster_corrupt_shard(format!(
                 "unsupported SST version {version} in {}",
                 path.display()

@@ -8,7 +8,11 @@ use crate::error::{CliError, CliResult};
 
 /// Schema tag for the resident-service discovery file. Bump when the shape
 /// changes so stale readers fail closed instead of misinterpreting fields.
-pub(crate) const RESIDENT_DISCOVERY_SCHEMA: &str = "calyx-panel-resident-discovery-v1";
+/// v2 (#1936): carries the resident's live GPU `reservation_id` + owning
+/// `lease_pid` so ingest route resolution and admission can validate the
+/// resident's lease rather than mint a second reservation. The bump makes v1
+/// files fail closed as a schema mismatch (treated as "no discovered route").
+pub(crate) const RESIDENT_DISCOVERY_SCHEMA: &str = "calyx-panel-resident-discovery-v2";
 
 /// Well-known discovery record written by `calyx panel resident serve` under
 /// `<CALYX_HOME>/resident/discovery.json`. Consumers (ingest route resolution)
@@ -20,6 +24,10 @@ pub(crate) struct ResidentDiscovery {
     pub(crate) schema: String,
     pub(crate) bind: SocketAddr,
     pub(crate) process_id: u32,
+    /// Live host GPU reservation the resident is running under (#1936).
+    pub(crate) reservation_id: String,
+    /// PID that owns the reservation row in the host store.
+    pub(crate) lease_pid: u32,
     /// Canonicalized vault path when the service warmed from `--vault`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) vault: Option<PathBuf>,
@@ -38,22 +46,8 @@ pub(crate) fn write_resident_discovery(
     discovery: &ResidentDiscovery,
 ) -> CliResult<PathBuf> {
     let path = resident_discovery_path(home);
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent).map_err(|error| {
-            CliError::io(format!(
-                "create resident discovery dir {}: {error}",
-                parent.display()
-            ))
-        })?;
-    }
-    let bytes = serde_json::to_vec_pretty(discovery)
-        .map_err(|error| CliError::runtime(format!("serialize resident discovery: {error}")))?;
-    std::fs::write(&path, bytes).map_err(|error| {
-        CliError::io(format!(
-            "write resident discovery file {}: {error}",
-            path.display()
-        ))
-    })?;
+    // The discovery pointer is runtime evidence; write it owner-only (#1931).
+    crate::private_fs::write_private_json(&path, discovery)?;
     Ok(path)
 }
 
@@ -145,6 +139,8 @@ mod tests {
             schema: RESIDENT_DISCOVERY_SCHEMA.to_string(),
             bind: "127.0.0.1:8787".parse().unwrap(),
             process_id: std::process::id(),
+            reservation_id: "0123456789abcdef0123456789abcdef".to_string(),
+            lease_pid: std::process::id(),
             vault: Some(dir.join("vaults").join("01TEST")),
             template: None,
             written_at_unix_ms: unix_now_ms(),

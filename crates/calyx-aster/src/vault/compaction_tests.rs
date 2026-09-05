@@ -1,4 +1,4 @@
-use super::{AsterVault, VaultOptions};
+use super::{AsterVault, IngestCompactionConfig, VaultOptions};
 use crate::cf::{ColumnFamily, base_key, slot_key};
 use crate::compaction::{CompactionResult, CompactionSchedulerOptions};
 use calyx_core::{SlotId, VaultStore};
@@ -164,6 +164,185 @@ fn vault_scheduler_compaction_preserves_commit_history() {
     );
     drop(reopened);
     cleanup(dir);
+}
+
+/// Issue #1985: a real multi-commit build accumulates per-commit flush debt
+/// in a CF; ingest-lifecycle compaction must merge it down to at most the
+/// trigger over successive BOUNDED rounds, reclaim the merged inputs, and
+/// never lose a committed row.
+#[test]
+fn ingest_flush_debt_compacts_cf_below_trigger_over_bounded_rounds() {
+    let dir = test_dir("ingest-flush-debt");
+    let vault =
+        AsterVault::new_durable(&dir, vault_id(), b"salt", VaultOptions::default()).unwrap();
+    let kv_dir = dir.join("cf/kv");
+
+    // Genuine commit + flush cycles produce the real per-commit SSTs (flush
+    // and durable-batch files) that calyx ingest used to leave uncompacted.
+    let commits = 40u64;
+    let mut expected = Vec::new();
+    for i in 0..commits {
+        let key = format!("k-{i:04}").into_bytes();
+        let value = format!("value-for-key-{i:04}").into_bytes();
+        vault
+            .write_cf_batch([(ColumnFamily::Kv, key.clone(), value.clone())])
+            .unwrap();
+        vault.flush().unwrap();
+        expected.push((key, value));
+    }
+    let files_before = sst_names(&kv_dir).len();
+    assert!(
+        files_before > 12,
+        "expected accumulated flush debt, got {files_before} files"
+    );
+
+    // Small per-round file cap forces the debt to compact over several bounded
+    // rounds rather than one unbounded merge (issue #1985 §2).
+    let config = IngestCompactionConfig {
+        trigger_files: 4,
+        max_round_files: 8,
+        max_round_bytes: 8 * 1024 * 1024 * 1024,
+    };
+    let outcome = vault
+        .compact_cf_flush_debt(ColumnFamily::Kv, config)
+        .unwrap();
+    assert!(
+        outcome.rounds >= 2,
+        "bounded rounds must iterate to drain the debt: {outcome:?}"
+    );
+    assert!(outcome.reclaimed_input_files > 0, "{outcome:?}");
+    assert!(
+        outcome.debt_after <= config.trigger_files,
+        "debt not driven under trigger: {outcome:?}"
+    );
+
+    let files_after = sst_names(&kv_dir).len();
+    assert!(
+        files_after <= config.trigger_files,
+        "on-disk file count not bounded by trigger: {files_after} files (before {files_before}); {outcome:?}"
+    );
+    assert!(files_after < files_before, "compaction reclaimed no files");
+
+    // Every committed row survives compaction + input reclaim, read from a
+    // cold reopen so the value comes from the compacted SSTs on disk.
+    drop(vault);
+    let reopened = AsterVault::open(&dir, vault_id(), b"salt", VaultOptions::default()).unwrap();
+    let snapshot = reopened.snapshot();
+    for (key, value) in &expected {
+        assert_eq!(
+            reopened
+                .read_cf_at(snapshot, ColumnFamily::Kv, key)
+                .unwrap()
+                .as_deref(),
+            Some(value.as_slice()),
+            "committed row lost after compaction"
+        );
+    }
+    drop(reopened);
+    cleanup(dir);
+}
+
+/// Issue #1985: the whole-vault driver compacts every debtor CF and leaves the
+/// vault with every CF at or below the trigger, while preserving commit
+/// history across compaction.
+#[test]
+fn ingest_flush_debt_barrier_bounds_all_cfs() {
+    let dir = test_dir("ingest-flush-debt-barrier");
+    let vault =
+        AsterVault::new_durable(&dir, vault_id(), b"salt", VaultOptions::default()).unwrap();
+
+    // Kv commits also stamp time_index rows, so both CFs accrue flush debt.
+    for i in 0..30u64 {
+        vault
+            .write_cf_batch([(
+                ColumnFamily::Kv,
+                format!("bar-{i:04}").into_bytes(),
+                vec![i as u8; 8],
+            )])
+            .unwrap();
+        vault.flush().unwrap();
+    }
+    let kv_before = sst_names(&dir.join("cf/kv")).len();
+    assert!(kv_before > 8, "expected kv debt, got {kv_before}");
+
+    let config = IngestCompactionConfig {
+        trigger_files: 8,
+        max_round_files: 4_096,
+        max_round_bytes: 8 * 1024 * 1024 * 1024,
+    };
+    let outcomes = vault.compact_ingest_flush_debt(config).unwrap();
+    assert!(
+        outcomes
+            .iter()
+            .any(|o| o.cf == ColumnFamily::Kv && o.rounds >= 1),
+        "kv CF should have been compacted: {outcomes:?}"
+    );
+    for outcome in &outcomes {
+        assert!(
+            outcome.debt_after <= config.trigger_files,
+            "CF {} left above trigger: {outcome:?}",
+            outcome.cf.name()
+        );
+    }
+    assert!(sst_names(&dir.join("cf/kv")).len() <= config.trigger_files);
+
+    // Commit history is intact: the last key is invisible at seq 1.
+    drop(vault);
+    let reopened = AsterVault::open(&dir, vault_id(), b"salt", VaultOptions::default()).unwrap();
+    assert_eq!(
+        reopened
+            .read_cf_at(1, ColumnFamily::Kv, b"bar-0029")
+            .unwrap(),
+        None
+    );
+    assert_eq!(
+        reopened
+            .read_cf_at(reopened.snapshot(), ColumnFamily::Kv, b"bar-0029")
+            .unwrap(),
+        Some(vec![29u8; 8])
+    );
+    drop(reopened);
+    cleanup(dir);
+}
+
+/// Issue #1985: nonsensical compaction knobs fail closed instead of silently
+/// disabling compaction or requesting an empty round.
+#[test]
+fn ingest_compaction_config_validation_is_fail_closed() {
+    let zero_trigger = IngestCompactionConfig {
+        trigger_files: 0,
+        max_round_files: 8,
+        max_round_bytes: 1,
+    };
+    assert_eq!(
+        zero_trigger.validate().unwrap_err().code,
+        "CALYX_INGEST_COMPACTION_CONFIG_INVALID"
+    );
+    let tiny_round = IngestCompactionConfig {
+        trigger_files: 4,
+        max_round_files: 1,
+        max_round_bytes: 1,
+    };
+    assert_eq!(
+        tiny_round.validate().unwrap_err().code,
+        "CALYX_INGEST_COMPACTION_CONFIG_INVALID"
+    );
+    let zero_bytes = IngestCompactionConfig {
+        trigger_files: 4,
+        max_round_files: 2,
+        max_round_bytes: 0,
+    };
+    assert_eq!(
+        zero_bytes.validate().unwrap_err().code,
+        "CALYX_INGEST_COMPACTION_CONFIG_INVALID"
+    );
+    IngestCompactionConfig {
+        trigger_files: 4,
+        max_round_files: 2,
+        max_round_bytes: 1,
+    }
+    .validate()
+    .unwrap();
 }
 
 #[test]

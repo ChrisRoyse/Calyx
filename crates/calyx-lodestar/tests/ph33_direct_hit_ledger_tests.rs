@@ -4,13 +4,14 @@ use std::path::{Path, PathBuf};
 
 use calyx_aster::ledger_view::AsterLedgerCfStore;
 use calyx_aster::vault::{AsterVault, VaultOptions};
-use calyx_core::{CxId, FixedClock, SlotId, VaultId};
+use calyx_core::{CxId, FixedClock, SlotId, SlotVector, VaultId, slot_similarity};
 use calyx_ledger::{
     DirectoryLedgerStore, EntryKind, LedgerAppender, LedgerCfStore, MemoryLedgerStore,
     QuarantineSet, decode, get_answer_trace,
 };
 use calyx_lodestar::{
-    AsterKernelAnswerRequest, Kernel, KernelAnswerRecordContext, KernelGraphParams, KernelParams,
+    AsterKernelAnswerRequest, Kernel, KernelAnswerRecordContext, KernelAnswerSourceEvidence,
+    KernelAnswerSourceSupport, KernelGraphParams, KernelParams, PANEL_RRF_K, TypedPanelFusionLane,
     build_kernel_index, build_kernel_pipeline, build_kernel_pipeline_with_ledger,
     kernel_answer_with_aster_ledger, kernel_answer_with_ledger,
 };
@@ -128,17 +129,58 @@ fn aster_answer_path_is_physically_readable_from_the_real_vault_ledger() {
     let kernel = build_kernel_pipeline(&graph, &[cx(10)], &params()).expect("build kernel");
     let anchor = kernel.members[0];
     let index = build_kernel_index(&kernel, &embeddings(&kernel, anchor)).expect("build index");
+    let embedding_slots = vec![SlotId::new(2), SlotId::new(3)];
+    let dense = SlotVector::Dense {
+        dim: 2,
+        data: vec![1.0, 0.0],
+    };
+    let similarity = slot_similarity(&dense, &dense).unwrap();
     let context = KernelAnswerRecordContext {
         answer_id: vec![9; 32],
         query_input_sha256: [10; 32],
         query_input_pointer: "calyx-vault://inputs/queries/real.txt".to_string(),
         kernel_manifest_sha256: [11; 32],
-        embedding_slot: SlotId::new(2),
-        nearest_similarity: 1.0,
+        embedding_slots: embedding_slots.clone(),
+        fusion: "typed_block_rrf".to_string(),
+        rrf_k: PANEL_RRF_K,
+        nearest_score: 1.0,
+        nearest_lanes: embedding_slots
+            .iter()
+            .map(|slot| TypedPanelFusionLane {
+                slot: *slot,
+                similarity: similarity.clone(),
+                rank: 1,
+                rrf_contribution: 0.5,
+            })
+            .collect(),
         admission_threshold: 0.5,
         resident_addr: "127.0.0.1:18190".to_string(),
         anchor: None,
         max_hops: 4,
+        source_support: KernelAnswerSourceSupport {
+            schema_version: 1,
+            method: "retained_constellation_lexical_v1".to_string(),
+            verdict: "supported".to_string(),
+            query_terms: vec!["direct".to_string(), "hit".to_string()],
+            matched_terms: vec!["direct".to_string(), "hit".to_string()],
+            missing_terms: Vec::new(),
+            matched_term_pairs: vec!["direct hit".to_string()],
+            matched_weight: 3,
+            total_weight: 3,
+            weighted_coverage_bps: 10_000,
+            minimum_weighted_coverage_bps: 6_500,
+            sources: vec![KernelAnswerSourceEvidence {
+                cx_id: cx(10),
+                input_blake3: "11".repeat(32),
+                retained_bytes_sha256: "22".repeat(32),
+                input_bytes: 64,
+                base_ledger_seq: 0,
+                base_ledger_hash: "33".repeat(32),
+                matched_terms: vec!["direct".to_string(), "hit".to_string()],
+                matched_term_pairs: vec!["direct hit".to_string()],
+            }],
+        },
+        query_resolution: None,
     };
 
     let answer = kernel_answer_with_aster_ledger(AsterKernelAnswerRequest {
@@ -161,7 +203,7 @@ fn aster_answer_path_is_physically_readable_from_the_real_vault_ledger() {
 
     assert_eq!(rows.len(), 1);
     assert_eq!(entry.kind, EntryKind::Answer);
-    assert_eq!(payload["type"], "kernel_answer_v1");
+    assert_eq!(payload["type"], "kernel_answer_v3");
     assert_eq!(payload["answer_id"], hex(&context.answer_id));
     assert_eq!(answer.provenance.len(), 1);
     assert_eq!(answer.provenance[0].seq, rows[0].seq);

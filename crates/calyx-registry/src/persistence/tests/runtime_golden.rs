@@ -18,6 +18,7 @@ fn process_runtime_snapshot_without_golden_fails_closed() {
         4,
     );
     let snapshot = RegistryLensSnapshot {
+        derivation_version: Some(crate::derivation::LENS_DERIVATION_VERSION),
         lens_id: contract.lens_id(),
         contract: contract.clone(),
         spec: Some(runtime_spec(
@@ -49,6 +50,7 @@ fn process_runtime_snapshot_rejects_weakened_golden_tolerance() {
     );
     let probe = Input::new(Modality::Text, b"runtime identity".to_vec());
     let snapshot = RegistryLensSnapshot {
+        derivation_version: Some(crate::derivation::LENS_DERIVATION_VERSION),
         lens_id: contract.lens_id(),
         contract: contract.clone(),
         spec: Some(runtime_spec(

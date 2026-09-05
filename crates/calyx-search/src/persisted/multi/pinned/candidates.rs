@@ -61,4 +61,20 @@ impl PinnedMultiIndex {
             norms: &self.norms[row.token_start..row.token_start + row.token_count],
         })
     }
+
+    pub(in crate::persisted::multi) fn score_candidates_exact(
+        &self,
+        selection: &PinnedCandidateSelection,
+        query: &[Vec<f32>],
+    ) -> CliResult<Vec<(CxId, f32)>> {
+        let mut scored = Vec::with_capacity(selection.row_count());
+        for &row_index in &selection.row_indexes {
+            let row = self
+                .selected_row(row_index)
+                .ok_or_else(|| stale("resident MaxSim candidate row index is out of bounds"))?;
+            let score = MaxSimIndex::maxsim_flat(query, row.tokens, self.token_dim as usize)?;
+            scored.push((row.cx_id, score));
+        }
+        Ok(scored)
+    }
 }

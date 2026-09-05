@@ -5,6 +5,7 @@ pub(crate) struct IdentityFields<'a> {
     pub(crate) panel_version: u32,
     pub(crate) input_ref: &'a InputRef,
     pub(crate) modality: Modality,
+    pub(crate) scalars: &'a BTreeMap<String, f64>,
     pub(crate) metadata: &'a BTreeMap<String, String>,
 }
 pub(crate) fn append_idempotent_batch_ledger(
@@ -37,6 +38,7 @@ pub(crate) fn verify_existing_batch_replay_identity(
     if existing.panel_version != state.panel.version
         || existing.input_ref != row.input_ref
         || existing.modality != row.modality
+        || existing.scalars != row.scalars
         || existing.metadata != row.metadata
     {
         return Err(CliError::usage(format!(
@@ -47,12 +49,14 @@ pub(crate) fn verify_existing_batch_replay_identity(
                     panel_version: existing.panel_version,
                     input_ref: &existing.input_ref,
                     modality: existing.modality,
+                    scalars: &existing.scalars,
                     metadata: &existing.metadata,
                 },
                 IdentityFields {
                     panel_version: state.panel.version,
                     input_ref: &row.input_ref,
                     modality: row.modality,
+                    scalars: &row.scalars,
                     metadata: &row.metadata,
                 },
             )
@@ -84,6 +88,7 @@ pub(crate) fn ensure_idempotent_batch_replay(
     if existing.panel_version != cx.panel_version
         || existing.input_ref != cx.input_ref
         || existing.modality != cx.modality
+        || existing.scalars != cx.scalars
         || existing.metadata != cx.metadata
     {
         return Err(CliError::usage(format!(
@@ -94,12 +99,14 @@ pub(crate) fn ensure_idempotent_batch_replay(
                     panel_version: existing.panel_version,
                     input_ref: &existing.input_ref,
                     modality: existing.modality,
+                    scalars: &existing.scalars,
                     metadata: &existing.metadata,
                 },
                 IdentityFields {
                     panel_version: cx.panel_version,
                     input_ref: &cx.input_ref,
                     modality: cx.modality,
+                    scalars: &cx.scalars,
                     metadata: &cx.metadata,
                 },
             )
@@ -138,6 +145,32 @@ pub(crate) fn identity_mismatch_reason(
             existing.modality, incoming.modality
         ));
     }
+    if existing.scalars != incoming.scalars {
+        let existing_keys = existing.scalars.keys().cloned().collect::<BTreeSet<_>>();
+        let incoming_keys = incoming.scalars.keys().cloned().collect::<BTreeSet<_>>();
+        let removed = existing_keys
+            .difference(&incoming_keys)
+            .take(8)
+            .cloned()
+            .collect::<Vec<_>>();
+        let added = incoming_keys
+            .difference(&existing_keys)
+            .take(8)
+            .cloned()
+            .collect::<Vec<_>>();
+        let changed = existing_keys
+            .intersection(&incoming_keys)
+            .filter(|key| {
+                existing.scalars.get(*key).map(|value| value.to_bits())
+                    != incoming.scalars.get(*key).map(|value| value.to_bits())
+            })
+            .take(8)
+            .cloned()
+            .collect::<Vec<_>>();
+        reasons.push(format!(
+            "scalars removed_keys={removed:?} added_keys={added:?} changed_keys={changed:?}"
+        ));
+    }
     if existing.metadata != incoming.metadata {
         let existing_keys = existing.metadata.keys().cloned().collect::<BTreeSet<_>>();
         let incoming_keys = incoming.metadata.keys().cloned().collect::<BTreeSet<_>>();
@@ -168,11 +201,42 @@ pub(crate) fn identity_mismatch_reason(
     }
 }
 
+pub(crate) fn source_columns(
+    input: &Input,
+    mut metadata: BTreeMap<String, String>,
+    oracle: Option<&OracleEvent>,
+) -> CliResult<(BTreeMap<String, f64>, BTreeMap<String, String>)> {
+    if let Some(event) = oracle {
+        event.apply_metadata(&mut metadata)?;
+    }
+    let mut scalars = BTreeMap::new();
+    let mut persisted = BTreeMap::new();
+    input.persist_structured(&mut scalars, &mut persisted)?;
+    merge_source_metadata(&mut persisted, metadata)?;
+    Ok((scalars, persisted))
+}
+
+pub(crate) fn merge_source_metadata(
+    persisted: &mut BTreeMap<String, String>,
+    source: BTreeMap<String, String>,
+) -> CliResult<()> {
+    for (key, value) in source {
+        if persisted.insert(key.clone(), value).is_some() {
+            return Err(CalyxError::aster_corrupt_shard(format!(
+                "batch source metadata key {key:?} collides with engine-owned structured state"
+            ))
+            .into());
+        }
+    }
+    Ok(())
+}
+
 pub(crate) fn append_missing_batch_anchors(
     vault: &AsterVault,
     existing: &calyx_core::Constellation,
     incoming: &calyx_core::Constellation,
     marker_kinds: &[AnchorKind],
+    intent: &mut dyn calyx_aster::vault::DurableCommitIntent,
 ) -> CliResult<calyx_core::Constellation> {
     if let AnchorConflictResult::Conflicting {
         anchor_type,
@@ -217,7 +281,7 @@ pub(crate) fn append_missing_batch_anchors(
             encode::encode_anchor(&anchor)?,
         ));
     }
-    vault.write_cf_batch(rows)?;
+    vault.write_cf_batch_with_commit_intent(rows, intent)?;
     Ok(merged)
 }
 

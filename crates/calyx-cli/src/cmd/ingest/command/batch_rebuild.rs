@@ -1,13 +1,9 @@
 //! Post-commit derived-index rebuild for batch ingest (issue #1089).
 //!
 //! Runs after the Base CF rows are durable and physically read back. The
-//! rebuild-required marker staked at batch start is first updated with the
-//! exact durable seq the commit reached, so an external kill (CLI timeout,
-//! power loss) during the rebuild leaves a structured, vault-level record of
-//! the partial commit instead of a silently stale search manifest. The rebuild
-//! itself (calyx-search) resumes staged slot artifacts from a previous
-//! interrupted run and clears the marker after the manifest is durably
-//! republished.
+//! rebuild-required marker is prepared and bound to the exact durable commit
+//! sequence under Aster's commit lock. The rebuild itself resumes staged slot
+//! artifacts and clears the marker only behind the same derived-state fence.
 
 use super::*;
 
@@ -16,16 +12,27 @@ pub(super) fn run_post_commit_index_rebuild(
     vault: &AsterVault,
     state: &VaultPanelState,
     summary: &BatchIngestSummary,
+    committed_content_seq: Option<u64>,
     session: &mut Option<&mut BatchIngestSession>,
 ) -> CliResult<()> {
-    if summary.new_count > 0 {
-        record_rebuild_required_marker_seq(&resolved.path, vault.snapshot())?;
+    if summary.new_count > 0 && committed_content_seq.is_none() {
+        return Err(calyx_core::CalyxError {
+            code: "CALYX_SEARCH_REBUILD_MARKER_INTENT_INVALID",
+            message: format!(
+                "batch summary reports {} new constellations but no Aster-committed rebuild intent sequence",
+                summary.new_count
+            ),
+            remediation: "preserve the vault, inspect the Base/WAL rows and rebuild-required marker, then reconcile the ingest commit before rebuilding search",
+        }
+        .into());
+    }
+    if let Some(required_seq) = committed_content_seq {
         if let Some(session) = session.as_deref_mut() {
             session.record_index_phase("running")?;
         }
         ingest_runtime_log(format_args!(
-            "phase=batch_index_rebuild_start new_count={} already_count={}",
-            summary.new_count, summary.already_count
+            "phase=batch_index_rebuild_start new_count={} already_count={} required_base_seq={required_seq}",
+            summary.new_count, summary.already_count,
         ));
         let rebuild = if let Some(session) = session.as_deref_mut() {
             rebuild_persistent_indexes_with_fallible_progress(
@@ -73,17 +80,11 @@ pub(super) fn run_post_commit_index_rebuild(
     if let Some(session) = session.as_deref_mut() {
         session.record_index_phase("skipped")?;
     }
-    // Replay-only batch: no rebuild runs, so release the write-ahead marker
-    // this process staked — but never a marker left by an earlier interrupted
-    // run, whose staleness record must survive until a rebuild completes.
-    match calyx_search::clear_rebuild_required_marker_if_owned(&resolved.path)? {
-        calyx_search::MarkerClearOutcome::Cleared => ingest_runtime_log(format_args!(
-            "phase=derived_rebuild_marker_cleared reason=no_new_constellations"
-        )),
-        calyx_search::MarkerClearOutcome::Absent => ingest_runtime_log(format_args!(
-            "phase=derived_rebuild_marker_left reason=not_owned_by_this_process"
-        )),
-    }
+    let existing_marker = calyx_search::read_rebuild_required_marker(&resolved.path)?;
+    ingest_runtime_log(format_args!(
+        "phase=derived_rebuild_marker_unchanged reason=no_content_commit marker_present={}",
+        existing_marker.is_some()
+    ));
     Ok(())
 }
 

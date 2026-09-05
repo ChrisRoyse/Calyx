@@ -1,6 +1,7 @@
 mod repair_all;
 mod runtime;
 mod static_contract;
+pub use runtime::algorithmic_lens_from_spec;
 pub use static_contract::derive_runtime_contract_from_spec;
 #[cfg(test)]
 mod tests;
@@ -16,15 +17,17 @@ pub use repair_all::{
 };
 pub(crate) use runtime::load_runtime_lens_from_spec;
 
+use crate::derivation::{self, DerivationStep, DerivationVerdict};
 use crate::frozen::FrozenLensContract;
 use crate::persistence::{
     VaultRegistrySnapshot, load_manifest_panel_registry_snapshot, persist_vault_panel_state,
     rebuild_registry,
 };
-use crate::{LensSpec, RegistryLensSnapshot};
+use crate::{LensRuntime, LensSpec, RegistryLensSnapshot};
 
 const REGISTRY_CONTRACT_DRIFT: &str = "CALYX_REGISTRY_CONTRACT_DRIFT";
 const REGISTRY_CONTRACT_REPAIR_INVALID: &str = "CALYX_REGISTRY_CONTRACT_REPAIR_INVALID";
+pub const CALYX_REGISTRY_CONTRACT_MISSING_SPEC: &str = "CALYX_REGISTRY_CONTRACT_MISSING_SPEC";
 const REGISTRY_CONTRACT_REMEDIATION: &str = "run `calyx panel registry-repair --vault <vault> --slot <slot>` after inspecting the emitted registry diff";
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -44,6 +47,30 @@ pub struct RegistryContractDiff {
     pub fields: Vec<RegistryContractFieldDiff>,
     pub error_code: Option<String>,
     pub error_message: Option<String>,
+    /// Derivation stamp persisted with this lens, if any.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub persisted_derivation_version: Option<u32>,
+    /// Derivation version implemented by the auditing binary.
+    #[serde(default)]
+    pub binary_derivation_version: u32,
+    /// Recorded derivation deltas that fully explain every drifted field, if
+    /// any. `None` means no recorded derivation change accounts for this drift
+    /// and it must be treated as tamper-suspect.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub derivation_explanation: Option<DerivationExplanation>,
+}
+
+/// A checked attribution of a contract drift to recorded derivation changes.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DerivationExplanation {
+    /// Version transition, e.g. `v3 -> v4`.
+    pub transition: String,
+    /// Strictest impact across the explaining steps.
+    pub impact: String,
+    /// Whether stored vectors survive the whole span.
+    pub re_attestable: bool,
+    /// Operator-readable delta lines.
+    pub deltas: Vec<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -92,7 +119,45 @@ pub fn require_vault_registry_contracts(
     if audit.valid {
         return Ok(audit);
     }
-    Err(registry_contract_drift_error(&audit))
+    Err(registry_contract_audit_error(&audit))
+}
+
+/// Selects the typed error for a failed audit.
+///
+/// When EVERY failing lens is fully explained by recorded derivation changes,
+/// this is a migration event and gets the typed derivation code with the
+/// specific policy delta. Otherwise it stays the tamper-suspect drift error.
+/// Both fail closed; only the diagnosis differs.
+pub fn registry_contract_audit_error(audit: &RegistryContractAudit) -> CalyxError {
+    let explained = audit
+        .diffs
+        .iter()
+        .filter_map(|diff| diff.derivation_explanation.as_ref().map(|ex| (diff, ex)))
+        .collect::<Vec<_>>();
+    if explained.len() != audit.diffs.len() || explained.is_empty() {
+        return registry_contract_drift_error(audit);
+    }
+    let verdict = derivation::classify(explained[0].0.persisted_derivation_version);
+    let detail = format!(
+        "{} of {} persisted lens(es) affected: [{}]",
+        audit.diffs.len(),
+        audit.checked_count,
+        explained
+            .iter()
+            .map(|(diff, ex)| format!(
+                "lens={} name={} persisted={} reconstructed={} re_attestable={}",
+                diff.lens_id,
+                diff.name.as_deref().unwrap_or("<missing>"),
+                diff.persisted_contract_lens_id,
+                diff.runtime_contract_lens_id
+                    .map(|id| id.to_string())
+                    .unwrap_or_else(|| "<unavailable>".to_string()),
+                ex.re_attestable
+            ))
+            .collect::<Vec<_>>()
+            .join(", ")
+    );
+    derivation::lens_derivation_stale(&verdict, detail)
 }
 
 pub fn audit_registry_snapshot_contracts(
@@ -156,6 +221,7 @@ pub fn repair_vault_registry_slot_from_spec(
             "lens {old_lens_id} has no LensSpec; cannot reconstruct a replacement contract"
         ))
     })?;
+    ensure_repair_is_honest(&original_lens)?;
     let runtime_contract = derive_runtime_contract_from_spec(spec)?;
     let repaired_spec = spec_from_runtime_contract(spec.clone(), &runtime_contract);
     let new_lens_id = runtime_contract.lens_id();
@@ -175,6 +241,7 @@ pub fn repair_vault_registry_slot_from_spec(
         contract: runtime_contract.clone(),
         spec: Some(repaired_spec),
         determinism: original_lens.determinism,
+        derivation_version: Some(crate::derivation::LENS_DERIVATION_VERSION),
         runtime_golden: if new_lens_id == old_lens_id {
             original_lens.runtime_golden.clone()
         } else {
@@ -228,6 +295,63 @@ pub fn lens_spec_with_frozen_contract(spec: LensSpec, contract: &FrozenLensContr
     spec_from_runtime_contract(spec, contract)
 }
 
+/// Attributes a set of drifted fields to recorded derivation changes.
+///
+/// Returns `Some` only when EVERY drifted field is one that some step in the
+/// span declares it can move, for a runtime that step declares it affects.
+/// A drift containing any unexplained field stays tamper-suspect: this
+/// function never launders an unexplained mismatch into a migration notice.
+fn explain_drift(
+    lens: &RegistryLensSnapshot,
+    fields: &[RegistryContractFieldDiff],
+) -> Option<(DerivationVerdict, DerivationExplanation)> {
+    if fields.is_empty() {
+        return None;
+    }
+    let runtime = lens
+        .spec
+        .as_ref()
+        .map(|spec| runtime_variant_name(&spec.runtime))?;
+    let verdict = derivation::classify(lens.derivation_version).for_runtime(runtime);
+    let steps = verdict.steps();
+    if steps.is_empty() {
+        return None;
+    }
+    let all_explained = fields
+        .iter()
+        .all(|field| steps.iter().any(|step| step.moves_field(&field.field)));
+    if !all_explained {
+        return None;
+    }
+    let impact = verdict.impact()?;
+    let explanation = DerivationExplanation {
+        transition: verdict.describe_transition(),
+        impact: impact.to_string(),
+        re_attestable: verdict.is_re_attestable(),
+        deltas: steps.iter().map(DerivationStep::describe).collect(),
+    };
+    Some((verdict, explanation))
+}
+
+/// Returns the `LensRuntime` variant name used by the derivation changelog.
+fn runtime_variant_name(runtime: &LensRuntime) -> &'static str {
+    match runtime {
+        LensRuntime::Algorithmic { .. } => "Algorithmic",
+        LensRuntime::TeiHttp { .. } => "TeiHttp",
+        LensRuntime::TeiHttpSegmented { .. } => "TeiHttpSegmented",
+        LensRuntime::CandleLocal { .. } => "CandleLocal",
+        LensRuntime::Onnx { .. } => "Onnx",
+        LensRuntime::OnnxColbert { .. } => "OnnxColbert",
+        LensRuntime::FastembedSparse { .. } => "FastembedSparse",
+        LensRuntime::FastembedBgem3 { .. } => "FastembedBgem3",
+        LensRuntime::FastembedReranker { .. } => "FastembedReranker",
+        LensRuntime::FastembedQwen3 { .. } => "FastembedQwen3",
+        LensRuntime::StaticLookup { .. } => "StaticLookup",
+        LensRuntime::MultimodalAdapter { .. } => "MultimodalAdapter",
+        LensRuntime::ExternalCmd { .. } => "ExternalCmd",
+    }
+}
+
 fn audit_registry_lens_contract(lens: &RegistryLensSnapshot) -> Option<RegistryContractDiff> {
     let mut fields = Vec::new();
     let mut runtime_contract_lens_id = None;
@@ -243,7 +367,7 @@ fn audit_registry_lens_contract(lens: &RegistryLensSnapshot) -> Option<RegistryC
         });
     }
     let Some(spec) = &lens.spec else {
-        error_code = Some("CALYX_REGISTRY_CONTRACT_MISSING_SPEC".to_string());
+        error_code = Some(CALYX_REGISTRY_CONTRACT_MISSING_SPEC.to_string());
         error_message = Some(format!(
             "lens {} is persisted without LensSpec metadata",
             lens.lens_id
@@ -257,6 +381,11 @@ fn audit_registry_lens_contract(lens: &RegistryLensSnapshot) -> Option<RegistryC
             fields,
             error_code,
             error_message,
+            persisted_derivation_version: lens.derivation_version,
+            binary_derivation_version: derivation::LENS_DERIVATION_VERSION,
+            // A lens with no LensSpec cannot have its runtime identified, so
+            // no derivation step can be checked against it.
+            derivation_explanation: None,
         });
     };
 
@@ -284,6 +413,13 @@ fn audit_registry_lens_contract(lens: &RegistryLensSnapshot) -> Option<RegistryC
     if fields.is_empty() && error_code.is_none() {
         None
     } else {
+        let derivation_explanation = if error_code.is_none() {
+            explain_drift(lens, &fields).map(|(_, explanation)| explanation)
+        } else {
+            // A contract that could not be reconstructed at all is not a
+            // derivation question; do not attribute it to one.
+            None
+        };
         Some(RegistryContractDiff {
             lens_id: lens.lens_id,
             name,
@@ -293,6 +429,9 @@ fn audit_registry_lens_contract(lens: &RegistryLensSnapshot) -> Option<RegistryC
             fields,
             error_code,
             error_message,
+            persisted_derivation_version: lens.derivation_version,
+            binary_derivation_version: derivation::LENS_DERIVATION_VERSION,
+            derivation_explanation,
         })
     }
 }
@@ -437,6 +576,34 @@ fn format_contract_diff(diff: &RegistryContractDiff) -> String {
         diff.error_code.as_deref().unwrap_or("<none>"),
         diff.error_message.as_deref().unwrap_or("<none>")
     )
+}
+
+/// Refuses to re-stamp a lens whose drift changed what was measured.
+///
+/// Re-stamping rewrites the identity while keeping the stored vectors. That is
+/// honest only when the derivation change preserved the measurement. When the
+/// span crosses a `MeasurementChanging` step, the stored vectors measure
+/// different bytes than the new identity claims, and silently re-stamping them
+/// would relabel one measurement as another. This is the guard that makes the
+/// repair path safe to point operators at.
+pub(crate) fn ensure_repair_is_honest(lens: &RegistryLensSnapshot) -> Result<()> {
+    let Some(diff) = audit_registry_lens_contract(lens) else {
+        return Ok(());
+    };
+    let Some(explanation) = diff.derivation_explanation else {
+        return Ok(());
+    };
+    if explanation.re_attestable {
+        return Ok(());
+    }
+    Err(derivation::lens_derivation_stale(
+        &derivation::classify(lens.derivation_version),
+        format!(
+            "refusing to re-stamp lens {} ({}): the stored vectors are a measurement of              different bytes than the reconstructed identity claims. Re-measure instead",
+            lens.lens_id,
+            diff.name.as_deref().unwrap_or("<unnamed>")
+        ),
+    ))
 }
 
 fn registry_contract_repair_invalid(message: impl Into<String>) -> CalyxError {

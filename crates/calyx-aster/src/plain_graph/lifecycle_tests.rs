@@ -138,3 +138,53 @@ fn graph_collection_lifecycle_open_latest_accepted_fails_closed_on_tombstone() {
 
     let _ = std::fs::remove_dir_all(dir);
 }
+
+/// A `writing` generation with no accepted generation must distinguish a genuinely
+/// in-progress rebuild (fresh row → transient, retryable) from a WEDGED/stale one (old
+/// row, no active rebuild → non-retryable). These are DISTINCT codes so a stale flag is
+/// never mistaken for a transient one (#1977).
+#[test]
+fn writing_generation_reports_in_progress_when_fresh_and_stale_when_wedged() {
+    let unique = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let dir = std::env::temp_dir().join(format!(
+        "calyx-graph-lifecycle-rebuild-{}-{unique}",
+        std::process::id()
+    ));
+    let vault = AsterVault::new_durable(&dir, vault_id(), b"salt", VaultOptions::default())
+        .expect("durable vault");
+    let lifecycle = GraphCollectionLifecycle::new(&vault).expect("lifecycle");
+
+    // A FRESH writing generation (just touched) → transient rebuild-in-progress.
+    let fresh = GraphCollectionGenerationState::new(
+        "biomed_test",
+        "gen-fresh",
+        GraphCollectionGenerationStatus::Writing,
+        "test-materializer",
+    );
+    lifecycle.put_state(&fresh).expect("write fresh writing");
+    vault.flush().expect("flush fresh");
+    let error = PhysicalPlainGraph::open_latest(&dir, "biomed_test")
+        .err()
+        .expect("fresh writing must fail closed");
+    assert_eq!(error.code, "CALYX_GRAPH_COLLECTION_REBUILD_IN_PROGRESS");
+
+    // A STALE writing generation (row updated far in the past) → wedged, non-retryable.
+    let mut stale = GraphCollectionGenerationState::new(
+        "biomed_test",
+        "gen-fresh",
+        GraphCollectionGenerationStatus::Writing,
+        "test-materializer",
+    );
+    stale.updated_unix_ms = 1; // ancient — no rebuild process is running
+    lifecycle.put_state(&stale).expect("write stale writing");
+    vault.flush().expect("flush stale");
+    let error = PhysicalPlainGraph::open_latest(&dir, "biomed_test")
+        .err()
+        .expect("stale writing must fail closed");
+    assert_eq!(error.code, "CALYX_GRAPH_COLLECTION_REBUILD_STALE");
+
+    let _ = std::fs::remove_dir_all(dir);
+}

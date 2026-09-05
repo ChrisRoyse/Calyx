@@ -109,8 +109,11 @@ pub(crate) fn readiness(service: &ResidentService) -> ReadyResponse {
     ReadyResponse {
         schema: READY_SCHEMA.to_string(),
         ready: true,
+        lifecycle: "ready",
         residency_scope: "resident_service_process",
         process_id: std::process::id(),
+        reservation_id: service.reservation_id.clone(),
+        lease_pid: service.lease_pid,
         bind: service.bind,
         uptime_ms: service.started.elapsed().as_millis(),
         source_of_truth: state.source_of_truth.clone(),
@@ -152,6 +155,18 @@ pub(crate) fn readiness(service: &ResidentService) -> ReadyResponse {
             .content_lens_count
             .saturating_sub(state.gpu_content_lens_count),
         cpu_excluded_slots: state.cpu_excluded_slots.clone(),
+        kernel_rank: service
+            .kernel_rank
+            .as_ref()
+            .map(|resident| ResidentKernelRankReady {
+                protocol_version: KERNEL_RANK_BINARY_PROTOCOL_VERSION,
+                manifest_sha256: resident.manifest_sha256.clone(),
+                kernel_id: resident.kernel_id,
+                index_sha256: resident.index_sha256.clone(),
+                index_bytes: resident.index_bytes,
+                index_rows: resident.index.rows().len(),
+                load_ms: resident.load_ms,
+            }),
     }
 }
 

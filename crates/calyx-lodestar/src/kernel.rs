@@ -75,6 +75,25 @@ pub struct Kernel {
     pub warnings: Vec<String>,
 }
 
+/// Canonical semantic projection for completed, content-addressed kernels.
+///
+/// Operational metadata such as `kernel_id` and `built_at_millis` is
+/// intentionally absent. Adding or changing a semantic field requires a new
+/// schema/domain version so existing identities retain their meaning.
+#[derive(Serialize)]
+struct CompletedKernelIdentityV2<'a> {
+    schema_version: u32,
+    panel_version: u64,
+    anchor_kind: &'a Option<String>,
+    corpus_shard_hash: &'a [u8; 32],
+    members: &'a [CxId],
+    kernel_graph: &'a [CxId],
+    groundedness: &'a GroundednessReport,
+    recall: &'a RecallReport,
+    estimator_provenance: &'a str,
+    warnings: &'a [String],
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct KernelParams {
     pub panel_version: u64,
@@ -172,15 +191,25 @@ pub fn seal_completed_kernel_identity(
     kernel: &mut Kernel,
     physical_contract_hash: &[u8; 32],
 ) -> Result<CxId> {
-    let mut identity = kernel.clone();
-    identity.kernel_id = CxId::from_bytes([0; 16]);
+    let identity = CompletedKernelIdentityV2 {
+        schema_version: 2,
+        panel_version: kernel.panel_version,
+        anchor_kind: &kernel.anchor_kind,
+        corpus_shard_hash: &kernel.corpus_shard_hash,
+        members: &kernel.members,
+        kernel_graph: &kernel.kernel_graph,
+        groundedness: &kernel.groundedness,
+        recall: &kernel.recall,
+        estimator_provenance: &kernel.estimator_provenance,
+        warnings: &kernel.warnings,
+    };
     let bytes = serde_json::to_vec(&identity).map_err(|error| {
         crate::LodestarError::KernelArtifactCodec {
             detail: format!("encode completed kernel identity: {error}"),
         }
     })?;
     let id = CxId::from_bytes(content_address([
-        b"calyx-lodestar-completed-kernel-v1".as_slice(),
+        b"calyx-lodestar-completed-kernel-v2".as_slice(),
         physical_contract_hash.as_slice(),
         bytes.as_slice(),
     ]));

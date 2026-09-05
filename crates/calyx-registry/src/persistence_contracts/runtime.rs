@@ -3,23 +3,36 @@ use std::sync::Arc;
 use calyx_core::{CalyxError, Lens, Result, SlotShape};
 
 use crate::frozen::{FrozenLensContract, LensDType, NormPolicy, sha256_digest};
+use crate::relocation::{self, EndpointRelocation};
 use crate::{
     AlgorithmicLens, CandleLens, ExternalCmdLens, FastembedBgem3Lens, FastembedQwen3Lens,
     FastembedRerankerLens, FastembedSparseLens, LensRuntime, LensSpec, MultimodalAdapterLens,
-    OnnxColbertLens, OnnxLens, StaticLookupLens, TeiHttpLens,
+    OnnxColbertLens, OnnxLens, StaticLookupLens, TeiHttpLens, TeiSegmentedLens,
 };
+
+/// Resolves an audited relocation for a frozen TEI endpoint and proves, before
+/// the lens is admitted, that the relocated lane is the exact instrument the
+/// relocation record declares.
+///
+/// The behavioural proof is the persisted runtime golden replayed by
+/// [`crate::persistence`]; this check exists so that a mis-pointed relocation
+/// reports the precise mismatched `/info` field instead of surfacing later as
+/// an opaque `CALYX_LENS_RUNTIME_DRIFT`.
+fn relocation_for(frozen_endpoint: &str) -> Result<Option<&'static EndpointRelocation>> {
+    let Some(record) = relocation::resolve(frozen_endpoint)? else {
+        return Ok(None);
+    };
+    relocation::verify_relocated_service(record)?;
+    Ok(Some(record))
+}
 
 pub(crate) fn load_runtime_lens_from_spec(
     spec: &LensSpec,
 ) -> Result<(Arc<dyn Lens>, FrozenLensContract)> {
     match &spec.runtime {
         LensRuntime::Algorithmic { kind } => {
-            let lens = algorithmic_lens(spec, kind).ok_or_else(|| {
-                lens_config_invalid(format!(
-                    "unsupported algorithmic lens kind {kind} for persisted lens {}",
-                    spec.name
-                ))
-            })?;
+            let lens =
+                AlgorithmicLens::from_runtime_kind(&spec.name, spec.modality, kind, spec.output)?;
             let contract = lens.contract().clone();
             Ok((Arc::new(lens), contract))
         }
@@ -30,8 +43,41 @@ pub(crate) fn load_runtime_lens_from_spec(
                     spec.name, spec.output
                 ))
             })?;
-            let lens = TeiHttpLens::new(&spec.name, endpoint, spec.modality, dim);
+            let lens = TeiHttpLens::new(&spec.name, endpoint, spec.modality, dim)
+                .with_declared_max_batch(spec.max_batch)?;
+            let lens = match relocation_for(endpoint)? {
+                Some(record) => lens.relocated_to(&record.live_endpoint)?,
+                None => lens,
+            };
+            // Derived from the frozen endpoint in the spec, never from the
+            // relocated one, so a rebinding cannot change the LensId (#2053).
             let contract = FrozenLensContract::tei_http(&spec.name, endpoint, spec.modality, dim);
+            Ok((Arc::new(lens), contract))
+        }
+        LensRuntime::TeiHttpSegmented { endpoint, policy } => {
+            // Pooled lanes emit one dense vector per document (#1980); only
+            // segment-preserving lanes carry a multi shape.
+            let dim = if policy.is_pooled() {
+                dense_dim(spec.output)
+            } else {
+                multi_dim(spec.output)
+            }
+            .ok_or_else(|| {
+                let expected = if policy.is_pooled() { "dense" } else { "multi" };
+                lens_config_invalid(format!(
+                    "segmented TEI lens {} requires {expected} output shape, got {:?}",
+                    spec.name, spec.output
+                ))
+            })?;
+            let lens = TeiSegmentedLens::new(&spec.name, endpoint, spec.modality, dim, *policy)?
+                .with_declared_max_batch(spec.max_batch)?;
+            let lens = match relocation_for(endpoint)? {
+                Some(record) => lens.relocated_to(&record.live_endpoint)?,
+                None => lens,
+            };
+            // `contract` reads the lens's frozen endpoint, so this stays the
+            // commissioned identity even when the lens dials a relocated lane.
+            let contract = lens.contract(&spec.name);
             Ok((Arc::new(lens), contract))
         }
         LensRuntime::ExternalCmd { cmd, args } => {
@@ -102,94 +148,14 @@ pub(crate) fn load_runtime_lens_from_spec(
     }
 }
 
-fn algorithmic_lens(spec: &LensSpec, kind: &str) -> Option<AlgorithmicLens> {
-    match kind {
-        "byte_features" | "byte-features" | "byte" => {
-            Some(AlgorithmicLens::byte_features(&spec.name, spec.modality))
-        }
-        "scalar" => Some(AlgorithmicLens::scalar(&spec.name, spec.modality)),
-        "ast_style" | "ast-style" => Some(AlgorithmicLens::ast_style(&spec.name, spec.modality)),
-        "gdelt_cameo" | "gdelt-cameo" => {
-            Some(AlgorithmicLens::gdelt_cameo(&spec.name, spec.modality))
-        }
-        "gdelt_actor_geo" | "gdelt-actor-geo" => Some(AlgorithmicLens::gdelt_actor_geo(
-            &spec.name,
-            spec.modality,
-            sparse_dim(spec.output)?,
-        )),
-        "gdelt_source_domain" | "gdelt-source-domain" => {
-            Some(AlgorithmicLens::gdelt_source_domain(
-                &spec.name,
-                spec.modality,
-                sparse_dim(spec.output)?,
-            ))
-        }
-        "gdelt_event_geo" | "gdelt-event-geo" => Some(AlgorithmicLens::gdelt_event_geo(
-            &spec.name,
-            spec.modality,
-            sparse_dim(spec.output)?,
-        )),
-        "gdelt_actor_pair" | "gdelt-actor-pair" => Some(AlgorithmicLens::gdelt_actor_pair(
-            &spec.name,
-            spec.modality,
-            sparse_dim(spec.output)?,
-        )),
-        "gdelt_event_actor" | "gdelt-event-actor" => Some(AlgorithmicLens::gdelt_event_actor(
-            &spec.name,
-            spec.modality,
-            sparse_dim(spec.output)?,
-        )),
-        "gdelt_tone_signal" | "gdelt-tone-signal" => Some(AlgorithmicLens::gdelt_tone_signal(
-            &spec.name,
-            spec.modality,
-            sparse_dim(spec.output)?,
-        )),
-        "gdelt_source_event" | "gdelt-source-event" => Some(AlgorithmicLens::gdelt_source_event(
-            &spec.name,
-            spec.modality,
-            sparse_dim(spec.output)?,
-        )),
-        "sparse" | "sparse_keywords" | "sparse-keywords" => Some(AlgorithmicLens::sparse_keywords(
-            &spec.name,
-            spec.modality,
-            sparse_dim(spec.output)?,
-        )),
-        "token_hash" | "token-hash" | "multi_hash" | "multi-hash" => Some(
-            AlgorithmicLens::token_hash(&spec.name, spec.modality, token_dim(spec.output)?),
-        ),
-        "one_hot" | "one-hot" => Some(AlgorithmicLens::one_hot(
-            &spec.name,
-            spec.modality,
-            dense_dim(spec.output)?,
-        )),
-        value => {
-            if let Some(dim) = value
-                .strip_prefix("sparse_keywords:")
-                .or_else(|| value.strip_prefix("sparse-keywords:"))
-                .and_then(|dim| dim.parse().ok())
-            {
-                return Some(AlgorithmicLens::sparse_keywords(
-                    &spec.name,
-                    spec.modality,
-                    dim,
-                ));
-            }
-            if let Some(dim) = value
-                .strip_prefix("token_hash:")
-                .or_else(|| value.strip_prefix("token-hash:"))
-                .or_else(|| value.strip_prefix("multi_hash:"))
-                .or_else(|| value.strip_prefix("multi-hash:"))
-                .and_then(|dim| dim.parse().ok())
-            {
-                return Some(AlgorithmicLens::token_hash(&spec.name, spec.modality, dim));
-            }
-            value
-                .strip_prefix("one_hot:")
-                .or_else(|| value.strip_prefix("one-hot:"))
-                .and_then(|buckets| buckets.parse().ok())
-                .map(|buckets| AlgorithmicLens::one_hot(&spec.name, spec.modality, buckets))
-        }
-    }
+pub fn algorithmic_lens_from_spec(spec: &LensSpec) -> Result<AlgorithmicLens> {
+    let LensRuntime::Algorithmic { kind } = &spec.runtime else {
+        return Err(lens_config_invalid(format!(
+            "lens {} is not an algorithmic runtime",
+            spec.name
+        )));
+    };
+    AlgorithmicLens::from_runtime_kind(&spec.name, spec.modality, kind, spec.output)
 }
 
 fn dense_dim(shape: SlotShape) -> Option<u32> {
@@ -199,14 +165,7 @@ fn dense_dim(shape: SlotShape) -> Option<u32> {
     }
 }
 
-fn sparse_dim(shape: SlotShape) -> Option<u32> {
-    match shape {
-        SlotShape::Sparse(dim) => Some(dim),
-        SlotShape::Dense(_) | SlotShape::Multi { .. } => None,
-    }
-}
-
-fn token_dim(shape: SlotShape) -> Option<u32> {
+fn multi_dim(shape: SlotShape) -> Option<u32> {
     match shape {
         SlotShape::Multi { token_dim } => Some(token_dim),
         SlotShape::Dense(_) | SlotShape::Sparse(_) => None,

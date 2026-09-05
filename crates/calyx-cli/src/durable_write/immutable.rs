@@ -34,16 +34,17 @@ pub(crate) fn write_bytes_atomic_new(path: &Path, bytes: &[u8], label: &str) -> 
         }
     }
     let tmp = temp_path(path)?;
-    let mut file = OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .open(&tmp)
-        .map_err(|error| {
-            CliError::io(format!(
-                "create-new temporary {label} {} failed: {error}",
-                tmp.display()
-            ))
-        })?;
+    // Immutable evidence archives must be owner-only (issue #1931).
+    let mut options = OpenOptions::new();
+    options.write(true).create_new(true);
+    crate::private_fs::harden_open_options(&mut options);
+    let mut file = options.open(&tmp).map_err(|error| {
+        CliError::io(format!(
+            "create-new temporary {label} {} failed: {error}",
+            tmp.display()
+        ))
+    })?;
+    crate::private_fs::enforce_private_file_mode(&file, &tmp)?;
     let publish = (|| {
         file.write_all(bytes).map_err(|error| {
             CliError::io(format!(

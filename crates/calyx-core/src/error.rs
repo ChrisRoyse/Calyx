@@ -228,6 +228,10 @@ error_catalog! {
     DatasetSchemaMismatch, dataset_schema_mismatch, "CALYX_DATASET_SCHEMA_MISMATCH",
     "dataset columns/fields missing or malformed vs the pinned upstream contract",
     "re-acquire at the pinned revision; check upstream schema drift";
+
+    ReproduceInsufficient, reproduce_insufficient, "CALYX_REPRODUCE_INSUFFICIENT",
+    "answer subject lacks reproducible evidence (absent/incomplete/aborted)",
+    "record a completed answer and run reproduce --record; an absent or aborted answer subject has no reproducibility evidence to replay";
 }
 
 #[cfg(test)]
@@ -274,6 +278,7 @@ mod tests {
         "CALYX_DATASET_ROWCOUNT_MISMATCH",
         "CALYX_DATASET_MANIFEST_INVALID",
         "CALYX_DATASET_SCHEMA_MISMATCH",
+        "CALYX_REPRODUCE_INSUFFICIENT",
     ];
 
     const MODULE_LOCAL_CODES: &[&str] = &[
@@ -383,6 +388,10 @@ mod tests {
         assert!(pairs.contains(&(
             "CALYX_DATASET_SCHEMA_MISMATCH",
             "re-acquire at the pinned revision; check upstream schema drift"
+        )));
+        assert!(pairs.contains(&(
+            "CALYX_REPRODUCE_INSUFFICIENT",
+            "record a completed answer and run reproduce --record; an absent or aborted answer subject has no reproducibility evidence to replay"
         )));
     }
 

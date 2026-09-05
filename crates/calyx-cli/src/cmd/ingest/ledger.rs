@@ -1,4 +1,4 @@
-use calyx_aster::vault::AsterVault;
+use calyx_aster::vault::{AsterVault, LedgerEntryInput};
 use calyx_core::{Anchor, AnchorKind, CxId};
 use calyx_ledger::{ActorId, EntryKind, RedactionPolicy, SubjectId};
 
@@ -44,16 +44,20 @@ pub(super) fn append_anchor_ledger(
     cx_id: CxId,
     kind: &AnchorKind,
     anchor: Anchor,
+    intent: &mut dyn calyx_aster::vault::DurableCommitIntent,
 ) -> CliResult<u64> {
     let bytes = anchor_payload(kind)?;
     Ok(vault
-        .anchor_with_ledger_entry(
+        .anchor_with_ledger_entry_and_commit_intent(
             cx_id,
             anchor,
-            EntryKind::Ingest,
-            SubjectId::Cx(cx_id),
-            bytes,
-            ActorId::Service("calyx-cli".to_string()),
+            LedgerEntryInput::new(
+                EntryKind::Ingest,
+                SubjectId::Cx(cx_id),
+                bytes,
+                ActorId::Service("calyx-cli".to_string()),
+            ),
+            intent,
         )?
         .seq)
 }

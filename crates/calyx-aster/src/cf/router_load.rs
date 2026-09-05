@@ -117,31 +117,15 @@ fn load_level_for_cf(cf: ColumnFamily, files: Vec<PathBuf>) -> Result<SstLevel> 
     if eager_lookup_on_open(cf) {
         SstLevel::from_oldest_first_with_lookup(files)
     } else {
-        Ok(SstLevel::from_oldest_first(files))
+        SstLevel::from_oldest_first_with_bounds(files)
     }
 }
 
-fn eager_lookup_on_open(cf: ColumnFamily) -> bool {
+pub(super) fn eager_lookup_on_open(cf: ColumnFamily) -> bool {
     // Base and slot CFs are the high-volume point-read surfaces. Retain their
     // exact validated key/offset indexes once so Bloom candidates never
     // reopen and whole-file validate large immutable SSTs per requested row.
     matches!(cf, ColumnFamily::Base) || cf.is_slot()
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use calyx_core::SlotId;
-
-    #[test]
-    fn eager_exact_lookup_covers_base_and_both_slot_families_only() {
-        let slot = SlotId::new(11);
-        assert!(eager_lookup_on_open(ColumnFamily::Base));
-        assert!(eager_lookup_on_open(ColumnFamily::slot(slot)));
-        assert!(eager_lookup_on_open(ColumnFamily::slot_raw(slot)));
-        assert!(!eager_lookup_on_open(ColumnFamily::Ledger));
-        assert!(!eager_lookup_on_open(ColumnFamily::Anchors));
-    }
 }
 
 /// Lists SST files in a CF directory, failing closed on any `*.sst` file
@@ -186,4 +170,20 @@ pub(super) fn sort_ssts_by_sequence(files: &mut [PathBuf]) -> Result<()> {
         *slot = path;
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use calyx_core::SlotId;
+
+    #[test]
+    fn eager_exact_lookup_covers_base_and_both_slot_families_only() {
+        let slot = SlotId::new(11);
+        assert!(eager_lookup_on_open(ColumnFamily::Base));
+        assert!(eager_lookup_on_open(ColumnFamily::slot(slot)));
+        assert!(eager_lookup_on_open(ColumnFamily::slot_raw(slot)));
+        assert!(!eager_lookup_on_open(ColumnFamily::Ledger));
+        assert!(!eager_lookup_on_open(ColumnFamily::Anchors));
+    }
 }

@@ -39,6 +39,31 @@ where
             .scan_cf_pages_at(snapshot.snapshot(), cf, limit, &self.clock, on_page)
     }
 
+    /// Streams visible raw CF rows in one key range at `snapshot` using
+    /// bounded value pages and a single pinned read view.
+    pub fn scan_cf_range_pages_at<F, E>(
+        &self,
+        snapshot: Seq,
+        cf: ColumnFamily,
+        range: &KeyRange,
+        limit: usize,
+        on_page: F,
+    ) -> std::result::Result<(), E>
+    where
+        F: FnMut(Vec<(Vec<u8>, Vec<u8>)>) -> std::result::Result<(), E>,
+        E: From<calyx_core::CalyxError>,
+    {
+        let snapshot = self.snapshot_handle(snapshot);
+        self.rows.scan_cf_range_pages_at(
+            snapshot.snapshot(),
+            cf,
+            range,
+            limit,
+            &self.clock,
+            on_page,
+        )
+    }
+
     /// Streams the latest visible raw CF rows with one bounded lease per page.
     ///
     /// This contract is for cold physical readbacks that can legitimately run
@@ -53,6 +78,23 @@ where
         snapshot: Seq,
         cf: ColumnFamily,
         limit: usize,
+        on_page: F,
+    ) -> std::result::Result<(), E>
+    where
+        F: FnMut(Vec<(Vec<u8>, Vec<u8>)>) -> std::result::Result<(), E>,
+        E: From<calyx_core::CalyxError>,
+    {
+        self.scan_cf_range_pages_at_renewing_latest(snapshot, cf, &KeyRange::all(), limit, on_page)
+    }
+
+    /// Streams one latest physical CF range with a fresh bounded lease per
+    /// page and fails closed if the latest sequence advances.
+    pub fn scan_cf_range_pages_at_renewing_latest<F, E>(
+        &self,
+        snapshot: Seq,
+        cf: ColumnFamily,
+        range: &KeyRange,
+        limit: usize,
         mut on_page: F,
     ) -> std::result::Result<(), E>
     where
@@ -63,7 +105,7 @@ where
             let latest = self.latest_seq();
             if latest != snapshot {
                 return Err(E::from(calyx_core::CalyxError::stale_derived(format!(
-                    "renewing {} scan requires unchanged latest sequence {snapshot}, observed {latest}",
+                    "renewing {} range scan requires unchanged latest sequence {snapshot}, observed {latest}",
                     cf.name()
                 ))));
             }
@@ -74,8 +116,18 @@ where
         if limit == 0 {
             return Ok(());
         }
+        if self.rows.router_latest_readback_enabled() {
+            return self.rows.scan_router_range_pages_renewing_latest(
+                snapshot,
+                cf,
+                range,
+                limit,
+                &self.clock,
+                on_page,
+            );
+        }
         let keys = self
-            .scan_cf_range_keys_at(snapshot, cf, &KeyRange::all())
+            .scan_cf_range_keys_at(snapshot, cf, range)
             .map_err(E::from)?;
         ensure_latest()?;
 

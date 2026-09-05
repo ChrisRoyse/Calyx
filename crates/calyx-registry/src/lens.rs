@@ -60,6 +60,14 @@ pub struct RegistryLensSnapshot {
     pub determinism: DeterminismProof,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub runtime_golden: Option<RuntimeGolden>,
+    /// Lens-identity derivation version that produced `lens_id`/`contract`.
+    ///
+    /// Sidecar only — never a hash input (see `crate::derivation`). `None`
+    /// marks a record persisted before derivation stamping existed; the audit
+    /// then treats every changelog step as a candidate explanation. Skipped on
+    /// serialization when absent so pre-stamp records reserialize byte-identically.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub derivation_version: Option<u32>,
 }
 
 impl Registry {
@@ -149,6 +157,16 @@ impl Registry {
     /// Returns true when a lens id is registered.
     pub fn contains(&self, id: LensId) -> bool {
         self.lenses.contains_key(&id)
+    }
+
+    /// Returns whether one registered frozen lens accepts this exact input.
+    pub fn accepts_input(&self, lens_id: LensId, input: &Input) -> Result<bool> {
+        Ok(self.lookup(lens_id)?.lens.accepts_input(input))
+    }
+
+    /// Returns whether one registered lens requires canonical structured state.
+    pub fn requires_structured_record(&self, lens_id: LensId) -> Result<bool> {
+        Ok(self.lookup(lens_id)?.lens.requires_structured_record())
     }
 
     /// Finds a registered lens by its stable frozen/spec name.
@@ -387,6 +405,8 @@ impl Registry {
                     spec: entry.spec.clone(),
                     determinism: entry.determinism,
                     runtime_golden: entry.runtime_golden.clone(),
+                    // Derived in-process by this binary.
+                    derivation_version: Some(crate::derivation::LENS_DERIVATION_VERSION),
                 })
             })
             .collect()
@@ -399,9 +419,29 @@ pub(crate) fn process_runtime_requires_golden(spec: &LensSpec) -> bool {
 
 fn process_runtime_golden_version(spec: &LensSpec) -> Option<&'static str> {
     match &spec.runtime {
-        LensRuntime::TeiHttp { .. } => Some("tei-http-golden-v1"),
+        LensRuntime::TeiHttp { .. } => Some("tei-http-golden-v2-no-truncate"),
+        LensRuntime::TeiHttpSegmented { policy, .. } => Some(if policy.is_pooled() {
+            // A pooled lane deliberately pools, so it cannot claim the
+            // no-pool golden identity; it gets its own (#1980).
+            "tei-http-segmented-golden-v1-no-truncate-paragraph-pooled"
+        } else {
+            "tei-http-segmented-golden-v1-no-truncate-no-pool"
+        }),
         LensRuntime::ExternalCmd { .. } => Some("external-cmd-golden-v1"),
         _ => None,
+    }
+}
+
+pub(crate) fn process_runtime_golden_vector(vector: &SlotVector) -> Option<&[f32]> {
+    match vector {
+        SlotVector::Dense { data, .. } => Some(data),
+        SlotVector::SegmentedMulti { segments, .. } if segments.len() == 1 => {
+            Some(&segments[0].data)
+        }
+        SlotVector::Sparse { .. }
+        | SlotVector::Multi { .. }
+        | SlotVector::SegmentedMulti { .. }
+        | SlotVector::Absent { .. } => None,
     }
 }
 

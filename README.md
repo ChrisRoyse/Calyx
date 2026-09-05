@@ -108,7 +108,7 @@ Three principles make the results trustworthy:
 **Prerequisites**
 
 - Rust `1.95` (via [`rustup`](https://rustup.rs); the pinned toolchain is in `rust-toolchain.toml`)
-- A C toolchain (for bundled SQLite, used by the migration tool)
+- A C toolchain (required by native numeric/runtime dependencies)
 - *Optional, for GPU acceleration:* an NVIDIA `sm_120`-class GPU and CUDA `13.3`
 
 **Build & test**
@@ -144,6 +144,7 @@ Every subsystem is named for an instrument of celestial navigation: a lens is a 
 
 | Subsystem | Crate | What it is |
 |---|---|---|
+| 🗃️ **Turso relational** | `calyx-turso` | Pure-Rust, in-process relational source of truth for datasets, original records, multi-lens slots, revisions, and cross-store projection state. Uses bounded transactions, MVCC, and independently verified Aster projection. |
 | 🪐 **Aster** | `calyx-aster` | Embedded LSM storage: write-ahead log, group-commit, MVCC snapshots, memory-mapped tables, crash recovery, hot/cold tiering. The "schema" layer. |
 | 🔥 **Forge** | `calyx-forge` | The numeric runtime: one math backend implemented twice — CPU SIMD and CUDA — engineered for bit-near parity. Quantization from full precision down to 1-bit. |
 | 🔭 **Registry** | `calyx-registry` | The lens registry: seven embedder runtimes (local, server, ONNX, algorithmic, multimodal…), each frozen and content-addressed. Hot-swap and lazy backfill. |

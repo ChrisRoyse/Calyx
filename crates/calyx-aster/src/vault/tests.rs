@@ -474,4 +474,5 @@ mod read_only;
 mod derived_content_watermark;
 mod read_leases;
 mod support;
+mod write_latest_readback;
 use support::{cleanup, fsv_root, hex, reset_dir, row_index, sst_count, test_dir, wal_bytes};

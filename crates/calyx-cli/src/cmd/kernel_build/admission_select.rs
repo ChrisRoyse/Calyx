@@ -1,5 +1,5 @@
 use calyx_core::SlotId;
-use calyx_lodestar::PanelVectors;
+use calyx_lodestar::TypedPanelVectors;
 use calyx_registry::VaultPanelState;
 
 use super::super::kernel_generation::{KernelAdmissionContract, KernelJurisdictionContract};
@@ -11,7 +11,7 @@ pub(super) fn select(
     resolved: &ResolvedVault,
     state: &VaultPanelState,
     embedding_slots: &[SlotId],
-    rows: &std::collections::BTreeMap<calyx_core::CxId, PanelVectors>,
+    rows: &std::collections::BTreeMap<calyx_core::CxId, TypedPanelVectors>,
     jurisdiction: Option<&KernelJurisdictionContract>,
     args: &KernelBuildArgs,
 ) -> CliResult<KernelAdmissionContract> {

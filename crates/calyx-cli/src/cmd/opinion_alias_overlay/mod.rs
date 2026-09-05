@@ -328,7 +328,7 @@ fn resolve_command(rest: &[String]) -> CliResult {
     }
     let home = home.map_or_else(home_dir, Ok)?;
     let resolved = resolve_vault_info(&home, vault_name)?;
-    let physical = PhysicalPlainGraph::open_latest(&resolved.path, &collection)?;
+    let physical = PhysicalPlainGraph::open_latest_isolated(&resolved.path, &collection)?;
     let alias_id = alias_node_id(&opinion_id);
     let alias_bytes = physical.get_node(alias_id)?.ok_or_else(|| {
         contract_error(

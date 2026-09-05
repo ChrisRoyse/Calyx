@@ -245,22 +245,16 @@ pub struct TempFile {
 
 impl TempFile {
     pub fn in_dataset(destination_dir: &Path) -> Result<Self> {
-        fs::create_dir_all(destination_dir).map_err(|error| {
-            io_error(format!(
-                "create destination dataset {}: {error}",
-                destination_dir.display()
-            ))
-        })?;
+        crate::private_fs::create_private_dir_all(destination_dir)?;
         for _ in 0..128 {
             let id = NEXT_TEMP_ID.fetch_add(1, Ordering::Relaxed);
             let path = destination_dir.join(format!(".calyx-tmp-{}-{id}.tmp", std::process::id()));
-            match OpenOptions::new()
-                .read(true)
-                .write(true)
-                .create_new(true)
-                .open(&path)
-            {
+            let mut options = OpenOptions::new();
+            options.read(true).write(true).create_new(true);
+            crate::private_fs::harden_open_options(&mut options);
+            match options.open(&path) {
                 Ok(file) => {
+                    crate::private_fs::enforce_private_file_mode(&file, &path)?;
                     return Ok(Self {
                         path,
                         file,

@@ -1,6 +1,9 @@
 use super::page;
 use super::shared_reader;
-use super::{SstEntry, SstKeyState, SstLookupMetadata, SstPointReader};
+use super::{
+    SstEntry, SstKeyBounds, SstKeyState, SstLookupMetadata, SstPointReader, SstReader,
+    read_sst_key_bounds,
+};
 use calyx_core::Result;
 use rayon::prelude::*;
 use std::collections::BTreeMap;
@@ -17,25 +20,67 @@ pub struct SstLevel {
 pub(super) struct LevelFile {
     pub(super) path: PathBuf,
     lookup: Option<SstLookupMetadata>,
+    bounds: Option<SstKeyBounds>,
 }
 
 impl LevelFile {
     fn without_lookup(path: PathBuf) -> Self {
-        Self { path, lookup: None }
+        Self {
+            path,
+            lookup: None,
+            bounds: None,
+        }
+    }
+
+    fn with_bounds(path: PathBuf) -> Result<Self> {
+        let bounds = read_sst_key_bounds(&path)?;
+        Ok(Self {
+            path,
+            lookup: None,
+            bounds,
+        })
     }
 
     fn with_lookup(path: PathBuf) -> Result<Self> {
-        let lookup = shared_reader(&path)?.lookup_metadata();
-        Ok(Self { path, lookup })
+        // Build retained point-read metadata without inserting the mmap-backed
+        // reader in the global cache. The value pages were validated once and
+        // are not part of the resident lookup state.
+        let reader = SstReader::open(&path)?;
+        let bounds = Some(reader.key_bounds());
+        let lookup = reader.lookup_metadata();
+        drop(reader);
+        Ok(Self {
+            path,
+            lookup,
+            bounds,
+        })
     }
 
     fn may_contain(&self, key: &[u8]) -> bool {
-        let Some(lookup) = &self.lookup else {
-            return true;
-        };
-        key >= lookup.first_key.as_slice()
-            && key <= lookup.last_key.as_slice()
-            && lookup.bloom.may_contain(key)
+        if self
+            .bounds
+            .as_ref()
+            .is_some_and(|bounds| !bounds.contains(key))
+        {
+            return false;
+        }
+        self.lookup.as_ref().is_none_or(|lookup| {
+            key >= lookup.first_key.as_slice()
+                && key <= lookup.last_key.as_slice()
+                && lookup.bloom.may_contain(key)
+        })
+    }
+
+    pub(super) fn overlaps(&self, start: &[u8], end: Option<&[u8]>) -> bool {
+        self.bounds
+            .as_ref()
+            .is_none_or(|bounds| bounds.overlaps(start, end))
+    }
+
+    fn may_precede(&self, start: &[u8], upper: &[u8], inclusive: bool) -> bool {
+        self.bounds
+            .as_ref()
+            .is_none_or(|bounds| bounds.may_precede(start, upper, inclusive))
     }
 
     fn get(&self, key: &[u8]) -> Result<Option<Vec<u8>>> {
@@ -77,12 +122,26 @@ impl SstLevel {
         Ok(Self { files })
     }
 
+    pub fn from_oldest_first_with_bounds(paths: impl IntoIterator<Item = PathBuf>) -> Result<Self> {
+        let mut files = Vec::new();
+        for path in paths {
+            files.push(LevelFile::with_bounds(path)?);
+        }
+        files.reverse();
+        Ok(Self { files })
+    }
+
     pub fn push(&mut self, path: PathBuf) {
         self.files.insert(0, LevelFile::without_lookup(path));
     }
 
     pub fn push_with_lookup(&mut self, path: PathBuf) -> Result<()> {
         self.files.insert(0, LevelFile::with_lookup(path)?);
+        Ok(())
+    }
+
+    pub fn push_with_bounds(&mut self, path: PathBuf) -> Result<()> {
+        self.files.insert(0, LevelFile::with_bounds(path)?);
         Ok(())
     }
 
@@ -173,6 +232,7 @@ impl SstLevel {
             .files
             .par_iter()
             .enumerate()
+            .filter(|(_, file)| file.overlaps(start, Some(end)))
             .map(|(index, file)| -> Result<(usize, Vec<SstEntry>)> {
                 Ok((index, shared_reader(&file.path)?.range(start, end)?))
             })
@@ -199,6 +259,9 @@ impl SstLevel {
     ) -> Result<Option<SstEntry>> {
         let mut newest_at_greatest_key = None::<(usize, SstEntry)>;
         for (file_index, file) in self.files.iter().enumerate() {
+            if !file.may_precede(start, upper, inclusive) {
+                continue;
+            }
             let Some(entry) = shared_reader(&file.path)?.predecessor(start, upper, inclusive)?
             else {
                 continue;
@@ -224,6 +287,7 @@ impl SstLevel {
             .files
             .par_iter()
             .enumerate()
+            .filter(|(_, file)| file.overlaps(start, end))
             .map(|(index, file)| -> Result<(usize, Vec<SstKeyState>)> {
                 Ok((
                     index,

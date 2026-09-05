@@ -1,16 +1,22 @@
 use std::net::SocketAddr;
 use std::path::PathBuf;
 
-use calyx_core::{AbsentReason, Modality, Placement, SlotVector};
+use calyx_core::CxId;
+use calyx_core::{AbsentReason, Modality, Placement, SlotId, SlotVector};
+use calyx_lodestar::{TypedPanelFusionHit, TypedPanelVectors};
+use calyx_search::{FusionChoice, GuardChoice, SearchFreshness, SearchOutcome};
 use serde::{Deserialize, Serialize};
 
 pub(super) const READY_SCHEMA: &str = "calyx-panel-resident-readiness-v2";
 pub(super) const MEASURE_SCHEMA: &str = "calyx-panel-resident-measure-v1";
 pub(super) const MEASURE_BATCH_SCHEMA: &str = "calyx-panel-resident-measure-batch-v1";
-/// v2 (#1002): measure_batch responses stream as one header frame, one frame
-/// per measured input row, and one end frame — never a single response frame
-/// carrying every multi-vector payload at once.
-pub(super) const RESIDENT_BINARY_PROTOCOL_VERSION: u16 = 2;
+/// v3: requests preserve each complete typed `Input`, including its canonical
+/// structured record. Responses retain v2's row-streaming contract (#1002).
+pub(super) const RESIDENT_BINARY_PROTOCOL_VERSION: u16 = 3;
+pub(super) const KERNEL_RANK_BINARY_PROTOCOL_VERSION: u16 = 3;
+pub(super) const SEARCH_BINARY_PROTOCOL_VERSION: u16 = 1;
+pub(super) const MAX_KERNEL_RANK_EVIDENCE_JSON_BYTES: usize = 8 * 1024 * 1024;
+pub(super) const MAX_RESIDENT_SEARCH_OUTCOME_JSON_BYTES: usize = 64 * 1024 * 1024;
 
 #[derive(Debug)]
 pub(super) enum ClientMeasureInput {
@@ -32,8 +38,19 @@ pub(super) struct ResidentRequest {
 pub(super) struct ReadyResponse {
     pub(super) schema: String,
     pub(super) ready: bool,
+    /// Durable-file lifecycle. `ready` is only authoritative while the named
+    /// PID, reservation, and live socket round-trip all agree.
+    pub(super) lifecycle: &'static str,
     pub(super) residency_scope: &'static str,
     pub(super) process_id: u32,
+    /// The live host GPU reservation this resident validated at startup and is
+    /// running under (#1936). Republished so an ingest client routing here can
+    /// VALIDATE the resident's lease instead of minting a second reservation.
+    pub(super) reservation_id: String,
+    /// PID that owns the reservation row in the host store (the `calyx gpu run`
+    /// wrapper that acquired the lease). An ingest client fails closed with
+    /// `CALYX_RESIDENT_IDENTITY_MISMATCH` if the live row's pid differs.
+    pub(super) lease_pid: u32,
     pub(super) bind: SocketAddr,
     pub(super) uptime_ms: u128,
     pub(super) source_of_truth: String,
@@ -74,6 +91,119 @@ pub(super) struct ReadyResponse {
     /// (#1490): the resident is GPU-only; search measures these in-process.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub(super) cpu_excluded_slots: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(super) kernel_rank: Option<ResidentKernelRankReady>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub(super) struct ResidentKernelRankReady {
+    pub(super) protocol_version: u16,
+    pub(super) manifest_sha256: String,
+    pub(super) kernel_id: CxId,
+    pub(super) index_sha256: String,
+    pub(super) index_bytes: u64,
+    pub(super) index_rows: usize,
+    pub(super) load_ms: u128,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub(super) struct ResidentKernelRankBinaryRequest {
+    pub(super) protocol_version: u16,
+    pub(super) manifest_sha256: String,
+    pub(super) kernel_id: CxId,
+    pub(super) index_sha256: String,
+    pub(super) query: TypedPanelVectors,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub(super) enum ResidentKernelRankBinaryResponse {
+    Ok {
+        protocol_version: u16,
+        process_id: u32,
+        manifest_sha256: String,
+        kernel_id: CxId,
+        index_sha256: String,
+        index_rows: usize,
+        elapsed_ms: u128,
+        /// JSON is intentional here. `TypedPanelFusionHit` contains nested
+        /// structs whose human-facing serde contract omits absent optional
+        /// fields. Such omission is valid JSON but is not self-describing in a
+        /// positional bincode struct and caused catastrophic decode
+        /// misalignment. The outer frame and large id vector remain compact
+        /// bincode; only the bounded evidence object uses its canonical serde
+        /// representation.
+        nearest_json: Vec<u8>,
+        ranked_ids: Vec<CxId>,
+    },
+    Err {
+        code: String,
+        message: String,
+        remediation: String,
+    },
+}
+
+pub(crate) struct KernelRankAtResponse {
+    pub(crate) process_id: u32,
+    pub(crate) index_rows: usize,
+    pub(crate) elapsed_ms: u128,
+    pub(crate) nearest: TypedPanelFusionHit,
+    pub(crate) ranked_ids: Vec<CxId>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub(super) struct ResidentSearchBinaryRequest {
+    pub(super) protocol_version: u16,
+    pub(super) template_source: String,
+    pub(super) manifest_sha256: String,
+    pub(super) base_seq: u64,
+    pub(super) query_vectors: Vec<(SlotId, SlotVector)>,
+    pub(super) metadata_query: Option<String>,
+    pub(super) k: usize,
+    pub(super) fusion: FusionChoice,
+    pub(super) guard: GuardChoice,
+    pub(super) guard_panel_version: Option<u64>,
+    pub(super) filter: Option<String>,
+    pub(super) explain: bool,
+    pub(super) freshness: SearchFreshness,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub(crate) struct ResidentSearchTrace {
+    pub(crate) phase: String,
+    pub(crate) slot: Option<SlotId>,
+    pub(crate) elapsed_ms: u128,
+    pub(crate) count: Option<usize>,
+    pub(crate) detail: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub(super) enum ResidentSearchBinaryResponse {
+    Ok {
+        protocol_version: u16,
+        process_id: u32,
+        template_source: String,
+        manifest_sha256: String,
+        base_seq: u64,
+        elapsed_ms: u128,
+        outcome_json: Vec<u8>,
+        traces: Vec<ResidentSearchTrace>,
+        cache: calyx_search::SearchSlotCacheDiagnostic,
+    },
+    Err {
+        code: String,
+        message: String,
+        remediation: String,
+    },
+}
+
+pub(crate) struct ResidentSearchAtResponse {
+    pub(crate) process_id: u32,
+    pub(crate) elapsed_ms: u128,
+    pub(crate) outcome: SearchOutcome,
+    pub(crate) traces: Vec<ResidentSearchTrace>,
+    pub(crate) cache: calyx_search::SearchSlotCacheDiagnostic,
+    pub(crate) request_bytes: usize,
+    pub(crate) response_bytes: usize,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -132,6 +262,7 @@ pub(crate) struct MeasureBatchSummaryResponse {
 pub(super) struct ResidentMeasureBatchBinaryRequest {
     pub(super) protocol_version: u16,
     pub(super) modality: Modality,
+    /// Protocol v3: each element is a bincode-encoded complete `Input`.
     pub(super) inputs: Vec<Vec<u8>>,
     pub(super) runtime_batch_limit: Option<usize>,
 }

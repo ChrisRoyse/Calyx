@@ -16,6 +16,9 @@ const SST_HEADER_LEN: u64 = 32;
 const SST_RECORD_HEADER_LEN: u64 = 12;
 const SST_INDEX_ENTRY_FIXED_LEN: u64 = 12;
 const SST_BLOOM_HEADER_LEN: u64 = 16;
+const SST_RANGE_METADATA_FIXED_LEN: u64 = 24;
+const SST_RANGE_METADATA_CRC_LEN: u64 = 4;
+const SST_RANGE_FOOTER_LEN: u64 = 8;
 
 pub(super) fn compact_shards_with_target(
     cf: ColumnFamily,
@@ -39,9 +42,7 @@ pub(super) fn compact_shards_with_target(
         .parent()
         .ok_or_else(|| CalyxError::disk_pressure("compaction output has no parent"))?
         .to_path_buf();
-    fs::create_dir_all(&parent).map_err(|error| {
-        CalyxError::disk_pressure(format!("create compaction output dir: {error}"))
-    })?;
+    crate::private_fs::create_private_dir_all(&parent)?;
 
     let mut cursors = Vec::with_capacity(inputs.len());
     let mut heap = BinaryHeap::new();
@@ -198,9 +199,7 @@ impl RollingSstWriter {
         let parent = base_path
             .parent()
             .ok_or_else(|| CalyxError::disk_pressure("rolled SST output has no parent"))?;
-        fs::create_dir_all(parent).map_err(|error| {
-            CalyxError::disk_pressure(format!("create rolled SST output dir: {error}"))
-        })?;
+        crate::private_fs::create_private_dir_all(parent)?;
         Ok(Self {
             base_path,
             target_bytes: target_bytes.max(minimum_empty_sst_bytes()),
@@ -216,6 +215,11 @@ impl RollingSstWriter {
         let projected = sst_estimated_bytes(
             self.entries.len().saturating_add(1),
             self.row_storage_bytes.saturating_add(row_bytes),
+            self.entries
+                .first()
+                .map(|entry| entry.0.len())
+                .unwrap_or(key.len()),
+            key.len(),
         )?;
         if projected > self.target_bytes {
             if self.entries.is_empty() {
@@ -227,7 +231,7 @@ impl RollingSstWriter {
                 ));
             }
             self.flush_current()?;
-            let row_only = sst_estimated_bytes(1, row_bytes)?;
+            let row_only = sst_estimated_bytes(1, row_bytes, key.len(), key.len())?;
             if row_only > self.target_bytes {
                 return Err(oversized_row_error(
                     &key,
@@ -316,7 +320,7 @@ fn oversized_row_error(key: &[u8], value: &[u8], bytes: u64, target: u64) -> Cal
 }
 
 fn minimum_empty_sst_bytes() -> u64 {
-    sst_estimated_bytes(0, 0).expect("empty SST estimate")
+    sst_estimated_bytes(0, 0, 0, 0).expect("empty SST estimate")
 }
 
 fn sst_row_storage_bytes(key: &[u8], value: &[u8]) -> Result<u64> {
@@ -331,7 +335,12 @@ fn sst_row_storage_bytes(key: &[u8], value: &[u8]) -> Result<u64> {
         .saturating_add(key_len))
 }
 
-fn sst_estimated_bytes(row_count: usize, row_storage_bytes: u64) -> Result<u64> {
+fn sst_estimated_bytes(
+    row_count: usize,
+    row_storage_bytes: u64,
+    first_key_len: usize,
+    last_key_len: usize,
+) -> Result<u64> {
     let bloom_key_count = row_count.max(1);
     let bloom_bits = bloom_key_count
         .checked_mul(16)
@@ -340,10 +349,16 @@ fn sst_estimated_bytes(row_count: usize, row_storage_bytes: u64) -> Result<u64> 
         .max(64);
     let bloom_bytes = u64::try_from(bloom_bits.div_ceil(8))
         .map_err(|_| CalyxError::disk_pressure("SST bloom byte count exceeds u64"))?;
+    let range_key_bytes = u64::try_from(first_key_len.saturating_add(last_key_len))
+        .map_err(|_| CalyxError::disk_pressure("SST range key bytes exceed u64"))?;
     Ok(SST_HEADER_LEN
         .saturating_add(row_storage_bytes)
         .saturating_add(SST_BLOOM_HEADER_LEN)
-        .saturating_add(bloom_bytes))
+        .saturating_add(bloom_bytes)
+        .saturating_add(SST_RANGE_METADATA_FIXED_LEN)
+        .saturating_add(range_key_bytes)
+        .saturating_add(SST_RANGE_METADATA_CRC_LEN)
+        .saturating_add(SST_RANGE_FOOTER_LEN))
 }
 
 fn rolled_compaction_output_path(base_path: &Path, ordinal: usize) -> Result<PathBuf> {

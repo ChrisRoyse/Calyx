@@ -27,10 +27,11 @@ fn command_usage(command: &str) -> Option<&'static str> {
 }
 
 pub(crate) fn usage() -> &'static str {
-    "usage: calyx readback (--hex <file> | --vault-tree <dir> | --cf-row <vault> --cf <cf-name> --key <hex-key> | --wal <segment-path> | --ledger <vault> --seq <n> | --vault <dir> --verify-against <sqlite.db> | --vault <dir> --show-manifest | vault-manifest --field <name> --vault <dir> | partitioned-manifest --vault <dir> | temporal_search --explain --clock-fixed <secs> --tz-offset <secs> | dedup-check --vault <dir> --cx-id <cx> --slot <n> --tau <f> --near-cos <f> --distinct-cos <f> --vault-id <id> --salt <s> | kernel-health --root <dir> --kernel-id <cx> | recurrence-series --vault <dir> --cx-id <cx> | periodic-recall --vault <dir> (--hour <0-23> | --day <0-6>) [--hour <0-23>] [--day <0-6>] | oracle_self_consistency --vault <dir> --domain <domain> --vault-id <id> --salt <s> | oracle_sufficiency --vault <dir> --fixture <json> --vault-id <id> --salt <s> | oracle_predict --vault <dir> --fixture <json> --vault-id <id> --salt <s> | oracle_expand --vault <dir> --fixture <json> --vault-id <id> --salt <s> [--depth <0-4>] | reverse_query --vault <dir> --domain <domain> --answer <text> --fixture <json> --vault-id <id> --salt <s> | super_intelligence --vault <dir> --domain <domain> --fixture <json> --vault-id <id> --salt <s> | temporal-log-recurrence --log <csv> --vault <dir> --out <json> --rows <n> --expected-cadence-secs <secs> --confidence-ceiling <f> | time-prediction --vault <dir> --cx-id <cx> --confidence-ceiling <f> | assay-report|temporal-cross-term|kernel-weights|kernel-window|ward-novelty|compression-ratio|compression-report|anneal-schedule --artifact <json> [--field <path>] | config <tripwire|budget> --vault <dir> | ledger --kind Anneal --action <GoodhartPassed|GoodhartFailed> --last <n> --vault <dir> | anneal mistakes --vault <dir> --last <n> | dedup-audit --vault <dir> --cx-id <cx> | dedup-undo --vault <dir> --token <json> | cx-list --vault <dir> [--cx-id <cx>|--limit <n>|--include-slots|--allow-unbounded|--rebuild-base-page-index|--base-page-index-page-size <n>|--progress-jsonl <stderr|path>|--time-budget-ms <ms>] | time-index --vault <dir> | as-of --vault <dir> --t-millis <ms> | --cf <name> --vault <dir> [--seq <n>] | --cf <name> --level <dir> | --wal --vault <dir>)
+    "usage: calyx readback (--hex <file> | --vault-tree <dir> | --cf-row <vault> --cf <cf-name> --key <hex-key> | --wal <segment-path> | --ledger <vault> --seq <n> | --vault <dir> --show-manifest | vault-manifest --field <name> --vault <dir> | partitioned-manifest --vault <dir> | temporal_search --explain --clock-fixed <secs> --tz-offset <secs> | dedup-check --vault <dir> --cx-id <cx> --slot <n> --tau <f> --near-cos <f> --distinct-cos <f> --vault-id <id> --salt <s> | kernel-health --root <dir> --kernel-id <cx> | recurrence-series --vault <dir> --cx-id <cx> | periodic-recall --vault <dir> (--hour <0-23> | --day <0-6>) [--hour <0-23>] [--day <0-6>] | oracle_self_consistency --vault <dir> --domain <domain> --vault-id <id> --salt <s> | oracle_sufficiency --vault <dir> --fixture <json> --vault-id <id> --salt <s> | oracle_predict --vault <dir> --fixture <json> --vault-id <id> --salt <s> | oracle_expand --vault <dir> --fixture <json> --vault-id <id> --salt <s> [--depth <0-4>] | reverse_query --vault <dir> --domain <domain> --answer <text> --fixture <json> --vault-id <id> --salt <s> | super_intelligence --vault <dir> --domain <domain> --fixture <json> --vault-id <id> --salt <s> | temporal-log-recurrence --log <csv> --vault <dir> --out <json> --rows <n> --expected-cadence-secs <secs> --confidence-ceiling <f> | time-prediction --vault <dir> --cx-id <cx> --confidence-ceiling <f> | assay-report|temporal-cross-term|kernel-weights|kernel-window|ward-novelty|compression-ratio|compression-report|anneal-schedule --artifact <json> [--field <path>] | config <tripwire|budget> --vault <dir> | ledger --kind Anneal --action <GoodhartPassed|GoodhartFailed> --last <n> --vault <dir> | anneal mistakes --vault <dir> --last <n> | dedup-audit --vault <dir> --cx-id <cx> | dedup-undo --vault <dir> --token <json> | cx-list --vault <dir> [--cx-id <cx>|--limit <n>|--include-slots|--allow-unbounded|--rebuild-base-page-index|--base-page-index-page-size <n>|--progress-jsonl <stderr|path>|--time-budget-ms <ms>] | time-index --vault <dir> | as-of --vault <dir> --t-millis <ms> | citation-neighbors --vault <dir> --cx-id <cx> --direction <in|out|both> [--collection <name>] [--limit <n>] | opinion-type-census --vault <dir> | case-text --vault <dir> --cx-id <cx> [--max-bytes <n>] [--offset <n>] | judge-census --vault <dir> --judge <name-or-id> | --cf <name> --vault <dir> [--seq <n>] | --cf <name> --level <dir> | --wal --vault <dir>)
+       calyx cite-check --vault <dir> --case-name <name> [--proposition <text>]
        calyx resource-status --vault <dir> [--metrics]
        calyx create-vault <name> [--panel-template <text-default|code-default|civic-default|legal-default|medical-default|bio-default|media-default>]
-       calyx add-lens <vault> --name <n> --runtime <algorithmic|tei-http|external-cmd|candle-local|onnx|multimodal-adapter> [--endpoint <url-or-runtime-id>] [--weights <path>] [--shape Dense(<dim>)|Sparse(<dim>)|Multi(<token_dim>)] [--modality <text|code|image|audio|video|structured|mixed>]
+       calyx add-lens <vault> --name <n> --runtime <algorithmic[:kind]|algorithmic:structured|tei-http|external-cmd|candle-local|onnx|multimodal-adapter> [--endpoint <url-or-runtime-id>] [--weights <path-or-structured-binding.json>] [--shape Dense(<dim>)|Sparse(<dim>)|Multi(<token_dim>)] [--modality <text|code|image|audio|video|structured|mixed>]
        calyx retire-lens <vault> --slot <u16>
        calyx park-lens <vault> --slot <u16>
        calyx retire-vault <vault> --reason <text> [--superseded-by <replacement-vault-or-corpus> --source-issue <issue> --fsv-readback <json> --fsv-sha256 <sha256>]
@@ -41,11 +42,11 @@ pub(crate) fn usage() -> &'static str {
        calyx ingest <vault> (--text <s> | --batch <jsonl-path> | --file <path> --modality <image|audio|video>) [--idempotent] [--output <summary|rows>] [--resident-addr <127.0.0.1:port>] [--session-id <id>] [--expect-durable-seq <u64> --expect-manifest-seq <u64> --expect-base-count <u64>]
        calyx ingest-status <vault> --session <id>
        calyx anchor <vault> <cx_id> --kind <test-pass|thumbs-up|thumbs-down|label:<s>|speaker-match|style-hold> --value <v> [--confidence <0..1>] [--source <s>]
-       calyx measure <vault> --text <s>
+       calyx measure <vault> --text <s> [--record-schema <id> --record <json-file>]
        calyx erase <vault> --cx-id <cx_id> [--fsv-out <json>]
-       calyx search <vault> <query> [--k <n>] [--fusion <rrf|weighted-rrf|single-lens|kernel-first|pipeline>] [--guard <off|in-region>] [--rerank] [--explain] [--provenance|--no-provenance] [--fresh|--stale-ok] [--filter <json-predicate>] [--resident-addr <127.0.0.1:port>]
+       calyx search <vault> <query> [--k <n>] [--fusion <rrf|weighted-rrf|single-lens|kernel-first|pipeline>] [--guard <off|in-region>] [--rerank] [--explain] [--provenance|--no-provenance] [--metadata] [--fresh|--stale-ok] [--filter <json-predicate>] [--resident-addr <127.0.0.1:port>]
        calyx probe-matrix <vault> --frontier <text> [--slot <u16>] [--weighted-profile <name>] [--phrasing <terse|clinical|mechanistic|analogical|contrast>] [--length <entity|phrase|paragraph>] [--top-k <n>] [--guard <off|in-region>] [--guard-tau <cosine in (0,1]>] [--stale-ok] [--out <json>] [--resident-addr <127.0.0.1:port>] [--max-variants <n>] [--time-budget-ms <ms>] [--search-miss-budget-ms <ms>] [--search-hit-budget-ms <ms>]
-       calyx spectral-communities <vault> [--communities <2..256>] [--eigen-k <n>=communities] [--eigen-max-iter <n>=1] [--cluster-max-iter <n>=1] [--centrality-max-iter <n>=1] [--centrality-tol <positive-finite>] [--max-bridge-candidates <n>=1] [--max-centrality-candidates <n>=1] [--out <json>]
+       calyx spectral-communities <vault> [--collection <name>=kernel-panel-v3] [--communities <2..256>] [--eigen-k <n>=communities] [--eigen-max-iter <n>=1] [--cluster-max-iter <n>=1] [--centrality-max-iter <n>=1] [--centrality-tol <positive-finite>] [--max-bridge-candidates <n>=1] [--max-centrality-candidates <n>=1] [--out <json>]
        calyx kernel-answer <vault> <query> [--anchor <kind>] [--explain] [--resident-addr <127.0.0.1:port>] [--max-hops <1..=32>] [--citation-target <opinion-id>] [--citation-collection <name>]
        calyx bits <vault> <anchor-kind> [--explain]
        calyx kernel <vault> [--anchor <kind>] [--rebuild]
@@ -86,16 +87,20 @@ pub(crate) fn usage() -> &'static str {
        calyx hypothesis-falsification-sweep --hypotheses-report <json> [--hypotheses-report <json> ...] --pubtator-root <dir> --clinicaltrials-root <dir> --dgidb-root <dir> --open-targets-root <dir> --out-dir <dir> [--max-hypotheses <n>] [--run-manifest <manifest.json> --run-stage-id <stage-id>]
        calyx graph-collection-generations <vault> [--collection <name>] [--home <dir>]
        calyx graph-collection-state <vault> --collection <name> --generation <id> --state <writing|accepted|failed|tombstoned> --command <name> [--reason <text>] [--detail <k=v>] [--home <dir>]
+       calyx graph-generation-reclaim <vault> --collection <name> --generation <id> [--batch-rows <1..=16384>] [--home <dir>]
+       calyx weave-generation-verify-accept <vault> --generation <id> --max-groundedness-distance <n> [--home <dir>]
        calyx reproduce [--record] [--resident-addr <127.0.0.1:port>] <vault> <answer_id>
        calyx anneal-status <vault>
        calyx healthcheck [--vault <vault>] [--json|--no-json] [--tei <http://host:port[/path]>]
        calyx build-info
        calyx resource-drill --vault <dir> --ops <n> --value-bytes <n> --memtable-cap <bytes> --pin-max-age-ms <ms>
-       calyx migrate vault <sqlite.db> <vault.calyx> [--verify] [--backfill-default-panel] [--offline-backfill] [--batch-size <n>]
-       calyx migrate backfill <sqlite.db> <vault.calyx> [--offline-backfill] [--batch-size <n>]
-       calyx migrate verify <sqlite.db> <vault.calyx> [--require-backfill]
-       calyx migrate status <vault.calyx>
-       calyx migrate readback <sqlite.db> <vault.calyx> <chunk_id>
+       calyx relational init <database.turso>
+       calyx relational create-dataset <database.turso> <dataset> [--panel-version <n>]
+       calyx relational ingest <database.turso> <dataset> <records.jsonl|-> [--batch-size <1..=512>]
+       calyx relational project <database.turso> <dataset> <vault-dir> [--batch-size <1..=512>]
+       calyx relational status <database.turso> <dataset>
+       calyx relational readback <database.turso> <dataset> <record-id> [--vault <vault-dir>]
+       calyx relational verify <database.turso> <dataset> <vault-dir>
        calyx healthcheck [--wait <secs>] [--out <json>] [--secret-env <env>] [--calyx-home <dir>] [--vault <dir>] [--metrics-url <url>] [--require-env <name>]
        calyx healthcheck --config <calyx.toml> [--wait <secs>] [--out <json>]   (daemon-readiness: CUDA + VRAM + vault read)
        calyx lens add --manifest <manifest.json> [--home <dir>]
@@ -118,7 +123,7 @@ pub(crate) fn usage() -> &'static str {
        calyx panel registry-repair --vault <vault> (--slot <u16>|--all)
        calyx panel manifest-restore --vault <vault> --panel-asset <panel/panel-vNNNN.json> --registry-asset <registry/registry-xxxx.json>
        calyx panel warm --template <name-or-id> [--home <dir>] [--hold-secs <n>] [--out <json>] [--progress-out <jsonl>] [--max-resident-vram-mib <n>] [--resident-overhead-multiplier <n>] [--max-load-secs <n>] [--load-parallelism <n>]
-       calyx panel resident serve (--template <name-or-id>|--vault <vault>) [--home <dir>] [--modality <name>] [--slot <u16>]... [--bind <addr>] [--ready-out <json>] [--progress-out <jsonl>] [--max-resident-vram-mib <n>] [--resident-overhead-multiplier <n>] [--max-load-secs <n>] [--load-parallelism <n>]
+       calyx panel resident serve (--template <name-or-id>|--vault <vault>) [--home <dir>] [--modality <name>] [--slot <u16>]... [--bind <addr>] [--ready-out <json>] [--progress-out <jsonl>] [--max-resident-vram-mib <n>] [--resident-overhead-multiplier <n>] [--max-load-secs <n>] [--load-parallelism <n>] [--kernel-rank]
        calyx panel resident ready [--addr <127.0.0.1:port>] [--out <json>]
        calyx panel resident measure [--addr <127.0.0.1:port>] --modality <name> (--input <text>|--input-file <path>|--input-hex <hex>) [--out <json>]
        calyx panel resident stop [--addr <127.0.0.1:port>] [--out <json>]
@@ -127,9 +132,13 @@ pub(crate) fn usage() -> &'static str {
        calyx assay corpus-build --rows-jsonl <rows.jsonl> --out-dir <dir> --dataset <name> --target-class <n> --manifest <manifest.json> [--manifest <manifest.json> ...] [--limit-per-class <n>] [--batch-size <n>] [--cost-override-json <json>]   (rows require exactly one of text or input_path)
        calyx assay ensemble-card --corpus-dir <dir> --metrics-dir <dir> [--cf-root <dir>] [--target-class <n>] [--domain <domain>] [--min-lenses <n>] [--min-marginal-bits <f>] [--max-redundancy <f>]
        calyx assay i8bin-labels --rows-jsonl <rows.jsonl> --cf-root <aster-dir> [--labels-key <key>|--association-key <key>] [--target-class <n>] [--derive-anchor <label|gdelt_root:04|gdelt_quad:4|gdelt_action_geo:US|gdelt_action_geo_fullname_contains:Gaza|gdelt_actor1_country:USA|gdelt_actor2_country:USA|gdelt_actor_country:USA|gdelt_actor_pair:A->B|gdelt_actor_country_pair:USA->CAN|gdelt_event_code:010|gdelt_event_root:01|gdelt_sqldate_prefix:202401|gdelt_source_host:example.org|gdelt_source_host_contains:news|gdelt_source_tld:org|gdelt_goldstein_sign:pos|gdelt_tone_sign:neg|gdelt_goldstein_bucket:5|gdelt_tone_bucket:9|gdelt_actor1_present|gdelt_actor2_present|source_domain_contains:text>] [--anchor-name <name>] [--limit-per-class <n>] [--chunk-rows <n>]
-       calyx assay i8bin-ensemble-card (--plan <partitioned_rrf_plan.json>|--plan-cf-root <aster-dir> [--plan-key <key>]) (--labels-cf-root <aster-dir> [--labels-key <key>]|--rows-jsonl <rows.jsonl> diagnostic-only) (--metrics-dir <dir> [--cf-root <dir>] | --cf-root <dir> --db-only) [--stream-report <stream_fbin_report.json>] [--target-class <n>] [--domain <domain>] [--sample-rows <n>] [--signature-rows <n|all>] [--min-lenses <n>] [--min-marginal-bits <f>] [--max-redundancy <f>] [--mode <gate|diagnostic>|--diagnostic|--baseline] [--db-only|--no-artifacts]
+       calyx assay i8bin-ensemble-card (--plan <partitioned_rrf_plan.json>|--plan-cf-root <aster-dir> [--plan-key <key>]) (--labels-cf-root <aster-dir> [--labels-key <key>]|--rows-jsonl <rows.jsonl> diagnostic-only) (--metrics-dir <dir> [--cf-root <dir>] | --cf-root <dir> --db-only) [--stream-report <stream_fbin_report.json>] [--target-class <n>] [--domain <domain>] [--sample-rows <n>] [--signature-rows <n|all>] [--min-lenses <n>] [--min-marginal-bits <f>] [--max-redundancy <f>] [--gpu-reservation-mib <measured-peak>] [--mode <gate|diagnostic>|--diagnostic|--baseline] [--db-only|--no-artifacts]
+       calyx gpu reservations
+       calyx gpu reservation-hold --mib <measured-peak> --job <id> [--owner <identity>] [--hold-secs <n>]
+       calyx gpu run --mib <measured-peak> --job <id> [--owner <identity>] -- <command> [args...]
        calyx assay multi-anchor-ensemble-card (--report <a37_i8bin_ensemble_report.json>|--assay-cf-report <cf-root> <domain> <target-class>)... (--out-dir <dir> [--cf-root <aster-dir>] | --cf-root <aster-dir> --db-only) [--association-key <key>] [--min-lenses <n>] [--min-marginal-bits <f>] [--max-redundancy <f>] [--mode <gate|diagnostic>|--diagnostic|--baseline] [--db-only|--no-artifacts]
        calyx assay multi-anchor-readback --cf-root <aster-dir> [--association-key <key>] [--limit-lenses <n>] [--limit-targets <n>]
+       calyx assay multi-anchor-copy --from-cf-root <aster-dir> --to-cf-root <aster-dir> [--from-association-key <key>] [--to-association-key <key>]
        calyx assay gdelt-rows --source-dir <dir> --out <rows.jsonl> --manifest <manifest.json> [--dataset <name>] [--limit-per-class <n>|--max-rows <n>] [--actor-country <ISO3>] [--action-country <ISO2>] [--action-name-contains <text>]
        calyx assay export-fbin --corpus-dir <dir> --out-dir <dir> --bits-report <assay_abundance.json> --query-count <n> [--min-bits <f>]
        calyx assay stream-fbin-lens-template --tei <name> <endpoint> <dim> <physical-model-artifact> [--algorithmic <name> <kind> <dim> ...] --cf-root <aster-dir> [--lens-template-key <key>|--association-key <key>]
@@ -182,16 +191,6 @@ pub(crate) fn usage() -> &'static str {
        calyx anneal frozen-guard-report --artifact <json>
        calyx anneal regression-report --artifact <json>
        calyx anneal status --faults --last <n> --vault <dir>
-       calyx leapable issue612-fsv --baseline-latency <json> --flipped-latency <json> --pg-before <dir> --pg-after <dir> --out <json>
-       calyx leapable dual-write --sqlite <db> --calyx <dir>
-       calyx leapable read-flip --sqlite <db> --calyx <dir> [--tau <f>] [--skip-backfill]
-       calyx leapable remove-shadow --sqlite <db> (--calyx|--vault) <dir> --vault-type <text|code|civic|media>
-       calyx leapable production-fsv <snapshot-pg|verify-pg-unchanged|verify-contract|run> [args]
-       calyx leapable ask --vault <dir> (--query-vector <json-array> | --query <text>) [--top-k <n>]
-       calyx leapable recall-compare --sqlite <db> --calyx <dir> --queries <jsonl> [--top-k <n>]
-       calyx leapable verify-round-trip --sqlite <db> --calyx <dir> [--output <json>] [--benchmark --queries <jsonl>] [--top-k <n>]
-       calyx leapable shadow-open --sqlite <db> --vault <dir>
-       calyx leapable shadow-readback --vault <dir>
        calyx ward tau --slot <n> --vault <dir>
        calyx merkle-root (--ledger <dir> | --vault <dir>) --range <a..b>
        calyx verify-chain --ledger <dir> --range <a..b>
@@ -203,6 +202,7 @@ pub(crate) fn usage() -> &'static str {
        calyx audit --vault <dir> --kind <kind>
        CALYX_LEDGER_DIR=<dir> calyx merkle-root --range <a..b>
        calyx compact --vault <dir> --cf <name>
+       calyx wal-prune --vault <dir>
        calyx compact-watch --vault <dir> --duration <30s|500ms>
        calyx soak --vault <dir> --ops <n> --threads <n>
        calyx tier --vault <dir> --cf <name> --output <hot|cold>

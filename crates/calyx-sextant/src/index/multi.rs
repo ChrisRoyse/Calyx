@@ -9,7 +9,7 @@ use crate::util::{cosine, top_k};
 pub struct MaxSimIndex {
     slot: SlotId,
     token_dim: u32,
-    rows: Vec<(CxId, Vec<Vec<f32>>, u64)>,
+    rows: Vec<(CxId, SlotVector, u64)>,
     built_at_seq: u64,
     base_seq: u64,
 }
@@ -36,11 +36,81 @@ impl MaxSimIndex {
             .sum()
     }
 
+    /// Canonical exact MaxSim over a flattened document matrix.
+    ///
+    /// Resident search stores verified document tokens contiguously. Scoring
+    /// that storage directly avoids rebuilding thousands of tiny token
+    /// allocations while preserving the same loop order and `cosine`
+    /// arithmetic as [`Self::maxsim`].
+    pub fn maxsim_flat(query: &[Vec<f32>], doc: &[f32], dim: usize) -> Result<f32> {
+        if dim == 0
+            || query.is_empty()
+            || doc.is_empty()
+            || !doc.len().is_multiple_of(dim)
+            || query.iter().any(|token| token.len() != dim)
+        {
+            return Err(crate::error::sextant_error(
+                crate::error::CALYX_SEXTANT_VECTOR_SHAPE,
+                "flattened MaxSim requires nonempty, dimension-aligned query and document tokens",
+            ));
+        }
+        Ok(query
+            .iter()
+            .map(|q| {
+                doc.chunks_exact(dim)
+                    .map(|d| cosine(q, d))
+                    .fold(f32::NEG_INFINITY, f32::max)
+            })
+            .sum())
+    }
+
     pub fn cpu_gpu_delta(_query: &[Vec<f32>], _doc: &[Vec<f32>]) -> Result<f32> {
         Err(crate::error::sextant_error(
             crate::error::CALYX_SEXTANT_GPU_PARITY_UNAVAILABLE,
             "MaxSimIndex has no wired Forge GPU MaxSim path; CPU/GPU delta is unavailable",
         ))
+    }
+
+    fn maxsim_slots(query: &SlotVector, doc: &SlotVector) -> Result<f32> {
+        let query_len = query.multi_len().ok_or_else(|| {
+            crate::error::sextant_error(
+                crate::error::CALYX_SEXTANT_VECTOR_SHAPE,
+                "multi query required",
+            )
+        })?;
+        let doc_len = doc.multi_len().ok_or_else(|| {
+            crate::error::sextant_error(
+                crate::error::CALYX_SEXTANT_VECTOR_SHAPE,
+                "multi document required",
+            )
+        })?;
+        if query_len == 0 || doc_len == 0 {
+            return Err(crate::error::sextant_error(
+                crate::error::CALYX_SEXTANT_VECTOR_SHAPE,
+                "multi query and document must each contain at least one vector",
+            ));
+        }
+        let mut score = 0.0_f32;
+        for query_index in 0..query_len {
+            let query_vector = query.multi_vector(query_index).ok_or_else(|| {
+                crate::error::sextant_error(
+                    crate::error::CALYX_SEXTANT_VECTOR_SHAPE,
+                    format!("multi query vector {query_index} is missing"),
+                )
+            })?;
+            let mut best = f32::NEG_INFINITY;
+            for doc_index in 0..doc_len {
+                let doc_vector = doc.multi_vector(doc_index).ok_or_else(|| {
+                    crate::error::sextant_error(
+                        crate::error::CALYX_SEXTANT_VECTOR_SHAPE,
+                        format!("multi document vector {doc_index} is missing"),
+                    )
+                })?;
+                best = best.max(cosine(query_vector, doc_vector));
+            }
+            score += best;
+        }
+        Ok(score)
     }
 }
 
@@ -56,7 +126,7 @@ impl SextantIndex for MaxSimIndex {
     }
 
     fn insert(&mut self, cx_id: CxId, vector: SlotVector, seq: u64) -> Result<()> {
-        let SlotVector::Multi { token_dim, tokens } = vector else {
+        let Some(token_dim) = vector.multi_dim() else {
             return Err(crate::error::sextant_error(
                 crate::error::CALYX_SEXTANT_VECTOR_SHAPE,
                 "multi index received non-multi vector",
@@ -69,9 +139,9 @@ impl SextantIndex for MaxSimIndex {
             ));
         }
         if let Some(row) = self.rows.iter_mut().find(|row| row.0 == cx_id) {
-            *row = (cx_id, tokens, seq);
+            *row = (cx_id, vector, seq);
         } else {
-            self.rows.push((cx_id, tokens, seq));
+            self.rows.push((cx_id, vector, seq));
         }
         self.built_at_seq = self.built_at_seq.max(seq);
         self.base_seq = self.base_seq.max(seq);
@@ -84,13 +154,13 @@ impl SextantIndex for MaxSimIndex {
         k: usize,
         _ef: Option<usize>,
     ) -> Result<Vec<IndexSearchHit>> {
-        let SlotVector::Multi { token_dim, tokens } = query else {
+        let Some(token_dim) = query.multi_dim() else {
             return Err(crate::error::sextant_error(
                 crate::error::CALYX_SEXTANT_VECTOR_SHAPE,
                 "multi query required",
             ));
         };
-        if *token_dim != self.token_dim {
+        if token_dim != self.token_dim {
             return Err(crate::error::sextant_error(
                 crate::error::CALYX_SEXTANT_VECTOR_SHAPE,
                 "token dim mismatch",
@@ -99,8 +169,8 @@ impl SextantIndex for MaxSimIndex {
         Ok(ranked(top_k(
             self.rows
                 .iter()
-                .map(|(cx, doc, _)| (*cx, Self::maxsim(tokens, doc)))
-                .collect(),
+                .map(|(cx, doc, _)| Ok((*cx, Self::maxsim_slots(query, doc)?)))
+                .collect::<Result<Vec<_>>>()?,
             k,
         )))
     }
@@ -114,10 +184,7 @@ impl SextantIndex for MaxSimIndex {
         self.rows
             .iter()
             .find(|row| row.0 == cx_id)
-            .map(|row| SlotVector::Multi {
-                token_dim: self.token_dim,
-                tokens: row.1.clone(),
-            })
+            .map(|row| row.1.clone())
     }
 
     fn set_base_seq(&mut self, seq: u64) {

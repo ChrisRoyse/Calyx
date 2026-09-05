@@ -1,0 +1,61 @@
+{
+  "id": "1405f033-3a1f-4372-bad1-083cb2a3eb5d",
+  "object": "chat.completion",
+  "created": 1784576374,
+  "model": "deepseek-v4-flash",
+  "choices": [
+    {
+      "index": 0,
+      "message": {
+        "role": "assistant",
+        "content": "",
+        "reasoning_content": "Let me read those cases and also search for more specific terms.",
+        "tool_calls": [
+          {
+            "index": 0,
+            "id": "call_00_1lCB3xty0skzgoQhtXQc7675",
+            "type": "function",
+            "function": {
+              "name": "case_read",
+              "arguments": "{\"cx_id\": \"a1b2c3d4e5f6\", \"max_bytes\": 2000}"
+            }
+          },
+          {
+            "index": 1,
+            "id": "call_01_f7i7oWpueKvUCNqy1KjQ5295",
+            "type": "function",
+            "function": {
+              "name": "case_read",
+              "arguments": "{\"cx_id\": \"9f8e7d6c5b4a\", \"max_bytes\": 2000}"
+            }
+          },
+          {
+            "index": 2,
+            "id": "call_02_w5C87Ul1LmX1x4NWzVB64320",
+            "type": "function",
+            "function": {
+              "name": "corpus_search",
+              "arguments": "{\"query\": \"Traffic stop prolonged unreasonable delay suppression Ohio\", \"k\": 5}"
+            }
+          }
+        ]
+      },
+      "logprobs": null,
+      "finish_reason": "tool_calls"
+    }
+  ],
+  "usage": {
+    "prompt_tokens": 579,
+    "completion_tokens": 201,
+    "total_tokens": 780,
+    "prompt_tokens_details": {
+      "cached_tokens": 0
+    },
+    "completion_tokens_details": {
+      "reasoning_tokens": 13
+    },
+    "prompt_cache_hit_tokens": 0,
+    "prompt_cache_miss_tokens": 579
+  },
+  "system_fingerprint": "fp_8b330d02d0_prod0820_fp8_kvcache_20260402"
+}

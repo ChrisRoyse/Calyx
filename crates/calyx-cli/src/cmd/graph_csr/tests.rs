@@ -26,6 +26,27 @@ fn cx(byte: u8) -> CxId {
     CxId::from_bytes([byte; 16])
 }
 
+/// Publishes the immutable `VAULT_IDENTITY.json` binding the vault's
+/// content-derived Cx namespace. The vault-identity contract (#1794) refuses to
+/// resolve a bare vault directory that carries neither this file nor an active
+/// `CALYX_HOME` index entry, so every fixture that opens a vault by path must
+/// bind it exactly as `calyx create-vault` does. The `cx_namespace` is the same
+/// `vault_salt` bytes the vault was created with, so identity validation passes.
+fn bind_vault_identity(vault_dir: &Path, vault_id: VaultId, name: &str) {
+    let cx_namespace =
+        String::from_utf8(vault_salt(vault_id, name)).expect("vault namespace is valid UTF-8");
+    let identity = serde_json::json!({
+        "magic": "calyx.vault_identity",
+        "version": 1,
+        "vault_id": vault_id.to_string(),
+        "canonical_name": name,
+        "cx_namespace": cx_namespace,
+    });
+    let mut bytes = serde_json::to_vec_pretty(&identity).expect("serialize vault identity");
+    bytes.push(b'\n');
+    std::fs::write(vault_dir.join("VAULT_IDENTITY.json"), bytes).expect("write vault identity");
+}
+
 fn graph_vault(home: &Path, name: &str, edge_pairs: &[(u8, u8)]) -> PathBuf {
     graph_vault_with_options(home, name, edge_pairs, VaultOptions::default())
 }
@@ -40,6 +61,7 @@ fn graph_vault_with_options(
     let path = home.join("vaults").join(vault_id.to_string());
     let vault = AsterVault::new_durable(&path, vault_id, vault_salt(vault_id, name), options)
         .expect("create graph vault");
+    bind_vault_identity(&path, vault_id, name);
     let graph = PlainGraph::new(&vault, DEFAULT_ASTER_ASSOC_COLLECTION).expect("plain graph");
     let mut nodes = std::collections::BTreeSet::new();
     for (src, dst) in edge_pairs {
@@ -157,6 +179,7 @@ fn materialize_rebuilds_unsupported_prior_csr_version() {
         VaultOptions::default(),
     )
     .expect("create graph vault");
+    bind_vault_identity(&vault_path, vault_id, "old-csr-version");
     let graph = PlainGraph::new(&vault, DEFAULT_ASTER_ASSOC_COLLECTION).expect("plain graph");
     for id in [cx(1), cx(2)] {
         graph.put_node(id, b"{}").unwrap();
@@ -224,6 +247,7 @@ fn materialize_upgrades_legacy_unweighted_edge_values() {
         VaultOptions::default(),
     )
     .expect("create graph vault");
+    bind_vault_identity(&vault_path, vault_id, "legacy-unweighted");
     let graph = PlainGraph::new(&vault, DEFAULT_ASTER_ASSOC_COLLECTION).expect("plain graph");
     for id in [cx(1), cx(2), cx(3)] {
         graph.put_node(id, b"{}").unwrap();

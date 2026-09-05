@@ -215,7 +215,23 @@ fn search_budget_error(error: CliError) -> calyx_search::SearchError {
     .into()
 }
 
-fn validate_response(response: &ProbeResponse) -> CliResult {
+fn validate_response(variant: &ProbeVariant, response: &ProbeResponse) -> CliResult {
+    // Defense in depth for #1846: the search engine is contractually required to
+    // prune its final result set to the requested top-k. If a future engine
+    // regression ever leaks the wider internal retrieval window, fail closed
+    // here rather than persisting an over-budget record. This is not a
+    // truncation-as-workaround: we refuse the run so the breach is surfaced,
+    // never silently trimmed.
+    if response.hits.len() > variant.top_k {
+        return Err(CliError::runtime(format!(
+            "probe top-k contract violated: variant {} declared top_k={} but search returned {} hits; \
+             the persisted search engine must prune its final result set to the requested k \
+             (rebuild/upgrade calyx-search so search_outcome_* trims to k after fusion ordering)",
+            variant.id,
+            variant.top_k,
+            response.hits.len(),
+        )));
+    }
     for hit in &response.hits {
         if !hit.score.is_finite() {
             return Err(invalid_params("probe hit score must be finite"));

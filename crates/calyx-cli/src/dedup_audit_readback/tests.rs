@@ -1,10 +1,13 @@
 use std::path::PathBuf;
 
+use calyx_aster::vault::encode::{decode_slot_vector, encode_slot_vector};
+use calyx_aster::vault::{AsterVault, VaultOptions};
 use calyx_core::{
-    Constellation, CxFlags, InputRef, LedgerRef, Modality, SlotId, SlotVector, VaultId,
+    Constellation, CxFlags, InputRef, LedgerRef, Modality, SegmentVector, SegmentationProvenance,
+    SlotId, SlotVector, VaultId, VaultStore,
 };
 
-use super::physical_slots::PhysicalSlotState;
+use super::physical_slots::{PhysicalSlotState, physical_slot_states, slot_row_json};
 use super::*;
 
 #[test]
@@ -128,6 +131,142 @@ fn cx_list_tombstone_row_reports_tombstoned_not_corrupt() {
     assert_eq!(row["base_visible"], false);
     assert_eq!(row["tombstoned"], true);
     assert_eq!(row["slot_payload_decode_mode"], "mvcc_tombstone");
+}
+
+/// Issue #1929 criterion 6 — the physical dedup/audit slot readback path must
+/// round-trip a `SegmentedMulti` slot byte-exactly from real on-disk vault
+/// bytes, never densifying or pooling it.
+#[test]
+fn physical_slot_readback_round_trips_segmented_multi_byte_exactly() {
+    let cx_id = CxId::from_bytes([0x51; 16]);
+    let vault_id = "01ARZ3NDEKTSV4RRFFQ69G5FAV".parse::<VaultId>().unwrap();
+    let salt = b"issue1929-audit-readback-salt".to_vec();
+    let slot = SlotId::new(9);
+    let block = segmented_block();
+
+    let dir = std::env::temp_dir().join(format!("issue1929-audit-{}", cx_id));
+    let _ = std::fs::remove_dir_all(&dir);
+    let cx = Constellation {
+        cx_id,
+        vault_id,
+        panel_version: 1,
+        created_at: 1_786_000_000,
+        input_ref: InputRef {
+            hash: [0x9a; 32],
+            pointer: None,
+            redacted: false,
+        },
+        modality: Modality::Text,
+        slots: std::collections::BTreeMap::from([(slot, block.clone())]),
+        scalars: std::collections::BTreeMap::new(),
+        metadata: std::collections::BTreeMap::new(),
+        anchors: Vec::new(),
+        provenance: LedgerRef {
+            seq: 0,
+            hash: [0u8; 32],
+        },
+        flags: CxFlags {
+            ungrounded: true,
+            ..CxFlags::default()
+        },
+    };
+
+    let stored_id;
+    {
+        let vault =
+            AsterVault::new_durable(&dir, vault_id, salt.clone(), VaultOptions::default()).unwrap();
+        stored_id = vault.put(cx).expect("durable put segmented slot");
+        vault.flush().expect("flush");
+    }
+
+    // Cold reopen from disk: any in-process state is gone.
+    let reopened = AsterVault::new_durable(&dir, vault_id, salt, VaultOptions::default()).unwrap();
+    let live = reopened
+        .get(stored_id, reopened.snapshot())
+        .expect("reopen constellation from disk");
+
+    // (a) Migrate/verifier readback API: typed slot decodes byte-exactly.
+    let via_verifier = reopened
+        .read_slot_vector_at(reopened.snapshot(), stored_id, slot)
+        .expect("read_slot_vector_at")
+        .expect("segmented slot present");
+    assert_eq!(via_verifier, block, "verifier readback must be byte-exact");
+
+    // (b) Physical dedup/audit readback path over the real slot CF bytes.
+    let states = physical_slot_states(
+        &dir,
+        &[&live],
+        &Deadline::new(None),
+        &mut ProgressSink::Disabled,
+    )
+    .expect("physical slot states");
+    let state = states
+        .get(&(stored_id, slot))
+        .expect("segmented slot physical state present");
+    match state {
+        PhysicalSlotState::Vector { vector, .. } => {
+            assert_eq!(vector, &block, "physical audit readback must be byte-exact");
+        }
+        PhysicalSlotState::Tombstoned { .. } => panic!("segmented slot must not be tombstoned"),
+    }
+
+    // Audit JSON expands every segment natively (no dense surrogate).
+    let json = slot_row_json(slot, state);
+    assert_eq!(json["kind"], "segmented_multi");
+    assert_eq!(json["segment_count"], 2);
+    assert_eq!(json["segments"].as_array().unwrap().len(), 2);
+
+    // (c) Independent codec round-trip proof.
+    let decoded = decode_slot_vector(&encode_slot_vector(&block).unwrap()).unwrap();
+    assert_eq!(decoded, block, "encode/decode must be byte-lossless");
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A hand-built, schema-valid two-segment block (byte offsets == token offsets
+/// for a synthetic ASCII source), overlapping by 32 content tokens.
+fn segmented_block() -> SlotVector {
+    let dim = 8u32;
+    let provenance = SegmentationProvenance {
+        policy_version: 1,
+        policy_hash: [0x7c; 32],
+        source_hash: [0x9a; 32],
+        source_byte_len: 600,
+        source_token_count: 600,
+        max_input_tokens: 512,
+        special_tokens: 2,
+        overlap_tokens: 32,
+        max_source_bytes: 100_000,
+        max_segments: 64,
+    };
+    let unit = |lead: usize| {
+        let mut data = vec![0.0f32; dim as usize];
+        data[lead] = 1.0;
+        data[(lead + 1) % dim as usize] = 0.25;
+        data
+    };
+    SlotVector::SegmentedMulti {
+        token_dim: dim,
+        provenance,
+        segments: vec![
+            SegmentVector {
+                byte_start: 0,
+                byte_end: 510,
+                token_start: 0,
+                token_end: 510,
+                measured_tokens: 512,
+                data: unit(0),
+            },
+            SegmentVector {
+                byte_start: 478,
+                byte_end: 600,
+                token_start: 478,
+                token_end: 600,
+                measured_tokens: 124,
+                data: unit(1),
+            },
+        ],
+    }
 }
 
 #[test]

@@ -28,28 +28,83 @@ pub(super) fn register_and_prime_warm_lenses_parallel(
     load_limit: &WarmLoadLimit,
     load_parallelism: usize,
 ) -> CliResult<usize> {
-    let tasks = warm_lens_tasks(template)?;
+    register_and_prime_selected_warm_lenses_parallel(
+        registry,
+        template,
+        None,
+        progress_log,
+        selector,
+        load_limit,
+        load_parallelism,
+    )
+}
+
+pub(super) fn register_and_prime_scoped_warm_lenses_parallel(
+    registry: &mut Registry,
+    template: &mut template_store::SavedPanelTemplate,
+    selected_slots: &BTreeSet<SlotId>,
+    progress_log: &SharedProgressLog,
+    selector: &str,
+    load_limit: &WarmLoadLimit,
+    load_parallelism: usize,
+) -> CliResult<usize> {
+    register_and_prime_selected_warm_lenses_parallel(
+        registry,
+        template,
+        Some(selected_slots),
+        progress_log,
+        selector,
+        load_limit,
+        load_parallelism,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn register_and_prime_selected_warm_lenses_parallel(
+    registry: &mut Registry,
+    template: &mut template_store::SavedPanelTemplate,
+    selected_slots: Option<&BTreeSet<SlotId>>,
+    progress_log: &SharedProgressLog,
+    selector: &str,
+    load_limit: &WarmLoadLimit,
+    load_parallelism: usize,
+) -> CliResult<usize> {
+    let tasks = warm_lens_tasks(template, selected_slots)?;
     let prepared =
         prepare_warm_lenses_parallel(tasks, selector, load_limit, load_parallelism, progress_log)?;
     register_prepared_warm_lenses(registry, template, prepared, selector, progress_log)
 }
 
-fn warm_lens_tasks(template: &template_store::SavedPanelTemplate) -> CliResult<Vec<WarmLensTask>> {
-    let total = template.lenses.len();
+fn warm_lens_tasks(
+    template: &template_store::SavedPanelTemplate,
+    selected_slots: Option<&BTreeSet<SlotId>>,
+) -> CliResult<Vec<WarmLensTask>> {
     let template_id = template_store::id_for_loaded(template)?;
     let mut tasks = template
         .lenses
         .iter()
         .cloned()
         .enumerate()
+        .filter(|(template_idx, _)| {
+            selected_slots.is_none_or(|slots| {
+                u16::try_from(*template_idx)
+                    .ok()
+                    .is_some_and(|slot| slots.contains(&SlotId::new(slot)))
+            })
+        })
         .map(|(template_idx, lens)| WarmLensTask {
             template_idx,
-            position: template_idx + 1,
-            total,
+            position: 0,
+            total: 0,
             template_id: template_id.clone(),
             lens,
         })
         .collect::<Vec<_>>();
+    let total = tasks.len();
+    for (position, task) in tasks.iter_mut().enumerate() {
+        task.position = position + 1;
+        task.total = total;
+    }
     tasks.sort_by(|left, right| {
         warm_prepare_weight(&right.lens)
             .cmp(&warm_prepare_weight(&left.lens))

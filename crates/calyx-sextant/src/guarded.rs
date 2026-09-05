@@ -4,8 +4,8 @@ use std::collections::BTreeMap;
 
 use calyx_core::{CalyxError, Constellation, CxId, Result, SlotId, SlotVector};
 use calyx_ward::{
-    GuardProfile, GuardVerdict, MatchedSlots, ProducedSlots, WardError, guard,
-    guard_non_high_stakes, validate_non_inert_profile,
+    GuardProfile, GuardVerdict, SlotVerdict, TypedGuardVerdict, TypedMatchedSlots,
+    TypedProducedSlots, WardError, guard_typed, validate_non_inert_profile,
 };
 use serde::{Deserialize, Serialize};
 
@@ -28,30 +28,32 @@ pub fn apply_in_region_guard_to_hits(
     validate_trusted_guard_profile(profile)?;
     let produced = produced_guard_slots_from_vectors(query_vectors, profile)?;
     if high_stakes {
-        guard(profile, &produced, &produced, true).map_err(ward_error)?;
+        guard_typed(profile, &produced, &produced, true).map_err(ward_error)?;
     }
 
     let mut kept = Vec::with_capacity(hits.len());
     let mut dropped = Vec::new();
     for mut hit in hits.drain(..) {
         match guard_candidate_with_stakes(docs, profile, &produced, &hit, high_stakes) {
-            CandidateGuard::Pass(verdict) => {
+            CandidateGuard::Pass(typed_verdict) => {
                 hit.guard = Some(HitGuardEvidence {
                     mode: HitGuardMode::InRegionOnly,
-                    verdict,
+                    verdict: dense_summary(&typed_verdict),
+                    typed_verdict: Some(typed_verdict),
                 });
                 kept.push(hit);
             }
             CandidateGuard::Drop {
                 cx_id,
                 reason,
-                verdict,
+                typed_verdict,
             } => {
                 dropped.push(DroppedGuardHit {
                     cx_id,
                     mode: HitGuardMode::InRegionOnly,
                     reason,
-                    verdict,
+                    verdict: typed_verdict.as_ref().map(dense_summary),
+                    typed_verdict,
                 });
             }
         }
@@ -74,23 +76,25 @@ pub(crate) fn apply_query_guard(
     let mut dropped = Vec::new();
     for mut hit in hits.drain(..) {
         match guard_candidate(docs, profile, &produced, &hit) {
-            CandidateGuard::Pass(verdict) => {
+            CandidateGuard::Pass(typed_verdict) => {
                 hit.guard = Some(HitGuardEvidence {
                     mode: HitGuardMode::InRegionOnly,
-                    verdict,
+                    verdict: dense_summary(&typed_verdict),
+                    typed_verdict: Some(typed_verdict),
                 });
                 kept.push(hit);
             }
             CandidateGuard::Drop {
                 cx_id,
                 reason,
-                verdict,
+                typed_verdict,
             } => {
                 dropped.push(DroppedGuardHit {
                     cx_id,
                     mode: HitGuardMode::InRegionOnly,
                     reason,
-                    verdict,
+                    verdict: typed_verdict.as_ref().map(dense_summary),
+                    typed_verdict,
                 });
             }
         }
@@ -111,18 +115,18 @@ fn validate_trusted_guard_profile(profile: &GuardProfile) -> Result<()> {
 }
 
 enum CandidateGuard {
-    Pass(GuardVerdict),
+    Pass(TypedGuardVerdict),
     Drop {
         cx_id: CxId,
         reason: String,
-        verdict: Option<GuardVerdict>,
+        typed_verdict: Option<TypedGuardVerdict>,
     },
 }
 
 fn guard_candidate(
     docs: &BTreeMap<CxId, Constellation>,
     profile: &GuardProfile,
-    produced: &ProducedSlots,
+    produced: &TypedProducedSlots,
     hit: &Hit,
 ) -> CandidateGuard {
     guard_candidate_with_stakes(docs, profile, produced, hit, false)
@@ -131,7 +135,7 @@ fn guard_candidate(
 fn guard_candidate_with_stakes(
     docs: &BTreeMap<CxId, Constellation>,
     profile: &GuardProfile,
-    produced: &ProducedSlots,
+    produced: &TypedProducedSlots,
     hit: &Hit,
     high_stakes: bool,
 ) -> CandidateGuard {
@@ -142,25 +146,21 @@ fn guard_candidate_with_stakes(
         Ok(matched) => matched,
         Err(reason) => return drop_without_verdict(hit.cx_id, reason),
     };
-    let result = if high_stakes {
-        guard(profile, produced, &matched, true)
-    } else {
-        guard_non_high_stakes(profile, produced, &matched)
-    };
+    let result = guard_typed(profile, produced, &matched, high_stakes);
     match result {
         Ok(verdict) if verdict.overall_pass => CandidateGuard::Pass(verdict),
         Ok(verdict) => CandidateGuard::Drop {
             cx_id: hit.cx_id,
             reason: "ood".to_string(),
-            verdict: Some(verdict),
+            typed_verdict: Some(verdict),
         },
         Err(error) => drop_without_verdict(hit.cx_id, ward_reason(&error)),
     }
 }
 
-fn produced_guard_slots(query: &Query, profile: &GuardProfile) -> Result<ProducedSlots> {
+fn produced_guard_slots(query: &Query, profile: &GuardProfile) -> Result<TypedProducedSlots> {
     let slots = required_slots(profile);
-    let mut produced = ProducedSlots::new();
+    let mut produced = TypedProducedSlots::new();
 
     if !query.guard_vectors.is_empty() {
         for slot in slots {
@@ -170,15 +170,8 @@ fn produced_guard_slots(query: &Query, profile: &GuardProfile) -> Result<Produce
                     format!("InRegionOnly guard missing slot-aware query vector:{slot}"),
                 )
             })?;
-            let data = dense_data(Some(vector), "query").map_err(|reason| {
-                crate::error::sextant_error(
-                    crate::error::CALYX_SEXTANT_VECTOR_SHAPE,
-                    format!(
-                        "InRegionOnly guard requires dense query vector for slot {slot}: {reason}"
-                    ),
-                )
-            })?;
-            produced.insert(slot, data.to_vec());
+            vector.validate_schema()?;
+            produced.insert(slot, vector.clone());
         }
         return Ok(produced);
     }
@@ -190,14 +183,15 @@ fn produced_guard_slots(query: &Query, profile: &GuardProfile) -> Result<Produce
         ));
     }
 
-    let data = dense_data(query.vector.as_ref(), "query").map_err(|reason| {
+    let vector = query.vector.as_ref().ok_or_else(|| {
         crate::error::sextant_error(
             crate::error::CALYX_SEXTANT_VECTOR_SHAPE,
-            format!("InRegionOnly guard requires dense query vector: {reason}"),
+            "InRegionOnly guard requires a typed query vector",
         )
     })?;
+    vector.validate_schema()?;
     for slot in slots {
-        produced.insert(slot, data.to_vec());
+        produced.insert(slot, vector.clone());
     }
     Ok(produced)
 }
@@ -205,8 +199,8 @@ fn produced_guard_slots(query: &Query, profile: &GuardProfile) -> Result<Produce
 fn produced_guard_slots_from_vectors(
     query_vectors: &[(SlotId, SlotVector)],
     profile: &GuardProfile,
-) -> Result<ProducedSlots> {
-    let mut produced = ProducedSlots::new();
+) -> Result<TypedProducedSlots> {
+    let mut produced = TypedProducedSlots::new();
     for slot in required_slots(profile) {
         let vector = query_vectors
             .iter()
@@ -218,13 +212,8 @@ fn produced_guard_slots_from_vectors(
                     format!("InRegionOnly guard missing slot-aware query vector:{slot}"),
                 )
             })?;
-        let data = dense_data(Some(vector), "query").map_err(|reason| {
-            crate::error::sextant_error(
-                crate::error::CALYX_SEXTANT_VECTOR_SHAPE,
-                format!("InRegionOnly guard requires dense query vector for slot {slot}: {reason}"),
-            )
-        })?;
-        produced.insert(slot, data.to_vec());
+        vector.validate_schema()?;
+        produced.insert(slot, vector.clone());
     }
     Ok(produced)
 }
@@ -232,26 +221,19 @@ fn produced_guard_slots_from_vectors(
 fn matched_guard_slots(
     cx: &Constellation,
     profile: &GuardProfile,
-) -> std::result::Result<MatchedSlots, String> {
-    let mut matched = MatchedSlots::new();
+) -> std::result::Result<TypedMatchedSlots, String> {
+    let mut matched = TypedMatchedSlots::new();
     for slot in required_slots(profile) {
         let vector = cx
             .slots
             .get(&slot)
             .ok_or_else(|| format!("missing_hit_slot:{slot}"))?;
-        matched.insert(slot, dense_data(Some(vector), "hit")?.to_vec());
+        vector
+            .validate_schema()
+            .map_err(|error| format!("invalid_hit_slot:{slot}:{}", error.code))?;
+        matched.insert(slot, vector.clone());
     }
     Ok(matched)
-}
-
-fn dense_data<'a>(
-    vector: Option<&'a SlotVector>,
-    owner: &str,
-) -> std::result::Result<&'a [f32], String> {
-    match vector.and_then(SlotVector::as_dense) {
-        Some(data) => Ok(data),
-        None => Err(format!("non_dense_{owner}_slot")),
-    }
 }
 
 fn required_slots(profile: &GuardProfile) -> Vec<SlotId> {
@@ -265,7 +247,26 @@ fn drop_without_verdict(cx_id: CxId, reason: impl Into<String>) -> CandidateGuar
     CandidateGuard::Drop {
         cx_id,
         reason: reason.into(),
-        verdict: None,
+        typed_verdict: None,
+    }
+}
+
+fn dense_summary(typed: &TypedGuardVerdict) -> GuardVerdict {
+    GuardVerdict {
+        guard_id: typed.guard_id,
+        overall_pass: typed.overall_pass,
+        provisional: typed.provisional,
+        per_slot: typed
+            .per_slot
+            .iter()
+            .map(|slot| SlotVerdict {
+                slot: slot.slot,
+                cos: slot.cos,
+                tau: slot.tau,
+                pass: slot.pass,
+            })
+            .collect(),
+        action: typed.action.clone(),
     }
 }
 

@@ -327,7 +327,12 @@ impl LoomStore {
     pub fn agreement_graph(&self) -> Result<Vec<AgreementEdge>> {
         let mut edges = BTreeMap::<(SlotId, SlotId), (f32, usize)>::new();
         for row in self.xterm_cf.values() {
-            if let CrossTermValue::Scalar(value) = row.value {
+            let value = match &row.value {
+                CrossTermValue::Scalar(value) => Some(*value),
+                CrossTermValue::BlockAgreement(evidence) => Some(evidence.score),
+                CrossTermValue::Vector(_) => None,
+            };
+            if let Some(value) = value {
                 let entry = edges.entry((row.key.a, row.key.b)).or_default();
                 entry.0 += value;
                 entry.1 += 1;
@@ -393,11 +398,14 @@ impl LoomStore {
                     "xterm CF key does not match row key",
                 ));
             }
+            typed::validate_persisted_value(&row.value)?;
             store.xterm_cf.insert(row.key, row);
         }
         Ok(store)
     }
 }
+
+mod typed;
 
 fn xterm_key(key: &CrossTermKey) -> Vec<u8> {
     let mut out = Vec::with_capacity(21);

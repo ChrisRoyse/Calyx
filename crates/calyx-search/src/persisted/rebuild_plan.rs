@@ -24,7 +24,11 @@ const DEFAULT_SLOT_ROW_MEMORY_ESTIMATE_BYTES: usize = 32 * 1024;
 const MIN_SLOT_MEMORY_ESTIMATE_BYTES: usize = 1024 * 1024;
 const DENSE_REBUILD_MEMORY_MULTIPLIER: usize = 6;
 const DENSE_ROW_OVERHEAD_BYTES: usize = 1024;
-const MULTI_REBUILD_MEMORY_MULTIPLIER: usize = 2;
+// Token-ANN construction retains the source vectors and cuVS materializes a
+// normalized build space plus a flat host tensor. Account for all of them so
+// two million-token lanes are never built concurrently under the default 8GiB
+// rebuild budget.
+const MULTI_REBUILD_MEMORY_MULTIPLIER: usize = 4;
 const MULTI_ROW_OVERHEAD_BYTES: usize = 2048;
 const SPARSE_ROW_MEMORY_ESTIMATE_BYTES: usize = 4096;
 

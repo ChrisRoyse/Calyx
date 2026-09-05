@@ -14,8 +14,9 @@ use serde::Serialize;
 
 use crate::error::CliError;
 use support::{
-    Mode, Paths, Request, approx_rows, build_params, cx, dir_bytes, exact_top_k, file_len,
-    percentile, rank_of, raw_vectors, search_params, write_json, write_raw_sidecar,
+    Mode, Paths, Request, approx_rows, build_params, cx, exact_top_k, file_len, percentile,
+    rank_of, raw_vectors, search_params, write_json, write_legacy_raw_sidecar_dir,
+    write_raw_sidecar,
 };
 
 const SLOT: SlotId = SlotId::new(0);
@@ -70,6 +71,18 @@ struct EdgeReport {
     observed_message: String,
 }
 
+#[derive(Serialize)]
+struct LegacyDirReport {
+    mode: String,
+    build_backend: String,
+    root: String,
+    raw_dir: String,
+    raw_is_dir: bool,
+    node_count: usize,
+    node7_rank: usize,
+    hits: usize,
+}
+
 pub(crate) fn run(args: &[String]) -> crate::error::CliResult {
     if issue604::is_issue604(args) {
         return issue604::run(args);
@@ -80,7 +93,8 @@ pub(crate) fn run(args: &[String]) -> crate::error::CliResult {
         Mode::Empty => run_empty_edge(&request),
         Mode::DimMismatch => run_dim_mismatch_edge(&request),
         Mode::Truncated => run_truncated_edge(&request),
-        Mode::MissingRaw => run_missing_raw_edge(&request),
+        Mode::TruncatedRaw => run_truncated_raw_edge(&request),
+        Mode::LegacyDir => run_legacy_dir_edge(&request),
         Mode::CorruptPq => run_corrupt_pq_edge(&request),
     }
 }
@@ -158,8 +172,9 @@ fn run_happy(request: &Request) -> crate::error::CliResult {
             .map(|hit| hit.cx_id.to_string())
             .unwrap_or_else(|| "none".to_string()),
         graph_bytes: file_len(&paths.graph_path).unwrap_or(0),
-        raw_file_count: fs::read_dir(&paths.raw_dir)?.count(),
-        raw_bytes_total: dir_bytes(&paths.raw_dir)?,
+        // Packed v2 sidecar (#1990): a single regular file, not a dir of files.
+        raw_file_count: 1,
+        raw_bytes_total: file_len(&paths.raw_dir).unwrap_or(0),
         pq_bytes: file_len(&paths.pq_path),
         pq_ram_bytes: index.pq_ram_bytes(),
         pq_subvectors: index.pq_summary().map(|(_, subvectors, _)| subvectors),
@@ -278,25 +293,72 @@ fn run_truncated_edge(request: &Request) -> crate::error::CliResult {
     )
 }
 
-fn run_missing_raw_edge(request: &Request) -> crate::error::CliResult {
+/// Build a real packed v2 sidecar, then truncate the packed file on disk and
+/// prove the rescore read fails closed (never zero-fills). This replaces the
+/// pre-#1990 `missing-raw` edge (removing one per-id file), which no longer
+/// exists once the sidecar is a single packed file.
+fn run_truncated_raw_edge(request: &Request) -> crate::error::CliResult {
     let paths = Paths::create(&request.root)?;
     let raw = raw_vectors(32, request.dim);
     write_raw_sidecar(&paths.raw_dir, &raw)?;
-    fs::remove_file(paths.raw_dir.join("7"))?;
     let index = build_edge_index(request, &paths, &raw)?;
     let before = file_len(&paths.graph_path);
+    // Chop the tail of the packed file so its length no longer matches
+    // header + node_count * dim * 4; the reader must reject it on open.
+    let raw_len = file_len(&paths.raw_dir).unwrap_or(0);
+    OpenOptions::new()
+        .write(true)
+        .open(&paths.raw_dir)?
+        .set_len(raw_len.saturating_sub(4))?;
     let err = index
         .search_ids(&raw[7].1, request.k, &search_params(request))
-        .expect_err("missing raw sidecar must fail closed");
+        .expect_err("truncated packed raw sidecar must fail closed");
     write_edge(
         &request.root,
-        "missing-raw",
+        "truncated-raw",
         request.build_backend.as_str(),
         before,
         file_len(&paths.graph_path),
         err.code,
         &err.message,
     )
+}
+
+/// Prove the versioned reader still reads a legacy v1 directory-of-files
+/// sidecar (the real deployed pre-#1990 layout). Builds the graph pointed at a
+/// v1 dir, runs a search, and reports the exact-node-7 rank as read-back proof.
+fn run_legacy_dir_edge(request: &Request) -> crate::error::CliResult {
+    let paths = Paths::create(&request.root)?;
+    let raw = raw_vectors(32, request.dim);
+    // Materialize the v1 directory layout, then build a graph that references it
+    // as the sidecar (the builder leaves an already-populated sidecar in place).
+    write_legacy_raw_sidecar_dir(&paths.raw_dir, &raw)?;
+    let index = build_edge_index(request, &paths, &raw)?;
+    let node7 = index.search_ids(&raw[7].1, request.k, &search_params(request))?;
+    let node7_rank = rank_of(&node7, 7);
+    if node7_rank == usize::MAX {
+        return Err(CliError::runtime(
+            "CALYX_FSV_DISKANN_LEGACY_DIR_READ_FAILED: node 7 absent from legacy-dir rescore",
+        ));
+    }
+    let report = LegacyDirReport {
+        mode: "legacy-dir".to_string(),
+        build_backend: request.build_backend.as_str().to_string(),
+        root: request.root.display().to_string(),
+        raw_dir: paths.raw_dir.display().to_string(),
+        raw_is_dir: paths.raw_dir.is_dir(),
+        node_count: raw.len(),
+        node7_rank,
+        hits: node7.len(),
+    };
+    let path = paths.metrics_dir.join("diskann_edge_legacy_dir.json");
+    write_json(&path, &report)?;
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&report)
+            .map_err(|error| CliError::runtime(format!("serialize legacy-dir report: {error}")))?
+    );
+    Ok(())
 }
 
 fn build_edge_index(
@@ -408,7 +470,8 @@ fn expected_error(mode: &str) -> &'static str {
     match mode {
         "empty" => "CALYX_INDEX_INVALID_PARAMS",
         "dim-mismatch" => "CALYX_INDEX_DIM_MISMATCH",
-        "truncated" | "missing-raw" => "CALYX_INDEX_IO",
+        "truncated" => "CALYX_INDEX_CORRUPT",
+        "truncated-raw" => "CALYX_INDEX_CORRUPT",
         "corrupt-pq" => "CALYX_INDEX_CORRUPT",
         _ => "CALYX_INDEX_INVALID_PARAMS",
     }

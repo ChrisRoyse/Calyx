@@ -16,10 +16,7 @@ use crate::error::CliResult;
 use crate::persisted::PersistedSearchIndexes;
 use crate::provenance::attach_verified_provenance;
 
-use super::guard::{
-    ResolvedGuard, apply_in_region_guard_traced, prefilter_in_region_candidates_traced,
-    resolve_guard,
-};
+use super::guard::{ResolvedGuard, apply_in_region_guard_traced, resolve_guard};
 use super::hydration::hydrate_hit_docs_with_bounded_readbacks;
 use super::support::{
     SearchReadSnapshot, is_stale_derived, renumber_and_truncate, vault_base_count_at,
@@ -274,27 +271,19 @@ pub(super) fn search_outcome_with_measured_slots(
     }
     trace.emit("fusion.done", None, Some(hits.len()));
     if guard != GuardChoice::InRegion {
+        // Enforce the caller-requested final top-k (`k`), NOT the internal
+        // retrieval window (`retrieval_k`). `retrieval_k` is deliberately wider
+        // (the 64/128 fusion+rerank candidate budget) to give rank fusion the
+        // recall it needs; exposing that window as the returned result set is
+        // the #1846 contract breach (final list pruned to the window instead of
+        // to `size`). Fusion has already ordered hits by descending score with
+        // the documented cx_id tie-break, so truncating here keeps the top `k`.
+        // Doing it before hydration also bounds the readback fan-out to `k`.
         trace.emit("fusion.truncate.start", None, Some(hits.len()));
-        renumber_and_truncate(&mut hits, retrieval_k);
+        renumber_and_truncate(&mut hits, k);
         trace.emit("fusion.truncate.done", None, Some(hits.len()));
     }
     let hydrate_hit_slots = guard == GuardChoice::InRegion;
-    if let ResolvedGuard::OperatorTau(tau) = resolved_guard {
-        let before = hits.len();
-        trace.emit("guard.prefilter.start", None, Some(before));
-        budget.check("before_in_region_prefilter", before)?;
-        hits = prefilter_in_region_candidates_traced(hits, query_vectors, tau, trace);
-        budget.check("after_in_region_prefilter", hits.len())?;
-        trace.emit_detail(
-            "guard.prefilter.done",
-            None,
-            Some(hits.len()),
-            Some(format!(
-                "filtered={} tau={tau:.6}",
-                before.saturating_sub(hits.len())
-            )),
-        );
-    }
     trace.emit_detail(
         "hit_docs.hydrate.start",
         None,
@@ -331,16 +320,22 @@ pub(super) fn search_outcome_with_measured_slots(
             let tau = *tau;
             trace.emit("guard.in_region.start", None, Some(hits.len()));
             budget.check("before_in_region_guard", hits.len())?;
-            hits = apply_in_region_guard_traced(hits, &hit_docs, query_vectors, tau, trace);
+            hits = apply_in_region_guard_traced(hits, &hit_docs, query_vectors, tau, trace)?;
             budget.check("after_in_region_guard", hits.len())?;
             trace.emit("guard.in_region.done", None, Some(hits.len()));
-            renumber_and_truncate(&mut hits, retrieval_k);
+            // In-region carries the wide `retrieval_k` pool through prefilter +
+            // guard (guarding drops candidates), then trims to the caller `k`
+            // only after guarding so up to `k` survivors remain (#1846).
+            renumber_and_truncate(&mut hits, k);
             Some(tau)
         }
         ResolvedGuard::Profile(profile) => apply_profile_guard(
             &hit_docs,
             query_vectors,
-            retrieval_k,
+            // Trim the profile-guard survivors to the caller `k`, not the wide
+            // internal `retrieval_k` window (#1846). apply_profile_guard's own
+            // final renumber_and_truncate uses this argument.
+            k,
             trace,
             &mut budget,
             &mut hits,

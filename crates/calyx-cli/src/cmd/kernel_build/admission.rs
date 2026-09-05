@@ -1,10 +1,12 @@
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::net::SocketAddr;
 use std::path::Path;
 
 use calyx_core::SlotId;
-use calyx_lodestar::{PANEL_RRF_K, PanelFusionLane, PanelVectors, rank_panel_candidates};
+use calyx_lodestar::{
+    TypedPanelFusionLane, TypedPanelVectors, rank_typed_panel_top_k_candidate_refs,
+};
 use calyx_registry::VaultPanelState;
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
@@ -24,9 +26,10 @@ const MAX_QUERY_FILE_BYTES: usize = 1_048_576;
 const LOWER_TAIL_QUANTILE: f32 = 0.05;
 const SAMPLE_SEED: u64 = 1_460;
 const SAMPLE_DOMAIN: &[u8] = b"calyx-kernel-admission-sample-v1";
-const CORPUS_OBSERVATION_DOMAIN: &[u8] = b"calyx-kernel-admission-corpus-observations-v2-panel";
+const CORPUS_OBSERVATION_DOMAIN: &[u8] =
+    b"calyx-kernel-admission-corpus-observations-v3-typed-block";
 const QUERY_ID_DOMAIN: &[u8] = b"calyx-kernel-admission-query-ids-v1";
-const QUERY_OBSERVATION_DOMAIN: &[u8] = b"calyx-kernel-admission-query-observations-v2-panel";
+const QUERY_OBSERVATION_DOMAIN: &[u8] = b"calyx-kernel-admission-query-observations-v3-typed-block";
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -37,12 +40,12 @@ struct AdmissionQueryRecord {
 
 struct MeasuredAdmissionQuery {
     query_id: String,
-    vectors: PanelVectors,
+    vectors: TypedPanelVectors,
 }
 
 pub(super) fn calibrate_corpus_neighbors(
     slots: &[SlotId],
-    rows: &std::collections::BTreeMap<calyx_core::CxId, PanelVectors>,
+    rows: &std::collections::BTreeMap<calyx_core::CxId, TypedPanelVectors>,
 ) -> CliResult<KernelAdmissionContract> {
     validate_corpus(slots, rows)?;
     let mut ranked = rows
@@ -62,10 +65,14 @@ pub(super) fn calibrate_corpus_neighbors(
     sample_ids.update(SAMPLE_DOMAIN);
     let mut observations = Sha256::new();
     observations.update(CORPUS_OBSERVATION_DOMAIN);
+    let refs = rows
+        .iter()
+        .map(|(cx_id, vectors)| (*cx_id, vectors))
+        .collect::<BTreeMap<_, _>>();
     let mut similarities = Vec::with_capacity(ranked.len());
     for (_, query_id, query) in ranked {
         sample_ids.update(query_id.as_bytes());
-        let nearest = rank_panel_candidates(query, rows, slots, PANEL_RRF_K)?
+        let nearest = rank_typed_panel_top_k_candidate_refs(query, &refs, slots, 2)?
             .into_iter()
             .find(|hit| hit.cx_id != query_id)
             .ok_or_else(|| {
@@ -84,7 +91,7 @@ pub(super) fn calibrate_corpus_neighbors(
         )?;
     }
     contract(
-        "loo_panel_rrf_p05_v2",
+        "loo_typed_block_rrf_p05_v3",
         rows.len(),
         similarities,
         CORPUS_SAMPLE_LIMIT,
@@ -99,7 +106,7 @@ pub(super) fn calibrate_real_queries(
     resolved: &ResolvedVault,
     state: &VaultPanelState,
     embedding_slots: &[SlotId],
-    rows: &std::collections::BTreeMap<calyx_core::CxId, PanelVectors>,
+    rows: &std::collections::BTreeMap<calyx_core::CxId, TypedPanelVectors>,
     source_path: &Path,
     resident_addr: SocketAddr,
 ) -> CliResult<KernelAdmissionContract> {
@@ -142,18 +149,23 @@ pub(super) fn calibrate_real_queries(
     sample_ids.update(QUERY_ID_DOMAIN);
     let mut observations = Sha256::new();
     observations.update(QUERY_OBSERVATION_DOMAIN);
+    let refs = rows
+        .iter()
+        .map(|(cx_id, vectors)| (*cx_id, vectors))
+        .collect::<BTreeMap<_, _>>();
     let mut similarities = Vec::with_capacity(measured.len());
     for query in measured {
         hash_sized(&mut sample_ids, query.query_id.as_bytes());
-        let nearest = rank_panel_candidates(&query.vectors, rows, embedding_slots, PANEL_RRF_K)?
-            .into_iter()
-            .next()
-            .ok_or_else(|| {
-                CliError::runtime(format!(
-                    "real admission query {} found no corpus neighbor",
-                    query.query_id
-                ))
-            })?;
+        let nearest =
+            rank_typed_panel_top_k_candidate_refs(&query.vectors, &refs, embedding_slots, 1)?
+                .into_iter()
+                .next()
+                .ok_or_else(|| {
+                    CliError::runtime(format!(
+                        "real admission query {} found no corpus neighbor",
+                        query.query_id
+                    ))
+                })?;
         let mut query_key = Sha256::new();
         query_key.update(QUERY_ID_DOMAIN);
         query_key.update(query.query_id.as_bytes());
@@ -169,7 +181,7 @@ pub(super) fn calibrate_real_queries(
     }
     let source = retain_real_queries(&resolved.path, &source_bytes)?;
     contract(
-        "real_query_panel_rrf_p05_v2",
+        "real_query_typed_block_rrf_p05_v3",
         rows.len(),
         similarities,
         query_count,
@@ -182,7 +194,7 @@ pub(super) fn calibrate_real_queries(
 
 fn validate_corpus(
     slots: &[SlotId],
-    rows: &std::collections::BTreeMap<calyx_core::CxId, PanelVectors>,
+    rows: &std::collections::BTreeMap<calyx_core::CxId, TypedPanelVectors>,
 ) -> CliResult {
     if rows.len() < 2 {
         return Err(CliError::usage(
@@ -190,7 +202,11 @@ fn validate_corpus(
         ));
     }
     let first = rows.values().next().expect("validated nonempty corpus");
-    let _ = rank_panel_candidates(first, rows, slots, PANEL_RRF_K)?;
+    let refs = rows
+        .iter()
+        .map(|(cx_id, vectors)| (*cx_id, vectors))
+        .collect::<BTreeMap<_, _>>();
+    let _ = rank_typed_panel_top_k_candidate_refs(first, &refs, slots, 1)?;
     Ok(())
 }
 
@@ -330,12 +346,12 @@ fn record_similarity(
     query_key: &[u8],
     nearest_key: &[u8],
     similarity: f32,
-    lanes: &[PanelFusionLane],
+    lanes: &[TypedPanelFusionLane],
     similarities: &mut Vec<f32>,
 ) -> CliResult {
     if !similarity.is_finite() || !(0.0..=1.0).contains(&similarity) {
         return Err(CliError::runtime(format!(
-            "kernel admission calibration produced invalid cosine similarity {similarity}"
+            "kernel admission calibration produced invalid typed fused similarity {similarity}"
         )));
     }
     hash_sized(observations, query_key);
@@ -343,8 +359,15 @@ fn record_similarity(
     observations.update(similarity.to_bits().to_le_bytes());
     observations.update((lanes.len() as u64).to_le_bytes());
     for lane in lanes {
+        lane.similarity.validate().map_err(CliError::from)?;
         observations.update(lane.slot.get().to_le_bytes());
-        observations.update(lane.cosine.to_bits().to_le_bytes());
+        let evidence = serde_json::to_vec(&lane.similarity).map_err(|error| {
+            CliError::runtime(format!(
+                "encode typed kernel admission evidence for slot {}: {error}",
+                lane.slot
+            ))
+        })?;
+        hash_sized(observations, &evidence);
         observations.update((lane.rank as u64).to_le_bytes());
         observations.update(lane.rrf_contribution.to_bits().to_le_bytes());
     }

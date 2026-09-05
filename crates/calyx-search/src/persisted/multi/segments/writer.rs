@@ -12,6 +12,7 @@ pub(in crate::persisted) struct StreamingSegmentsWriter {
     token_count: usize,
     segments: Vec<MultiSegmentRef>,
     max_segment_bytes: u64,
+    token_ann: Option<super::super::token_ann::TokenAnnBuilder>,
 }
 
 #[derive(Debug)]
@@ -29,6 +30,7 @@ impl StreamingSegmentsWriter {
         slot: SlotId,
         token_dim: u32,
         base_seq: u64,
+        build_backend: calyx_sextant::index::DiskAnnBuildBackend,
     ) -> Self {
         Self::with_max_segment_bytes(
             vault_dir,
@@ -36,6 +38,7 @@ impl StreamingSegmentsWriter {
             slot,
             token_dim,
             base_seq,
+            build_backend,
             bounds::DEFAULT_MAX_MULTI_BINARY_SEGMENT_BYTES,
         )
     }
@@ -46,6 +49,7 @@ impl StreamingSegmentsWriter {
         slot: SlotId,
         token_dim: u32,
         base_seq: u64,
+        build_backend: calyx_sextant::index::DiskAnnBuildBackend,
         max_segment_bytes: u64,
     ) -> Self {
         Self {
@@ -60,6 +64,12 @@ impl StreamingSegmentsWriter {
             token_count: 0,
             segments: Vec::new(),
             max_segment_bytes,
+            token_ann: Some(super::super::token_ann::TokenAnnBuilder::new(
+                slot,
+                token_dim,
+                base_seq,
+                build_backend,
+            )),
         }
     }
 
@@ -102,6 +112,10 @@ impl StreamingSegmentsWriter {
                 encoded.token_count()
             )));
         }
+        self.token_ann
+            .as_mut()
+            .expect("token ANN builder is present until finish")
+            .push_encoded(cx_id, encoded)?;
         let row_bytes = bounds::row_estimated_bytes(self.token_dim, token_count as usize)?;
         if bounds::BINARY_HEADER_BYTES + row_bytes > self.max_segment_bytes {
             return Err(unbounded_multi_sidecar(format!(
@@ -153,6 +167,26 @@ impl StreamingSegmentsWriter {
                 };
             }
         };
+        let token_ann = match self
+            .token_ann
+            .take()
+            .expect("token ANN builder is present until finish")
+            .finish(&self.vault_dir, &self.root, self.row_count)
+        {
+            Ok(artifacts) => artifacts,
+            Err(primary) => {
+                return match self.cleanup_segments() {
+                    Ok(()) => Err(primary),
+                    Err(cleanup) => Err(stale(format!(
+                        "multi token ANN build failed [{}] {}; segment cleanup also failed [{}] {}",
+                        primary.code(),
+                        primary.message(),
+                        cleanup.code(),
+                        cleanup.message()
+                    ))),
+                };
+            }
+        };
         let result = write_segments_manifest(
             &self.vault_dir,
             &self.root,
@@ -166,22 +200,35 @@ impl StreamingSegmentsWriter {
             },
         );
         match result {
-            Ok(entry) => Ok((entry, flushed)),
-            Err(primary) => match self.cleanup_segments() {
-                Ok(()) => Err(primary),
-                Err(cleanup) => Err(stale(format!(
-                    "multi segment manifest publish failed [{}] {}; cleanup also failed [{}] {}",
-                    primary.code(),
-                    primary.message(),
-                    cleanup.code(),
-                    cleanup.message()
-                ))),
-            },
+            Ok(entry) => Ok((
+                entry.with_token_ann(
+                    token_ann.graph_rel,
+                    token_ann.id_map_rel,
+                    token_ann.id_map_sha256,
+                ),
+                flushed,
+            )),
+            Err(primary) => {
+                let ann_cleanup = fs::remove_dir_all(&token_ann.directory);
+                match self.cleanup_segments() {
+                    Ok(()) if ann_cleanup.is_ok() => Err(primary),
+                    segment_cleanup => Err(stale(format!(
+                        "multi segment manifest publish failed [{}] {}; cleanup status: segments={:?}, token_ann={:?}",
+                        primary.code(),
+                        primary.message(),
+                        segment_cleanup
+                            .err()
+                            .map(|error| error.message().to_string()),
+                        ann_cleanup.err().map(|error| error.to_string())
+                    ))),
+                }
+            }
         }
     }
 
     pub(in crate::persisted) fn abort(mut self) -> CliResult {
         self.current_rows.clear();
+        self.token_ann.take();
         self.cleanup_segments()
     }
 
@@ -259,6 +306,7 @@ mod tests {
             SlotId::new(11),
             2,
             113_411,
+            calyx_sextant::index::DiskAnnBuildBackend::CpuVamana,
             90,
         );
         let row = vec![vec![1.0, 0.0], vec![0.0, 1.0]];
@@ -297,7 +345,14 @@ mod tests {
         fs::remove_dir_all(&vault_dir).ok();
         fs::create_dir_all(&root).unwrap();
         let slot = SlotId::new(11);
-        let mut writer = StreamingSegmentsWriter::new(&vault_dir, &root, slot, 2, 113_411);
+        let mut writer = StreamingSegmentsWriter::new(
+            &vault_dir,
+            &root,
+            slot,
+            2,
+            113_411,
+            calyx_sextant::index::DiskAnnBuildBackend::CpuVamana,
+        );
         writer
             .push(
                 CxId::from_bytes([3; 16]),
@@ -352,7 +407,14 @@ mod tests {
             tokens: tokens.clone(),
         })
         .unwrap();
-        let mut writer = StreamingSegmentsWriter::new(&vault_dir, &root, slot, 2, 113_411);
+        let mut writer = StreamingSegmentsWriter::new(
+            &vault_dir,
+            &root,
+            slot,
+            2,
+            113_411,
+            calyx_sextant::index::DiskAnnBuildBackend::CpuVamana,
+        );
         writer.push_encoded(cx_id, 2, encoded).unwrap();
         let (entry, _) = writer.finish().unwrap();
         let manifest = read_segments_manifest(&vault_dir, &entry, 113_411, slot).unwrap();
@@ -394,7 +456,13 @@ mod tests {
         let mut non_finite = valid.clone();
         non_finite[9..13].copy_from_slice(&f32::NAN.to_bits().to_be_bytes());
         let mut writer = StreamingSegmentsWriter::with_max_segment_bytes(
-            &vault_dir, &root, slot, 2, 113_411, 90,
+            &vault_dir,
+            &root,
+            slot,
+            2,
+            113_411,
+            calyx_sextant::index::DiskAnnBuildBackend::CpuVamana,
+            90,
         );
         writer
             .push_encoded(CxId::from_bytes([1; 16]), 2, valid)
@@ -432,7 +500,14 @@ mod tests {
             tokens: vec![vec![1.0, 0.0, 0.0]],
         })
         .unwrap();
-        let mut writer = StreamingSegmentsWriter::new(&vault_dir, &root, slot, 2, 113_411);
+        let mut writer = StreamingSegmentsWriter::new(
+            &vault_dir,
+            &root,
+            slot,
+            2,
+            113_411,
+            calyx_sextant::index::DiskAnnBuildBackend::CpuVamana,
+        );
         let before = segment_paths(&root);
         let error = writer
             .push_encoded(CxId::from_bytes([3; 16]), 1, encoded)

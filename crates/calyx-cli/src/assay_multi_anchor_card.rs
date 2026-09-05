@@ -1,3 +1,4 @@
+mod copy;
 mod engine;
 pub(crate) mod model;
 mod readback;
@@ -54,6 +55,10 @@ pub(crate) fn run_readback(args: &[String]) -> CliResult {
     Ok(())
 }
 
+pub(crate) fn run_copy(args: &[String]) -> CliResult {
+    copy::run(args).map_err(multi_anchor_runtime_error)
+}
+
 /// Same code recovery as [`multi_anchor_error`], but uncoded strings classify as
 /// runtime failures: these call sites run after argument parsing succeeded,
 /// so `--help` can never be the remedy (issue #1145).
@@ -73,6 +78,9 @@ fn multi_anchor_error(error: String) -> CliError {
         calyx_assay::CALYX_ASSAY_PANEL_TOO_SMALL => calyx_assay::CALYX_ASSAY_PANEL_TOO_SMALL,
         CODE_INVALID_CONFIG => CODE_INVALID_CONFIG,
         CODE_INVALID_REPORT => CODE_INVALID_REPORT,
+        "CALYX_FSV_ASSAY_MULTI_ANCHOR_COPY_INVALID_CONFIG" => {
+            "CALYX_FSV_ASSAY_MULTI_ANCHOR_COPY_INVALID_CONFIG"
+        }
         CODE_OUTPUT_EXISTS => CODE_OUTPUT_EXISTS,
         CODE_READBACK_MISMATCH => CODE_READBACK_MISMATCH,
         CODE_GATE_REFUSED => CODE_GATE_REFUSED,

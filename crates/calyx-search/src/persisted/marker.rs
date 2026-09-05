@@ -169,6 +169,50 @@ pub fn clear_rebuild_required_marker_if_owned(vault_dir: &Path) -> CliResult<Mar
     Ok(MarkerClearOutcome::Cleared)
 }
 
+/// Replaces or removes a marker only when the persisted marker is byte-model
+/// identical to the caller's exact prepared state. Callers serialize this CAS
+/// with Aster's durable commit lock; a mismatch is retained and fails closed.
+pub fn replace_rebuild_required_marker_if_exact(
+    vault_dir: &Path,
+    expected: &RebuildRequiredMarker,
+    replacement: Option<&RebuildRequiredMarker>,
+) -> CliResult<()> {
+    let observed = read_rebuild_required_marker(vault_dir)?;
+    if observed.as_ref() != Some(expected) {
+        return Err(stale(format!(
+            "refusing to reconcile rebuild-required marker {} because persisted state is not the exact prepared intent (expected source={} required_base_seq={} process_id={}; observed={})",
+            rebuild_required_marker_path(vault_dir).display(),
+            expected.source,
+            display_seq(expected.required_base_seq),
+            expected.process_id,
+            observed
+                .as_ref()
+                .map(|marker| format!(
+                    "source={} required_base_seq={} process_id={}",
+                    marker.source,
+                    display_seq(marker.required_base_seq),
+                    marker.process_id
+                ))
+                .unwrap_or_else(|| "absent".to_string())
+        )));
+    }
+    match replacement {
+        Some(marker) => {
+            write_rebuild_required_marker(vault_dir, marker)?;
+        }
+        None => {
+            fs_io::remove_file_durable(&rebuild_required_marker_path(vault_dir))?;
+            if read_rebuild_required_marker(vault_dir)?.is_some() {
+                return Err(stale(format!(
+                    "rebuild-required marker {} remained present after exact durable removal",
+                    rebuild_required_marker_path(vault_dir).display()
+                )));
+            }
+        }
+    }
+    Ok(())
+}
+
 /// One-line diagnostic used to enrich stale-derived errors so the operator sees
 /// the recorded commit context, not just a seq mismatch.
 pub(super) fn marker_error_context(vault_dir: &Path) -> String {
@@ -207,4 +251,9 @@ fn unix_ms() -> CliResult<u64> {
     u64::try_from(millis).map_err(|_| {
         stale("system clock overflow while writing rebuild-required marker".to_string())
     })
+}
+
+fn display_seq(seq: Option<u64>) -> String {
+    seq.map(|value| value.to_string())
+        .unwrap_or_else(|| "in-flight".to_string())
 }

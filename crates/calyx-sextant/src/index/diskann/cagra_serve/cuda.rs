@@ -194,7 +194,7 @@ impl Asset {
                 .fetch_add(1, Ordering::Relaxed);
         } else {
             self.search_params
-                .configure(query_count, output_k, ef_search);
+                .configure(query_count, output_k, ef_search)?;
             let mut query_shape = [query_count as i64, self.dim as i64];
             let mut output_shape = [query_count as i64, output_k as i64];
             let mut distance_shape = output_shape;

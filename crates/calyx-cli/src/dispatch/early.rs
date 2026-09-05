@@ -3,8 +3,8 @@ use std::path::Path;
 use crate::cli_support::{parse_i32, parse_i64, readback_hex};
 use crate::error::{CliError, CliResult};
 use crate::{
-    dedup_readback, kernel_health_readback, leapable, manifest_readback,
-    partitioned_manifest_readback, recurrence_readback, temporal_readback, vault_tree,
+    dedup_readback, kernel_health_readback, manifest_readback, partitioned_manifest_readback,
+    recurrence_readback, temporal_readback, vault_tree,
 };
 
 pub(crate) fn try_run(args: &[String]) -> Option<CliResult> {
@@ -14,16 +14,6 @@ pub(crate) fn try_run(args: &[String]) -> Option<CliResult> {
         }
         [command, flag, value] if command == "readback" && flag == "--vault-tree" => {
             Some(vault_tree::readback_vault_tree(Path::new(value)))
-        }
-        [command, vault_flag, vault, verify_flag, sqlite]
-            if command == "readback"
-                && vault_flag == "--vault"
-                && verify_flag == "--verify-against" =>
-        {
-            Some(leapable::readback_dual_write_verify(
-                Path::new(vault),
-                Path::new(sqlite),
-            ))
         }
         [command, vault_flag, vault, show_flag]
             if command == "readback"

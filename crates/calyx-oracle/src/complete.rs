@@ -388,10 +388,12 @@ fn dense_vectors_by_lens(
                 vectors.insert(slot.lens_id, data.clone());
             }
             SlotVector::Absent { .. } => {}
-            SlotVector::Sparse { .. } | SlotVector::Multi { .. } => {
+            SlotVector::Sparse { .. }
+            | SlotVector::Multi { .. }
+            | SlotVector::SegmentedMulti { .. } => {
                 return Err(CalyxError::lens_dim_mismatch(format!(
-                    "complete requires dense vectors for lens {}",
-                    slot.lens_id
+                    "complete requires a native dense completion lane for lens {}; sparse, token-multi, and segmented-multi slots cannot be pooled into one vector",
+                    slot.lens_id,
                 ))
                 .into());
             }

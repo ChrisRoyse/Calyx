@@ -1,7 +1,9 @@
 use super::*;
 use crate::BackfillConfig;
+use crate::frozen::FrozenLensContract;
 use crate::lens::Registry;
 use crate::runtime::algorithmic::AlgorithmicLens;
+use crate::spec::{LensRuntime, LensSpec, default_recall_delta};
 
 #[test]
 fn add_lens_bumps_panel_allocates_slot_and_queues_priority_backfill() {
@@ -243,12 +245,40 @@ fn parking_or_retiring_cancels_pending_backfill_for_slot() {
 
 fn registered_spec(key: &str, buckets: u32) -> (Registry, SlotSpec) {
     let lens = AlgorithmicLens::one_hot(format!("{key}-lens"), Modality::Text, buckets);
-    let spec = SlotSpec::dense_text(key, lens.contract().lens_id(), buckets);
+    let contract = lens.contract().clone();
+    let spec = SlotSpec::dense_text(key, contract.lens_id(), buckets);
+    // Hot-add placement admission (PH73) requires every registered lens to
+    // carry a LensSpec so it can prove its CPU/GPU placement. Register the
+    // frozen lens with a spec derived from its own contract, so the spec's
+    // declared contract always matches the registered contract.
+    let lens_spec = algorithmic_lens_spec(&contract);
     let mut registry = Registry::new();
     registry
-        .register_frozen(lens.clone(), lens.contract().clone())
+        .register_frozen_with_spec(lens, contract, lens_spec)
         .unwrap();
     (registry, spec)
+}
+
+fn algorithmic_lens_spec(contract: &FrozenLensContract) -> LensSpec {
+    LensSpec {
+        name: contract.name().to_string(),
+        runtime: LensRuntime::Algorithmic {
+            kind: "one-hot".to_string(),
+        },
+        output: contract.shape(),
+        modality: contract.modality(),
+        weights_sha256: contract.weights_sha256(),
+        corpus_hash: contract.corpus_hash(),
+        norm_policy: contract.norm_policy(),
+        max_batch: None,
+        axis: None,
+        asymmetry: Asymmetry::None,
+        quant_default: QuantPolicy::turboquant_default(),
+        truncate_dim: None,
+        recall_delta: default_recall_delta(),
+        retrieval_only: false,
+        excluded_from_dedup: false,
+    }
 }
 
 fn sample_panel() -> Panel {

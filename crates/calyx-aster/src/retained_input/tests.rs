@@ -62,8 +62,9 @@ fn pointer_filename_hash_must_match_retained_bytes() {
     let wrong_hash = *blake3::hash(b"different source bytes").as_bytes();
     let wrong_pointer = canonical_text_pointer(&wrong_hash);
     let wrong_path = retained_pointer_path(&root, &wrong_pointer).unwrap();
-    fs::create_dir_all(wrong_path.parent().unwrap()).unwrap();
+    super::permissions::ensure_private_directory(wrong_path.parent().unwrap()).unwrap();
     fs::write(&wrong_path, text.as_bytes()).unwrap();
+    set_private_file_mode(&wrong_path);
     let input_ref = InputRef {
         hash: expected_hash,
         pointer: Some(wrong_pointer),
@@ -84,8 +85,9 @@ fn legacy_length_delimited_hash_remains_readable() {
     let legacy_hash = full_content_hash([text.as_bytes()]);
     let pointer = canonical_text_pointer(&legacy_hash);
     let path = retained_pointer_path(&root, &pointer).unwrap();
-    fs::create_dir_all(path.parent().unwrap()).unwrap();
-    fs::write(path, text.as_bytes()).unwrap();
+    super::permissions::ensure_private_directory(path.parent().unwrap()).unwrap();
+    fs::write(&path, text.as_bytes()).unwrap();
+    set_private_file_mode(&path);
     let input_ref = InputRef {
         hash: legacy_hash,
         pointer: Some(pointer),
@@ -149,6 +151,16 @@ fn symlinked_input_directory_is_rejected() {
     fs::remove_file(root.join(INPUT_DIR)).unwrap();
     fs::remove_dir_all(root).unwrap();
     fs::remove_dir_all(outside).unwrap();
+}
+
+fn set_private_file_mode(path: &Path) {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(path, fs::Permissions::from_mode(0o600)).unwrap();
+    }
+    #[cfg(not(unix))]
+    let _ = path;
 }
 
 fn test_dir(name: &str) -> PathBuf {

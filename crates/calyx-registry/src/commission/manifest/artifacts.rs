@@ -84,7 +84,15 @@ fn weight_anchor<'a>(
 }
 
 pub(super) fn is_tei_runtime(runtime: &str) -> bool {
-    matches!(runtime, "tei" | "tei-http" | "tei_http")
+    matches!(
+        runtime,
+        "tei"
+            | "tei-http"
+            | "tei_http"
+            | "tei-segmented"
+            | "tei-http-segmented"
+            | "tei_http_segmented"
+    )
 }
 
 fn is_adapter_runtime(runtime: &str) -> bool {

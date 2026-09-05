@@ -256,6 +256,8 @@ fn arb_subcommand() -> impl Strategy<Value = Subcommand> {
         safe_name().prop_map(|vault| Subcommand::Measure(MeasureArgs {
             vault,
             text: "roundtrip".to_string(),
+            record_schema: None,
+            record: None,
         })),
         safe_name().prop_map(|vault| Subcommand::Anchor(AnchorArgs {
             vault,
@@ -274,6 +276,7 @@ fn arb_subcommand() -> impl Strategy<Value = Subcommand> {
             explain: false,
             rerank: false,
             provenance: true,
+            metadata: false,
             freshness: search::SearchFreshnessArg::Fresh,
             filter: None,
             resident_addr: None,
@@ -383,11 +386,12 @@ fn arb_subcommand() -> impl Strategy<Value = Subcommand> {
                     vault,
                     content_slot: None,
                     knn,
-                    edge_cos_threshold: 0.5,
+                    edge_score_threshold: 0.5,
                     max_groundedness_distance,
                     batch,
                     limit,
                     candidate_selection: weave::CandidateSelectionMode::Covered,
+                    candidate_device: weave::CandidateDevice::Cpu,
                     coverage_only: false,
                     time_budget_ms: None,
                 })

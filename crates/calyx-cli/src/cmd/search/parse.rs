@@ -15,6 +15,7 @@ pub(crate) struct SearchArgs {
     pub explain: bool,
     pub rerank: bool,
     pub provenance: bool,
+    pub metadata: bool,
     pub freshness: SearchFreshnessArg,
     pub filter: Option<String>,
     pub resident_addr: Option<SocketAddr>,
@@ -69,6 +70,7 @@ pub(crate) fn parse_search(rest: &[String]) -> CliResult<Subcommand> {
         explain: false,
         rerank: false,
         provenance: true,
+        metadata: false,
         freshness: SearchFreshnessArg::Fresh,
         filter: None,
         resident_addr: None,
@@ -93,6 +95,7 @@ pub(crate) fn parse_search(rest: &[String]) -> CliResult<Subcommand> {
             "--rerank" => args.rerank = true,
             "--provenance" => args.provenance = true,
             "--no-provenance" => args.provenance = false,
+            "--metadata" => args.metadata = true,
             "--fresh" => set_freshness(&mut freshness_seen, &mut args, SearchFreshnessArg::Fresh)?,
             "--stale-ok" => {
                 set_freshness(&mut freshness_seen, &mut args, SearchFreshnessArg::StaleOk)?
@@ -275,6 +278,9 @@ pub(crate) fn search_tokens(args: &SearchArgs) -> Vec<String> {
     }
     if !args.provenance {
         out.push("--no-provenance".to_string());
+    }
+    if args.metadata {
+        out.push("--metadata".to_string());
     }
     if args.freshness == SearchFreshnessArg::StaleOk {
         out.push("--stale-ok".to_string());

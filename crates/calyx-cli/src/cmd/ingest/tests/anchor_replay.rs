@@ -396,6 +396,167 @@ fn batch_reingest_same_anchor_changed_value_fails_loud() {
     fs::remove_dir_all(root).ok();
 }
 
+// --- #1986: anchors preflight point-reads exactly required keys ---------------
+
+/// Ingest one anchored row, then drive `preflight_batch_existing_identity`
+/// again over the same batch. The point-read anchors phase must verify the
+/// existing Anchors CF row and succeed (happy path), materializing the cx.
+#[test]
+fn preflight_anchor_pointread_verifies_existing_anchor_and_materializes() {
+    let (root, resolved) = test_vault_with_registered_dense_lens("anchors-pointread-ok");
+    let jsonl = resolved.path.join("anchored.jsonl");
+    fs::write(
+        &jsonl,
+        format!(
+            "{}\n",
+            batch_line_with_dataset_and_anchors(
+                "alpha north signal",
+                "medqa",
+                json!([{"kind":"label:answer","value":"B"}]),
+            )
+        ),
+    )
+    .unwrap();
+    ingest_batch_streaming(&resolved, &jsonl).unwrap();
+
+    let vault = open_vault(&resolved).unwrap();
+    let state = load_vault_panel_state(&resolved.path).unwrap();
+    let cx_id = vault.cx_id_for_input("alpha north signal".as_bytes(), state.panel.version);
+
+    let identity = BatchSnapshotIdentity::capture(&jsonl, 1).unwrap();
+    let preflight =
+        preflight_batch_existing_identity(&vault, &state, &resolved.path, &jsonl, &identity)
+            .unwrap();
+    assert!(
+        preflight.batch_ids().contains(&cx_id),
+        "the existing anchored cx is preflighted"
+    );
+
+    fs::remove_dir_all(root).ok();
+}
+
+/// Corrupt the Anchors CF row with a different value (leaving the Base CF row
+/// materialized) and confirm the point-read phase fails closed with the exact
+/// `aster_corrupt_shard` value-mismatch error naming the cx and key_len.
+#[test]
+fn preflight_anchor_pointread_value_mismatch_fails_closed() {
+    let (root, resolved) = test_vault_with_registered_dense_lens("anchors-pointread-mismatch");
+    let jsonl = resolved.path.join("anchored.jsonl");
+    fs::write(
+        &jsonl,
+        format!(
+            "{}\n",
+            batch_line_with_dataset_and_anchors(
+                "alpha north signal",
+                "medqa",
+                json!([{"kind":"label:answer","value":"B"}]),
+            )
+        ),
+    )
+    .unwrap();
+    ingest_batch_streaming(&resolved, &jsonl).unwrap();
+
+    let vault = open_vault(&resolved).unwrap();
+    let state = load_vault_panel_state(&resolved.path).unwrap();
+    let cx_id = vault.cx_id_for_input("alpha north signal".as_bytes(), state.panel.version);
+    let kind = AnchorKind::Label("answer".to_string());
+    let key = calyx_aster::cf::anchor_key(cx_id, &kind);
+    // Overwrite the physical Anchors CF row with a different value while the
+    // Base CF row (still value "B") keeps the cx materialized in preflight.
+    let corrupt = calyx_aster::vault::encode::encode_anchor(&Anchor {
+        kind,
+        value: AnchorValue::Enum("Z".to_string()),
+        source: "calyx-ingest".to_string(),
+        observed_at: 0,
+        confidence: 1.0,
+    })
+    .unwrap();
+    vault.write_cf(ColumnFamily::Anchors, key, corrupt).unwrap();
+    vault.flush().unwrap();
+
+    let identity = BatchSnapshotIdentity::capture(&jsonl, 1).unwrap();
+    let err = match preflight_batch_existing_identity(
+        &vault,
+        &state,
+        &resolved.path,
+        &jsonl,
+        &identity,
+    ) {
+        Ok(_) => panic!("preflight must fail closed on an Anchors CF value mismatch"),
+        Err(err) => err,
+    };
+    assert_eq!(err.code(), "CALYX_ASTER_CORRUPT_SHARD");
+    assert!(
+        err.message()
+            .contains(&format!("Anchors CF value mismatch for cx {cx_id}")),
+        "{}",
+        err.message()
+    );
+    assert!(err.message().contains("key_len="), "{}", err.message());
+
+    fs::remove_dir_all(root).ok();
+}
+
+/// Tombstone the Anchors CF row (so a point read resolves to absent) while the
+/// Base CF row stays materialized, and confirm the point-read phase fails
+/// closed with the exact `missing from Anchors CF` error.
+#[test]
+fn preflight_anchor_pointread_missing_row_fails_closed() {
+    let (root, resolved) = test_vault_with_registered_dense_lens("anchors-pointread-missing");
+    let jsonl = resolved.path.join("anchored.jsonl");
+    fs::write(
+        &jsonl,
+        format!(
+            "{}\n",
+            batch_line_with_dataset_and_anchors(
+                "alpha north signal",
+                "medqa",
+                json!([{"kind":"label:answer","value":"B"}]),
+            )
+        ),
+    )
+    .unwrap();
+    ingest_batch_streaming(&resolved, &jsonl).unwrap();
+
+    let vault = open_vault(&resolved).unwrap();
+    let state = load_vault_panel_state(&resolved.path).unwrap();
+    let cx_id = vault.cx_id_for_input("alpha north signal".as_bytes(), state.panel.version);
+    let kind = AnchorKind::Label("answer".to_string());
+    let key = calyx_aster::cf::anchor_key(cx_id, &kind);
+    // Tombstone the physical Anchors CF row; a point read now resolves to None
+    // while the Base CF row still lists the anchor kind (materialized cx).
+    vault
+        .write_cf(
+            ColumnFamily::Anchors,
+            key,
+            calyx_aster::mvcc::tombstone_value(),
+        )
+        .unwrap();
+    vault.flush().unwrap();
+
+    let identity = BatchSnapshotIdentity::capture(&jsonl, 1).unwrap();
+    let err = match preflight_batch_existing_identity(
+        &vault,
+        &state,
+        &resolved.path,
+        &jsonl,
+        &identity,
+    ) {
+        Ok(_) => panic!("preflight must fail closed on a missing Anchors CF row"),
+        Err(err) => err,
+    };
+    assert_eq!(err.code(), "CALYX_ASTER_CORRUPT_SHARD");
+    assert!(
+        err.message().contains(&format!(
+            "Base CF anchor for cx {cx_id} is missing from Anchors CF"
+        )),
+        "{}",
+        err.message()
+    );
+
+    fs::remove_dir_all(root).ok();
+}
+
 #[test]
 fn batch_staging_predicate_requires_new_cx_or_new_anchor_kind() {
     assert!(should_stage_batch_constellation(true, &[]));

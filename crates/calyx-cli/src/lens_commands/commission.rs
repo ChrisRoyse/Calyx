@@ -22,7 +22,9 @@ use artifact::{
     manifest_files, read_hidden_size, require_named, require_named_fallback,
 };
 use log::{ConversionLog, run_command, write_json_file};
-use options::{CommissionFlags, CommissionRuntime, qwen3_max_tokens_for_manifest};
+use options::{
+    CommissionFlags, CommissionRuntime, qwen3_max_tokens_for_manifest, representation_for_manifest,
+};
 
 use super::catalog::{AddReport, add_manifest_to_catalog};
 use super::support::validate_vector_contract;
@@ -90,7 +92,9 @@ pub(crate) fn commission(args: &[String]) -> CliResult {
         "output_dir": out,
     }))?;
     let output = match flags.runtime {
-        CommissionRuntime::Tei => {
+        CommissionRuntime::Tei
+        | CommissionRuntime::TeiSegmentedPooled
+        | CommissionRuntime::TeiSegmentedChunk => {
             let commissioned = commission_tei(&flags, &out, &mut log)?;
             CommissionOutput::with_source_hf_id(commissioned.artifacts, commissioned.source_hf_id)
         }
@@ -357,7 +361,12 @@ fn write_manifest(
         .find(|item| item.role == "model")
         .ok_or_else(|| CliError::usage("commission produced no model artifact"))?;
     let dim = dim_override.or(flags.dim).unwrap_or({
-        if matches!(flags.runtime, CommissionRuntime::Tei) {
+        if matches!(
+            flags.runtime,
+            CommissionRuntime::Tei
+                | CommissionRuntime::TeiSegmentedPooled
+                | CommissionRuntime::TeiSegmentedChunk
+        ) {
             DEFAULT_TEI_DIM
         } else {
             0
@@ -398,6 +407,8 @@ fn write_manifest(
         recall_delta: calyx_registry::spec::default_recall_delta(),
         max_batch: flags.max_batch,
         max_tokens: qwen3_max_tokens_for_manifest(flags),
+        representation: representation_for_manifest(flags).map(str::to_string),
+        special_tokens: segmented_special_tokens(flags)?,
         // Resolved by the #1157 batch preflight after this initial write.
         batch_policy: None,
     };
@@ -407,14 +418,34 @@ fn write_manifest(
     Ok(path)
 }
 
+/// Measures a segmented TEI lane's own special-token count from the live
+/// endpoint so the frozen policy asserts what the lane actually does (#1980).
+/// A lane whose tokenizer adds one special token -- Qwen3-Embedding, which pools
+/// on the last token -- would otherwise fail every segment against an assumed
+/// count of two.
+fn segmented_special_tokens(flags: &CommissionFlags) -> CliResult<Option<u16>> {
+    if !matches!(
+        flags.runtime,
+        CommissionRuntime::TeiSegmentedPooled | CommissionRuntime::TeiSegmentedChunk
+    ) {
+        return Ok(None);
+    }
+    let endpoint = flags
+        .endpoint_for_manifest()
+        .ok_or_else(|| CliError::usage("a segmented TEI runtime requires --endpoint"))?;
+    Ok(Some(calyx_registry::probe_tei_special_tokens(&endpoint)?))
+}
+
 fn manifest_shape(runtime: CommissionRuntime, dim: u32) -> SlotShape {
     match runtime {
         CommissionRuntime::FastembedSparse | CommissionRuntime::FastembedBgem3Sparse => {
             SlotShape::Sparse(dim)
         }
-        CommissionRuntime::OnnxColbert | CommissionRuntime::FastembedBgem3Colbert => {
-            SlotShape::Multi { token_dim: dim }
-        }
+        CommissionRuntime::OnnxColbert
+        | CommissionRuntime::FastembedBgem3Colbert
+        // A chunk-preserving segmented lane keeps one vector per segment
+        // (#1980); only the pooled variant collapses to a dense vector.
+        | CommissionRuntime::TeiSegmentedChunk => SlotShape::Multi { token_dim: dim },
         _ => SlotShape::Dense(dim),
     }
 }

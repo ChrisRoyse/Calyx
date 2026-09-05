@@ -15,6 +15,46 @@ impl VersionedCfStore {
             .run_once_at_safe_point(self, clock, safe_point)
     }
 
+    /// Reclaims obsolete in-memory versions for an exact, caller-deduplicated
+    /// key set. This is the bounded bulk-write counterpart to a whole-table GC
+    /// tick: it never scans unrelated keys or changes physical SST history.
+    pub(crate) fn reclaim_snapshot_versions_for_keys(
+        &self,
+        safe_point: Seq,
+        keys: &[(ColumnFamily, Vec<u8>)],
+    ) -> Result<GcResult> {
+        let mut table = self.rows.write().expect("mvcc row table poisoned");
+        let mut versions_reclaimed = 0usize;
+        let mut bytes_freed = 0usize;
+        let mut compaction_debt = 0u64;
+        for (cf, key) in keys {
+            let Some(versions) = table.get_mut(cf).and_then(|rows| rows.get_mut(key)) else {
+                continue;
+            };
+            let mut remaining = usize::MAX;
+            let (chain_reclaimed, chain_bytes) =
+                reclaim_chain(versions, safe_point, &mut remaining);
+            versions_reclaimed = versions_reclaimed
+                .checked_add(chain_reclaimed)
+                .ok_or_else(|| CalyxError::aster_corrupt_shard("MVCC GC count overflow"))?;
+            bytes_freed = bytes_freed
+                .checked_add(chain_bytes)
+                .ok_or_else(|| CalyxError::aster_corrupt_shard("MVCC GC byte overflow"))?;
+            compaction_debt = compaction_debt
+                .checked_add(reclaimable_versions(versions, safe_point) as u64)
+                .ok_or_else(|| CalyxError::aster_corrupt_shard("MVCC GC debt overflow"))?;
+        }
+        let result = GcResult {
+            safe_point_seq: safe_point,
+            versions_reclaimed,
+            bytes_freed,
+            compaction_debt,
+            rate_limited: compaction_debt != 0,
+        };
+        self.snapshot_gc_counters.record_result(result);
+        Ok(result)
+    }
+
     pub fn snapshot_gc_safe_point(&self, now: Ts) -> Seq {
         let view = self.leases.live_view(now);
         view.oldest_pinned_seq.unwrap_or_else(|| self.current_seq())

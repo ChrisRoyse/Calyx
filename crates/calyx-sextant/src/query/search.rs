@@ -335,6 +335,12 @@ fn validate_query_vector(field: &str, vector: &SlotVector) -> Result<()> {
             }
             Ok(())
         }
+        SlotVector::SegmentedMulti { .. } => vector.validate_schema().map_err(|error| {
+            query_shape_error(format!(
+                "{field} segmented multi-vector is invalid: {}",
+                error.message
+            ))
+        }),
         SlotVector::Absent { .. } => Err(query_shape_error(format!(
             "{field} must be a concrete vector, not absent"
         ))),

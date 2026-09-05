@@ -92,6 +92,7 @@ fn repair_registry_lens_set(
                 contract: runtime_contract.clone(),
                 spec: Some(spec_from_runtime_contract(spec.clone(), &runtime_contract)),
                 determinism: lens.determinism,
+                derivation_version: Some(crate::derivation::LENS_DERIVATION_VERSION),
                 runtime_golden: if runtime_contract.lens_id() == lens.lens_id {
                     lens.runtime_golden.clone()
                 } else {

@@ -46,14 +46,16 @@ pub use diskann::{
     CagraPartitionSearchRequest, CagraSearchRequest, CagraServingDiagnostics, CagraServingMetric,
     CagraServingRegion, ConcatCrossTermDiskAnn, ConcatCrossTermHit, ConcatCrossTermKey,
     DISKANN_PQ_SMALL_CORPUS_ROWS, Direction, DirectionalBoost, DiskAnnBuildBackend,
-    DiskAnnBuildParams, DiskAnnBuildProgress, DiskAnnGraphReader, DiskAnnGraphWriter,
-    DiskAnnHeader, DiskAnnNodeRef, DiskAnnPqBuildDiagnostics, DiskAnnPqBuildExecution,
-    DiskAnnPqBuildParams, DiskAnnPqIndex, DiskAnnPqSearchBuild, DiskAnnSearch, DiskAnnSearchParams,
-    DualDiskAnnSearch, TokenDiskAnnMaxSim, build_diskann_graph, build_diskann_graph_with_backend,
-    build_diskann_graph_with_backend_and_progress, build_dual, build_dual_with_search,
-    cagra_dataset_sidecar_path, cagra_partitioned_search, cagra_search_batch,
-    cagra_serving_diagnostics, cagra_serving_region, cagra_sidecar_path, dual_graph_path,
-    node_block_size, open_diskann_graph, open_dual,
+    DiskAnnBuildMetric, DiskAnnBuildParams, DiskAnnBuildProgress, DiskAnnGraphReader,
+    DiskAnnGraphWriter, DiskAnnHeader, DiskAnnNodeRef, DiskAnnPqBuildDiagnostics,
+    DiskAnnPqBuildExecution, DiskAnnPqBuildParams, DiskAnnPqIndex, DiskAnnPqSearchBuild,
+    DiskAnnSearch, DiskAnnSearchParams, DualDiskAnnSearch, RAW_SIDECAR_HEADER_SIZE,
+    RAW_SIDECAR_MAGIC, RAW_SIDECAR_PACKED_VERSION, TokenDiskAnnMaxSim, build_diskann_graph,
+    build_diskann_graph_with_backend, build_diskann_graph_with_backend_and_progress, build_dual,
+    build_dual_with_search, cagra_dataset_sidecar_path, cagra_partitioned_search,
+    cagra_search_batch, cagra_serving_diagnostics, cagra_serving_region, cagra_sidecar_path,
+    configure_cagra_serving_cache, diskann_metric_sidecar_path, dual_graph_path, node_block_size,
+    open_diskann_graph, open_dual, read_diskann_build_metric, write_packed_raw_sidecar,
 };
 pub use distance::{cosine_distance, dot, kernel_backend, l2_normalize, l2_sq};
 pub use dual::{DualIndex, DualSide};
@@ -65,8 +67,9 @@ pub use funnel::{
 pub use hnsw::HnswIndex;
 pub use inverted::InvertedIndex;
 pub use maxsim_cuda::{
-    MAXSIM_CUDA_MAX_K, MaxSimCudaChunk, MaxSimCudaReport, MaxSimCudaRequest, MaxSimCudaTopK,
-    maxsim_cuda_topk,
+    MAXSIM_CUDA_MAX_BATCH, MAXSIM_CUDA_MAX_K, MaxSimCudaBatchRequest, MaxSimCudaBatchRow,
+    MaxSimCudaBatchTopK, MaxSimCudaChunk, MaxSimCudaReport, MaxSimCudaRequest, MaxSimCudaTopK,
+    maxsim_cuda_topk, maxsim_cuda_topk_batch,
 };
 pub use multi::MaxSimIndex;
 pub use partitioned::{

@@ -1,0 +1,43 @@
+{
+  "id": "b3e145b3-bd1d-4050-a735-8f2cc734d00f",
+  "object": "chat.completion",
+  "created": 1784576345,
+  "model": "deepseek-v4-flash",
+  "choices": [
+    {
+      "index": 0,
+      "message": {
+        "role": "assistant",
+        "content": "",
+        "reasoning_content": "The user is asking about when prolonging a traffic stop requires suppression of evidence in an Ohio criminal appeal. This is a legal question about Fourth Amendment search and seizure law, specifically about traffic stops and duration. Let me search the Cuyahoga County law corpus for relevant cases.",
+        "tool_calls": [
+          {
+            "index": 0,
+            "id": "call_00_dig616CeYdFVGADyUc5V1732",
+            "type": "function",
+            "function": {
+              "name": "corpus_search",
+              "arguments": "{\"query\": \"prolonging traffic stop suppression of evidence Ohio criminal appeal\", \"k\": 10}"
+            }
+          }
+        ]
+      },
+      "logprobs": null,
+      "finish_reason": "tool_calls"
+    }
+  ],
+  "usage": {
+    "prompt_tokens": 336,
+    "completion_tokens": 127,
+    "total_tokens": 463,
+    "prompt_tokens_details": {
+      "cached_tokens": 256
+    },
+    "completion_tokens_details": {
+      "reasoning_tokens": 56
+    },
+    "prompt_cache_hit_tokens": 256,
+    "prompt_cache_miss_tokens": 80
+  },
+  "system_fingerprint": "fp_8b330d02d0_prod0820_fp8_kvcache_20260402"
+}

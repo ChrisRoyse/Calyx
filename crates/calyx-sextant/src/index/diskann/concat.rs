@@ -1,6 +1,6 @@
 //! DiskANN over materialized concat cross-term (`xterm`) vectors.
 
-use std::fs::{self, File};
+use std::fs;
 use std::io::{BufWriter, Write as _};
 use std::path::{Path, PathBuf};
 
@@ -45,7 +45,7 @@ impl ConcatCrossTermDiskAnn {
     ) -> Result<Self> {
         validate_rows(rows, build_params.dim)?;
         let root = root.into();
-        fs::create_dir_all(&root).map_err(|e| io("create concat index dir", e))?;
+        calyx_aster::private_fs::create_private_dir_all(&root)?;
         let graph_rows: Vec<_> = rows
             .iter()
             .map(|(key, vector)| (key.cx_id, vector.clone()))
@@ -153,7 +153,8 @@ fn validate_rows(rows: &[(ConcatCrossTermKey, Vec<f32>)], dim: usize) -> Result<
 }
 
 fn write_keys(path: &Path, dim: u32, keys: &[ConcatCrossTermKey]) -> Result<()> {
-    let mut out = BufWriter::new(File::create(path).map_err(|e| io("create keys sidecar", e))?);
+    // Owner-only (0600) at creation (#1989).
+    let mut out = BufWriter::new(calyx_aster::private_fs::open_private_temp_file(path)?);
     out.write_all(&KEYS_MAGIC)
         .map_err(|e| io("write keys magic", e))?;
     out.write_all(&KEYS_FORMAT_VERSION.to_le_bytes())

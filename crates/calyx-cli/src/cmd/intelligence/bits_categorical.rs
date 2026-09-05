@@ -4,11 +4,16 @@ use calyx_assay::{
     MIN_ASSAY_SAMPLES, MiEstimate, entropy_bits, ksg_mi_continuous_discrete_cuda_strict,
     partitioned_histogram_nmi,
 };
-use calyx_core::{AnchorKind, AnchorValue, CalyxError, Constellation, CxId, Modality, Panel, Slot};
+use calyx_core::{
+    AnchorKind, AnchorValue, CalyxError, Constellation, CxId, Modality, Panel, Slot, SlotVector,
+};
 
 mod representation;
 
-use representation::{assay_vector, cosine_to_centroid};
+#[cfg(test)]
+mod estimator_tests;
+
+use representation::{assay_block_features, assay_vector, cosine_to_centroid};
 
 use super::model::{BitsExplainOut, BitsOut, PairRedundancyOut, SlotBitsOut, hex};
 use crate::error::{CliError, CliResult};
@@ -294,8 +299,7 @@ fn measure_slot(
     labels: &[usize],
     anchor_label: &str,
 ) -> CliResult<SlotMeasurement> {
-    let mut vectors = Vec::with_capacity(selected.len());
-    let mut representation = None::<String>;
+    let mut rows = Vec::with_capacity(selected.len());
     for row in selected {
         let stored = row.cx.slots.get(&slot.slot_id).ok_or_else(|| {
             CliError::from(CalyxError::assay_degenerate_input(format!(
@@ -305,29 +309,9 @@ fn measure_slot(
                 row.cx_id
             )))
         })?;
-        let (vector, current_representation) = assay_vector(slot, row.cx_id, stored)?;
-        if let Some(expected) = &representation {
-            if expected != &current_representation {
-                return Err(CalyxError::assay_degenerate_input(format!(
-                    "active slot {} ({}) changes representation within the sample: expected {expected}, cx {} has {current_representation}",
-                    slot.slot_id,
-                    slot.slot_key.key(),
-                    row.cx_id
-                ))
-                .into());
-            }
-        } else {
-            representation = Some(current_representation);
-        }
-        vectors.push(vector);
+        rows.push((row.cx_id, stored));
     }
-    let representation = representation.ok_or_else(|| {
-        CliError::from(CalyxError::assay_insufficient_samples(format!(
-            "active slot {} ({}) has no sampled rows",
-            slot.slot_id,
-            slot.slot_key.key()
-        )))
-    })?;
+    let (vectors, representation) = measure_slot_vectors(slot, &rows)?;
     let estimate = ksg_mi_continuous_discrete_cuda_strict(&vectors, labels, K).map_err(|error| {
         contextual_assay_error(
             error,
@@ -348,6 +332,49 @@ fn measure_slot(
         estimate,
         centroid_scores,
     })
+}
+
+/// Produces one continuous feature vector per sampled row for a slot, choosing
+/// the native estimator by declared shape: Dense/Sparse keep their per-row
+/// projection; typed `Multi`/`SegmentedMulti` blocks use the native
+/// ordered-block MaxSim estimator (#1892) with no pooling or flattening.
+fn measure_slot_vectors(
+    slot: &Slot,
+    rows: &[(CxId, &SlotVector)],
+) -> CliResult<(Vec<Vec<f32>>, String)> {
+    let is_block = matches!(
+        rows.first().map(|row| row.1),
+        Some(SlotVector::Multi { .. } | SlotVector::SegmentedMulti { .. })
+    );
+    if is_block {
+        return assay_block_features(slot, rows);
+    }
+    let mut vectors = Vec::with_capacity(rows.len());
+    let mut representation = None::<String>;
+    for (cx_id, stored) in rows {
+        let (vector, current) = assay_vector(slot, *cx_id, stored)?;
+        if let Some(expected) = &representation {
+            if expected != &current {
+                return Err(CalyxError::assay_degenerate_input(format!(
+                    "active slot {} ({}) changes representation within the sample: expected {expected}, cx {cx_id} has {current}",
+                    slot.slot_id,
+                    slot.slot_key.key()
+                ))
+                .into());
+            }
+        } else {
+            representation = Some(current);
+        }
+        vectors.push(vector);
+    }
+    let representation = representation.ok_or_else(|| {
+        CliError::from(CalyxError::assay_insufficient_samples(format!(
+            "active slot {} ({}) has no sampled rows",
+            slot.slot_id,
+            slot.slot_key.key()
+        )))
+    })?;
+    Ok((vectors, representation))
 }
 
 fn concatenate_panel(measurements: &[SlotMeasurement]) -> CliResult<Vec<Vec<f32>>> {

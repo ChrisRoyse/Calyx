@@ -171,8 +171,7 @@ fn move_versioned_file(
     let Some(path) = find_versioned_file(hot_dir, id, parse_id)? else {
         return Ok(0);
     };
-    fs::create_dir_all(cold_dir)
-        .map_err(|error| calyx_core::CalyxError::disk_pressure(error.to_string()))?;
+    crate::private_fs::create_private_dir_all(cold_dir)?;
     let bytes = path.metadata().map(|meta| meta.len()).unwrap_or(0);
     let target =
         cold_dir

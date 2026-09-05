@@ -1,0 +1,70 @@
+{
+  "vault": "/var/lib/calyx/vaults/PROD",
+  "cx_id": "0000c286487d708db5ab0eb988076aff",
+  "collection": "legal-citations-alias-v2",
+  "direction": "both",
+  "edges_scanned": 28834,
+  "matched": 3,
+  "returned": 3,
+  "truncated": false,
+  "limit": 256,
+  "neighbors": [
+    {
+      "cx_id": "20277925748567bbbfba6c8104ac7776",
+      "direction": "in",
+      "edge_type": "cites",
+      "weight": 0.1,
+      "edge_value": {
+        "cited_opinion_id": "4459825",
+        "citing_opinion_id": "4704344",
+        "depth": 1,
+        "edge_type": "cites",
+        "provenance_dataset": "courtlistener-citation-map-2026-06-30",
+        "source_citation_count": 1,
+        "source_citations": [
+          {
+            "cited_opinion_id": "4459825",
+            "citing_opinion_id": "4704344",
+            "depth": 1,
+            "source_row_id": "row27634"
+          }
+        ],
+        "source_row_id": "row27634",
+        "weight": 0.1
+      }
+    },
+    {
+      "cx_id": "9f7b1c3ad2e04455aa8f0b6612cd7788",
+      "direction": "out",
+      "edge_type": "cites_outside_corpus",
+      "weight": 0.2,
+      "edge_value": {
+        "cited_opinion_id": "118143",
+        "citing_opinion_id": "4459825",
+        "depth": 2,
+        "edge_type": "cites_outside_corpus",
+        "boundary_reason": "OUTSIDE_SEALED_CORPUS",
+        "provenance_dataset": "courtlistener-citation-map-2026-06-30",
+        "source_citation_count": 1,
+        "source_row_id": "rowf9001",
+        "weight": 0.2
+      }
+    },
+    {
+      "cx_id": "e11cd8a4f6b34a7290c5d0e3b7188a90",
+      "direction": "out",
+      "edge_type": "cites",
+      "weight": 0.3,
+      "edge_value": {
+        "cited_opinion_id": "2704419",
+        "citing_opinion_id": "4459825",
+        "depth": 3,
+        "edge_type": "cites",
+        "provenance_dataset": "courtlistener-citation-map-2026-06-30",
+        "source_citation_count": 1,
+        "source_row_id": "row01234",
+        "weight": 0.3
+      }
+    }
+  ]
+}

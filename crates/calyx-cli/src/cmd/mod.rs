@@ -6,6 +6,7 @@ mod build_info;
 mod chain_walks;
 mod citation_overlay;
 mod citation_part_attribution;
+mod command_types;
 mod courtlistener_locator_audit;
 mod discovery_bridge;
 mod discovery_chain;
@@ -27,10 +28,11 @@ mod ingest;
 mod intelligence;
 mod judge_association_overlay;
 mod kernel_build;
-mod kernel_generation;
+pub(crate) mod kernel_generation;
 mod kernel_scope;
 mod known_commands;
 mod lens;
+mod lens_parse;
 mod lincs_reversal;
 pub(crate) mod mechanistic_direction;
 mod molecular_vault;
@@ -41,6 +43,8 @@ mod parse_helpers;
 mod probe_matrix;
 mod provenance;
 mod readback;
+mod root_dispatch;
+mod root_parser;
 mod search;
 mod spectral_communities;
 mod summary_attribution;
@@ -49,466 +53,29 @@ pub(crate) mod vault;
 mod vault_rebuild_preflight;
 mod vault_retire;
 mod weave;
+mod weave_generation_accept;
+
+#[cfg(test)]
 use calyx_aster::vault::IngestPrecondition;
-use calyx_core::Modality;
+pub(crate) use command_types::{
+    AddLensArgs, AnchorArgs, CreateVaultArgs, IngestArgs, MeasureArgs, ProfileLensArgs,
+    SlotCommandArgs, Subcommand, VaultRefArgs,
+};
 pub(crate) use ingest::run_lens_worker as run_ingest_lens_worker;
+#[cfg(test)]
 use ingest::{IngestOutput, IngestStatusArgs};
 pub(crate) use ingest::{
     measure_constellation as measure_ingest_constellation, text_input as ingest_text_input,
 };
+pub(crate) use panel_templates::PANEL_TEMPLATES;
+pub(crate) use parse_helpers::{validate_panel_template_name, validate_vault_name, value};
+pub(crate) use root_dispatch::try_run;
+pub(crate) use root_parser::parse;
 pub(crate) use search::{
     PersistedSearchIndexes, load_docs as load_search_docs, measure_text_query_vectors,
     rebuild_persistent_indexes,
 };
-use std::net::SocketAddr;
-use std::path::PathBuf;
-
-use crate::error::{CliError, CliResult};
-
-use known_commands::is_cmd;
-pub(crate) use panel_templates::PANEL_TEMPLATES;
-pub(crate) use parse_helpers::{validate_panel_template_name, validate_vault_name, value};
-
-#[derive(Clone, Debug, PartialEq)]
-pub(crate) enum Subcommand {
-    CreateVault(CreateVaultArgs),
-    AddLens(AddLensArgs),
-    RetireLens(SlotCommandArgs),
-    ParkLens(SlotCommandArgs),
-    RetireVault(vault_retire::RetireVaultArgs),
-    ListPanel(VaultRefArgs),
-    ProfileLens(ProfileLensArgs),
-    Ingest(IngestArgs),
-    IngestStatus(IngestStatusArgs),
-    Anchor(AnchorArgs),
-    Measure(MeasureArgs),
-    Erase(erase::EraseArgs),
-    Search(search::SearchArgs),
-    KernelAnswer(search::KernelAnswerArgs),
-    Bits(intelligence::BitsArgs),
-    Kernel(intelligence::KernelArgs),
-    Guard(intelligence::GuardArgs),
-    Abundance(intelligence::AbundanceArgs),
-    ProposeLens(intelligence::ProposeLensArgs),
-    Provenance(provenance::ProvenanceArgs),
-    VerifyChain(provenance::VerifyChainArgs),
-    Reproduce(provenance::ReproduceArgs),
-    AnnealStatus(provenance::AnnealStatusArgs),
-    RebuildSearchIndex(VaultRefArgs),
-    KernelBuild(kernel_build::KernelBuildArgs),
-    WeaveLoom(weave::WeaveLoomArgs),
-    DomainBridges(domain_bridges::DomainBridgesArgs),
-    MaterializeBridgeCorpus(bridge_corpus::MaterializeBridgeCorpusArgs),
-    MaterializeCitationOverlay(citation_overlay::MaterializeCitationOverlayArgs),
-    DiscoveryChain(discovery_chain::DiscoveryChainArgs),
-    ChainWalks(chain_walks::ChainWalksArgs),
-    ProbeMatrix(probe_matrix::ProbeMatrixArgs),
-    SpectralCommunities(spectral_communities::SpectralCommunitiesArgs),
-    MaterializeGraphCsr(graph_csr::MaterializeGraphCsrArgs),
-    GraphCollectionGenerations(graph_lifecycle::GraphCollectionGenerationsArgs),
-    GraphCollectionState(graph_lifecycle::GraphCollectionStateArgs),
-    MaterializeMolecularVault(molecular_vault::MaterializeMolecularVaultArgs),
-    MaterializeEvidenceSubstrate(evidence_substrate::MaterializeEvidenceSubstrateArgs),
-    MaterializeLincsReversal(lincs_reversal::MaterializeLincsReversalArgs),
-    AssembleHypothesisEvidence(hypothesis_evidence::HypothesisEvidenceArgs),
-    AssociationValidationGates(association_validation::AssociationValidationArgs),
-    TypedAssociationMiner(typed_association_miner::TypedAssociationMinerArgs),
-    HypothesisFalsificationSweep(hypothesis_falsification::HypothesisFalsificationArgs),
-    BiomedicalBlindspotAudit(biomedical_blindspot_audit::BiomedicalBlindspotAuditArgs),
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct CreateVaultArgs {
-    pub name: String,
-    pub panel_template: Option<String>,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct AddLensArgs {
-    pub vault: String,
-    pub name: String,
-    pub runtime: String,
-    pub endpoint: Option<String>,
-    pub weights: Option<PathBuf>,
-    pub shape: Option<String>,
-    pub modality: Option<String>,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct SlotCommandArgs {
-    pub vault: String,
-    pub slot: u16,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct VaultRefArgs {
-    pub vault: String,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct IngestArgs {
-    pub vault: String,
-    pub text: Option<String>,
-    pub batch: Option<PathBuf>,
-    pub file: Option<PathBuf>,
-    pub modality: Option<Modality>,
-    pub idempotent: bool,
-    pub output: IngestOutput,
-    pub resident_addr: Option<SocketAddr>,
-    pub allow_cold_gpu_workers: bool,
-    pub session_id: Option<String>,
-    pub precondition: IngestPrecondition,
-}
-
-#[derive(Clone, Debug, PartialEq)]
-pub(crate) struct AnchorArgs {
-    pub vault: String,
-    pub cx_id: String,
-    pub kind: String,
-    pub value: String,
-    pub confidence: Option<f32>,
-    pub source: Option<String>,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct MeasureArgs {
-    pub vault: String,
-    pub text: String,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct ProfileLensArgs {
-    pub name: Option<String>,
-    pub runtime: Option<String>,
-    pub endpoint: Option<String>,
-    pub weights: Option<PathBuf>,
-    pub shape: Option<String>,
-    pub modality: Option<String>,
-    pub probe: Option<PathBuf>,
-}
-
-pub(crate) fn try_run(args: &[String]) -> Option<CliResult> {
-    for direct in [
-        readback::try_run,
-        healthcheck::try_run,
-        build_info::try_run,
-        discovery_run::try_run,
-        discovery_bridge::try_run,
-        novelty_split::try_run,
-        hypothesis_evaluate::try_run,
-        hypothesis_evaluator::try_run,
-        hypothesis_rank::try_run,
-        opinion_alias_overlay::try_run,
-        judge_association_overlay::try_run,
-        citation_part_attribution::try_run,
-        summary_attribution::try_run,
-        courtlistener_locator_audit::try_run,
-        vault_rebuild_preflight::try_run,
-    ] {
-        if let Some(result) = direct(args) {
-            return Some(result);
-        }
-    }
-    if !args.first().is_some_and(|command| is_cmd(command)) {
-        return None;
-    }
-    if let [command, flag] = args
-        && matches!(flag.as_str(), "--help" | "-h")
-    {
-        return Some(crate::usage::print_command_usage(command));
-    }
-    let verify_chain = args
-        .first()
-        .is_some_and(|command| command == "verify-chain");
-    let ledger_form = args.get(1).is_some_and(|arg| arg == "--ledger");
-    let vault_range_form =
-        args.get(1).is_some_and(|arg| arg == "--vault") && args.iter().any(|arg| arg == "--range");
-    let verify_chain_legacy = verify_chain && (ledger_form || vault_range_form);
-    if verify_chain_legacy {
-        return None;
-    }
-    Some(parse(args).and_then(run))
-}
-
-fn run(command: Subcommand) -> CliResult {
-    match command {
-        Subcommand::CreateVault(_)
-        | Subcommand::AddLens(_)
-        | Subcommand::RetireLens(_)
-        | Subcommand::ParkLens(_)
-        | Subcommand::RetireVault(_)
-        | Subcommand::ListPanel(_)
-        | Subcommand::ProfileLens(_) => vault::run(command),
-        Subcommand::Ingest(_)
-        | Subcommand::IngestStatus(_)
-        | Subcommand::Anchor(_)
-        | Subcommand::Measure(_) => ingest::run(command),
-        Subcommand::Erase(_) => erase::run(command),
-        Subcommand::Search(_) | Subcommand::KernelAnswer(_) | Subcommand::RebuildSearchIndex(_) => {
-            search::run(command)
-        }
-        Subcommand::Bits(_)
-        | Subcommand::Kernel(_)
-        | Subcommand::Guard(_)
-        | Subcommand::Abundance(_)
-        | Subcommand::ProposeLens(_) => intelligence::run(command),
-        Subcommand::Provenance(_)
-        | Subcommand::VerifyChain(_)
-        | Subcommand::Reproduce(_)
-        | Subcommand::AnnealStatus(_) => provenance::run(command),
-        Subcommand::KernelBuild(_) => kernel_build::run(command),
-        Subcommand::WeaveLoom(_) => weave::run(command),
-        Subcommand::DomainBridges(_) => domain_bridges::run(command),
-        Subcommand::MaterializeBridgeCorpus(_) => bridge_corpus::run(command),
-        Subcommand::MaterializeCitationOverlay(_) => citation_overlay::run(command),
-        Subcommand::DiscoveryChain(_) => discovery_chain::run(command),
-        Subcommand::ChainWalks(_) => chain_walks::run(command),
-        Subcommand::ProbeMatrix(_) => probe_matrix::run(command),
-        Subcommand::SpectralCommunities(_) => spectral_communities::run(command),
-        Subcommand::MaterializeGraphCsr(_) => graph_csr::run(command),
-        Subcommand::GraphCollectionGenerations(_) | Subcommand::GraphCollectionState(_) => {
-            graph_lifecycle::run(command)
-        }
-        Subcommand::MaterializeMolecularVault(_) => molecular_vault::run(command),
-        Subcommand::MaterializeEvidenceSubstrate(_) => evidence_substrate::run(command),
-        Subcommand::MaterializeLincsReversal(_) => lincs_reversal::run(command),
-        Subcommand::AssembleHypothesisEvidence(_) => hypothesis_evidence::run(command),
-        Subcommand::AssociationValidationGates(_) => association_validation::run(command),
-        Subcommand::TypedAssociationMiner(_) => typed_association_miner::run(command),
-        Subcommand::HypothesisFalsificationSweep(_) => hypothesis_falsification::run(command),
-        Subcommand::BiomedicalBlindspotAudit(_) => biomedical_blindspot_audit::run(command),
-    }
-}
-
-pub(crate) fn parse(args: &[String]) -> CliResult<Subcommand> {
-    let (command, rest) = args
-        .split_first()
-        .ok_or_else(|| CliError::usage("missing command"))?;
-    match command.as_str() {
-        "create-vault" => parse_create_vault(rest),
-        "add-lens" => parse_add_lens(rest),
-        "retire-lens" => parse_slot_command(rest).map(Subcommand::RetireLens),
-        "park-lens" => parse_slot_command(rest).map(Subcommand::ParkLens),
-        "retire-vault" => vault_retire::parse_retire_vault(rest),
-        "list-panel" => parse_vault_ref(rest).map(Subcommand::ListPanel),
-        "profile-lens" => parse_profile_lens(rest),
-        "ingest" => ingest::parse_ingest(rest),
-        "ingest-status" => ingest::parse_ingest_status(rest),
-        "anchor" => ingest::parse_anchor(rest),
-        "measure" => ingest::parse_measure(rest),
-        "erase" => erase::parse_erase(rest),
-        "search" => search::parse_search(rest),
-        "kernel-answer" => search::parse_kernel_answer(rest),
-        "bits" => intelligence::parse_bits(rest),
-        "kernel" => intelligence::parse_kernel(rest),
-        "guard" => intelligence::parse_guard(rest),
-        "abundance" => intelligence::parse_abundance(rest),
-        "propose-lens" => intelligence::parse_propose_lens(rest),
-        "provenance" => provenance::parse_provenance(rest),
-        "verify-chain" => provenance::parse_verify_chain(rest),
-        "reproduce" => provenance::parse_reproduce(rest),
-        "anneal-status" => provenance::parse_anneal_status(rest),
-        "rebuild-search-index" => parse_vault_ref(rest).map(Subcommand::RebuildSearchIndex),
-        "kernel-build" => kernel_build::parse_kernel_build(rest),
-        "weave-loom" => weave::parse_weave_loom(rest),
-        "domain-bridges" => domain_bridges::parse_domain_bridges(rest),
-        "materialize-bridge-corpus" => bridge_corpus::parse_materialize_bridge_corpus(rest),
-        "materialize-citation-overlay" => {
-            citation_overlay::parse_materialize_citation_overlay(rest)
-        }
-        "discovery-chain" => discovery_chain::parse_discovery_chain(rest),
-        "chain-walks" => chain_walks::parse_chain_walks(rest),
-        "probe-matrix" => probe_matrix::parse_probe_matrix(rest),
-        "spectral-communities" => spectral_communities::parse_spectral_communities(rest),
-        "materialize-graph-csr" => graph_csr::parse_materialize_graph_csr(rest),
-        "graph-collection-generations" => graph_lifecycle::parse_graph_collection_generations(rest),
-        "graph-collection-state" => graph_lifecycle::parse_graph_collection_state(rest),
-        "materialize-molecular-vault" => molecular_vault::parse_materialize_molecular_vault(rest),
-        "materialize-evidence-substrate" => {
-            evidence_substrate::parse_materialize_evidence_substrate(rest)
-        }
-        "materialize-lincs-reversal" => lincs_reversal::parse_materialize_lincs_reversal(rest),
-        "assemble-hypothesis-evidence" => {
-            hypothesis_evidence::parse_assemble_hypothesis_evidence(rest)
-        }
-        "association-validation-gates" => {
-            association_validation::parse_association_validation_gates(rest)
-        }
-        "typed-association-miner" => typed_association_miner::parse_typed_association_miner(rest),
-        "hypothesis-falsification-sweep" => {
-            hypothesis_falsification::parse_hypothesis_falsification_sweep(rest)
-        }
-        "biomedical-blindspot-audit" => {
-            biomedical_blindspot_audit::parse_biomedical_blindspot_audit(rest)
-        }
-        other => Err(CliError::usage(format!("unknown PH62 command {other}"))),
-    }
-}
-
-fn parse_create_vault(rest: &[String]) -> CliResult<Subcommand> {
-    let name = rest
-        .first()
-        .ok_or_else(|| CliError::usage("create-vault requires <name>"))?
-        .clone();
-    validate_vault_name(&name)?;
-    let mut panel_template = None;
-    let mut idx = 1;
-    while idx < rest.len() {
-        match rest[idx].as_str() {
-            "--panel-template" => {
-                idx += 1;
-                let value = value(rest, idx, "--panel-template")?;
-                validate_panel_template_name(value)?;
-                panel_template = Some(value.to_string());
-            }
-            other => {
-                return Err(CliError::usage(format!(
-                    "unexpected create-vault flag {other}"
-                )));
-            }
-        }
-        idx += 1;
-    }
-    Ok(Subcommand::CreateVault(CreateVaultArgs {
-        name,
-        panel_template,
-    }))
-}
-
-fn parse_add_lens(rest: &[String]) -> CliResult<Subcommand> {
-    let vault = rest
-        .first()
-        .ok_or_else(|| CliError::usage("add-lens requires <vault>"))?
-        .clone();
-    let mut flags = LensFlags::default();
-    flags.parse(&rest[1..], "add-lens")?;
-    let name = flags
-        .name
-        .ok_or_else(|| CliError::usage("add-lens requires --name <n>"))?;
-    let runtime = flags
-        .runtime
-        .ok_or_else(|| CliError::usage("add-lens requires --runtime <r>"))?;
-    Ok(Subcommand::AddLens(AddLensArgs {
-        vault,
-        name,
-        runtime,
-        endpoint: flags.endpoint,
-        weights: flags.weights,
-        shape: flags.shape,
-        modality: flags.modality,
-    }))
-}
-
-fn parse_slot_command(rest: &[String]) -> CliResult<SlotCommandArgs> {
-    let vault = rest
-        .first()
-        .ok_or_else(|| CliError::usage("lens lifecycle command requires <vault>"))?
-        .clone();
-    let mut slot = None;
-    let mut idx = 1;
-    while idx < rest.len() {
-        match rest[idx].as_str() {
-            "--slot" => {
-                idx += 1;
-                let raw = value(rest, idx, "--slot")?;
-                slot = Some(
-                    raw.parse::<u16>()
-                        .map_err(|err| CliError::usage(format!("parse --slot {raw}: {err}")))?,
-                );
-            }
-            other => {
-                return Err(CliError::usage(format!(
-                    "unexpected lifecycle flag {other}"
-                )));
-            }
-        }
-        idx += 1;
-    }
-    Ok(SlotCommandArgs {
-        vault,
-        slot: slot
-            .ok_or_else(|| CliError::usage("lens lifecycle command requires --slot <u16>"))?,
-    })
-}
-
-fn parse_vault_ref(rest: &[String]) -> CliResult<VaultRefArgs> {
-    match rest {
-        [vault] => Ok(VaultRefArgs {
-            vault: vault.clone(),
-        }),
-        _ => Err(CliError::usage("list-panel requires exactly <vault>")),
-    }
-}
-
-fn parse_profile_lens(rest: &[String]) -> CliResult<Subcommand> {
-    let mut flags = LensFlags::default();
-    flags.parse(rest, "profile-lens")?;
-    Ok(Subcommand::ProfileLens(ProfileLensArgs {
-        name: flags.name,
-        runtime: flags.runtime,
-        endpoint: flags.endpoint,
-        weights: flags.weights,
-        shape: flags.shape,
-        modality: flags.modality,
-        probe: flags.probe,
-    }))
-}
-
-#[derive(Default)]
-struct LensFlags {
-    name: Option<String>,
-    runtime: Option<String>,
-    endpoint: Option<String>,
-    weights: Option<PathBuf>,
-    shape: Option<String>,
-    modality: Option<String>,
-    probe: Option<PathBuf>,
-}
-
-impl LensFlags {
-    fn parse(&mut self, args: &[String], command: &str) -> CliResult {
-        let mut idx = 0;
-        while idx < args.len() {
-            match args[idx].as_str() {
-                "--name" => {
-                    idx += 1;
-                    self.name = Some(value(args, idx, "--name")?.to_string());
-                }
-                "--runtime" => {
-                    idx += 1;
-                    self.runtime = Some(value(args, idx, "--runtime")?.to_string());
-                }
-                "--endpoint" => {
-                    idx += 1;
-                    self.endpoint = Some(value(args, idx, "--endpoint")?.to_string());
-                }
-                "--weights" => {
-                    idx += 1;
-                    self.weights = Some(value(args, idx, "--weights")?.into());
-                }
-                "--shape" => {
-                    idx += 1;
-                    self.shape = Some(value(args, idx, "--shape")?.to_string());
-                }
-                "--modality" => {
-                    idx += 1;
-                    self.modality = Some(value(args, idx, "--modality")?.to_string());
-                }
-                "--probe" if command == "profile-lens" => {
-                    idx += 1;
-                    self.probe = Some(value(args, idx, "--probe")?.into());
-                }
-                other => {
-                    return Err(CliError::usage(format!(
-                        "unexpected {command} flag {other}"
-                    )));
-                }
-            }
-            idx += 1;
-        }
-        Ok(())
-    }
-}
+pub(crate) use search::{open_vault as open_search_vault, search_read_cfs};
 
 #[cfg(test)]
 mod tests;

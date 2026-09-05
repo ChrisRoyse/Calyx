@@ -8,6 +8,7 @@ use super::{
     SavedPanelTemplate, TEMPLATE_INVALID, TemplateLensProgress, id_for_loaded, template_error,
 };
 
+#[cfg(test)]
 pub(in crate::panel_commands) fn register_template_lenses(
     registry: &mut Registry,
     template: &mut SavedPanelTemplate,

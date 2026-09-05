@@ -86,7 +86,9 @@ fn static_derivation_round_trips_constructible_runtime_kinds() {
             LensRuntime::Algorithmic {
                 kind: "scalar".to_string(),
             },
-            SlotShape::Dense(8),
+            // The scalar encoder has a fixed dimension of 1; declaring any other
+            // shape is (correctly) rejected by the runtime-kind reconstructor.
+            SlotShape::Dense(1),
             [0; 32],
             NormPolicy::None,
         ),

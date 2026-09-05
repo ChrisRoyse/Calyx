@@ -2,7 +2,7 @@ use calyx_core::{CalyxError, Lens, Modality, Placement};
 use calyx_registry::{
     AlgorithmicLens, CandleLens, FastembedBgem3Lens, FastembedBgem3Output, FastembedQwen3Lens,
     FastembedRerankerLens, FastembedSparseLens, LensRuntime, LensSpec, MultimodalAdapterLens,
-    OnnxColbertLens, OnnxLens, StaticLookupLens, TeiHttpLens,
+    OnnxColbertLens, OnnxLens, StaticLookupLens, TeiHttpLens, TeiSegmentedLens,
     runtime::tei_http::DEFAULT_TEI_MAX_BATCH,
 };
 
@@ -129,7 +129,8 @@ pub(super) fn runtime_lens(spec: &LensSpec) -> Result<RuntimeLens, CalyxError> {
             })
         }
         LensRuntime::TeiHttp { endpoint } => {
-            let lens = TeiHttpLens::new(&spec.name, endpoint, spec.modality, dim(spec.output));
+            let lens = TeiHttpLens::new(&spec.name, endpoint, spec.modality, dim(spec.output))
+                .with_declared_max_batch(spec.max_batch)?;
             Ok(RuntimeLens {
                 lens: Box::new(lens),
                 detail: endpoint.clone(),
@@ -138,6 +139,26 @@ pub(super) fn runtime_lens(spec: &LensSpec) -> Result<RuntimeLens, CalyxError> {
                 native_batching: true,
                 max_batch: spec.max_batch.or(Some(DEFAULT_TEI_MAX_BATCH)),
                 proof: format!("tei_endpoint_vector_contract:{endpoint}"),
+                gpu_process_required: false,
+            })
+        }
+        LensRuntime::TeiHttpSegmented { endpoint, policy } => {
+            let lens = TeiSegmentedLens::new(
+                &spec.name,
+                endpoint,
+                spec.modality,
+                dim(spec.output),
+                *policy,
+            )?
+            .with_declared_max_batch(spec.max_batch)?;
+            Ok(RuntimeLens {
+                lens: Box::new(lens),
+                detail: format!("{endpoint};{}", policy.fingerprint()),
+                provider: "resident_tei_gpu_service".to_string(),
+                placement: Placement::Gpu,
+                native_batching: true,
+                max_batch: spec.max_batch.or(Some(DEFAULT_TEI_MAX_BATCH)),
+                proof: format!("tei_endpoint_segmented_contract:{endpoint}"),
                 gpu_process_required: false,
             })
         }
@@ -239,7 +260,8 @@ pub(super) fn association_family(spec: &LensSpec) -> &'static str {
         LensRuntime::OnnxColbert { .. } => "late_interaction_token",
         LensRuntime::Onnx { .. }
         | LensRuntime::CandleLocal { .. }
-        | LensRuntime::TeiHttp { .. } => "dense_semantic",
+        | LensRuntime::TeiHttp { .. }
+        | LensRuntime::TeiHttpSegmented { .. } => "dense_semantic",
         LensRuntime::ExternalCmd { .. } => "external",
     }
 }
@@ -262,58 +284,5 @@ pub(super) fn is_content_modality(modality: Modality) -> bool {
 }
 
 fn algorithmic_lens(spec: &LensSpec, kind: &str) -> Result<AlgorithmicLens, CalyxError> {
-    match kind {
-        "byte" | "byte-features" => Ok(AlgorithmicLens::byte_features(&spec.name, spec.modality)),
-        "scalar" => Ok(AlgorithmicLens::scalar(&spec.name, spec.modality)),
-        "ast-style" => Ok(AlgorithmicLens::ast_style(&spec.name, spec.modality)),
-        "gdelt-cameo" | "gdelt_cameo" => {
-            Ok(AlgorithmicLens::gdelt_cameo(&spec.name, spec.modality))
-        }
-        "gdelt-actor-geo" | "gdelt_actor_geo" => Ok(AlgorithmicLens::gdelt_actor_geo(
-            &spec.name,
-            spec.modality,
-            dim(spec.output),
-        )),
-        "gdelt-source-domain" | "gdelt_source_domain" => Ok(AlgorithmicLens::gdelt_source_domain(
-            &spec.name,
-            spec.modality,
-            dim(spec.output),
-        )),
-        "gdelt-event-geo" | "gdelt_event_geo" => Ok(AlgorithmicLens::gdelt_event_geo(
-            &spec.name,
-            spec.modality,
-            dim(spec.output),
-        )),
-        "gdelt-actor-pair" | "gdelt_actor_pair" => Ok(AlgorithmicLens::gdelt_actor_pair(
-            &spec.name,
-            spec.modality,
-            dim(spec.output),
-        )),
-        "gdelt-event-actor" | "gdelt_event_actor" => Ok(AlgorithmicLens::gdelt_event_actor(
-            &spec.name,
-            spec.modality,
-            dim(spec.output),
-        )),
-        "gdelt-tone-signal" | "gdelt_tone_signal" => Ok(AlgorithmicLens::gdelt_tone_signal(
-            &spec.name,
-            spec.modality,
-            dim(spec.output),
-        )),
-        "gdelt-source-event" | "gdelt_source_event" => Ok(AlgorithmicLens::gdelt_source_event(
-            &spec.name,
-            spec.modality,
-            dim(spec.output),
-        )),
-        "sparse" | "sparse-keywords" => Ok(AlgorithmicLens::sparse_keywords(
-            &spec.name,
-            spec.modality,
-            dim(spec.output),
-        )),
-        "token-hash" | "token_hash" | "multi-hash" | "multi_hash" => Ok(
-            AlgorithmicLens::token_hash(&spec.name, spec.modality, dim(spec.output)),
-        ),
-        other => Err(CalyxError::lens_unreachable(format!(
-            "scale-audit does not support algorithmic kind {other}"
-        ))),
-    }
+    AlgorithmicLens::from_runtime_kind(&spec.name, spec.modality, kind, spec.output)
 }

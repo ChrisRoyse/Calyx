@@ -23,6 +23,7 @@ pub(super) struct ServeFlags {
     pub(super) max_load_secs: Option<u64>,
     pub(super) load_parallelism: Option<usize>,
     pub(super) max_runtime_batch: Option<usize>,
+    pub(super) kernel_rank: bool,
 }
 
 #[derive(Debug)]
@@ -87,6 +88,11 @@ pub(super) fn parse_serve_flags(args: &[String]) -> CliResult<ServeFlags> {
                     value(args, idx + 1, "--max-runtime-batch")?,
                     "--max-runtime-batch",
                 )?)
+            }
+            "--kernel-rank" => {
+                flags.kernel_rank = true;
+                idx += 1;
+                continue;
             }
             other => {
                 return Err(CliError::usage(format!(

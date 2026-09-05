@@ -3,6 +3,7 @@
 mod anchor;
 mod derived_text;
 mod input_retention;
+mod measure;
 mod media;
 mod report;
 #[cfg(test)]
@@ -12,12 +13,9 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use calyx_aster::cf::{ColumnFamily, base_key};
 use calyx_aster::vault::{AsterVault, VaultOptions};
-use calyx_core::{
-    AbsentReason, Anchor, CalyxError, Constellation, CxFlags, CxId, Input, InputRef, LedgerRef,
-    Modality, Slot, SlotState, SlotVector, VaultStore,
-};
+use calyx_core::{Anchor, CalyxError, CxId, Input, Modality, StructuredRecord, VaultStore};
 use calyx_ledger::{ActorId, EntryKind, RedactionPolicy, SubjectId};
-use calyx_registry::{VaultPanelState, load_vault_panel_state};
+use calyx_registry::load_vault_panel_state;
 use serde::Deserialize;
 use serde::de::DeserializeOwned;
 use serde_json::{Value, json};
@@ -29,7 +27,8 @@ use crate::server::{McpServer, Tool, ToolError, ToolResult};
 use self::anchor::{
     append_anchor_ledger, parse_anchor_kind, parse_anchor_value, validate_confidence,
 };
-use self::input_retention::{input_hash, retained_text_input};
+use self::input_retention::prepared_text_input;
+use self::measure::measure_constellation;
 use self::report::constellation_report;
 use super::vault::now_ms;
 use super::vault::store::{ResolvedVault, home_dir, resolve_vault_info, vault_salt};
@@ -59,13 +58,15 @@ impl Tool for IngestTool {
                 ("vault", string_schema(), true),
                 ("input", string_schema(), false),
                 ("batch", array_schema(string_schema()), false),
+                ("record_schema", string_schema(), false),
+                ("record", json!({ "type": "object" }), false),
             ]),
         )
     }
 
     fn call(&self, params: Value) -> ToolResult<Value> {
         let args: IngestArgs = decode("calyx.ingest", params)?;
-        let texts = ingest_texts_arg(args.input, args.batch)?;
+        let texts = ingest_texts_arg(args.input, args.batch, args.record_schema, args.record)?;
         let resolved = resolve_requested_vault(&args.vault)?;
         let reports = ingest_texts(&resolved, &texts)?;
         if reports.len() == 1 {
@@ -155,6 +156,8 @@ impl Tool for MeasureTool {
             object_schema(&[
                 ("vault", string_schema(), true),
                 ("input", string_schema(), true),
+                ("record_schema", string_schema(), false),
+                ("record", json!({ "type": "object" }), false),
             ]),
         )
     }
@@ -165,7 +168,8 @@ impl Tool for MeasureTool {
         let resolved = resolve_requested_vault(&args.vault)?;
         let vault = open_vault(&resolved)?;
         let state = load_vault_panel_state(&resolved.path)?;
-        let measured = measure_constellation(&vault, &state, text_input(args.input), now_ms())?;
+        let input = attach_structured(text_input(args.input), args.record_schema, args.record)?;
+        let measured = measure_constellation(&vault, &state, input, now_ms())?;
         Ok(constellation_report(&measured.constellation, &state))
     }
 
@@ -175,13 +179,17 @@ impl Tool for MeasureTool {
 }
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct IngestArgs {
     vault: String,
     input: Option<String>,
     batch: Option<Vec<String>>,
+    record_schema: Option<String>,
+    record: Option<Value>,
 }
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct AnchorArgs {
     vault: String,
     cx_id: String,
@@ -193,9 +201,12 @@ struct AnchorArgs {
 }
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct MeasureArgs {
     vault: String,
     input: String,
+    record_schema: Option<String>,
+    record: Option<Value>,
 }
 
 #[derive(serde::Serialize)]
@@ -205,32 +216,61 @@ struct IngestReport {
     ledger_seq: u64,
 }
 
-struct MeasuredConstellation {
-    constellation: Constellation,
-}
-
 struct PreparedInput {
     input: Input,
     metadata: BTreeMap<String, String>,
 }
 
-fn ingest_texts_arg(input: Option<String>, batch: Option<Vec<String>>) -> ToolResult<Vec<String>> {
+struct PreparedReport {
+    cx_id: CxId,
+    new: bool,
+    existed_before: bool,
+    input_ref: calyx_core::InputRef,
+    retained_bytes: Vec<u8>,
+}
+
+struct TextSource {
+    text: String,
+    structured: Option<StructuredRecord>,
+}
+
+fn ingest_texts_arg(
+    input: Option<String>,
+    batch: Option<Vec<String>>,
+    record_schema: Option<String>,
+    record: Option<Value>,
+) -> ToolResult<Vec<TextSource>> {
+    let structured = structured_record(record_schema, record)?;
     match (input, batch) {
         (Some(_), Some(_)) => Err(ToolError::invalid_params(
             "input and batch are mutually exclusive",
         )),
         (Some(input), None) => {
             validate_text(&input)?;
-            Ok(vec![input])
+            Ok(vec![TextSource {
+                text: input,
+                structured,
+            }])
         }
         (None, Some(batch)) if batch.is_empty() => {
             Err(ToolError::invalid_params("batch must not be empty"))
         }
         (None, Some(batch)) => {
+            if structured.is_some() {
+                return Err(ToolError::invalid_params(
+                    "record_schema/record can only accompany one input; use one calyx.ingest call per structured record",
+                ));
+            }
             for item in &batch {
                 validate_text(item)?;
             }
-            Ok(batch)
+            Ok(batch
+                .into_iter()
+                .map(|text| TextSource {
+                    text,
+                    structured: None,
+                })
+                .collect())
         }
         (None, None) => Err(ToolError::invalid_params(
             "calyx.ingest requires input or batch",
@@ -238,12 +278,16 @@ fn ingest_texts_arg(input: Option<String>, batch: Option<Vec<String>>) -> ToolRe
     }
 }
 
-fn ingest_texts(resolved: &ResolvedVault, texts: &[String]) -> ToolResult<Vec<IngestReport>> {
+fn ingest_texts(resolved: &ResolvedVault, texts: &[TextSource]) -> ToolResult<Vec<IngestReport>> {
     let inputs = texts
         .iter()
-        .map(|text| {
+        .map(|source| {
+            let input = prepared_text_input(&source.text);
             Ok(PreparedInput {
-                input: retained_text_input(resolved, text)?,
+                input: match &source.structured {
+                    Some(record) => input.with_structured(record.clone()),
+                    None => input,
+                },
                 metadata: BTreeMap::new(),
             })
         })
@@ -261,140 +305,72 @@ fn ingest_prepared_inputs(
     let mut prepared = Vec::with_capacity(inputs.len());
     let mut first_new = BTreeSet::new();
     for input in inputs {
+        let retained_bytes = input.input.bytes.clone();
         let mut measured = measure_constellation(&vault, &state, input.input, now_ms())?;
-        measured.constellation.metadata = input.metadata;
-        let cx_id = measured.constellation.cx_id;
-        let new = !base_exists(&vault, cx_id)? && first_new.insert(cx_id);
-        if new {
-            staged.push(measured.constellation);
+        for (key, value) in input.metadata {
+            if measured
+                .constellation
+                .metadata
+                .insert(key.clone(), value)
+                .is_some()
+            {
+                return Err(CalyxError::aster_corrupt_shard(format!(
+                    "MCP ingest metadata key {key:?} collides with engine-owned structured state"
+                ))
+                .into());
+            }
         }
-        prepared.push((cx_id, new));
+        let cx_id = measured.constellation.cx_id;
+        let existed_before = base_exists(&vault, cx_id)?;
+        let new = !existed_before && first_new.insert(cx_id);
+        if new {
+            staged.push((measured.constellation.clone(), retained_bytes.clone()));
+        }
+        prepared.push(PreparedReport {
+            cx_id,
+            new,
+            existed_before,
+            input_ref: measured.constellation.input_ref,
+            retained_bytes,
+        });
+    }
+    for row in prepared.iter().filter(|row| row.existed_before) {
+        vault.backfill_input_pointer_with_retained_input(
+            row.cx_id,
+            &row.input_ref,
+            &row.retained_bytes,
+        )?;
     }
     match staged.len() {
         0 => {}
         1 => {
-            vault.put(staged.pop().expect("one staged constellation"))?;
+            vault.put_batch_with_retained_inputs([staged
+                .pop()
+                .expect("one staged constellation")])?;
         }
         _ => {
-            vault.put_batch(staged)?;
+            vault.put_batch_with_retained_inputs(staged)?;
         }
     }
     vault.flush()?;
     let snapshot = vault.snapshot();
     let mut reports = Vec::with_capacity(prepared.len());
-    for (cx_id, new) in prepared {
-        let stored = vault.get(cx_id, snapshot)?;
-        let ledger_seq = if new {
+    for row in prepared {
+        let stored = vault.get(row.cx_id, snapshot)?;
+        let ledger_seq = if row.new {
             stored.provenance.seq
         } else {
-            append_ingest_retry_ledger(&vault, cx_id)?
+            append_ingest_retry_ledger(&vault, row.cx_id)?
         };
         reports.push(IngestReport {
-            cx_id: cx_id.to_string(),
-            new,
+            cx_id: row.cx_id.to_string(),
+            new: row.new,
             ledger_seq,
         });
     }
     vault.flush()?;
     publish_search_generation(&resolved.path, &vault, &state)?;
     Ok(reports)
-}
-
-fn measure_constellation(
-    vault: &AsterVault,
-    state: &VaultPanelState,
-    input: Input,
-    now: u64,
-) -> ToolResult<MeasuredConstellation> {
-    let cx_id = vault.cx_id_for_input(&input.bytes, state.panel.version);
-    let mut slots = BTreeMap::new();
-    let mut degraded = false;
-    let mut applicable = 0_usize;
-    let mut produced = 0_usize;
-    let mut unavailable = 0_usize;
-    for slot in &state.panel.slots {
-        let vector = measure_slot(
-            slot,
-            state,
-            &input,
-            &mut applicable,
-            &mut produced,
-            &mut unavailable,
-        )?;
-        degraded |= slot.counts_toward_degraded(input.modality) && vector.is_absent();
-        slots.insert(slot.slot_id, vector);
-    }
-    if applicable == 0 {
-        return Err(ToolError::invalid_params(format!(
-            "panel has no active {:?}-compatible slots",
-            input.modality
-        )));
-    }
-    if produced == 0 && unavailable == applicable {
-        return Err(
-            CalyxError::lens_unreachable("all applicable lens runtimes unreachable").into(),
-        );
-    }
-    Ok(MeasuredConstellation {
-        constellation: Constellation {
-            cx_id,
-            vault_id: vault.vault_id(),
-            panel_version: state.panel.version,
-            created_at: now,
-            input_ref: InputRef {
-                hash: input_hash(&input.bytes),
-                pointer: input.pointer,
-                redacted: false,
-            },
-            modality: input.modality,
-            slots,
-            scalars: BTreeMap::new(),
-            metadata: BTreeMap::new(),
-            anchors: Vec::new(),
-            provenance: LedgerRef {
-                seq: vault.latest_seq().saturating_add(1),
-                hash: [0; 32],
-            },
-            flags: CxFlags {
-                ungrounded: true,
-                degraded,
-                novel_region: false,
-                redacted_input: false,
-            },
-        },
-    })
-}
-
-fn measure_slot(
-    slot: &Slot,
-    state: &VaultPanelState,
-    input: &Input,
-    applicable: &mut usize,
-    produced: &mut usize,
-    unavailable: &mut usize,
-) -> ToolResult<SlotVector> {
-    if slot.state != SlotState::Active {
-        return Ok(absent(AbsentReason::LensInactive));
-    }
-    if slot.modality != input.modality {
-        return Ok(absent(AbsentReason::NotApplicable));
-    }
-    *applicable += 1;
-    if !state.registry.contains(slot.lens_id) {
-        *unavailable += 1;
-        return Ok(absent(AbsentReason::LensUnavailable));
-    }
-    match state.registry.measure(slot.lens_id, input) {
-        Ok(vector) => {
-            *produced += 1;
-            Ok(vector)
-        }
-        Err(error) if error.code == "CALYX_LENS_UNREACHABLE" => {
-            *unavailable += 1;
-            Ok(absent(AbsentReason::LensUnavailable))
-        }
-        Err(error) => Err(error.into()),
-    }
 }
 
 fn append_ingest_retry_ledger(vault: &AsterVault, cx_id: CxId) -> ToolResult<u64> {
@@ -460,12 +436,37 @@ fn validate_text(value: &str) -> ToolResult<()> {
     Ok(())
 }
 
-fn text_input(text: String) -> Input {
-    Input::new(Modality::Text, text.into_bytes())
+fn structured_record(
+    schema: Option<String>,
+    record: Option<Value>,
+) -> ToolResult<Option<StructuredRecord>> {
+    match (schema, record) {
+        (None, None) => Ok(None),
+        (Some(schema), Some(record)) => {
+            Ok(Some(StructuredRecord::from_json_value(schema, &record)?))
+        }
+        _ => Err(CalyxError {
+            code: calyx_core::CALYX_STRUCTURED_SCHEMA_MISMATCH,
+            message: "record_schema and record must be provided together".to_string(),
+            remediation: "supply both the exact stable schema id and its typed JSON object",
+        }
+        .into()),
+    }
 }
 
-fn absent(reason: AbsentReason) -> SlotVector {
-    SlotVector::Absent { reason }
+fn attach_structured(
+    input: Input,
+    schema: Option<String>,
+    record: Option<Value>,
+) -> ToolResult<Input> {
+    Ok(match structured_record(schema, record)? {
+        Some(record) => input.with_structured(record),
+        None => input,
+    })
+}
+
+fn text_input(text: String) -> Input {
+    Input::new(Modality::Text, text.into_bytes())
 }
 
 fn decode<T: DeserializeOwned>(tool: &str, params: Value) -> ToolResult<T> {

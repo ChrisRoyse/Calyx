@@ -83,6 +83,7 @@ pub(in crate::panel_commands) fn lens_ref_from_catalog(
         ));
     }
     let snapshot = TemplateLensSnapshot {
+        derivation_version: Some(calyx_registry::derivation::LENS_DERIVATION_VERSION),
         schema_version: LENS_SNAPSHOT_VERSION,
         manifest_blake3: json_blake3(&manifest)?,
         spec_blake3: json_blake3(&spec)?,
@@ -136,6 +137,35 @@ impl TemplateLensSnapshot {
         let spec_id = self.spec.lens_id();
         let expected_weights = hex32(&self.spec.weights_sha256);
         let expected_runtime = runtime_name(&self.spec.runtime);
+        // A summary whose ONLY conflict is `lens_id` is the #1943 signature:
+        // byte-identical artifacts re-identified by an evolved derivation
+        // function. That is a migration event, not tampering, and gets its own
+        // typed code so operators are not sent hunting for a tamper that never
+        // happened. Everything else still fails as TEMPLATE_INVALID.
+        if lens.lens_id != spec_id
+            && lens.lens_name == self.spec.name
+            && lens.weights_sha256 == expected_weights
+            && lens.runtime == expected_runtime
+            && lens.modality == self.spec.modality
+            && lens.shape == self.spec.output
+        {
+            let verdict = calyx_registry::derivation::classify(self.derivation_version)
+                .for_runtime(spec_runtime_variant(&self.spec.runtime));
+            if verdict
+                .steps()
+                .iter()
+                .any(|step| step.moves_field("lens_id"))
+            {
+                let error = calyx_registry::derivation::panel_template_derivation_stale(
+                    &verdict,
+                    format!(
+                        "template {template_id} lens {} summary id {} was derived by an older                          derivation than this binary, which resolves the same immutable spec to                          {spec_id}; the manifest, spec and contract hashes all still verify",
+                        lens.lens_name, lens.lens_id
+                    ),
+                );
+                return Err(template_error(error.code, error.message, error.remediation));
+            }
+        }
         if lens.lens_id != spec_id
             || lens.lens_name != self.spec.name
             || lens.weights_sha256 != expected_weights
@@ -320,4 +350,24 @@ fn slug(value: &str) -> String {
         .collect::<String>()
         .trim_matches('_')
         .to_string()
+}
+
+/// Maps a `LensRuntime` to the variant name used by the derivation changelog.
+fn spec_runtime_variant(runtime: &calyx_registry::LensRuntime) -> &'static str {
+    use calyx_registry::LensRuntime as R;
+    match runtime {
+        R::Algorithmic { .. } => "Algorithmic",
+        R::TeiHttp { .. } => "TeiHttp",
+        R::TeiHttpSegmented { .. } => "TeiHttpSegmented",
+        R::CandleLocal { .. } => "CandleLocal",
+        R::Onnx { .. } => "Onnx",
+        R::OnnxColbert { .. } => "OnnxColbert",
+        R::FastembedSparse { .. } => "FastembedSparse",
+        R::FastembedBgem3 { .. } => "FastembedBgem3",
+        R::FastembedReranker { .. } => "FastembedReranker",
+        R::FastembedQwen3 { .. } => "FastembedQwen3",
+        R::StaticLookup { .. } => "StaticLookup",
+        R::MultimodalAdapter { .. } => "MultimodalAdapter",
+        R::ExternalCmd { .. } => "ExternalCmd",
+    }
 }

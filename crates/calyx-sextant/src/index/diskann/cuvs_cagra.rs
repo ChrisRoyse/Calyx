@@ -56,13 +56,18 @@ pub(super) fn build_diskann_graph_cuvs_cagra(
     if let Some(parent) = tmp.parent()
         && !parent.as_os_str().is_empty()
     {
-        fs::create_dir_all(parent)
-            .map_err(|error| io_error("create CAGRA asset directory", parent, error))?;
+        calyx_aster::private_fs::create_private_dir_all(parent)?;
     }
     remove_if_present(&tmp, "remove stale temporary CAGRA asset")?;
     index.serialize(&res, &tmp)?;
-    File::open(&tmp)
-        .and_then(|file| file.sync_all())
+    // The cuVS FFI creates the serialized asset under the ambient umask, so
+    // this is the one CAGRA artifact we must harden after create (#1989):
+    // prove it back to owner-only 0600 on the same handle we fsync.
+    let tmp_file =
+        File::open(&tmp).map_err(|error| io_error("open temporary CAGRA asset", &tmp, error))?;
+    calyx_aster::private_fs::enforce_private_file_mode(&tmp_file, &tmp)?;
+    tmp_file
+        .sync_all()
         .map_err(|error| io_error("sync temporary CAGRA asset", &tmp, error))?;
     let dataset_tmp = match cagra_dataset::prepare(&dataset_sidecar, &space, metric) {
         Ok(path) => path,

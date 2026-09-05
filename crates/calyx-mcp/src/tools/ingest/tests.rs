@@ -6,7 +6,8 @@ use std::path::PathBuf;
 use std::sync::MutexGuard;
 use std::thread::{self, JoinHandle};
 
-use calyx_core::AuthN;
+use calyx_aster::cf::ColumnFamily;
+use calyx_core::{AuthN, VaultStore};
 use serde_json::{Value, json};
 
 use crate::jsonrpc::decode_jsonrpc_request;
@@ -106,6 +107,18 @@ fn call_err(server: &McpServer, id: u64, name: &str, arguments: Value) -> JsonRp
         .dispatch_with_authn(request, Some(&authn))
         .error
         .unwrap()
+}
+
+/// Base CF row count read straight from the persisted vault (the ingest source of
+/// truth). Opens the store directly, so it does not re-run the panel-load golden
+/// re-verification and is safe against an unreachable process-boundary lens.
+fn base_row_count(vault_name: &str) -> usize {
+    let resolved = super::resolve_requested_vault(vault_name).unwrap();
+    let vault = super::open_vault(&resolved).unwrap();
+    vault
+        .scan_cf_at(vault.snapshot(), ColumnFamily::Base)
+        .unwrap()
+        .len()
 }
 
 fn vault_with_algorithmic(server: &McpServer, name: &str) {
@@ -363,6 +376,73 @@ fn ingest_fails_when_tei_golden_cannot_be_reverified_on_vault_open() {
     assert_eq!(
         data["remediation"],
         "re-register the process-boundary lens and persist its new runtime golden"
+    );
+}
+
+/// Issue #1922: a panel with one healthy (algorithmic) Active lens AND one
+/// registered, Active process-boundary lens that is reachable for the vault-open
+/// golden re-verification but unreachable for the actual measure. Before the fix
+/// the `CALYX_LENS_UNREACHABLE` runtime failure of the Active TEI lens was
+/// reclassified into `Absent(LensUnavailable)` and the degraded constellation was
+/// committed (because the healthy lens produced, so the all-unreachable backstop
+/// never fired). The fix propagates the structured error verbatim and aborts the
+/// request with zero authority writes. Zero-writes is proven by DB-native CF
+/// readback in the end-to-end FSV; this test guards the error-propagation regression.
+#[test]
+fn mixed_healthy_and_unreachable_active_lens_propagates_lens_error() {
+    let _env = TestEnv::new("mixed-unreachable");
+    let server = server();
+    // The endpoint answers add_lens registration (2 requests) and the single
+    // vault-open golden re-verify (1 request), then the listener closes; the
+    // subsequent measure request finds the port closed -> CALYX_LENS_UNREACHABLE.
+    let (endpoint, tei_server) = tei_registration_server(3);
+    call_ok(&server, 20, "calyx.create_vault", json!({"name": "v"}));
+    call_ok(
+        &server,
+        21,
+        "calyx.add_lens",
+        json!({"vault": "v", "name": "byte_axis", "runtime": "algorithmic"}),
+    );
+    call_ok(
+        &server,
+        22,
+        "calyx.add_lens",
+        json!({
+            "vault": "v",
+            "name": "reachable_then_unreachable_tei",
+            "runtime": "tei-http",
+            "endpoint": endpoint,
+            "shape": "Dense(4)",
+            "modality": "text"
+        }),
+    );
+
+    assert_eq!(
+        base_row_count("v"),
+        0,
+        "precondition: the vault holds no constellations before the mixed ingest"
+    );
+
+    let error = call_err(
+        &server,
+        23,
+        "calyx.ingest",
+        json!({"vault": "v", "input": "issue1922 mixed healthy and unreachable"}),
+    );
+    tei_server.join().unwrap();
+
+    assert_eq!(error.code, -32000);
+    let data = error.data.unwrap();
+    assert_eq!(
+        data["calyx_code"], "CALYX_LENS_UNREACHABLE",
+        "an Active lens runtime failure must propagate verbatim, not be reclassified to Absent"
+    );
+    // DB-native readback: the aborted request committed zero constellations, even
+    // though the healthy byte_axis lens produced a vector.
+    assert_eq!(
+        base_row_count("v"),
+        0,
+        "a mixed healthy+unreachable ingest must write zero Base rows"
     );
 }
 

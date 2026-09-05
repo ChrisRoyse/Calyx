@@ -1,4 +1,4 @@
-use super::{WeaveLoomArgs, coverage::CandidateSelectionMode};
+use super::{CandidateDevice, WeaveLoomArgs, coverage::CandidateSelectionMode};
 use crate::bounded_progress::parse_nonzero_u64;
 use crate::cmd::{Subcommand, value};
 use crate::error::{CliError, CliResult};
@@ -49,6 +49,11 @@ pub(crate) fn parse_weave_loom(rest: &[String]) -> CliResult<Subcommand> {
                 args.candidate_selection =
                     parse_candidate_selection(value(rest, idx, "--candidate-selection")?)?;
             }
+            "--candidate-device" => {
+                idx += 1;
+                args.candidate_device =
+                    parse_candidate_device(value(rest, idx, "--candidate-device")?)?;
+            }
             "--coverage-only" => {
                 args.coverage_only = true;
             }
@@ -95,6 +100,16 @@ fn parse_threshold(raw: &str) -> CliResult<f32> {
         ));
     }
     Ok(value)
+}
+
+fn parse_candidate_device(raw: &str) -> CliResult<CandidateDevice> {
+    match raw {
+        "cpu" => Ok(CandidateDevice::Cpu),
+        "gpu" => Ok(CandidateDevice::Gpu),
+        other => Err(CliError::usage(format!(
+            "--candidate-device must be one of cpu|gpu, got {other}"
+        ))),
+    }
 }
 
 fn parse_candidate_selection(raw: &str) -> CliResult<CandidateSelectionMode> {

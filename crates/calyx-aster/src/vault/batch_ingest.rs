@@ -4,7 +4,10 @@ use std::collections::BTreeMap;
 use std::cell::Cell;
 
 use super::store::DuplicatePutPolicy;
-use super::{AsterVault, PutDisposition, PutOutcome, anchor_merge, ledger_hook, prepared};
+use super::{
+    AsterVault, DurableCommitIntent, NoopDurableCommitIntent, PutDisposition, PutOutcome,
+    anchor_merge, ledger_hook, prepared,
+};
 use crate::cf::{ColumnFamily, base_key};
 use crate::media_artifact::{
     DerivedMediaArtifactDraft, DerivedMediaArtifactRecord, derived_media_artifact_write_rows,
@@ -37,6 +40,24 @@ pub(super) fn batch_read_counts() -> (usize, usize) {
 pub struct MediaArtifactIngestCommit {
     pub ids: Vec<CxId>,
     pub artifact: DerivedMediaArtifactRecord,
+}
+
+/// Provenance fields committed with one ingest batch.
+#[derive(Clone, Debug)]
+pub struct IngestLedgerInput {
+    subject: SubjectId,
+    payload: Vec<u8>,
+    actor: ActorId,
+}
+
+impl IngestLedgerInput {
+    pub fn new(subject: SubjectId, payload: Vec<u8>, actor: ActorId) -> Self {
+        Self {
+            subject,
+            payload,
+            actor,
+        }
+    }
 }
 
 impl<C> AsterVault<C>
@@ -114,11 +135,7 @@ where
         self.with_durable_commit_lock(|| {
             self.put_batch_locked_with_ledger(
                 input,
-                Some(BatchLedgerEntry {
-                    subject,
-                    payload,
-                    actor,
-                }),
+                Some(IngestLedgerInput::new(subject, payload, actor)),
             )
         })
     }
@@ -134,31 +151,48 @@ where
     where
         I: IntoIterator<Item = Constellation>,
     {
-        RedactionPolicy::check_payload(&payload)?;
+        let mut intent = NoopDurableCommitIntent;
+        self.put_batch_with_ingest_ledger_media_artifact_and_commit_intent(
+            constellations,
+            IngestLedgerInput::new(subject, payload, actor),
+            artifact,
+            &mut intent,
+        )
+    }
+
+    pub fn put_batch_with_ingest_ledger_media_artifact_and_commit_intent<I>(
+        &self,
+        constellations: I,
+        ledger_entry: IngestLedgerInput,
+        artifact: DerivedMediaArtifactDraft,
+        intent: &mut dyn DurableCommitIntent,
+    ) -> Result<MediaArtifactIngestCommit>
+    where
+        I: IntoIterator<Item = Constellation>,
+    {
+        RedactionPolicy::check_payload(&ledger_entry.payload)?;
         let input = constellations.into_iter().collect::<Vec<_>>();
         self.with_durable_commit_lock(|| {
-            let commit = self.put_batch_locked_with_options(
-                input,
-                Some(BatchLedgerEntry {
-                    subject,
-                    payload,
-                    actor,
-                }),
-                Some(artifact),
-                DuplicatePutPolicy::StrictConstellation,
-            )?;
-            let artifact = commit.artifact.ok_or_else(|| {
-                CalyxError::aster_corrupt_shard(
-                    "media artifact ingest committed without returning artifact record",
-                )
-            })?;
-            Ok(MediaArtifactIngestCommit {
-                ids: commit
-                    .outcomes
-                    .into_iter()
-                    .map(|outcome| outcome.cx_id)
-                    .collect(),
-                artifact,
+            self.run_with_commit_intent_locked(intent, || {
+                let commit = self.put_batch_locked_with_options(
+                    input,
+                    Some(ledger_entry),
+                    Some(artifact),
+                    DuplicatePutPolicy::StrictConstellation,
+                )?;
+                let artifact = commit.artifact.ok_or_else(|| {
+                    CalyxError::aster_corrupt_shard(
+                        "media artifact ingest committed without returning artifact record",
+                    )
+                })?;
+                Ok(MediaArtifactIngestCommit {
+                    ids: commit
+                        .outcomes
+                        .into_iter()
+                        .map(|outcome| outcome.cx_id)
+                        .collect(),
+                    artifact,
+                })
             })
         })
     }
@@ -166,7 +200,7 @@ where
     fn put_batch_locked_with_ledger(
         &self,
         input: Vec<Constellation>,
-        ledger_entry: Option<BatchLedgerEntry>,
+        ledger_entry: Option<IngestLedgerInput>,
     ) -> Result<Vec<CxId>> {
         self.put_batch_locked_with_options(
             input,
@@ -186,7 +220,7 @@ where
     fn put_batch_locked_with_options(
         &self,
         input: Vec<Constellation>,
-        ledger_entry: Option<BatchLedgerEntry>,
+        ledger_entry: Option<IngestLedgerInput>,
         artifact: Option<DerivedMediaArtifactDraft>,
         duplicate_policy: DuplicatePutPolicy,
     ) -> Result<BatchIngestCommit> {
@@ -392,17 +426,24 @@ where
             artifact: artifact_record,
         })
     }
+
+    pub(super) fn put_batch_locked_retained_outcomes(
+        &self,
+        input: Vec<Constellation>,
+    ) -> Result<Vec<PutOutcome>> {
+        self.put_batch_locked_with_options(
+            input,
+            None,
+            None,
+            DuplicatePutPolicy::StrictConstellation,
+        )
+        .map(|commit| commit.outcomes)
+    }
 }
 
 struct BatchIngestCommit {
     outcomes: Vec<PutOutcome>,
     artifact: Option<DerivedMediaArtifactRecord>,
-}
-
-struct BatchLedgerEntry {
-    subject: SubjectId,
-    payload: Vec<u8>,
-    actor: ActorId,
 }
 
 struct PreparedBatchConstellation {

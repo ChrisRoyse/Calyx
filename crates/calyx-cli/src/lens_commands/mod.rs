@@ -2,6 +2,7 @@ mod card;
 pub(crate) mod catalog;
 mod commission;
 mod explain;
+mod explain_vector;
 mod flags;
 mod remove;
 mod scale_audit;

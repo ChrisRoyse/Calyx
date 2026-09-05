@@ -1,11 +1,11 @@
 use calyx_core::{CalyxError, SlotId, SlotShape};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use super::{PersistedSearchIndexes, SearchIndexEntry};
 use crate::error::CliResult;
 
 /// Public, path-free identity for one immutable persisted search generation.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PersistedSearchGeneration {
     pub base_seq: u64,
     pub manifest_sha256: String,
@@ -16,7 +16,7 @@ pub struct PersistedSearchGeneration {
 }
 
 /// Search-relevant manifest data for one persisted slot.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PersistedSearchSlot {
     pub slot: SlotId,
     pub kind: String,

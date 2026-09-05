@@ -14,6 +14,15 @@ where
     ) -> Result<Self> {
         DurableVault::validate_options(&options)?;
         let vault_root = vault_dir.as_ref().to_path_buf();
+        // Deterministic open-time migration + fail-closed validation (#1935):
+        // every open hardens each pre-existing descendant to owner-only modes
+        // (0700 dirs / 0600 files) and rejects any symlinked descendant
+        // (O_NOFOLLOW) before any recovery read, so a tree written by an older,
+        // umask-honouring binary — or a swapped-in symlink — can neither serve
+        // nor extend a world-accessible vault. Applied on read-only opens too so
+        // a `readback`/rebuild cannot silently read a world-accessible tree; if
+        // the modes cannot be corrected the open fails closed.
+        crate::private_fs::harden_tree(&vault_root)?;
         let mut recovery = DurableVault::recover_batches(vault_dir.as_ref(), &options)?;
         let ledger_hook = if options.restore_ledger_hook && options.value_crypto.is_some() {
             Some(ledger_hook::recover_hook(
@@ -125,7 +134,45 @@ where
                 recovery.wal_replay_floor_seq,
                 recovery.derived_content_floor_seq,
             )?;
-            durable.stage_recovered_wal_batches(wal_tail_batches)?;
+            if let Some(floor) = recovery.wal_tail_stream_floor {
+                // Streaming recovery (issue #1992): the post-floor WAL tail was
+                // not materialized into `recovery.batches`. Restore + stage it
+                // one commit at a time with a reused decode buffer, and flush
+                // the staged checkpoint every `RECOVERY_FLUSH_CHUNK_BYTES` so
+                // `pending_checkpoint` stays O(chunk) instead of holding the
+                // whole tail — otherwise a multi-GB orphaned tail (three
+                // SIGKILLed weave runs) OOM-kills the open. Value crypto is
+                // `None` on this path (recover_batches gate), so a decoded batch
+                // is already the plaintext rows; the torn newest tail was healed
+                // during metadata recovery, so the scan sees no torn tail here.
+                const RECOVERY_FLUSH_CHUNK_BYTES: u64 = 512 * 1024 * 1024;
+                let mut staged_bytes: u64 = 0;
+                crate::wal::for_each_record_payload_after(
+                    vault_root.join("wal"),
+                    floor,
+                    |seq, payload| {
+                        let batch_rows = encode::decode_write_batch(payload)?;
+                        rows.restore_batch(
+                            seq,
+                            batch_rows
+                                .iter()
+                                .map(|row| (row.cf, row.key.clone(), row.value.clone())),
+                        )?;
+                        staged_bytes = staged_bytes.saturating_add(payload.len() as u64);
+                        durable.stage_recovered_wal_batch(seq, batch_rows)?;
+                        if staged_bytes >= RECOVERY_FLUSH_CHUNK_BYTES {
+                            // Drains pending_checkpoint into durable-batch SSTs
+                            // and advances the manifest (crash-safe idempotent
+                            // redo); bounds staging heap to one chunk.
+                            durable.flush()?;
+                            staged_bytes = 0;
+                        }
+                        Ok(true)
+                    },
+                )?;
+            } else {
+                durable.stage_recovered_wal_batches(wal_tail_batches)?;
+            }
             Some(durable)
         };
         // Data residency (PRD 30 §4): a caller-supplied pin is enforced against
@@ -143,7 +190,7 @@ where
         {
             pin.enforce_tier_roots(&tiering.tier_roots())?;
         }
-        Ok(Self {
+        let vault = Self {
             vault_id,
             vault_salt: vault_salt.into(),
             clock,
@@ -156,6 +203,21 @@ where
             recurrence_write_lock: Mutex::new(()),
             recovery_report,
             residency,
-        })
+        };
+        if options.read_only {
+            if crate::retained_input::pending_entries_exist(&vault_root)? {
+                return Err(CalyxError {
+                    code: crate::retained_input::CALYX_INPUT_RETENTION_RECONCILIATION_REQUIRED,
+                    message: format!(
+                        "read-only open found pending retained-input state in {}",
+                        vault_root.join("inputs").join(".pending").display()
+                    ),
+                    remediation: "open the vault write-capable once to reconcile retained inputs before serving reads",
+                });
+            }
+        } else {
+            vault.reconcile_retained_input_state()?;
+        }
+        Ok(vault)
     }
 }

@@ -19,6 +19,8 @@ pub(crate) fn run(args: &[String]) -> CliResult {
     if request.worker_report.is_some() {
         return worker::run_worker(&request);
     }
+    let _reservation =
+        crate::gpu_commands::require_for_manifests("calyx assay corpus-build", &request.manifests)?;
     write::ensure_fresh_output(&request).map_err(CliError::runtime)?;
     let rows = data::load_rows(&request).map_err(CliError::runtime)?;
     let measured = worker::measure_requested_lenses(&request, &rows).map_err(CliError::runtime)?;

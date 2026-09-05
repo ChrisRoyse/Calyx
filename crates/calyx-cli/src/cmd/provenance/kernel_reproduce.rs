@@ -1,8 +1,8 @@
 use std::net::SocketAddr;
 
-use calyx_aster::ledger_view::AsterLedgerCfStore;
+use calyx_aster::ledger_view::read_ledger_seq;
 use calyx_aster::vault::{AsterVault, VaultOptions};
-use calyx_ledger::{ActorId, EntryKind, LedgerCfStore, SubjectId, decode};
+use calyx_ledger::{ActorId, EntryKind, SubjectId, decode};
 use serde_json::{Value, json};
 
 use super::ReproduceOut;
@@ -53,7 +53,7 @@ pub(super) fn record(
         &resolved.path,
         resolved.vault_id,
         vault_salt(resolved.vault_id, &resolved.name),
-        VaultOptions::default(),
+        VaultOptions::write_latest_readback(),
     )?;
     let reference = vault.append_ledger_entry(
         EntryKind::Admin,
@@ -61,9 +61,7 @@ pub(super) fn record(
         payload.clone(),
         ActorId::Service("calyx-kernel-reproduce".to_string()),
     )?;
-    let physical = AsterLedgerCfStore::open(&resolved.path)?;
-    let row = physical
-        .read_seq(reference.seq)?
+    let row = read_ledger_seq(&resolved.path, reference.seq)?
         .ok_or_else(|| CliError::runtime("kernel reproduce ledger row is physically absent"))?;
     let entry = decode(&row.bytes)?;
     if entry.entry_hash != reference.hash

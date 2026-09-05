@@ -18,7 +18,7 @@ pub use constellation::{
 pub use signal::{ConfidenceInterval, CxFlags, InputRef, LedgerRef, Signal};
 pub use slot::{LensCost, Panel, Placement, Slot, SlotResource};
 pub use validation::CALYX_RECORD_SCHEMA_VIOLATION;
-pub use vector::{SlotVector, SparseEntry};
+pub use vector::{SegmentVector, SegmentationProvenance, SlotVector, SparseEntry};
 
 #[cfg(test)]
 mod tests {

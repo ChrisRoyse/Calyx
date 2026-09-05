@@ -35,22 +35,36 @@ pub(super) fn measure_batch_chunked(
     emit_rows: &mut dyn FnMut(Vec<ResidentMeasuredInput>) -> CliResult,
 ) -> CliResult<u128> {
     validate_measure_inputs(modality, &input_bytes)?;
+    let inputs = input_bytes
+        .into_iter()
+        .map(|bytes| Input::new(modality, bytes))
+        .collect::<Vec<_>>();
+    measure_input_batch_chunked(service, modality, inputs, runtime_batch_limit, emit_rows)
+}
+
+/// Measures already-decoded typed inputs. Binary protocol v3 enters here so
+/// hybrid structured records cross the resident boundary intact; JSON/raw
+/// callers use the byte wrapper above.
+pub(super) fn measure_input_batch_chunked(
+    service: &ResidentService,
+    modality: Modality,
+    inputs: Vec<Input>,
+    runtime_batch_limit: Option<usize>,
+    emit_rows: &mut dyn FnMut(Vec<ResidentMeasuredInput>) -> CliResult,
+) -> CliResult<u128> {
+    super::input_wire::validate_inputs(modality, &inputs)?;
     let runtime_batch_limit = Some(admit_runtime_batch_limit(
         service.max_runtime_batch,
         runtime_batch_limit,
     )?);
     let started = Instant::now();
-    let input_count = input_bytes.len();
+    let input_count = inputs.len();
     eprintln!(
         "CALYX_PANEL_RESIDENT_RUNTIME phase=measure_batch_start process_id={} modality={:?} inputs={input_count} runtime_batch_limit={:?}",
         std::process::id(),
         modality,
         runtime_batch_limit
     );
-    let inputs = input_bytes
-        .into_iter()
-        .map(|bytes| Input::new(modality, bytes))
-        .collect::<Vec<_>>();
     let chunk_size = resident_measure_chunk_size(inputs.len(), runtime_batch_limit)?;
     let mut emitted = 0usize;
     for (chunk_index, chunk) in inputs.chunks(chunk_size).enumerate() {
@@ -148,6 +162,26 @@ pub(super) fn resident_measure_chunk_size(
         .max(1))
 }
 
+/// Classifies an active panel slot whose lens the GPU-only resident does not
+/// host. The resident intentionally warms only a subset of the panel (the CPU
+/// and structured time-control lenses are never loaded here), so an unhosted
+/// slot must be reported by whether it even applies to this input — exactly as
+/// the local engine (`cmd/ingest/constellation.rs`) and the swap attestation
+/// contract (`template_store/resident_registration.rs`) classify it. A slot for
+/// a different modality (with no attached structured record) is `NotApplicable`;
+/// `LensUnavailable` is reserved for a slot that *would* apply but is genuinely
+/// missing, keeping that alarming signal honest and letting a healthy GPU roster
+/// attest a template that carries off-modality time-control slots (#1945-adjacent).
+pub(super) fn unhosted_slot_absent_reason(slot_modality: Modality, input: &Input) -> AbsentReason {
+    let applies = slot_modality == input.modality
+        || (slot_modality == Modality::Structured && input.structured().is_some());
+    if applies {
+        AbsentReason::LensUnavailable
+    } else {
+        AbsentReason::NotApplicable
+    }
+}
+
 pub(super) fn assemble_row(
     service: &ResidentService,
     modality: Modality,
@@ -162,22 +196,32 @@ pub(super) fn assemble_row(
     for slot in &service.state.build.panel.slots {
         let (measured_slot, vector, absent_reason) = if slot.state != SlotState::Active {
             (false, None, Some(AbsentReason::LensInactive))
-        } else if slot.modality != modality {
-            (false, None, Some(AbsentReason::NotApplicable))
         } else if !service.state.build.registry.contains(slot.lens_id) {
-            (false, None, Some(AbsentReason::LensUnavailable))
-        } else {
-            let vector = measured_by_lens
-                .get(&slot.lens_id)
-                .and_then(|vectors| vectors.get(chunk_offset))
-                .cloned()
-                .ok_or_else(|| {
-                    CalyxError::lens_unreachable(format!(
-                        "resident measure_batch missing measured vector for lens {} input {input_index}",
-                        slot.lens_id
-                    ))
-                })?;
+            (
+                false,
+                None,
+                Some(unhosted_slot_absent_reason(slot.modality, input)),
+            )
+        } else if let Some(vectors) = measured_by_lens.get(&slot.lens_id) {
+            let vector = vectors.get(chunk_offset).cloned().ok_or_else(|| {
+                CalyxError::lens_unreachable(format!(
+                    "resident measure_batch missing measured vector for lens {} input {input_index}",
+                    slot.lens_id
+                ))
+            })?;
             (true, Some(vector), None)
+        } else if service
+            .state
+            .build
+            .registry
+            .accepts_input(slot.lens_id, input)?
+        {
+            return Err(CliError::from(CalyxError::lens_unreachable(format!(
+                "resident measure_batch missing measured vector for lens {} typed {modality:?} input {input_index}",
+                slot.lens_id,
+            ))));
+        } else {
+            (false, None, Some(AbsentReason::NotApplicable))
         };
         if measured_slot {
             measured += 1;
@@ -233,22 +277,25 @@ pub(super) fn serve_binary_measure_batch(
             },
         );
     }
+    let inputs = match super::input_wire::decode_inputs(request.modality, request.inputs) {
+        Ok(inputs) => inputs,
+        Err(error) => {
+            return write_stream_frame(
+                writer,
+                &ResidentMeasureBatchStreamFrame::Err {
+                    code: error.code().to_string(),
+                    message: error.message().to_string(),
+                    remediation: error.remediation().to_string(),
+                },
+            );
+        }
+    };
     eprintln!(
         "CALYX_PANEL_RESIDENT_RUNTIME phase=measure_batch_binary_request process_id={} protocol_version={} inputs={}",
         std::process::id(),
         request.protocol_version,
-        request.inputs.len()
+        inputs.len()
     );
-    if let Err(error) = validate_measure_inputs(request.modality, &request.inputs) {
-        return write_stream_frame(
-            writer,
-            &ResidentMeasureBatchStreamFrame::Err {
-                code: error.code().to_string(),
-                message: error.message().to_string(),
-                remediation: error.remediation().to_string(),
-            },
-        );
-    }
     let runtime_batch_limit =
         match admit_runtime_batch_limit(service.max_runtime_batch, request.runtime_batch_limit) {
             Ok(limit) => Some(limit),
@@ -272,16 +319,16 @@ pub(super) fn serve_binary_measure_batch(
             process_id: std::process::id(),
             template_source: service.state.template_source.clone(),
             modality: request.modality,
-            input_count: request.inputs.len(),
+            input_count: inputs.len(),
             runtime_batch_limit,
         }),
     )?;
     let mut row_count = 0usize;
     let mut frame_count = 1usize;
-    let stream_result = measure_batch_chunked(
+    let stream_result = measure_input_batch_chunked(
         service,
         request.modality,
-        request.inputs,
+        inputs,
         runtime_batch_limit,
         &mut |rows| {
             for row in rows {

@@ -8,7 +8,16 @@ pub const DEFAULT_BASE_PAGE_INDEX_PAGE_SIZE: usize = 1024;
 pub(super) const INDEX_MAGIC: &str = "calyx.base_page_index";
 pub(super) const LEGACY_INDEX_VERSION: u32 = 1;
 pub(super) const GENERATION_INDEX_VERSION: u32 = 2;
-pub(super) const INDEX_VERSION: u32 = 3;
+/// Version 3 bound read-time freshness to the GLOBAL ledger head, so any
+/// Answer/Guard/Assay-only append falsely staled a byte-identical Base index
+/// (issue #1861). It is structurally valid but rejected at read time until
+/// rebuilt into the current version.
+pub(super) const PRIOR_INDEX_VERSION: u32 = 3;
+/// Version 4 binds freshness to a content-derived Base-source digest
+/// (`base_source_digest_hex`) computed over the ordered Base SST identity set
+/// plus the Base WAL-row tail after `base_durable_seq`, instead of the global
+/// ledger head (issue #1861).
+pub(super) const INDEX_VERSION: u32 = 4;
 pub(super) const MISSING_CODE: &str = "CALYX_BASE_PAGE_INDEX_MISSING";
 pub(super) const STALE_CODE: &str = "CALYX_BASE_PAGE_INDEX_STALE";
 pub(super) const CORRUPT_CODE: &str = "CALYX_BASE_PAGE_INDEX_CORRUPT";
@@ -20,6 +29,23 @@ pub struct BasePageIndexManifest {
     pub version: u32,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub generation: Option<String>,
+    /// Content-derived freshness key (issue #1861): SHA-256 hex over the ordered
+    /// Base SST identity set plus the Base WAL-row tail after `base_durable_seq`.
+    /// A read is accepted only when the recomputed digest equals this value, so
+    /// unrelated Answer/Guard/Assay ledger advancement no longer stales the
+    /// index while any real Base put/tombstone/compaction/corruption still does.
+    /// Defaulted empty for pre-v4 manifests, which are rejected as stale before
+    /// the digest is consulted.
+    #[serde(default)]
+    pub base_source_digest_hex: String,
+    /// The durable sequence floor the Base WAL-row tail digest was computed
+    /// above. Stored for diagnostics and to bound recompute; freshness is gated
+    /// by `base_source_digest_hex`, not by this value alone.
+    #[serde(default)]
+    pub base_durable_seq: u64,
+    /// Informational diagnostics only as of v4 (issue #1861): the ledger head at
+    /// build time. No longer freshness-gating -- a global head advance without a
+    /// Base change must not stale the index.
     pub ledger_head_height: u64,
     pub ledger_head_tip_hash_hex: String,
     pub page_size: usize,

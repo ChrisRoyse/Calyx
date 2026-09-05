@@ -1,5 +1,5 @@
 use std::ffi::OsString;
-use std::fs::{self, File, OpenOptions};
+use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -20,12 +20,7 @@ pub(super) fn write_json_file(path: &Path, value: &impl Serialize) -> Result<()>
 }
 
 pub(super) fn write_bytes_file(path: &Path, bytes: &[u8]) -> Result<()> {
-    let mut file = File::create(path).map_err(|error| {
-        CalyxError::disk_pressure(format!(
-            "create Base page index {}: {error}",
-            path.display()
-        ))
-    })?;
+    let mut file = crate::private_fs::open_private_temp_file(path)?;
     file.write_all(bytes).map_err(|error| {
         CalyxError::disk_pressure(format!("write Base page index {}: {error}", path.display()))
     })?;
@@ -51,16 +46,16 @@ pub(super) fn write_json_file_atomic(path: &Path, value: &impl Serialize) -> Res
         ATOMIC_WRITE_NONCE.fetch_add(1, Ordering::Relaxed)
     ));
     let tmp = path.with_file_name(tmp_name);
-    let mut file = OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .open(&tmp)
-        .map_err(|error| {
-            CalyxError::disk_pressure(format!(
-                "create Base page index commit-point temp {}: {error}",
-                tmp.display()
-            ))
-        })?;
+    let mut options = OpenOptions::new();
+    options.write(true).create_new(true);
+    crate::private_fs::harden_open_options(&mut options);
+    let mut file = options.open(&tmp).map_err(|error| {
+        CalyxError::disk_pressure(format!(
+            "create Base page index commit-point temp {}: {error}",
+            tmp.display()
+        ))
+    })?;
+    crate::private_fs::enforce_private_file_mode(&file, &tmp)?;
     let published = (|| {
         file.write_all(&bytes).map_err(|error| {
             CalyxError::disk_pressure(format!(

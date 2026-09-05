@@ -273,8 +273,10 @@ pub(super) fn base_progress_record(template: &str, phase: &str) -> WarmProgressR
 }
 
 pub(super) fn content_slots(build: &SavedTemplatePanelBuild) -> impl Iterator<Item = &Slot> {
+    // Share the canonical content-slot predicate with create-vault (issue #1924)
+    // so the two counters can't drift; warm additionally requires the slot be Active.
     build.panel.slots.iter().filter(|slot| {
-        slot.state == SlotState::Active && !slot.retrieval_only && !slot.excluded_from_dedup
+        slot.state == SlotState::Active && crate::cmd::vault::report::is_content_slot(slot)
     })
 }
 
@@ -283,6 +285,7 @@ pub(super) fn vector_kind_len(vector: &SlotVector) -> (&'static str, usize) {
         SlotVector::Dense { data, .. } => ("dense", data.len()),
         SlotVector::Sparse { entries, .. } => ("sparse", entries.len()),
         SlotVector::Multi { tokens, .. } => ("multi", tokens.len()),
+        SlotVector::SegmentedMulti { segments, .. } => ("segmented_multi", segments.len()),
         SlotVector::Absent { .. } => ("absent", 0),
     }
 }
@@ -348,6 +351,9 @@ pub(super) fn runtime_detail(runtime: &LensRuntime) -> String {
     match runtime {
         LensRuntime::Algorithmic { kind } => kind.clone(),
         LensRuntime::TeiHttp { endpoint } => endpoint.clone(),
+        LensRuntime::TeiHttpSegmented { endpoint, policy } => {
+            format!("{endpoint};{}", policy.fingerprint())
+        }
         LensRuntime::CandleLocal {
             model_id,
             dtype,

@@ -36,6 +36,7 @@ fn recovered_hook_continues_existing_ledger_sequence() {
             dedup_policy: None,
             retention_horizon: crate::timetravel::RetentionHorizon::default(),
             router_latest_readback: false,
+            wal_tail_stream_floor: None,
         },
         None,
     )
@@ -104,6 +105,7 @@ fn physical_ledger_rows_recover_hook_when_manifest_view_has_gap() {
         dedup_policy: None,
         retention_horizon: crate::timetravel::RetentionHorizon::default(),
         router_latest_readback: false,
+        wal_tail_stream_floor: None,
     };
 
     let manifest_only_error = recover_hook(&gapped_recovery, None).unwrap_err();
@@ -156,6 +158,7 @@ fn anchored_checkpoint_recovery_hydrates_bounded_tail_window() {
         dedup_policy: None,
         retention_horizon: crate::timetravel::RetentionHorizon::default(),
         router_latest_readback: false,
+        wal_tail_stream_floor: None,
     };
 
     let mut recovered =

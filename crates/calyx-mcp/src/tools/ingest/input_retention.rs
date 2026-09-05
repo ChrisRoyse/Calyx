@@ -5,15 +5,11 @@ use std::path::Path;
 use calyx_core::{CalyxError, Input};
 
 use crate::server::{ToolError, ToolResult};
-use crate::tools::vault::store::ResolvedVault;
 
 pub(super) const INPUT_POINTER_PREFIX: &str = "calyx-vault://";
 
-pub(super) fn retained_text_input(resolved: &ResolvedVault, text: &str) -> ToolResult<Input> {
-    Ok(calyx_aster::retained_input::retain_text_input(
-        &resolved.path,
-        text,
-    )?)
+pub(super) fn prepared_text_input(text: &str) -> Input {
+    calyx_aster::retained_input::prepare_text_input(text)
 }
 
 pub(super) fn input_hash(bytes: &[u8]) -> [u8; 32] {

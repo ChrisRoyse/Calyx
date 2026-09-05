@@ -1,5 +1,9 @@
 //! CLI error contract: every failure serializes to a stable, machine-dispatchable
-//! envelope on stderr and exits `2`.
+//! envelope on stderr and exits `2`. A supervised command aborted by SIGTERM or
+//! SIGINT is the one exception: after emitting the same envelope and completing
+//! owned cleanup, it re-raises the original signal so service managers and shell
+//! drivers retain the native stop identity instead of conflating it with a real
+//! runtime failure.
 //!
 //! `CliError` wraps the structured [`CalyxError`] catalog (PRD 18) plus three
 //! CLI-local conditions — I/O, usage, and runtime — that have no catalog entry
@@ -78,6 +82,11 @@ pub(crate) enum CliError {
     /// A valid command whose operation failed without a catalog entry,
     /// surfaced under [`CALYX_CLI_RUNTIME_ERROR`].
     Runtime(String),
+    /// An owned child was cleanly reaped after this process received a POSIX
+    /// termination signal. The typed error is emitted before the original
+    /// signal is re-raised, preserving both diagnostic and process semantics.
+    #[cfg(unix)]
+    Interrupted { error: CalyxError, signal: i32 },
 }
 
 /// Private serialization shape — guarantees byte-identical field order
@@ -106,10 +115,18 @@ impl CliError {
         Self::Runtime(message.into())
     }
 
+    /// Builds a typed interruption that must re-raise `signal` after emission.
+    #[cfg(unix)]
+    pub(crate) fn interrupted(error: CalyxError, signal: i32) -> Self {
+        Self::Interrupted { error, signal }
+    }
+
     /// Returns the stable, machine-dispatchable code.
     pub(crate) fn code(&self) -> &'static str {
         match self {
             Self::Calyx(error) => error.code,
+            #[cfg(unix)]
+            Self::Interrupted { error, .. } => error.code,
             Self::Io(_) => CALYX_CLI_IO_ERROR,
             Self::Usage(_) => CALYX_CLI_USAGE_ERROR,
             Self::Runtime(_) => CALYX_CLI_RUNTIME_ERROR,
@@ -120,6 +137,8 @@ impl CliError {
     pub(crate) fn message(&self) -> &str {
         match self {
             Self::Calyx(error) => &error.message,
+            #[cfg(unix)]
+            Self::Interrupted { error, .. } => &error.message,
             Self::Io(message) | Self::Usage(message) | Self::Runtime(message) => message,
         }
     }
@@ -128,6 +147,8 @@ impl CliError {
     pub(crate) fn remediation(&self) -> &'static str {
         match self {
             Self::Calyx(error) => error.remediation,
+            #[cfg(unix)]
+            Self::Interrupted { error, .. } => error.remediation,
             Self::Io(_) => CLI_IO_REMEDIATION,
             Self::Usage(_) => CLI_USAGE_REMEDIATION,
             Self::Runtime(_) => CLI_RUNTIME_REMEDIATION,
@@ -150,10 +171,26 @@ impl CliError {
             .unwrap_or_else(|error| panic!("CliError envelope must serialize: {error}"))
     }
 
-    /// Writes the JSON envelope to stderr and exits the process with
-    /// [`CLI_ERROR_EXIT`]. Never returns.
+    /// Writes the JSON envelope to stderr and terminates the process. Ordinary
+    /// failures use [`CLI_ERROR_EXIT`]. A POSIX interruption restores the
+    /// default disposition and re-raises its original signal only after the
+    /// envelope is flushed, so SIGTERM/SIGINT remain distinguishable from an
+    /// actual child/runtime error.
     pub(crate) fn emit(&self) -> ! {
         eprintln!("{}", self.to_json());
+        #[cfg(unix)]
+        if let Self::Interrupted { signal, .. } = self {
+            use std::io::Write as _;
+
+            let _ = std::io::stderr().flush();
+            // The signal-hook handler that initiated owned teardown is still
+            // installed. Restore the native disposition before re-raising or
+            // the hook would consume this signal a second time.
+            unsafe {
+                libc::signal(*signal, libc::SIG_DFL);
+                libc::raise(*signal);
+            }
+        }
         process::exit(i32::from(CLI_ERROR_EXIT));
     }
 }

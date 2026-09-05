@@ -28,12 +28,27 @@ pub struct KernelAnswerRecordContext {
     pub fusion: String,
     pub rrf_k: u32,
     pub nearest_score: f32,
-    pub nearest_lanes: Vec<crate::PanelFusionLane>,
+    pub nearest_lanes: Vec<crate::TypedPanelFusionLane>,
     pub admission_threshold: f32,
     pub resident_addr: String,
     pub anchor: Option<String>,
     pub max_hops: usize,
     pub source_support: KernelAnswerSourceSupport,
+    /// Present for the bounded full-corpus-entry → resident-kernel traversal
+    /// introduced by kernel answer v4. Absent preserves byte-for-byte v3
+    /// derivation and replay for already sealed answers.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub query_resolution: Option<KernelQueryResolutionEvidence>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct KernelQueryResolutionEvidence {
+    pub method: String,
+    pub search_manifest_sha256: String,
+    pub search_base_seq: u64,
+    pub corpus_rank: usize,
+    pub corpus_score: f32,
+    pub kernel_nearest_cx_id: CxId,
 }
 
 /// Deterministic proposition-support proof over the retained source bytes of
@@ -73,13 +88,16 @@ pub(crate) fn validate_kernel_answer_record_context(
     if context.answer_id.is_empty()
         || context.query_input_pointer.is_empty()
         || context.embedding_slots.len() < 2
-        || context.fusion != "rrf"
+        || context.fusion != "typed_block_rrf"
         || context.rrf_k != crate::PANEL_RRF_K
         || context.nearest_lanes.len() != context.embedding_slots.len()
         || context.max_hops == 0
         || context.max_hops > 32
         || context.source_support.schema_version != 1
-        || context.source_support.method != "retained_constellation_lexical_v1"
+        || !matches!(
+            context.source_support.method.as_str(),
+            "retained_constellation_lexical_v1" | "retained_constellation_lexical_v2"
+        )
         || context.source_support.verdict != "supported"
         || context.source_support.query_terms.is_empty()
         || context.source_support.total_weight == 0
@@ -88,6 +106,18 @@ pub(crate) fn validate_kernel_answer_record_context(
         || context.source_support.weighted_coverage_bps
             < context.source_support.minimum_weighted_coverage_bps
         || context.source_support.sources.is_empty()
+        || context.query_resolution.as_ref().is_some_and(|resolution| {
+            resolution.method != "full_corpus_rrf_to_resident_kernel_v1"
+                || resolution.search_manifest_sha256.len() != 64
+                || !resolution
+                    .search_manifest_sha256
+                    .bytes()
+                    .all(|byte| byte.is_ascii_hexdigit())
+                || resolution.search_base_seq == 0
+                || resolution.corpus_rank == 0
+                || !resolution.corpus_score.is_finite()
+                || resolution.corpus_score < 0.0
+        })
     {
         return Err(LodestarError::KernelInvalidParams {
             detail: "kernel answer record context needs a nonempty answer id/query pointer and max_hops in 1..=32"
@@ -110,8 +140,7 @@ pub(crate) fn validate_kernel_answer_record_context(
         .zip(&context.embedding_slots)
         .any(|(lane, slot)| {
             lane.slot != *slot
-                || !lane.cosine.is_finite()
-                || !(-1.0..=1.0).contains(&lane.cosine)
+                || lane.similarity.validate().is_err()
                 || lane.rank == 0
                 || !lane.rrf_contribution.is_finite()
                 || lane.rrf_contribution < 0.0
@@ -361,7 +390,14 @@ pub(crate) fn kernel_answer_complete_payload(
             .ok_or_else(|| LodestarError::KernelProvenancePayloadCodec {
                 detail: "generated complete answer payload is not a JSON object".to_string(),
             })?;
-    object.insert("type".to_string(), json!("kernel_answer_v3"));
+    object.insert(
+        "type".to_string(),
+        json!(if context.query_resolution.is_some() {
+            "kernel_answer_v4"
+        } else {
+            "kernel_answer_v3"
+        }),
+    );
     object.insert("traversal_mode".to_string(), json!("association"));
     object.insert("answer_id".to_string(), json!(hex(&context.answer_id)));
     object.insert(
@@ -394,6 +430,9 @@ pub(crate) fn kernel_answer_complete_payload(
     object.insert("anchor".to_string(), json!(context.anchor));
     object.insert("max_hops".to_string(), json!(context.max_hops));
     object.insert("source_support".to_string(), json!(context.source_support));
+    if let Some(query_resolution) = &context.query_resolution {
+        object.insert("query_resolution".to_string(), json!(query_resolution));
+    }
     object.insert("derivation_hash".to_string(), json!(hex(&derivation_hash)));
     let bytes = encode_payload(&value, "kernel complete answer")?;
     RedactionPolicy::check_payload(&bytes)?;

@@ -1,0 +1,12 @@
+{
+  "schema_id": "courtlistener-opinion-v1",
+  "selector": {
+    "kind": "field",
+    "path": "/date_filed"
+  },
+  "source_type": "date",
+  "encoder": {
+    "kind": "date_cyclic",
+    "component": "month"
+  }
+}

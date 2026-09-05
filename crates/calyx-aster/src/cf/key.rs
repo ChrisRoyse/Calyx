@@ -1,9 +1,13 @@
 //! Big-endian key codecs for Aster column families.
 
 use calyx_core::{AnchorKind, CalyxError, CxId, Result, SlotId};
+use sha2::{Digest, Sha256};
 
 const CX_ID_BYTES: usize = 16;
 const FULL_HASH_BYTES: usize = 32;
+const XTERM_KEY_BYTES: usize = CX_ID_BYTES + 5;
+pub const WEAVE_XTERM_GENERATION_SCHEMA: &str = "calyx.weave.xterm.generation.v1";
+pub const WEAVE_XTERM_STORAGE_SCHEMA_DETAIL: &str = "xterm_storage_schema";
 
 /// Materialized cross-term kind in the `xterm` CF.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -91,12 +95,72 @@ pub fn slot_key(cx_id: CxId) -> Vec<u8> {
 
 /// `xterm` CF key: `(CxId, SlotId_a, SlotId_b, XTermKind)`.
 pub fn xterm_key(cx_id: CxId, a: SlotId, b: SlotId, kind: XTermKind) -> Vec<u8> {
-    let mut key = Vec::with_capacity(CX_ID_BYTES + 5);
+    let mut key = Vec::with_capacity(XTERM_KEY_BYTES);
     key.extend_from_slice(cx_id.as_bytes());
     key.extend_from_slice(&a.get().to_be_bytes());
     key.extend_from_slice(&b.get().to_be_bytes());
     key.push(kind.code());
     key
+}
+
+/// Namespaces an existing canonical XTerm key under one unpublished weave
+/// generation. The 53-byte result cannot alias the legacy 21-byte keyspace.
+pub fn weave_xterm_generation_key(
+    collection: &str,
+    generation: &str,
+    canonical_key: &[u8],
+) -> Result<Vec<u8>> {
+    if canonical_key.len() != XTERM_KEY_BYTES {
+        return Err(CalyxError::aster_corrupt_shard(format!(
+            "canonical XTerm key has {} bytes, expected {XTERM_KEY_BYTES}",
+            canonical_key.len()
+        )));
+    }
+    let prefix = weave_xterm_generation_prefix(collection, generation)?;
+    let mut key = Vec::with_capacity(FULL_HASH_BYTES + XTERM_KEY_BYTES);
+    key.extend_from_slice(&prefix);
+    key.extend_from_slice(canonical_key);
+    Ok(key)
+}
+
+/// Range containing every XTerm row in one physical weave generation.
+pub fn weave_xterm_generation_prefix_range(collection: &str, generation: &str) -> Result<KeyRange> {
+    let prefix = weave_xterm_generation_prefix(collection, generation)?;
+    Ok(prefix_range(&prefix))
+}
+
+/// Range containing one constellation's rows in one physical weave generation.
+/// Used by erasure so unpublished/orphan generations cannot retain subject data.
+pub fn weave_xterm_generation_cx_prefix_range(
+    collection: &str,
+    generation: &str,
+    cx_id: CxId,
+) -> Result<KeyRange> {
+    let mut prefix = weave_xterm_generation_prefix(collection, generation)?.to_vec();
+    prefix.extend_from_slice(cx_id.as_bytes());
+    Ok(prefix_range(&prefix))
+}
+
+fn weave_xterm_generation_prefix(collection: &str, generation: &str) -> Result<[u8; 32]> {
+    for (name, value) in [("collection", collection), ("generation", generation)] {
+        if value.is_empty() || value.len() > 128 || value.as_bytes().iter().any(|byte| *byte < 0x20)
+        {
+            return Err(CalyxError::aster_corrupt_shard(format!(
+                "weave XTerm {name} must be printable and 1..=128 bytes"
+            )));
+        }
+    }
+    let mut hasher = Sha256::new();
+    hasher.update(WEAVE_XTERM_GENERATION_SCHEMA.as_bytes());
+    hasher.update([0xff]);
+    hasher.update(collection.as_bytes());
+    hasher.update([0xff]);
+    hasher.update(generation.as_bytes());
+    Ok(hasher.finalize().into())
+}
+
+pub(crate) fn is_weave_xterm_generation_key(key: &[u8]) -> bool {
+    key.len() == FULL_HASH_BYTES + XTERM_KEY_BYTES
 }
 
 /// `temporal_xterm` CF key: `(CxId_a, CxId_b)`.

@@ -123,6 +123,15 @@ pub(super) fn load_csr(
     keys: &GraphKeyspace,
     get: impl Fn(&[u8]) -> Result<Option<Vec<u8>>>,
 ) -> Result<Option<PlainGraphCsr>> {
+    Ok(load_csr_with_bytes(keys, get)?.map(|(csr, _bytes)| csr))
+}
+
+/// Load, validate, and decode a persisted CSR while returning the exact
+/// verified stream bytes used for the decode.
+pub(super) fn load_csr_with_bytes(
+    keys: &GraphKeyspace,
+    get: impl Fn(&[u8]) -> Result<Option<Vec<u8>>>,
+) -> Result<Option<(PlainGraphCsr, Vec<u8>)>> {
     let manifest = get(&keys.csr_key())?.and_then(|row| decode_manifest(&row));
     let Some(stream) = load_csr_bytes(keys, get)? else {
         return Ok(None);
@@ -151,7 +160,7 @@ pub(super) fn load_csr(
             manifest.association_edge_count
         )));
     }
-    Ok(Some(csr))
+    Ok(Some((csr, stream)))
 }
 
 fn decode_manifest(row: &[u8]) -> Option<CsrManifest> {

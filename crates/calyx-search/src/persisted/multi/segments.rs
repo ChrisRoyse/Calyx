@@ -25,6 +25,8 @@ pub(super) use bounds::ensure_entry_bounded;
 pub(in crate::persisted) use bounds::ensure_streaming_row_bounded;
 #[cfg(test)]
 use reuse::reusable_segments;
+#[cfg(feature = "cuda")]
+pub(in crate::persisted::multi) use search::pinned_segment_specs;
 pub(super) use search::search_segments;
 #[cfg(feature = "cuda")]
 pub(crate) use search::take_maxsim_cuda_detail;

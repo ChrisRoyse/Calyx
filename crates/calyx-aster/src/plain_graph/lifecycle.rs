@@ -4,13 +4,19 @@ use calyx_core::{CalyxError, Clock, Result, Seq};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
-use crate::cf::{CfRouter, ColumnFamily};
+use crate::cf::{
+    CfRouter, ColumnFamily, WEAVE_XTERM_GENERATION_SCHEMA, WEAVE_XTERM_STORAGE_SCHEMA_DETAIL,
+    weave_xterm_generation_key,
+};
 use crate::mvcc::is_tombstone_value;
 use crate::vault::AsterVault;
 
 use super::key::{GraphKeyspace, graph_corrupt};
 
 const LIFECYCLE_COLLECTION: &str = "__calyx_graph_lifecycle";
+pub const GRAPH_GENERATION_STORAGE_SCHEMA: &str = "calyx.graph.generation.v1";
+pub const GRAPH_GENERATION_STORAGE_SCHEMA_DETAIL: &str = "storage_schema";
+pub const GRAPH_GENERATION_STORAGE_COLLECTION_DETAIL: &str = "storage_collection";
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -95,6 +101,32 @@ impl GraphCollectionGenerationState {
     }
 }
 
+/// Derives the physically isolated graph collection for one logical generation.
+/// The digest keeps generated collection names bounded and makes the namespace
+/// a pure function that readers can independently verify before trusting it.
+pub fn graph_generation_storage_collection(collection: &str, generation: &str) -> Result<String> {
+    GraphKeyspace::new(collection)?;
+    validate_token("generation", generation, 128)?;
+    let mut hasher = Sha256::new();
+    hasher.update(GRAPH_GENERATION_STORAGE_SCHEMA.as_bytes());
+    hasher.update([0xff]);
+    hasher.update(collection.as_bytes());
+    hasher.update([0xff]);
+    hasher.update(generation.as_bytes());
+    Ok(format!(
+        "__calyx_graph_generation_v1:{:x}",
+        hasher.finalize()
+    ))
+}
+
+pub fn graph_generation_storage_range(
+    collection: &str,
+    generation: &str,
+) -> Result<crate::cf::KeyRange> {
+    let storage = graph_generation_storage_collection(collection, generation)?;
+    Ok(GraphKeyspace::new(&storage)?.collection_range())
+}
+
 impl<'a, C: Clock> GraphCollectionLifecycle<'a, C> {
     pub fn new(vault: &'a AsterVault<C>) -> Result<Self> {
         Ok(Self {
@@ -110,6 +142,17 @@ impl<'a, C: Clock> GraphCollectionLifecycle<'a, C> {
             .write_cf(ColumnFamily::Graph, self.state_key(state)?, value)
     }
 
+    pub(crate) fn put_state_locked(&self, state: &GraphCollectionGenerationState) -> Result<Seq> {
+        validate_state(state)?;
+        let value = serde_json::to_vec(state).map_err(lifecycle_corrupt)?;
+        self.vault
+            .commit_rows_locked(&[crate::vault::encode::WriteRow {
+                cf: ColumnFamily::Graph,
+                key: self.state_key(state)?,
+                value,
+            }])
+    }
+
     pub fn list_states(&self, snapshot: Seq) -> Result<Vec<GraphCollectionGenerationReadback>> {
         let range = self.keys.metadata_range();
         self.vault
@@ -120,10 +163,127 @@ impl<'a, C: Clock> GraphCollectionLifecycle<'a, C> {
             .collect()
     }
 
+    /// Resolves a canonical XTerm key through the latest accepted graph
+    /// generation. Legacy collections with no lifecycle metadata retain their
+    /// canonical keyspace; once lifecycle rows exist, absence of an accepted
+    /// generation fails closed instead of exposing partial rows.
+    pub fn resolve_weave_xterm_key(
+        &self,
+        snapshot: Seq,
+        collection: &str,
+        canonical_key: &[u8],
+    ) -> Result<Vec<u8>> {
+        GraphKeyspace::new(collection)?;
+        let collection_rows = self
+            .list_states(snapshot)?
+            .into_iter()
+            .filter(|row| row.state.collection == collection)
+            .collect::<Vec<_>>();
+        if collection_rows.is_empty() {
+            return Ok(canonical_key.to_vec());
+        }
+        let accepted = collection_rows
+            .into_iter()
+            .filter(|row| row.state.status == GraphCollectionGenerationStatus::Accepted)
+            .max_by(|left, right| {
+                (left.state.updated_unix_ms, &left.state.generation)
+                    .cmp(&(right.state.updated_unix_ms, &right.state.generation))
+            })
+            .ok_or_else(|| CalyxError {
+                code: "CALYX_GRAPH_COLLECTION_NOT_ACCEPTED",
+                message: format!(
+                    "graph collection {collection} has lifecycle rows but no accepted generation"
+                ),
+                remediation: "complete and physically verify a graph/XTerm generation before serving it",
+            })?;
+        match accepted.state.detail.get(WEAVE_XTERM_STORAGE_SCHEMA_DETAIL) {
+            Some(schema) if schema == WEAVE_XTERM_GENERATION_SCHEMA => {
+                weave_xterm_generation_key(collection, &accepted.state.generation, canonical_key)
+            }
+            None if !accepted
+                .state
+                .detail
+                .contains_key(GRAPH_GENERATION_STORAGE_SCHEMA_DETAIL) =>
+            {
+                // Explicit pre-isolation accepted schema.
+                Ok(canonical_key.to_vec())
+            }
+            Some(schema) => Err(graph_corrupt(format!(
+                "accepted graph generation {}/{} names unsupported XTerm schema {schema}",
+                collection, accepted.state.generation
+            ))),
+            None => Err(graph_corrupt(format!(
+                "accepted isolated graph generation {}/{} omits XTerm storage schema",
+                collection, accepted.state.generation
+            ))),
+        }
+    }
+
     fn state_key(&self, state: &GraphCollectionGenerationState) -> Result<Vec<u8>> {
         self.keys
             .metadata_key(&state_row_name(&state.collection, &state.generation))
     }
+}
+
+/// Publishes a fully verified failed generation only if the vault tip and its
+/// lifecycle row are byte-semantically unchanged from the verifier's read.
+///
+/// The comparison and accepted-state commit share Aster's durable commit lock,
+/// closing the check/write race that a CLI-level `latest_seq` comparison would
+/// otherwise leave. Physical Graph/XTerm verification deliberately happens
+/// before this short critical section.
+pub fn accept_verified_graph_generation<C: Clock>(
+    vault: &AsterVault<C>,
+    expected_latest_seq: Seq,
+    expected_failed: &GraphCollectionGenerationState,
+    accepted: &GraphCollectionGenerationState,
+) -> Result<Seq> {
+    if expected_failed.status != GraphCollectionGenerationStatus::Failed
+        || accepted.status != GraphCollectionGenerationStatus::Accepted
+        || accepted.collection != expected_failed.collection
+        || accepted.generation != expected_failed.generation
+    {
+        return Err(CalyxError {
+            code: "CALYX_GRAPH_GENERATION_ACCEPT_INVALID",
+            message: "verified generation publication requires one failed row and a matching accepted row"
+                .to_string(),
+            remediation: "verify the exact failed generation and publish only an accepted state for the same collection/generation",
+        });
+    }
+    validate_state(expected_failed)?;
+    validate_state(accepted)?;
+
+    vault.with_durable_commit_lock(|| {
+        let observed_latest_seq = vault.latest_seq();
+        if observed_latest_seq != expected_latest_seq {
+            return Err(CalyxError::stale_derived(format!(
+                "verified graph generation publication expected vault sequence {expected_latest_seq}, observed {observed_latest_seq}"
+            )));
+        }
+        let lifecycle = GraphCollectionLifecycle::new(vault)?;
+        let observed = lifecycle
+            .list_states(observed_latest_seq)?
+            .into_iter()
+            .find(|row| {
+                row.state.collection == expected_failed.collection
+                    && row.state.generation == expected_failed.generation
+            })
+            .ok_or_else(|| {
+                CalyxError::stale_derived(format!(
+                    "verified graph generation lifecycle row disappeared for {}/{}",
+                    expected_failed.collection, expected_failed.generation
+                ))
+            })?;
+        if &observed.state != expected_failed {
+            return Err(CalyxError::stale_derived(format!(
+                "verified graph generation lifecycle row changed for {}/{}",
+                expected_failed.collection, expected_failed.generation
+            )));
+        }
+        let seq = lifecycle.put_state_locked(accepted)?;
+        vault.flush_locked()?;
+        Ok(seq)
+    })
 }
 
 impl PhysicalGraphCollectionLifecycle {
@@ -139,6 +299,16 @@ impl PhysicalGraphCollectionLifecycle {
         let key = self
             .keys
             .metadata_key(&state_row_name(&state.collection, &state.generation))?;
+        if self.router.get(ColumnFamily::Graph, &key)?.is_some() {
+            return Err(CalyxError {
+                code: "CALYX_GRAPH_LIFECYCLE_COMMIT_REQUIRED",
+                message: format!(
+                    "physical lifecycle write cannot update committed generation {}/{}",
+                    state.collection, state.generation
+                ),
+                remediation: "write lifecycle transitions through GraphCollectionLifecycle so WAL, MVCC, and physical readback share one commit sequence",
+            });
+        }
         let value = serde_json::to_vec(state).map_err(lifecycle_corrupt)?;
         self.router.put(ColumnFamily::Graph, &key, &value)?;
         self.router.flush_cf(ColumnFamily::Graph)?;

@@ -28,7 +28,11 @@ pub(crate) fn search_slots_uncached(
 ) -> CliResult<SlotHitsWithLatency> {
     let (multi_jobs, stage1_jobs): (Vec<_>, Vec<_>) = query_vectors
         .iter()
-        .partition(|(_, query)| matches!(query, SlotVector::Multi { .. }));
+        // Use the core shape classifier instead of naming one representation
+        // here. `multi_dim` exhaustively covers both native late-interaction
+        // forms (Multi and SegmentedMulti), so a future form cannot silently
+        // fall into the full-corpus stage-one path.
+        .partition(|(_, query)| query.multi_dim().is_some());
     trace.emit_detail(
         "search_slots.stage1.start",
         None,

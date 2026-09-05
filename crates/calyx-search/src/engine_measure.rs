@@ -156,7 +156,7 @@ pub(crate) fn measure_query_vectors_with_slots_traced(
                 "parallel query measurement omitted lens {lens} for slot {slot}"
             ))
         })?;
-        let is_indexable = indexable(vector);
+        let is_indexable = vector.is_indexable();
         trace.emit_detail(
             "query.measure_slot.done",
             Some(slot),
@@ -270,13 +270,6 @@ pub(crate) fn no_indexable_stored_vectors() -> CalyxError {
     )
 }
 
-pub(crate) fn indexable(vector: &SlotVector) -> bool {
-    matches!(
-        vector,
-        SlotVector::Dense { .. } | SlotVector::Sparse { .. } | SlotVector::Multi { .. }
-    )
-}
-
 pub(crate) fn slot_vector_shape(vector: &SlotVector) -> String {
     match vector {
         SlotVector::Dense { dim, data } => format!("dense dim={dim} len={}", data.len()),
@@ -284,6 +277,17 @@ pub(crate) fn slot_vector_shape(vector: &SlotVector) -> String {
         SlotVector::Multi { token_dim, tokens } => {
             format!("multi token_dim={token_dim} tokens={}", tokens.len())
         }
+        SlotVector::SegmentedMulti {
+            token_dim,
+            provenance,
+            segments,
+        } => format!(
+            "segmented_multi token_dim={token_dim} segments={} source_bytes={} source_tokens={} policy_version={}",
+            segments.len(),
+            provenance.source_byte_len,
+            provenance.source_token_count,
+            provenance.policy_version
+        ),
         SlotVector::Absent { reason } => format!("absent reason={reason:?}"),
     }
 }

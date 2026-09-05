@@ -22,7 +22,6 @@ fn real_tei_closed_endpoint_without_offline_mode_fails_closed() {
     let result = measure_slot(
         &spec,
         &row,
-        BackfillMode::RealTei,
         0,
         TemporalContext::from_rows(std::slice::from_ref(&row)),
     );

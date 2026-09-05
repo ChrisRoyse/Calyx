@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
-use crate::frozen::FrozenLensContract;
+use crate::frozen::{FrozenLensContract, TEI_HTTP_REQUEST_POLICY};
 use crate::lens::ensure_input_modality;
 
 /// Calyx-owned FP16 multilingual E5 TEI endpoint on the local GPU host.
@@ -26,6 +26,13 @@ pub struct TeiServiceInfo {
     pub model_dtype: String,
     pub version: String,
     pub sha: String,
+    pub max_input_length: usize,
+    pub max_client_batch_size: usize,
+    /// Server-side token budget for one batch. A long-context lane can accept a
+    /// large client batch by count while still refusing it by tokens, so a
+    /// segment batcher must respect this as well as `max_client_batch_size`.
+    #[serde(default)]
+    pub max_batch_tokens: Option<usize>,
 }
 
 impl TeiServiceInfo {
@@ -53,6 +60,12 @@ impl TeiServiceInfo {
                 )));
             }
         }
+        if self.max_input_length == 0 || self.max_client_batch_size == 0 {
+            return Err(CalyxError::lens_frozen_violation(format!(
+                "TEI /info exposes invalid capacity max_input_length={} max_client_batch_size={}",
+                self.max_input_length, self.max_client_batch_size
+            )));
+        }
         Ok(())
     }
 }
@@ -63,6 +76,8 @@ pub struct TeiEndpointIdentity {
     pub endpoint_sha256: String,
     pub measurement_sha256: String,
     pub prompt_sha256: Option<String>,
+    pub request_policy_sha256: String,
+    pub truncate: bool,
 }
 
 /// Reads and validates the live service `/info` response for an embed/rerank endpoint.
@@ -87,6 +102,8 @@ pub fn tei_endpoint_identity(endpoint: &str) -> Result<TeiEndpointIdentity> {
         endpoint_sha256: sha256_hex(base.as_bytes()),
         measurement_sha256: sha256_hex(endpoint.as_bytes()),
         prompt_sha256,
+        request_policy_sha256: sha256_hex(TEI_HTTP_REQUEST_POLICY.as_bytes()),
+        truncate: false,
     })
 }
 
@@ -94,7 +111,11 @@ pub fn tei_endpoint_identity(endpoint: &str) -> Result<TeiEndpointIdentity> {
 #[derive(Clone, Debug)]
 pub struct TeiHttpLens {
     id: LensId,
+    /// Address the runtime dials. Equal to `frozen_endpoint` unless an audited
+    /// relocation has rebound this lens onto a different lane (#2053).
     endpoint: String,
+    /// Address hashed into the frozen contract and therefore into the LensId.
+    frozen_endpoint: String,
     modality: Modality,
     dim: u32,
     timeout: Duration,
@@ -114,12 +135,34 @@ impl TeiHttpLens {
         let id = FrozenLensContract::tei_http(&name, &endpoint, modality, dim).lens_id();
         Self {
             id,
+            frozen_endpoint: endpoint.clone(),
             endpoint,
             modality,
             dim,
             timeout: Duration::from_secs(30),
             max_batch: DEFAULT_TEI_MAX_BATCH,
         }
+    }
+
+    /// Rebinds this lens onto an audited relocated lane. Only the dialled
+    /// address moves; the frozen contract endpoint and the `LensId` do not.
+    pub fn relocated_to(mut self, live_endpoint: impl Into<String>) -> Result<Self> {
+        let live_endpoint = live_endpoint.into();
+        // Parse now so a malformed relocated address is refused at warm time
+        // rather than on the first user query.
+        HttpEndpoint::parse(live_endpoint.split('#').next().unwrap_or(&live_endpoint))?;
+        self.endpoint = live_endpoint;
+        Ok(self)
+    }
+
+    /// Address this lens actually dials.
+    pub fn live_endpoint(&self) -> &str {
+        &self.endpoint
+    }
+
+    /// Address hashed into the frozen contract and the `LensId`.
+    pub fn frozen_endpoint(&self) -> &str {
+        &self.frozen_endpoint
     }
 
     /// Builds a text lens for manual's resident `:8088` TEI service.
@@ -142,6 +185,23 @@ impl TeiHttpLens {
     pub fn with_max_batch(mut self, max_batch: usize) -> Self {
         self.max_batch = max_batch.max(1);
         self
+    }
+
+    /// Applies a frozen `LensSpec::max_batch` contract without silently
+    /// widening or repairing an invalid declared limit.
+    pub fn with_declared_max_batch(mut self, max_batch: Option<usize>) -> Result<Self> {
+        match max_batch {
+            Some(0) => Err(CalyxError {
+                code: "CALYX_LENS_CONFIG_INVALID",
+                message: "TEI LensSpec max_batch must be > 0".to_string(),
+                remediation: "fix the frozen lens manifest and re-register as a new LensId",
+            }),
+            Some(max_batch) => {
+                self.max_batch = max_batch;
+                Ok(self)
+            }
+            None => Ok(self),
+        }
     }
 }
 
@@ -181,15 +241,10 @@ impl Lens for TeiHttpLens {
 
         let mut vectors = Vec::with_capacity(inputs.len());
         for chunk in texts.chunks(self.max_batch) {
-            // `truncate: true` = head truncation at the router's model max
-            // tokens, matching every local lens runtime (their tokenizers
-            // truncate at model max_len). Without it TEI fail-closes with
-            // HTTP 422 on inputs over the router limit (observed: 8192
-            // tokens on the :8088/:8090 lanes), which killed long-document
-            // ingest (#1468 Cuyahoga opinions). Request-level truncate is
-            // honored by TEI even without server-side --auto-truncate
-            // (verified by curl on both lanes, 2026-07-13).
-            let body = serde_json::to_vec(&json!({ "inputs": chunk, "truncate": true })).map_err(
+            // The complete input is part of the frozen measurement. Explicit
+            // `false` prevents either a server default or a service upgrade
+            // from silently replacing it with a prefix.
+            let body = serde_json::to_vec(&json!({ "inputs": chunk, "truncate": false })).map_err(
                 |err| CalyxError::lens_unreachable(format!("TEI request encode failed: {err}")),
             )?;
             let raw = post_json(&self.endpoint, &body, self.timeout)?;
@@ -226,7 +281,7 @@ impl TeiHttpLens {
             let body = serde_json::to_vec(&json!({
                 "query": rerank.query,
                 "texts": chunk,
-                "truncate": true,
+                "truncate": false,
                 "raw_scores": true,
                 "return_text": false
             }))
@@ -259,7 +314,7 @@ fn text_from_input(input: &Input) -> Result<&str> {
         .map_err(|err| CalyxError::lens_dim_mismatch(format!("TEI input is not UTF-8: {err}")))
 }
 
-fn post_json(endpoint: &str, body: &[u8], timeout: Duration) -> Result<Vec<u8>> {
+pub(super) fn post_json(endpoint: &str, body: &[u8], timeout: Duration) -> Result<Vec<u8>> {
     let endpoint = HttpEndpoint::parse(endpoint)?;
     let address = (endpoint.host.as_str(), endpoint.port)
         .to_socket_addrs()
@@ -382,7 +437,7 @@ fn decode_chunked(mut body: &[u8]) -> Result<Vec<u8>> {
     }
 }
 
-fn parse_embedding_response(body: &[u8]) -> Result<Vec<Vec<f32>>> {
+pub(super) fn parse_embedding_response(body: &[u8]) -> Result<Vec<Vec<f32>>> {
     let value: Value = serde_json::from_slice(body)
         .map_err(|err| CalyxError::lens_unreachable(format!("TEI JSON parse failed: {err}")))?;
     parse_vectors(&value).ok_or_else(|| {

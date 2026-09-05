@@ -217,6 +217,45 @@ pub(crate) fn record_from_manifests(manifests: &[PathBuf]) -> CliResult<LensTemp
     })
 }
 
+fn record_from_import_sources(
+    manifests: &[PathBuf],
+    direct_lenses: &[direct::DirectLensSource],
+) -> CliResult<LensTemplateRecord> {
+    if manifests.is_empty() && direct_lenses.is_empty() {
+        return Err(CliError::usage(
+            "lens template import requires at least one --manifest, --tei, or --algorithmic lens",
+        ));
+    }
+    if manifests.is_empty() {
+        return direct::record_from_direct_lenses(direct_lenses);
+    }
+    if direct_lenses.is_empty() {
+        return record_from_manifests(manifests);
+    }
+
+    let mut descriptors = record_from_manifests(manifests)?.descriptors;
+    descriptors.extend(direct::record_from_direct_lenses(direct_lenses)?.descriptors);
+    let mut names = BTreeSet::new();
+    for (slot, descriptor) in descriptors.iter_mut().enumerate() {
+        if !names.insert(descriptor.name.clone()) {
+            return Err(local_error(
+                "CALYX_FSV_ASSAY_STREAM_FBIN_LENS_TEMPLATE_DUPLICATE",
+                format!("duplicate lens {} in template import", descriptor.name),
+                "deduplicate the mixed stream-fbin lens template roster",
+            ));
+        }
+        descriptor.slot =
+            u16::try_from(slot).map_err(|_| CliError::usage("lens template slot exceeds u16"))?;
+    }
+    let roster_sha256 = roster_sha256(&descriptors);
+    Ok(LensTemplateRecord {
+        format: FORMAT.to_string(),
+        mode: MODE.to_string(),
+        roster_sha256,
+        descriptors,
+    })
+}
+
 fn descriptor_from_manifest(slot: usize, path: &Path) -> CliResult<LensTemplateDescriptor> {
     let source_bytes = fs::read(path).map_err(io_error)?;
     let mut manifest: LensForgeManifest =

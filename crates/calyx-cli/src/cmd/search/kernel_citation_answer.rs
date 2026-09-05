@@ -11,7 +11,7 @@ use calyx_aster::vault::{AsterVault, VaultOptions};
 use calyx_core::{CalyxError, CxId, LedgerRef, SlotId, VaultStore};
 use calyx_ledger::{ActorId, EntryKind, LedgerCfStore, RedactionPolicy, SubjectId, decode};
 use calyx_lodestar::{
-    AsterAssocNodeProps, FsKernelStore, PanelFusionHit, PanelFusionLane, RecallPassMode,
+    AsterAssocNodeProps, FsKernelStore, RecallPassMode, TypedPanelFusionHit, TypedPanelFusionLane,
     kernel_health,
 };
 use calyx_registry::{load_vault_panel_state, require_vault_registry_contracts};
@@ -49,7 +49,7 @@ pub(super) struct CitationAnswerRequest<'a> {
     pub embedding_slots: &'a [SlotId],
     pub fusion: &'a str,
     pub rrf_k: u32,
-    pub nearest: &'a PanelFusionHit,
+    pub nearest: &'a TypedPanelFusionHit,
     pub admission_threshold: f32,
 }
 
@@ -62,7 +62,7 @@ struct CitationAnswerContext {
     fusion: String,
     rrf_k: u32,
     nearest_score: f32,
-    nearest_lanes: Vec<PanelFusionLane>,
+    nearest_lanes: Vec<TypedPanelFusionLane>,
     admission_threshold: f32,
     resident_addr: String,
     citation_collection: String,
@@ -307,7 +307,7 @@ pub(crate) fn rederive_kernel_citation_answer_hash(
     let roster = SearchTextRoster::derive(&state);
     let measured = measure_kernel_query_vectors(&state, &roster, resolved, query, resident_addr)?;
     let panel = query_panel_vectors(&measured, &slots)?;
-    let association = PhysicalPlainGraph::open_latest(
+    let association = PhysicalPlainGraph::open_latest_isolated(
         &resolved.path,
         calyx_lodestar::PANEL_ASTER_ASSOC_COLLECTION,
     )?;

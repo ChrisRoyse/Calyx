@@ -6,6 +6,7 @@ use std::path::PathBuf;
 
 use calyx_core::{CxId, SlotId};
 
+use crate::guard::TypedSlotVerdict;
 use crate::profile::GuardId;
 use crate::verdict::SlotVerdict;
 
@@ -21,6 +22,7 @@ pub const CALYX_GUARD_IDENTITY_SLOT_NOT_REQUIRED: &str = "CALYX_GUARD_IDENTITY_S
 pub const CALYX_GUARD_CALIBRATION_SLOT_SHAPE: &str = "CALYX_GUARD_CALIBRATION_SLOT_SHAPE";
 pub const CALYX_GUARD_CALIBRATION_SLOT_UNKNOWN: &str = "CALYX_GUARD_CALIBRATION_SLOT_UNKNOWN";
 pub const CALYX_GUARD_CALIBRATION_SLOT_STATE: &str = "CALYX_GUARD_CALIBRATION_SLOT_STATE";
+pub const CALYX_GUARD_TYPED_SLOT_INVALID: &str = "CALYX_GUARD_TYPED_SLOT_INVALID";
 pub const CALYX_WARD_MODEL_NOT_FOUND: &str = "CALYX_WARD_MODEL_NOT_FOUND";
 pub const CALYX_WARD_INVALID_INPUT: &str = "CALYX_WARD_INVALID_INPUT";
 pub const CALYX_WARD_MODEL_DIM_MISMATCH: &str = "CALYX_WARD_MODEL_DIM_MISMATCH";
@@ -35,6 +37,10 @@ pub enum WardError {
     Ood {
         guard_id: GuardId,
         failing: Vec<SlotVerdict>,
+    },
+    TypedOod {
+        guard_id: GuardId,
+        failing: Vec<TypedSlotVerdict>,
     },
     Provisional {
         guard_id: GuardId,
@@ -92,6 +98,12 @@ pub enum WardError {
         slot: SlotId,
         state: String,
     },
+    TypedSlotInvalid {
+        slot: SlotId,
+        cause_code: &'static str,
+        message: String,
+        remediation: &'static str,
+    },
     ModelNotFound {
         path: PathBuf,
     },
@@ -125,7 +137,7 @@ impl WardError {
     /// Returns the stable Calyx error code for this error.
     pub const fn code(&self) -> &'static str {
         match self {
-            Self::Ood { .. } => CALYX_GUARD_OOD,
+            Self::Ood { .. } | Self::TypedOod { .. } => CALYX_GUARD_OOD,
             Self::Provisional { .. } | Self::MissingSlotCalibration { .. } => {
                 CALYX_GUARD_PROVISIONAL
             }
@@ -141,6 +153,7 @@ impl WardError {
             Self::CalibrationSlotShape { .. } => CALYX_GUARD_CALIBRATION_SLOT_SHAPE,
             Self::CalibrationSlotUnknown { .. } => CALYX_GUARD_CALIBRATION_SLOT_UNKNOWN,
             Self::CalibrationSlotState { .. } => CALYX_GUARD_CALIBRATION_SLOT_STATE,
+            Self::TypedSlotInvalid { .. } => CALYX_GUARD_TYPED_SLOT_INVALID,
             Self::ModelNotFound { .. } => CALYX_WARD_MODEL_NOT_FOUND,
             Self::InvalidInput { .. } => CALYX_WARD_INVALID_INPUT,
             Self::ModelDimMismatch { .. } => CALYX_WARD_MODEL_DIM_MISMATCH,
@@ -157,6 +170,13 @@ impl fmt::Display for WardError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Ood { guard_id, failing } => {
+                write!(f, "{CALYX_GUARD_OOD}: guard {guard_id} out of distribution")?;
+                for slot in failing {
+                    write!(f, "; slot {} cos={} tau={}", slot.slot, slot.cos, slot.tau)?;
+                }
+                Ok(())
+            }
+            Self::TypedOod { guard_id, failing } => {
                 write!(f, "{CALYX_GUARD_OOD}: guard {guard_id} out of distribution")?;
                 for slot in failing {
                     write!(f, "; slot {} cos={} tau={}", slot.slot, slot.cos, slot.tau)?;
@@ -226,6 +246,15 @@ impl fmt::Display for WardError {
             Self::CalibrationSlotState { slot, state } => write!(
                 f,
                 "{CALYX_GUARD_CALIBRATION_SLOT_STATE}: calibration slot {slot} is {state}, not active; guarded queries only measure active slots, so a profile requiring this slot could never pass"
+            ),
+            Self::TypedSlotInvalid {
+                slot,
+                cause_code,
+                message,
+                remediation,
+            } => write!(
+                f,
+                "{CALYX_GUARD_TYPED_SLOT_INVALID}: slot {slot} typed comparison failed ({cause_code}): {message}; remediation: {remediation}"
             ),
             Self::ModelNotFound { path } => write!(
                 f,

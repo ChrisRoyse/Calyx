@@ -105,14 +105,15 @@ pub(super) fn write_staged_slot_artifact(
             id_map_sha256: None,
         },
         OptionalSearchIndexEntry::Some(entry) => {
-            let (graph_sha256, id_map_sha256) = if entry.kind == "diskann" {
-                (
-                    Some(sha256_of_rel(vault_dir, entry.require_graph_rel(slot)?)?),
-                    Some(sha256_of_rel(vault_dir, entry.require_id_map_rel(slot)?)?),
-                )
-            } else {
-                (None, None)
-            };
+            let (graph_sha256, id_map_sha256) =
+                if entry.kind == "diskann" || entry.kind == "multi_maxsim_segments" {
+                    (
+                        Some(sha256_of_rel(vault_dir, entry.require_graph_rel(slot)?)?),
+                        Some(sha256_of_rel(vault_dir, entry.require_id_map_rel(slot)?)?),
+                    )
+                } else {
+                    (None, None)
+                };
             StagedSlotArtifact {
                 schema: STAGED_ARTIFACT_SCHEMA.to_string(),
                 base_seq,
@@ -192,9 +193,17 @@ pub(super) fn reuse_staged_slot_entry(
         ),
         "flat_dense" => dense::validate_entry(vault_dir, &entry, plan.slot),
         "sparse_inverted" => sparse::validate_entry(vault_dir, &entry, base_seq, plan.slot),
-        "multi_maxsim" | "multi_maxsim_segments" => {
-            multi::validate_entry(vault_dir, &entry, base_seq, plan.slot)
-        }
+        "multi_maxsim" => multi::validate_entry(vault_dir, &entry, base_seq, plan.slot),
+        "multi_maxsim_segments" => multi::validate_entry(vault_dir, &entry, base_seq, plan.slot)
+            .and_then(|()| {
+                validate_staged_artifact_hashes(
+                    vault_dir,
+                    &entry,
+                    plan.slot,
+                    staged.graph_sha256.as_deref(),
+                    staged.id_map_sha256.as_deref(),
+                )
+            }),
         _ => return Ok(None),
     };
     if validated.is_err() {
@@ -214,22 +223,32 @@ fn validate_staged_diskann(
     graph_sha256: Option<&str>,
     id_map_sha256: Option<&str>,
 ) -> CliResult {
+    dense::validate_entry(vault_dir, entry, slot)?;
+    validate_staged_artifact_hashes(vault_dir, entry, slot, graph_sha256, id_map_sha256)
+}
+
+fn validate_staged_artifact_hashes(
+    vault_dir: &Path,
+    entry: &SearchIndexEntry,
+    slot: SlotId,
+    graph_sha256: Option<&str>,
+    id_map_sha256: Option<&str>,
+) -> CliResult {
     let (Some(expected_graph), Some(expected_id_map)) = (graph_sha256, id_map_sha256) else {
         return Err(stale(format!(
-            "staged diskann slot {slot} record is missing artifact hashes"
+            "staged ANN slot {slot} record is missing artifact hashes"
         )));
     };
-    dense::validate_entry(vault_dir, entry, slot)?;
     let actual_graph = sha256_of_rel(vault_dir, entry.require_graph_rel(slot)?)?;
     if actual_graph != expected_graph {
         return Err(stale(format!(
-            "staged diskann slot {slot} graph sha256 {actual_graph} != staged {expected_graph}"
+            "staged ANN slot {slot} graph sha256 {actual_graph} != staged {expected_graph}"
         )));
     }
     let actual_id_map = sha256_of_rel(vault_dir, entry.require_id_map_rel(slot)?)?;
     if actual_id_map != expected_id_map {
         return Err(stale(format!(
-            "staged diskann slot {slot} id map sha256 {actual_id_map} != staged {expected_id_map}"
+            "staged ANN slot {slot} id map sha256 {actual_id_map} != staged {expected_id_map}"
         )));
     }
     Ok(())

@@ -1,4 +1,5 @@
 [package]
+autobenches = false
 autotests = false
 name = "calyx-search"
 version.workspace = true
@@ -8,6 +9,9 @@ repository.workspace = true
 publish.workspace = true
 
 [lib]
+test = false
+doctest = false
+bench = false
 name = "calyx_search"
 path = "src/lib.rs"
 
@@ -45,6 +49,7 @@ ulid = { workspace = true }
 # BEGIN generated integration harnesses (issue #1546)
 
 [[test]]
+test = false
 name = "__calyx_integration_suite_0"
 path = "tests/__calyx_integration_suite_0.rs"
 

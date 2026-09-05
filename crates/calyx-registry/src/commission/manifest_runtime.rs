@@ -5,6 +5,10 @@ use calyx_core::{CalyxError, Result};
 use super::algorithmic_manifest::algorithmic_kind;
 use super::manifest::{LensForgeManifest, VerifiedFile, modality_token};
 use crate::runtime::qwen3::DEFAULT_QWEN3_MAX_TOKENS;
+use crate::runtime::tei_segmented::{
+    DEFAULT_TEI_SEGMENTATION_POLICY, TeiSegmentationPolicy, pooled_paragraph_policy,
+    segments_paragraph_policy,
+};
 use crate::spec::{Bgem3Engine, FastembedBgem3Output, LensRuntime};
 
 pub(super) fn runtime_from_manifest(
@@ -93,6 +97,14 @@ pub(super) fn runtime_from_manifest(
                 .clone()
                 .ok_or_else(|| config_invalid("lensforge TEI endpoint is required"))?,
         }),
+        "tei-segmented" | "tei-http-segmented" | "tei_http_segmented" => {
+            Ok(LensRuntime::TeiHttpSegmented {
+                endpoint: manifest.endpoint.clone().ok_or_else(|| {
+                    config_invalid("lensforge segmented TEI endpoint is required")
+                })?,
+                policy: segmented_tei_policy(manifest)?,
+            })
+        }
         "model2vec" | "static_lookup" | "static-lookup" => Ok(LensRuntime::StaticLookup {
             embeddings_file: artifact_by_role(artifacts, is_model_role)?,
             tokenizer: artifact_by_role(artifacts, |role| role == "tokenizer")?,
@@ -122,6 +134,40 @@ pub(super) fn runtime_from_manifest(
             "unsupported lensforge runtime {other}"
         ))),
     }
+}
+
+/// Builds the frozen segmentation policy for a segmented TEI lens from the
+/// manifest. The per-segment window is carried by the existing `max_tokens`
+/// field (which is already hashed into the lens `corpus_hash`) and must match
+/// the router's `max_input_length`; the remaining policy terms are the frozen
+/// defaults. Fails closed if the window is absent or the policy is invalid.
+pub(super) fn segmented_tei_policy(manifest: &LensForgeManifest) -> Result<TeiSegmentationPolicy> {
+    let max_tokens = manifest.max_tokens.ok_or_else(|| {
+        config_invalid(
+            "segmented TEI lensforge manifest requires max_tokens (the frozen per-segment window matching the router max_input_length)",
+        )
+    })?;
+    let max_input_tokens = u32::try_from(max_tokens)
+        .map_err(|_| config_invalid("segmented TEI manifest max_tokens exceeds u32"))?;
+    let policy = match manifest.representation.as_deref() {
+        None | Some("segments") | Some("preserve-segments") => TeiSegmentationPolicy {
+            max_input_tokens,
+            ..DEFAULT_TEI_SEGMENTATION_POLICY
+        },
+        Some("pooled-paragraph") | Some("pooled") => pooled_paragraph_policy(max_input_tokens),
+        Some("segments-paragraph") => segments_paragraph_policy(max_input_tokens),
+        Some(other) => {
+            return Err(config_invalid(format!(
+                "unsupported segmented TEI representation {other:?}; expected \"segments\", \"segments-paragraph\" or \"pooled-paragraph\""
+            )));
+        }
+    };
+    let mut policy = policy;
+    if let Some(special_tokens) = manifest.special_tokens {
+        policy.special_tokens = special_tokens;
+    }
+    policy.validate()?;
+    Ok(policy)
 }
 
 fn fastembed_bgem3_runtime(

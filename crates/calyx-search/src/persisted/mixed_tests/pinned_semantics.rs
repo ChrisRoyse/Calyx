@@ -1,10 +1,15 @@
-//! Verify-once-then-pin semantics for persisted slot indexes (issue #1102).
+//! Verified-serving semantics for persisted slot indexes (issues #1102, #1845).
 //!
-//! Contract under test: sidecar content is fully hashed and validated on the
-//! first search per manifest generation, then served from a pinned in-memory
-//! copy keyed by the manifest entry sha256. On-disk presence and byte size
-//! are still verified per bounded check, and any manifest-generation change
-//! forces a fresh verified load.
+//! Contract under test: sidecar content is fully hashed and validated before it
+//! is served. Sparse/dense sidecars are verified once per manifest generation
+//! and then served from a pinned in-memory copy keyed by the manifest entry
+//! sha256. The multi-vector (MaxSim) CPU path was changed by issue #1845 to
+//! stream each segment row-by-row and re-verify its sha256 on every search
+//! instead of pinning the whole lens resident, so on-disk corruption between
+//! searches is now detected and fails closed rather than serving
+//! stale-but-once-verified bytes. On-disk presence and byte size are still
+//! verified per bounded check, and any manifest-generation change forces a
+//! fresh verified load.
 
 use std::fs;
 
@@ -44,15 +49,15 @@ fn pinned_multi_scores_are_bit_identical_to_streaming_maxsim() {
 }
 
 #[test]
-fn pinned_multi_serves_verified_generation_and_stat_checks_catch_truncation() {
-    let root = scratch("pinned-generation");
+fn streaming_multi_reverifies_each_serve_and_bounded_check_catches_truncation() {
+    let root = scratch("streaming-generation");
     rebuild_from_docs(&root, &mixed_docs(), 41).expect("rebuild");
     let indexes = PersistedSearchIndexes::open(&root).expect("open");
     let query = multi(2, [[0.6, 0.4]]);
 
     let first = indexes
         .search(SlotId::new(2), &query, 3)
-        .expect("first search pins the verified index");
+        .expect("first search streams and verifies the segment");
 
     let multi_entry = indexes
         .manifest
@@ -64,16 +69,28 @@ fn pinned_multi_serves_verified_generation_and_stat_checks_catch_truncation() {
     let segment_path = root.join(&segment_rel);
     let original = fs::read(&segment_path).expect("segment bytes");
 
-    // Same-size in-place corruption: the pinned generation keeps serving the
-    // bytes that were verified against the manifest sha256 at load time.
+    // Same-size in-place corruption: the CPU MaxSim serving path streams and
+    // re-verifies the segment sha256 on every search (issue #1845 removed the
+    // resident whole-lens pin), so on-disk corruption between searches is now
+    // detected and fails closed instead of serving stale-but-once-verified
+    // bytes. Results are physically grounded in the current sidecar bytes.
     let mut corrupted = original.clone();
     let last = corrupted.len() - 1;
     corrupted[last] ^= 0xFF;
     fs::write(&segment_path, &corrupted).expect("corrupt segment in place");
-    let second = indexes
+    let err = indexes
         .search(SlotId::new(2), &query, 3)
-        .expect("pinned search serves the verified generation");
-    assert_eq!(first, second);
+        .expect_err("streaming search must re-verify and reject the corrupted segment");
+    assert_eq!(err.code(), "CALYX_STALE_DERIVED");
+    assert!(err.message().contains("sha256"));
+
+    // Restoring the exact bytes makes the search succeed identically again,
+    // proving the failure was the on-disk corruption, not a cached error state.
+    fs::write(&segment_path, &original).expect("restore segment");
+    let restored = indexes
+        .search(SlotId::new(2), &query, 3)
+        .expect("restored segment serves the verified generation again");
+    assert_eq!(first, restored);
 
     // Truncation changes the on-disk byte size: the memoized bounded check
     // still stats every file per call and fails closed.

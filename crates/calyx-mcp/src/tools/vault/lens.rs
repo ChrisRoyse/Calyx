@@ -1,22 +1,27 @@
 use std::fs;
 use std::path::PathBuf;
 
+use crate::server::{ToolError, ToolResult};
 use calyx_core::{
     Asymmetry, CalyxError, Input, Lens, LensId, Modality, QuantPolicy, SlotShape, SlotVector,
 };
 use calyx_registry::frozen::sha256_digest;
 use calyx_registry::{
     AlgorithmicLens, CapabilityCard, FrozenLensContract, LensDType, LensRuntime, LensSpec,
-    NormPolicy, ProfileProbe, Registry, TeiHttpLens, profile_lens,
+    NormPolicy, Registry, TeiHttpLens, profile_lens,
 };
-use serde_json::Value;
-
-use crate::server::{ToolError, ToolResult};
 
 use super::validate_path_safe;
 
 const DEFAULT_PROFILE_NAME: &str = "profile-lens";
 const DEFAULT_ALGORITHMIC_KIND: &str = "byte-features";
+
+mod profile;
+mod structured;
+
+#[cfg(test)]
+use profile::profile_probe_from_line;
+use profile::profile_probes;
 
 #[derive(Debug)]
 pub(super) struct BuiltLens {
@@ -57,14 +62,20 @@ pub(super) fn build_lens(
     modality: Option<&str>,
 ) -> ToolResult<BuiltLens> {
     validate_path_safe("lens name", name)?;
-    let modality = parse_modality(modality)?;
-    match runtime.replace('_', "-").as_str() {
+    let runtime_key = runtime.replace('_', "-");
+    let modality = parse_modality(
+        modality.or_else(|| (runtime_key == "algorithmic:structured").then_some("structured")),
+    )?;
+    match runtime_key.as_str() {
         "algorithmic" => build_algorithmic_lens(name, DEFAULT_ALGORITHMIC_KIND, shape, modality),
+        "algorithmic:structured" => {
+            structured::build_structured_lens(name, weights, shape, modality)
+        }
         "tei-http" => build_tei_lens(name, endpoint, shape, modality),
         "onnx" => build_declared_lens(name, "onnx", endpoint, weights, shape, modality),
         "candle" => build_declared_lens(name, "candle", endpoint, weights, shape, modality),
         other => Err(ToolError::invalid_params(format!(
-            "unknown runtime {other}; expected tei-http, onnx, candle, or algorithmic"
+            "unknown runtime {other}; expected tei-http, onnx, candle, algorithmic, or algorithmic:structured"
         ))),
     }
 }
@@ -85,10 +96,9 @@ pub(super) fn profile_candidate(
         modality,
     )?;
     let lens_id = built.lens_id;
-    let modality = built.spec.modality;
     let mut registry = Registry::new();
     built.register(&mut registry)?;
-    let probes = profile_probes(probe, modality)?;
+    let probes = profile_probes(probe, &registry, lens_id)?;
     Ok(profile_lens(&registry, lens_id, &probes)?)
 }
 
@@ -327,75 +337,25 @@ impl Lens for DeclaredLens {
     }
 }
 
-fn profile_probes(path: Option<&str>, modality: Modality) -> ToolResult<Vec<ProfileProbe>> {
-    if let Some(path) = path {
-        let text = fs::read_to_string(path)
-            .map_err(|err| CalyxError::lens_unreachable(format!("read probe set failed: {err}")))?;
-        let mut probes = Vec::new();
-        for line in text.lines().map(str::trim).filter(|line| !line.is_empty()) {
-            probes.push(profile_probe_from_line(line, modality)?);
-        }
-        if probes.is_empty() {
-            Err(ToolError::invalid_params(
-                "profile_lens probe set must not be empty",
-            ))
-        } else {
-            Ok(probes)
-        }
-    } else {
-        Err(ToolError::invalid_params(
-            "profile_lens requires an explicit probe set",
-        ))
-    }
-}
-
-fn profile_probe_from_line(line: &str, modality: Modality) -> ToolResult<ProfileProbe> {
-    match serde_json::from_str::<Value>(line) {
-        Ok(Value::String(text)) => Ok(ProfileProbe::new(Input::new(modality, text.into_bytes()))),
-        Ok(Value::Object(map)) => {
-            let text = map
-                .get("input")
-                .or_else(|| map.get("text"))
-                .and_then(Value::as_str)
-                .ok_or_else(|| {
-                    ToolError::invalid_params("profile probe object requires string input or text")
-                })?;
-            let label = map
-                .get("label")
-                .and_then(Value::as_str)
-                .map(ToString::to_string);
-            Ok(ProfileProbe {
-                input: Input::new(modality, text.as_bytes().to_vec()),
-                label,
-            })
-        }
-        Ok(_) => Err(ToolError::invalid_params(
-            "profile probe JSONL must be a string or object",
-        )),
-        Err(error) if starts_like_json(line) => Err(ToolError::invalid_params(format!(
-            "parse profile probe JSONL: {error}"
-        ))),
-        Err(_) => Ok(ProfileProbe::new(Input::new(
-            modality,
-            line.as_bytes().to_vec(),
-        ))),
-    }
-}
-
-fn starts_like_json(line: &str) -> bool {
-    matches!(
-        line.as_bytes().first(),
-        Some(b'{') | Some(b'[') | Some(b'"')
-    )
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    fn text_profile_registry() -> (Registry, LensId) {
+        let built = build_algorithmic_lens("profile-test", "byte-features", None, Modality::Text)
+            .expect("build profile lens");
+        let lens_id = built.lens_id;
+        let mut registry = Registry::new();
+        built
+            .register(&mut registry)
+            .expect("register profile lens");
+        (registry, lens_id)
+    }
+
     #[test]
     fn profile_lens_requires_explicit_probe_set() {
-        let error = profile_probes(None, Modality::Text).unwrap_err();
+        let (registry, lens_id) = text_profile_registry();
+        let error = profile_probes(None, &registry, lens_id).unwrap_err();
 
         match error {
             ToolError::InvalidParams(message) => {
@@ -428,6 +388,7 @@ mod tests {
 
     #[test]
     fn profile_probe_file_accepts_json_and_raw_text() {
+        let (registry, lens_id) = text_profile_registry();
         let path = std::env::temp_dir().join(format!(
             "calyx-profile-probes-{}-{}.jsonl",
             std::process::id(),
@@ -439,7 +400,7 @@ mod tests {
         )
         .expect("write probe set");
 
-        let probes = profile_probes(path.to_str(), Modality::Text).unwrap();
+        let probes = profile_probes(path.to_str(), &registry, lens_id).unwrap();
         let _ = fs::remove_file(&path);
 
         assert_eq!(probes.len(), 3);

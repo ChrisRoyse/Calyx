@@ -26,7 +26,8 @@ pub(super) fn write_docs(
     token_count: u32,
     docs: &[DocSegment],
 ) -> Result<()> {
-    let mut out = BufWriter::new(File::create(path).map_err(|e| io("create docs sidecar", e))?);
+    // Owner-only (0600) at creation (#1989).
+    let mut out = BufWriter::new(calyx_aster::private_fs::open_private_temp_file(path)?);
     out.write_all(&DOCS_MAGIC)
         .map_err(|e| io("write docs magic", e))?;
     out.write_all(&TOKEN_FORMAT_VERSION.to_le_bytes())
@@ -81,7 +82,7 @@ pub(super) fn read_docs(path: &Path) -> Result<(u32, usize, Vec<DocSegment>)> {
 }
 
 pub(super) fn write_token_docs(path: &Path, token_docs: &[u32]) -> Result<()> {
-    let mut out = BufWriter::new(File::create(path).map_err(|e| io("create token map", e))?);
+    let mut out = BufWriter::new(calyx_aster::private_fs::open_private_temp_file(path)?);
     out.write_all(&TOKEN_DOCS_MAGIC)
         .map_err(|e| io("write token map magic", e))?;
     out.write_all(&TOKEN_FORMAT_VERSION.to_le_bytes())
@@ -112,7 +113,7 @@ pub(super) fn read_token_docs(path: &Path, expected_count: usize) -> Result<Vec<
 }
 
 pub(super) fn write_tokens(path: &Path, rows: &[(CxId, Vec<Vec<f32>>)]) -> Result<()> {
-    let mut out = BufWriter::new(File::create(path).map_err(|e| io("create tokens sidecar", e))?);
+    let mut out = BufWriter::new(calyx_aster::private_fs::open_private_temp_file(path)?);
     for (_, tokens) in rows {
         for token in tokens {
             for value in token {

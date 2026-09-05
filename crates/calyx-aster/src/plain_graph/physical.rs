@@ -9,7 +9,11 @@ use crate::mvcc::is_tombstone_value;
 use super::assoc_graph::{assoc_graph_from_csr, flatten_csr_edges};
 use super::csr_store;
 use super::key::{GraphKeyspace, graph_corrupt, path_error};
-use super::lifecycle::{GraphCollectionGenerationStatus, PhysicalGraphCollectionLifecycle};
+use super::lifecycle::{
+    GRAPH_GENERATION_STORAGE_COLLECTION_DETAIL, GRAPH_GENERATION_STORAGE_SCHEMA,
+    GRAPH_GENERATION_STORAGE_SCHEMA_DETAIL, GraphCollectionGenerationStatus,
+    PhysicalGraphCollectionLifecycle, graph_generation_storage_collection,
+};
 use super::types::{
     EdgeWeightPolicy, EdgeWeightSource, PlainGraphCsr, PlainGraphCsrEdge, PlainGraphEdge,
     PlainGraphEdgeWeightStats, plain_graph_edge_raw_weight,
@@ -24,8 +28,24 @@ pub struct PhysicalPlainGraph {
 impl PhysicalPlainGraph {
     pub fn open_latest(vault_dir: impl AsRef<std::path::Path>, collection: &str) -> Result<Self> {
         let vault_dir = vault_dir.as_ref();
-        ensure_collection_accepted(vault_dir, collection)?;
-        Self::open_latest_unchecked(vault_dir, collection)
+        let storage_collection = accepted_storage_collection(vault_dir, collection, true)?;
+        Self::open_latest_unchecked(vault_dir, &storage_collection)
+    }
+
+    /// Opens only an accepted, physically isolated generation.
+    ///
+    /// Unlike [`Self::open_latest`], this refuses pre-isolation logical
+    /// collections and accepted lifecycle rows without generation storage
+    /// metadata. Production readers of reconstructible graph generations must
+    /// use this entry point so an absent collection can never fall through to
+    /// a loose logical keyspace.
+    pub fn open_latest_isolated(
+        vault_dir: impl AsRef<std::path::Path>,
+        collection: &str,
+    ) -> Result<Self> {
+        let vault_dir = vault_dir.as_ref();
+        let storage_collection = accepted_storage_collection(vault_dir, collection, false)?;
+        Self::open_latest_unchecked(vault_dir, &storage_collection)
     }
 
     pub fn open_latest_unchecked(
@@ -43,6 +63,21 @@ impl PhysicalPlainGraph {
         collection: &str,
     ) -> Result<Self> {
         Self::open_latest(vault_dir, collection)
+    }
+
+    /// Opens one exact generation for physical write/readback before it is
+    /// published. This never consults lifecycle acceptance.
+    pub fn open_generation_unchecked(
+        vault_dir: impl AsRef<std::path::Path>,
+        collection: &str,
+        generation: &str,
+    ) -> Result<Self> {
+        let storage = graph_generation_storage_collection(collection, generation)?;
+        Self::open_latest_unchecked(vault_dir, &storage)
+    }
+
+    pub fn storage_collection(&self) -> String {
+        self.keys.collection_name()
     }
 
     pub fn get_node(&self, node: CxId) -> Result<Option<Vec<u8>>> {
@@ -113,16 +148,34 @@ impl PhysicalPlainGraph {
     /// Physical node-row key count, independent of any persisted CSR. Used to
     /// cross-check CSR materialization against the row-level source of truth.
     pub fn node_key_count(&self) -> Result<usize> {
-        Ok(self.scan_keys_at(&self.keys.node_range())?.len())
+        self.count_keys_at(&self.keys.node_range())
     }
 
     /// Physical outgoing-edge key count, independent of any persisted CSR.
     pub fn edge_out_key_count(&self) -> Result<usize> {
-        Ok(self.scan_keys_at(&self.keys.edge_out_range())?.len())
+        self.count_keys_at(&self.keys.edge_out_range())
     }
 
     pub fn read_csr(&self) -> Result<Option<PlainGraphCsr>> {
         csr_store::load_csr(&self.keys, |key| self.router.get(ColumnFamily::Graph, key))
+    }
+
+    /// One physical CSR segment pass yielding both the traversable graph and
+    /// the exact verified bytes used for immutable-contract hashing.
+    pub fn assoc_graph_with_csr_bytes(&self) -> Result<Option<(AssocGraph, Vec<u8>)>> {
+        let Some((csr, bytes)) = csr_store::load_csr_with_bytes(&self.keys, |key| {
+            self.router.get(ColumnFamily::Graph, key)
+        })?
+        else {
+            return Ok(None);
+        };
+        eprintln!(
+            "plain-graph: loading persisted CSR collection={} nodes={} edges={}",
+            csr.collection,
+            csr.nodes.len(),
+            csr.edges.len()
+        );
+        Ok(Some((assoc_graph_from_csr(&csr)?, bytes)))
     }
 
     pub fn csr_projection_with_legacy_unit_weights(
@@ -236,21 +289,148 @@ impl PhysicalPlainGraph {
         self.router
             .range_keys_until(ColumnFamily::Graph, &range.start, range.end.as_deref())
     }
+
+    /// Counts the latest live rows without retaining every key or populating
+    /// the point-reader cache with every overlapping SST. Full-corpus graph
+    /// verification is a sequential scan; routing it through
+    /// `range_keys_until` mmap-retains each visited SST in the global reader
+    /// cache and can inflate RSS by the size of the Graph CF.
+    fn count_keys_at(&self, range: &KeyRange) -> Result<usize> {
+        const COUNT_PAGE_ROWS: usize = 2_048;
+
+        let mut count = 0_usize;
+        self.router.range_pages_until(
+            ColumnFamily::Graph,
+            &range.start,
+            range.end.as_deref(),
+            COUNT_PAGE_ROWS,
+            Vec::new(),
+            |page| {
+                count = count.checked_add(page.len()).ok_or_else(|| {
+                    graph_corrupt("physical graph row count exceeds the platform usize range")
+                })?;
+                Ok(())
+            },
+        )?;
+        Ok(count)
+    }
 }
 
-fn ensure_collection_accepted(vault_dir: &std::path::Path, collection: &str) -> Result<()> {
+/// A `writing` generation whose row has not been touched within this window, with no
+/// accepted generation, is treated as a WEDGED/stale rebuild — a distinct, non-retryable
+/// error class — rather than a transient in-progress one. A live materialize re-writes
+/// its lifecycle row far more often than this, so a `writing` row older than the window
+/// means no rebuild process is actually running.
+const REBUILD_STALE_AFTER_MS: u128 = 15 * 60 * 1000;
+
+fn now_unix_ms() -> u128 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| duration.as_millis())
+        .unwrap_or_default()
+}
+
+fn accepted_storage_collection(
+    vault_dir: &std::path::Path,
+    collection: &str,
+    allow_legacy_logical_collection: bool,
+) -> Result<String> {
     let lifecycle = PhysicalGraphCollectionLifecycle::open_latest(vault_dir)?;
     let collection_rows = lifecycle
         .list_states()?
         .into_iter()
         .filter(|row| row.state.collection == collection)
         .collect::<Vec<_>>();
-    if collection_rows.is_empty()
-        || collection_rows
-            .iter()
-            .any(|row| row.state.status == GraphCollectionGenerationStatus::Accepted)
+    if collection_rows.is_empty() {
+        if allow_legacy_logical_collection {
+            // Explicit legacy schema: collections written before generation
+            // isolation have no lifecycle rows and use their logical keyspace.
+            return Ok(collection.to_string());
+        }
+        return Err(CalyxError {
+            code: "CALYX_GRAPH_COLLECTION_NOT_ACCEPTED",
+            message: format!(
+                "graph collection {collection} has no lifecycle rows and no accepted isolated generation"
+            ),
+            remediation: "materialize a physically isolated generation, verify its graph and CSR bytes, and publish its accepted lifecycle row",
+        });
+    }
+    if let Some(accepted) = collection_rows
+        .iter()
+        .filter(|row| row.state.status == GraphCollectionGenerationStatus::Accepted)
+        .max_by(|left, right| {
+            (left.state.updated_unix_ms, &left.state.generation)
+                .cmp(&(right.state.updated_unix_ms, &right.state.generation))
+        })
     {
-        return Ok(());
+        let schema = accepted
+            .state
+            .detail
+            .get(GRAPH_GENERATION_STORAGE_SCHEMA_DETAIL);
+        let storage = accepted
+            .state
+            .detail
+            .get(GRAPH_GENERATION_STORAGE_COLLECTION_DETAIL);
+        return match (schema, storage) {
+            (None, None) if allow_legacy_logical_collection => Ok(collection.to_string()),
+            (None, None) => Err(CalyxError {
+                code: "CALYX_GRAPH_GENERATION_ISOLATION_REQUIRED",
+                message: format!(
+                    "accepted graph generation {}/{} has no isolated storage metadata",
+                    collection, accepted.state.generation
+                ),
+                remediation: "rebuild into a generation-addressed Graph/XTerm keyspace, physically verify it, and publish an accepted lifecycle row with storage metadata",
+            }),
+            (Some(schema), Some(storage)) if schema == GRAPH_GENERATION_STORAGE_SCHEMA => {
+                let expected =
+                    graph_generation_storage_collection(collection, &accepted.state.generation)?;
+                if storage != &expected {
+                    return Err(graph_corrupt(format!(
+                        "accepted graph generation {}/{} names storage collection {}, expected {}",
+                        collection, accepted.state.generation, storage, expected
+                    )));
+                }
+                Ok(storage.clone())
+            }
+            _ => Err(graph_corrupt(format!(
+                "accepted graph generation {}/{} has incomplete or unsupported storage metadata",
+                collection, accepted.state.generation
+            ))),
+        };
+    }
+    // No accepted generation exists. Make the failure HONEST: a genuinely in-progress
+    // rebuild (a fresh `writing` row) is transient and retry is meaningful; a `writing`
+    // row with no recent activity is WEDGED (no rebuild process is running) and retry
+    // will never succeed — it needs an operator to accept/tombstone it. These MUST be
+    // distinct codes so a stale flag is never mistaken for a transient one. A collection
+    // with only failed/tombstoned generations (no `writing` at all) is a structural
+    // not-accepted state (never a rebuild-in-flight).
+    let latest_writing = collection_rows
+        .iter()
+        .filter(|row| row.state.status == GraphCollectionGenerationStatus::Writing)
+        .max_by_key(|row| row.state.updated_unix_ms);
+    if let Some(writing) = latest_writing {
+        let age_ms = now_unix_ms().saturating_sub(writing.state.updated_unix_ms);
+        if age_ms <= REBUILD_STALE_AFTER_MS {
+            return Err(CalyxError {
+                code: "CALYX_GRAPH_COLLECTION_REBUILD_IN_PROGRESS",
+                message: format!(
+                    "graph collection {collection} generation {gen} is mid-rebuild \
+                     (writing, last touched {age_ms}ms ago); no accepted generation yet",
+                    gen = writing.state.generation
+                ),
+                remediation: "transient: the citation overlay rebuild is in progress — retry after it completes",
+            });
+        }
+        return Err(CalyxError {
+            code: "CALYX_GRAPH_COLLECTION_REBUILD_STALE",
+            message: format!(
+                "graph collection {collection} generation {gen} is flagged writing but has not \
+                 advanced in {age_ms}ms and no rebuild process is active (wedged/stale)",
+                gen = writing.state.generation
+            ),
+            remediation: "NOT transient: no rebuild is running — accept or tombstone the stale generation via graph-collection-state, or re-materialize the overlay",
+        });
     }
     Err(CalyxError {
         code: "CALYX_GRAPH_COLLECTION_NOT_ACCEPTED",

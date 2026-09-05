@@ -289,7 +289,12 @@ fn enforce_batch_1_gate(
 /// Every commissionable runtime except the remote TEI service runs its ONNX /
 /// Candle graph on the local GPU under fail-loud CUDA policy.
 pub(super) const fn is_gpu_policy_runtime(runtime: CommissionRuntime) -> bool {
-    !matches!(runtime, CommissionRuntime::Tei)
+    !matches!(
+        runtime,
+        CommissionRuntime::Tei
+            | CommissionRuntime::TeiSegmentedPooled
+            | CommissionRuntime::TeiSegmentedChunk
+    )
 }
 
 fn probe_cap(flags: &CommissionFlags) -> usize {

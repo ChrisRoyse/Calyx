@@ -89,6 +89,8 @@ impl DiskAnnBuildProgress {
 }
 
 const GRAPH_WRITE_PROGRESS_ROWS: usize = 4096;
+const DISKANN_METRIC_UNIT_L2: &str = "unit_l2\n";
+const DISKANN_METRIC_RAW_L2: &str = "raw_l2\n";
 
 impl DiskAnnBuildParams {
     fn validate(&self) -> Result<()> {
@@ -195,6 +197,10 @@ where
 {
     params.validate()?;
     validate_build_input(vectors, &params)?;
+    // The metric is part of the graph generation contract. Invalidate it
+    // before touching any generation asset so an interrupted or failed
+    // rebuild cannot leave a readable graph with a stale distance mode.
+    remove_metric_sidecar_if_present(&diskann_metric_sidecar_path(path))?;
     let cagra_sidecar = cagra_sidecar_path(path);
     let cagra_dataset = cagra_dataset_sidecar_path(path);
     match backend {
@@ -204,7 +210,7 @@ where
             // never deserialize a stale CAGRA index.
             remove_cagra_sidecar_if_present(&cagra_sidecar)?;
             remove_cagra_sidecar_if_present(&cagra_dataset)?;
-            build_diskann_graph_cpu(path, vectors, params, metric, &mut progress)
+            build_diskann_graph_cpu(path, vectors, params, metric, &mut progress)?;
         }
         DiskAnnBuildBackend::CuvsCagra => {
             progress(DiskAnnBuildProgress::new("diskann_cuvs_cagra_start", 0))?;
@@ -212,8 +218,65 @@ where
             progress(DiskAnnBuildProgress::new(
                 "diskann_cuvs_cagra_ok",
                 vectors.len(),
-            ))
+            ))?;
         }
+    }
+    publish_diskann_build_metric(path, metric)
+}
+
+/// Distance-mode marker paired with every successfully published DiskANN graph.
+pub fn diskann_metric_sidecar_path(graph_path: &Path) -> PathBuf {
+    graph_path.with_extension("metric")
+}
+
+/// Read a builder-owned metric marker. Absence and unknown values are corrupt
+/// generation state, never an invitation to guess a legacy distance mode.
+pub fn read_diskann_build_metric(graph_path: &Path) -> Result<DiskAnnBuildMetric> {
+    let path = diskann_metric_sidecar_path(graph_path);
+    let marker = fs::read_to_string(&path).map_err(|error| {
+        crate::error::sextant_error(
+            crate::error::CALYX_INDEX_IO,
+            format!(
+                "read required DiskANN metric marker {}: {error}; rebuild the index",
+                path.display()
+            ),
+        )
+    })?;
+    match marker.as_str() {
+        DISKANN_METRIC_UNIT_L2 => Ok(DiskAnnBuildMetric::UnitL2),
+        DISKANN_METRIC_RAW_L2 => Ok(DiskAnnBuildMetric::RawL2),
+        other => Err(crate::error::sextant_error(
+            crate::error::CALYX_INDEX_IO,
+            format!(
+                "DiskANN metric marker {} has unsupported bytes {other:?}; expected exactly unit_l2\\n or raw_l2\\n",
+                path.display()
+            ),
+        )),
+    }
+}
+
+fn publish_diskann_build_metric(graph_path: &Path, metric: DiskAnnBuildMetric) -> Result<()> {
+    let marker = match metric {
+        DiskAnnBuildMetric::UnitL2 => DISKANN_METRIC_UNIT_L2,
+        DiskAnnBuildMetric::RawL2 => DISKANN_METRIC_RAW_L2,
+    };
+    calyx_aster::private_fs::write_private_atomic(
+        &diskann_metric_sidecar_path(graph_path),
+        marker.as_bytes(),
+    )
+}
+
+fn remove_metric_sidecar_if_present(path: &Path) -> Result<()> {
+    match fs::remove_file(path) {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(crate::error::sextant_error(
+            crate::error::CALYX_INDEX_IO,
+            format!(
+                "invalidate stale DiskANN metric marker {}: {error}",
+                path.display()
+            ),
+        )),
     }
 }
 

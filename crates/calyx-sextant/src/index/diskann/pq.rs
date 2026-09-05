@@ -280,12 +280,14 @@ impl DiskAnnPqIndex {
         if let Some(parent) = path.parent()
             && !parent.as_os_str().is_empty()
         {
-            fs::create_dir_all(parent).map_err(|error| io("create pq parent", error))?;
+            calyx_aster::private_fs::create_private_dir_all(parent)?;
         }
         let mut tmp = path.as_os_str().to_owned();
         tmp.push(".tmp");
         let tmp = PathBuf::from(tmp);
-        let mut file = File::create(&tmp).map_err(|error| io("create pq tmp", error))?;
+        // Owner-only (0600) at creation (#1989); existing sync_all + rename
+        // below keep the PQ sidecar's durability unchanged.
+        let mut file = calyx_aster::private_fs::open_private_temp_file(&tmp)?;
         file.write_all(&PQ_MAGIC)
             .and_then(|_| file.write_all(&PQ_VERSION.to_le_bytes()))
             .and_then(|_| file.write_all(&(self.dim as u32).to_le_bytes()))

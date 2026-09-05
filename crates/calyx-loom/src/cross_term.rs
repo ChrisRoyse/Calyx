@@ -1,6 +1,6 @@
 //! Cross-term value types and CPU/GPU-parity math kernels.
 
-use calyx_core::{CxId, Result, SlotId};
+use calyx_core::{CxId, Result, SlotId, SlotSimilarityEvidence};
 use serde::{Deserialize, Serialize};
 
 use crate::error::{
@@ -36,6 +36,7 @@ pub struct CrossTermKey {
 pub enum CrossTermValue {
     Scalar(f32),
     Vector(Vec<f32>),
+    BlockAgreement(Box<SlotSimilarityEvidence>),
 }
 
 pub fn canonical_pair(a: SlotId, b: SlotId) -> (SlotId, SlotId) {

@@ -15,6 +15,7 @@ use ulid::Ulid;
 use super::super::vault::{ResolvedVault, now_ms, vault_salt};
 use super::anchor::parse_anchor_kind;
 use super::batch::{parse_batch_line, read_batch_texts, validate_batch_file};
+use super::command::batch_identity::BatchSnapshotIdentity;
 use super::command::{
     backfill_batch_existing_input_pointers, ingest_batch_streaming,
     ingest_batch_streaming_with_summary_emitter, ingest_texts,
@@ -32,10 +33,13 @@ use support::*;
 mod anchor_replay;
 mod basic;
 mod batch_edges;
+mod batch_identity_guard;
+mod compaction;
 mod rebuild_marker;
 mod retention;
 mod route_gate;
 mod session_status;
+mod wal_prune;
 
 fn ingest_cf_state(resolved: &ResolvedVault) -> serde_json::Value {
     let vault = open_vault(resolved).unwrap();

@@ -5,7 +5,9 @@ use calyx_assay::sufficiency::PanelSufficiency;
 use calyx_assay::{
     ENSEMBLE_CARD_SCHEMA_VERSION, EnsembleCard, EnsembleConfig, EnsembleDecision,
     EnsembleLensValue, EnsemblePairValue, EnsembleRedundancyMethod, LINEAR_CKA_REDUNDANCY_METHOD,
-    LinearCkaEstimate, PidBits, TrustTag, a37_diversity_gate,
+    LOGISTIC_CONDITIONING_METHOD, LOGISTIC_CONDITIONING_SCHEMA_VERSION, LinearCkaEstimate,
+    LogisticConditioningBlock, LogisticConditioningProvenance, LogisticConditioningScale,
+    LogisticFoldConditioning, PidBits, TrustTag, a37_diversity_gate,
 };
 use calyx_core::SlotId;
 
@@ -207,6 +209,7 @@ fn card(count: u16, slot_offset: u16) -> EnsembleCard {
         n_eff: a37_diversity.n_eff,
         sufficient: false,
         deficit_bits: 0.5,
+        conditioning: conditioning(&lenses, 64),
         a37_diversity,
         redundancy_method: Some(redundancy_method()),
         deficit_proposal: None,
@@ -227,6 +230,65 @@ fn card(count: u16, slot_offset: u16) -> EnsembleCard {
         keep_count: count as usize,
         park_count: 0,
         retire_count: 0,
+    }
+}
+
+fn conditioning(lenses: &[EnsembleLensValue], n_samples: usize) -> LogisticConditioningProvenance {
+    LogisticConditioningProvenance {
+        schema_version: LOGISTIC_CONDITIONING_SCHEMA_VERSION,
+        method: LOGISTIC_CONDITIONING_METHOD.to_string(),
+        fit_scope: "training_fold_only".to_string(),
+        transform: "x / sqrt(sum(per_coordinate_mean_square(training_fold_lens_block)))"
+            .to_string(),
+        centering: false,
+        zero_variance_check:
+            "sum(per_coordinate_population_variance(training_fold_lens_block)) > 0".to_string(),
+        zero_variance_policy: "fail_closed:CALYX_ASSAY_DEGENERATE_INPUT".to_string(),
+        non_finite_policy: "fail_closed:CALYX_FORGE_NUMERICAL_INVARIANT".to_string(),
+        no_collapse: true,
+        solver: "deterministic_full_batch_gradient_descent_l2_max_relative_parameter_change"
+            .to_string(),
+        solver_max_iterations: 2_048,
+        solver_convergence_check_interval: 16,
+        solver_relative_parameter_tolerance: 0.001,
+        solver_relative_parameter_tolerance_ppm: 1_000,
+        solver_relative_parameter_evidence:
+            "ceil(relative_parameter_change * 1000000):conservative_ppm_upper_bound".to_string(),
+        solver_relative_parameter_evidence_max_ppm: 1_001,
+        solver_learning_rate_policy:
+            "min(cap, lipschitz_safety / (0.25 * lens_block_count + l2_penalty))".to_string(),
+        solver_learning_rate: 0.35,
+        solver_learning_rate_cap: 0.35,
+        solver_lipschitz_safety: 0.95,
+        solver_l2_penalty: 0.0001,
+        solver_non_convergence_policy: "fail_closed:CALYX_ASSAY_ESTIMATOR_UNDERPOWERED".to_string(),
+        blocks: lenses
+            .iter()
+            .map(|lens| LogisticConditioningBlock {
+                name: lens.name.clone(),
+                slot: Some(lens.slot),
+                dim: 1,
+            })
+            .collect(),
+        folds: calyx_assay::DEFAULT_ASSAY_SEEDS
+            .iter()
+            .map(|&seed| LogisticFoldConditioning {
+                seed,
+                train_rows: n_samples - 13,
+                heldout_rows: 13,
+                block_scales: lenses
+                    .iter()
+                    .map(|lens| LogisticConditioningScale {
+                        name: lens.name.clone(),
+                        slot: Some(lens.slot),
+                        scale: 1.0,
+                    })
+                    .collect(),
+                solver_iterations: 176,
+                solver_final_relative_parameter_change_ppm_upper_bound: 968,
+                solver_converged: true,
+            })
+            .collect(),
     }
 }
 

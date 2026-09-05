@@ -386,22 +386,43 @@ fn batch_ingest_rebuilds_stale_base_page_index_for_physical_readback() {
     assert_eq!(built.live_entries, 1);
 
     let state = load_vault_panel_state(&resolved.path).unwrap();
-    let ledger_only_head = {
+    let first_id = {
         let vault = open_vault(&resolved).unwrap();
         let first_id = vault.cx_id_for_input(first_text.as_bytes(), state.panel.version);
         super::super::ledger::append_cli_ledger(
             &vault,
             EntryKind::Ingest,
             first_id,
-            "test-ledger-only-stale-base-page-index",
+            "test-ledger-only-fresh-base-page-index",
         )
         .unwrap();
         vault.flush().unwrap();
-        vault.snapshot()
+        let ledger_only_head = vault.snapshot();
+        assert!(
+            ledger_only_head > built.ledger_head_height,
+            "ledger-only append must advance the global ledger head"
+        );
+        first_id
     };
+
+    // Issue #1861: the ledger-only append advanced the global ledger head but
+    // did not change any Base constellation byte, so the byte-identical Base
+    // page index must stay FRESH. The physical readback succeeds without any
+    // rebuild instead of falsely failing CALYX_BASE_PAGE_INDEX_STALE. This is
+    // the raw index reader (it fails closed on staleness rather than silently
+    // rebuilding), so a regression to head-bound freshness would panic here.
+    let first_key = base_key(first_id);
+    let fresh = calyx_aster::base_page_index::read_indexed_base_rows_for_keys(
+        &resolved.path,
+        std::slice::from_ref(&first_key),
+    )
+    .unwrap();
     assert!(
-        ledger_only_head > built.ledger_head_height,
-        "ledger-only write must make the Base page index head stale"
+        fresh
+            .get(&first_key)
+            .and_then(|value| value.as_ref())
+            .is_some(),
+        "ledger-only head advance must not stale the byte-identical Base page index"
     );
 
     let second_text = "second stale base page index row";

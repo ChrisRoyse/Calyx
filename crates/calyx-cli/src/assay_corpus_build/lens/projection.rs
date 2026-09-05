@@ -12,7 +12,7 @@ pub(crate) fn projected_slot_dim(shape: SlotShape) -> u32 {
 pub(crate) fn slot_projection_name(shape: SlotShape) -> &'static str {
     match shape {
         SlotShape::Dense(_) => "native_dense",
-        SlotShape::Multi { .. } => "multi_mean_dense",
+        SlotShape::Multi { .. } => "multi_native_required",
         SlotShape::Sparse(dim) => sparse_projection_name(dim),
     }
 }
@@ -76,43 +76,6 @@ fn splitmix64(mut value: u64) -> u64 {
     value = (value ^ (value >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
     value = (value ^ (value >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
     value ^ (value >> 31)
-}
-
-pub(super) fn project_multi(
-    lens: &str,
-    row_idx: usize,
-    token_dim: u32,
-    tokens: Vec<Vec<f32>>,
-) -> Result<Vec<f32>, String> {
-    let token_dim = token_dim as usize;
-    if token_dim == 0 || tokens.is_empty() {
-        return Err(format!(
-            "CALYX_FSV_ASSAY_CORPUS_BUILD_EMPTY_MULTI: lens={lens} row={row_idx} token_dim={token_dim} tokens={}",
-            tokens.len()
-        ));
-    }
-    let mut out = vec![0.0_f32; token_dim];
-    for (token_idx, token) in tokens.iter().enumerate() {
-        if token.len() != token_dim {
-            return Err(format!(
-                "CALYX_FSV_ASSAY_CORPUS_BUILD_MULTI_DIM_MISMATCH: lens={lens} row={row_idx} token={token_idx} len={} expected={token_dim}",
-                token.len()
-            ));
-        }
-        for (axis, value) in token.iter().enumerate() {
-            if !value.is_finite() {
-                return Err(format!(
-                    "CALYX_FSV_ASSAY_CORPUS_BUILD_MULTI_NON_FINITE: lens={lens} row={row_idx} token={token_idx} axis={axis}"
-                ));
-            }
-            out[axis] += *value;
-        }
-    }
-    let denom = tokens.len() as f32;
-    for value in &mut out {
-        *value /= denom;
-    }
-    Ok(out)
 }
 
 #[cfg(test)]

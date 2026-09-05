@@ -27,20 +27,24 @@
 //! scope with `TimeWindow { 0, t }` over the same store. See the follow-up issue
 //! for wiring a real time-travel snapshot store.
 
+use std::collections::BTreeMap;
 use std::fmt;
 
-use calyx_core::{AnchorKind, CalyxError, Clock, CxId, LedgerRef, Ts};
+use calyx_core::{AnchorKind, CalyxError, Clock, CxId, LedgerRef, SlotId, Ts};
 use calyx_ledger::{ActorId, EntryKind, LedgerAppender, LedgerCfStore, SubjectId};
 use serde::{Deserialize, Serialize};
+
+mod recall;
+use recall::apply_measured_recall;
 
 use crate::error::LodestarError;
 use crate::kernel::KernelParams;
 use crate::kernel_graph::KernelGraphParams;
 use crate::multi_scope::build_kernel;
-use crate::recall_test::{AnnIndex, CorpusReader, RecallTestParams, kernel_recall_test_with_clock};
+use crate::recall_test::{AnnIndex, CorpusReader, RecallTestParams};
 use crate::scope::{AssocStore, Scope, materialize_scope, scope_hash};
 use crate::scope_cache::ScopeCache;
-use crate::{EmbeddingStore, Kernel, build_kernel_index};
+use crate::{EmbeddingStore, PanelVectors, TypedPanelVectors};
 
 /// `require_grounded` rejects any kernel whose grounded fraction is below this.
 const MIN_GROUNDED_FRACTION: f32 = 0.5;
@@ -117,11 +121,39 @@ pub struct SummarizeResult {
 }
 
 /// Optional recall inputs for a measured `kernel_only_recall`.
-pub struct SummarizeRecall<'a> {
-    pub embeddings: &'a dyn EmbeddingStore,
-    pub full_index: &'a dyn AnnIndex,
-    pub corpus: &'a dyn CorpusReader,
-    pub params: RecallTestParams,
+///
+/// A graph is measured through exactly one contract. `Legacy` is the historic
+/// single-vector path and remains **diagnostic-only** — it is reachable solely
+/// for legacy one-vector graphs. `Panel` consumes the sealed ordered panel and
+/// measures recall through deterministic per-lane RRF fusion (never flattening,
+/// averaging, concatenating, or dropping a lane); a missing or malformed lane
+/// fails closed inside the panel kernel index before any result is produced.
+pub enum SummarizeRecall<'a> {
+    /// Legacy single-lane recall (diagnostic-only, legacy one-vector graphs).
+    Legacy {
+        embeddings: &'a dyn EmbeddingStore,
+        full_index: &'a dyn AnnIndex,
+        corpus: &'a dyn CorpusReader,
+        params: RecallTestParams,
+    },
+    /// Panel-native recall over the sealed ordered content lanes.
+    Panel {
+        /// The sealed, strictly increasing content lanes (>= 2).
+        slots: Vec<SlotId>,
+        /// Complete no-flatten corpus: every constellation's full per-lane panel.
+        full: &'a BTreeMap<CxId, PanelVectors>,
+        /// Provenance label of the corpus (`aster:<collection>@<snapshot>`).
+        corpus_name: String,
+        params: RecallTestParams,
+    },
+    /// Native typed-panel recall. Each lane keeps its declared slot shape and
+    /// every multi/segmented block remains independently evidenced.
+    TypedPanel {
+        slots: Vec<SlotId>,
+        full: &'a BTreeMap<CxId, TypedPanelVectors>,
+        corpus_name: String,
+        params: RecallTestParams,
+    },
 }
 
 impl fmt::Display for SummarizeResult {
@@ -278,36 +310,6 @@ where
         approx_factor,
         ledger_ref,
     })
-}
-
-fn apply_measured_recall(
-    kernel: &mut Kernel,
-    recall: Option<&SummarizeRecall<'_>>,
-    clock: &dyn Clock,
-) -> Result<(), CalyxError> {
-    let Some(recall) = recall else {
-        return Ok(());
-    };
-    if kernel.members.is_empty() {
-        return Ok(());
-    }
-    let approx_factor = kernel.recall.approx_factor;
-    let tau_star_estimate = kernel.recall.tau_star_estimate;
-    let tau_star_exact = kernel.recall.tau_star_exact;
-    let index = build_kernel_index(kernel, recall.embeddings).map_err(to_calyx)?;
-    let mut measured = kernel_recall_test_with_clock(
-        &index,
-        recall.full_index,
-        recall.corpus,
-        &recall.params,
-        clock,
-    )
-    .map_err(to_calyx)?;
-    measured.approx_factor = approx_factor;
-    measured.tau_star_estimate = tau_star_estimate;
-    measured.tau_star_exact = tau_star_exact;
-    kernel.recall = measured;
-    Ok(())
 }
 
 /// Summarizes `scope` as of time `t`: the scope intersected with everything at or

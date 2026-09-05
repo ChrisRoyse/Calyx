@@ -274,6 +274,7 @@ fn algorithmic_snapshot(max_batch: Option<usize>) -> RegistryLensSnapshot {
         excluded_from_dedup: false,
     };
     RegistryLensSnapshot {
+        derivation_version: Some(crate::derivation::LENS_DERIVATION_VERSION),
         lens_id: contract.lens_id(),
         contract,
         spec: Some(spec),

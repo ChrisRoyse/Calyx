@@ -229,6 +229,16 @@ fn nonfinite_index(vector: &SlotVector) -> Option<usize> {
             }
             None
         }
+        SlotVector::SegmentedMulti { segments, .. } => {
+            let mut offset = 0;
+            for segment in segments {
+                if let Some(local) = segment.data.iter().position(|v| !v.is_finite()) {
+                    return Some(offset + local);
+                }
+                offset += segment.data.len();
+            }
+            None
+        }
         SlotVector::Absent { .. } => None,
     }
 }

@@ -39,6 +39,14 @@ impl WeaveLoomProgressWriter {
         &self.path
     }
 
+    /// The per-run artifact directory (`idx/weave_loom/runs/<run>/`) the progress
+    /// file lives in; the out-of-core vector scratch store is staged alongside it.
+    pub(super) fn run_dir(&self) -> &Path {
+        self.path
+            .parent()
+            .expect("progress artifact path always has a run-dir parent")
+    }
+
     pub(super) fn write(&self, status: &str, phase: &str, details: Value) -> CliResult {
         let artifact = json!({
             "artifact_kind": ARTIFACT_KIND,

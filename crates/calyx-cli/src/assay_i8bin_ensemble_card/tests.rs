@@ -329,6 +329,7 @@ fn request_for(
         min_marginal_bits: 0.05,
         max_redundancy: 0.6,
         nmi_bins: 8,
+        gpu_reservation_mib: crate::gpu_commands::DEFAULT_ASSAY_I8BIN_PEAK_MIB,
         mode: A37CardMode::Diagnostic,
         emit_artifacts: true,
     }

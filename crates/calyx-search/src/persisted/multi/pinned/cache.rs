@@ -1,8 +1,11 @@
+#[cfg(feature = "cuda")]
 use std::collections::BTreeMap;
+#[cfg(feature = "cuda")]
 use std::sync::{Arc, Mutex, OnceLock};
 
 use super::*;
 
+#[cfg(feature = "cuda")]
 pub(in crate::persisted::multi) struct PinnedIndexAccess {
     pub(in crate::persisted::multi) index: Arc<PinnedMultiIndex>,
     #[cfg(feature = "cuda")]
@@ -15,18 +18,35 @@ pub(in crate::persisted::multi) struct PinnedIndexAccess {
     pub(in crate::persisted::multi) physical_bytes_read: u64,
 }
 
+#[cfg(feature = "cuda")]
 struct PinnedGeneration {
     entry_sha256: String,
     index: Arc<PinnedMultiIndex>,
 }
 
+#[cfg(feature = "cuda")]
 type PinCache = Mutex<BTreeMap<(String, u16), PinnedGeneration>>;
 
+#[cfg(feature = "cuda")]
 fn cache() -> &'static PinCache {
     static CACHE: OnceLock<PinCache> = OnceLock::new();
     CACHE.get_or_init(|| Mutex::new(BTreeMap::new()))
 }
 
+/// CPU-only builds stream each segment and never pin a resident generation
+/// (issue #1845), so there is nothing to evict on a generation change. The
+/// verify-once bounded-segment memo (keyed by entry sha256) still enforces
+/// freshness on that build path.
+#[cfg(not(feature = "cuda"))]
+pub(in crate::persisted::multi) fn observe_generation(
+    _vault_dir: &Path,
+    _slot: SlotId,
+    _entry_sha256: &str,
+) -> CliResult<()> {
+    Ok(())
+}
+
+#[cfg(feature = "cuda")]
 pub(in crate::persisted::multi) fn observe_generation(
     vault_dir: &Path,
     slot: SlotId,
@@ -57,6 +77,7 @@ pub(in crate::persisted::multi) fn observe_generation(
 
 /// Return the verified pin and whether this exact entry sha was already
 /// resident. A changed manifest entry can never reuse the previous matrix.
+#[cfg(feature = "cuda")]
 pub(in crate::persisted::multi) fn pinned_index(
     vault_dir: &Path,
     entry: &SearchIndexEntry,
@@ -86,6 +107,7 @@ pub(in crate::persisted::multi) fn pinned_index(
     load_and_cache(vault_dir, entry, slot, specs, cache_key, entry_sha256)
 }
 
+#[cfg(feature = "cuda")]
 fn load_and_cache(
     vault_dir: &Path,
     entry: &SearchIndexEntry,

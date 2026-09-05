@@ -11,7 +11,10 @@ use crate::error::{
     sextant_error,
 };
 
-pub const CAGRA_SERVING_MAX_BATCH: usize = 1024;
+/// Largest query matrix admitted to one CAGRA launch. cuVS sizes its search
+/// workspace from `max_queries`; 4,096 keeps that workspace bounded while
+/// giving corpus-scale callers the large-batch occupancy CAGRA is designed for.
+pub const CAGRA_SERVING_MAX_BATCH: usize = 4096;
 pub const CAGRA_SERVING_MAX_K: usize = 1024;
 pub const CAGRA_PARTITIONED_MAX_REGIONS: usize = 4096;
 pub const CAGRA_PARTITIONED_MAX_DIM: usize = 65_536;
@@ -204,6 +207,26 @@ pub fn cagra_serving_diagnostics() -> CagraServingDiagnostics {
     }
 }
 
+/// Bind the process-wide CUDA generation cache to an admitted runtime budget.
+///
+/// Reconfiguration evicts only idle generations and fails closed if active
+/// generations prevent the requested bound. Callers must reserve CUDA driver
+/// and workspace overhead outside `max_bytes`.
+pub fn configure_cagra_serving_cache(max_bytes: u64, max_entries: usize) -> Result<()> {
+    #[cfg(sextant_cuvs)]
+    {
+        cache::configure(max_bytes, max_entries)
+    }
+    #[cfg(not(sextant_cuvs))]
+    {
+        let _ = (max_bytes, max_entries);
+        Err(sextant_error(
+            crate::error::CALYX_SEXTANT_GPU_SERVING_UNAVAILABLE,
+            crate::cuvs_unavailable_reason("persisted CAGRA cache configuration"),
+        ))
+    }
+}
+
 pub fn cagra_partitioned_search(
     request: CagraPartitionSearchRequest<'_>,
 ) -> Result<Vec<(u64, f32)>> {
@@ -245,7 +268,8 @@ fn validate(request: &CagraSearchRequest<'_>) -> Result<()> {
         return Err(sextant_error(
             CALYX_INDEX_INVALID_PARAMS,
             format!(
-                "CAGRA serving requires 0<query_count<={CAGRA_SERVING_MAX_BATCH}, 0<k<={CAGRA_SERVING_MAX_K}, and ef_search>0"
+                "CAGRA serving requires 0<query_count<={CAGRA_SERVING_MAX_BATCH}, 0<k<={CAGRA_SERVING_MAX_K}, and ef_search>0; received query_count={}, k={}, ef_search={}",
+                request.query_count, request.k, request.ef_search
             ),
         ));
     }

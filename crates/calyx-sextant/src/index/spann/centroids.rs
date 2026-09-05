@@ -4,7 +4,7 @@ mod codec;
 mod raw_l2_graph;
 
 use std::collections::BTreeMap;
-use std::fs::{self, File};
+use std::fs;
 use std::io::{BufWriter, Write as _};
 use std::path::{Path, PathBuf};
 
@@ -195,10 +195,12 @@ impl SpannCentroidIndex {
         if let Some(parent) = path.parent()
             && !parent.as_os_str().is_empty()
         {
-            fs::create_dir_all(parent).map_err(|e| io("create centroid dir", e))?;
+            calyx_aster::private_fs::create_private_dir_all(parent)?;
         }
         let tmp = tmp_path(path);
-        let file = File::create(&tmp).map_err(|e| io("create centroid tmp", e))?;
+        // Owner-only (0600) at creation (#1989); sync_all + rename below keep
+        // the centroid file's durability unchanged.
+        let file = calyx_aster::private_fs::open_private_temp_file(&tmp)?;
         let mut out = BufWriter::new(file);
         write_header(&mut out, self)?;
         for centroid in &self.centroids {

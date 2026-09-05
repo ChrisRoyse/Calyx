@@ -3,7 +3,7 @@
 mod codec;
 
 use std::collections::BTreeMap;
-use std::fs::{self, File};
+use std::fs;
 use std::io::{Cursor, Write as _};
 use std::path::{Path, PathBuf};
 
@@ -88,7 +88,7 @@ impl PostingListWriter {
     }
 
     pub fn write_list(&self, centroid_id: u32, entries: &[PostingMember]) -> Result<()> {
-        fs::create_dir_all(&self.dir).map_err(|e| io("create posting dir", e))?;
+        calyx_aster::private_fs::create_private_dir_all(&self.dir)?;
         let raw = encode_posting_block(entries)?;
         let compressed = zstd::stream::encode_all(Cursor::new(raw), ZSTD_LEVEL).map_err(|e| {
             io(
@@ -98,7 +98,9 @@ impl PostingListWriter {
         })?;
         let path = posting_path(&self.dir, centroid_id);
         let tmp = tmp_path(&path);
-        let mut file = File::create(&tmp).map_err(|e| io("create posting tmp", e))?;
+        // Owner-only (0600) at creation (#1989); sync_all + rename below keep
+        // the posting block's durability unchanged.
+        let mut file = calyx_aster::private_fs::open_private_temp_file(&tmp)?;
         file.write_all(&compressed)
             .map_err(|e| io("write posting tmp", e))?;
         file.sync_all().map_err(|e| io("fsync posting tmp", e))?;

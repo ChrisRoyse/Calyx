@@ -5,7 +5,9 @@ use calyx_aster::cf::{ColumnFamily, anchor_key, base_key};
 use calyx_aster::dedup::{AnchorConflictResult, check_anchor_conflict};
 use calyx_aster::vault::encode::{self, decode_constellation_base};
 use calyx_aster::vault::{AsterVault, IngestPrecondition};
-use calyx_core::{Anchor, AnchorKind, Constellation, CxId, Input, InputRef, Modality, VaultStore};
+use calyx_core::{
+    Anchor, AnchorKind, CalyxError, Constellation, CxId, Input, InputRef, Modality, VaultStore,
+};
 use calyx_ledger::EntryKind;
 use calyx_registry::{VaultPanelState, load_vault_panel_state};
 
@@ -19,7 +21,6 @@ use super::batch::{BatchRow, parse_batch_line, validate_batch_file};
 use super::constellation::{
     ensure_content_panel_floor, input_hash, measure_constellation,
     measure_constellation_microbatch_with_runtime_limit, measure_constellation_with_runtime_limit,
-    text_input,
 };
 use super::ledger::{
     append_anchor_ledger, append_anchor_marker_ledger, append_cli_batch_ledger, append_cli_ledger,
@@ -33,6 +34,7 @@ use super::verify::verify_base_readback;
 use crate::error::{CliError, CliResult};
 use crate::output::print_json;
 use crate::raw_media::retain_media_input;
+use batch_identity::BatchSnapshotIdentity;
 
 const DEFAULT_ANCHOR_SOURCE: &str = "calyx-cli";
 
@@ -78,86 +80,6 @@ pub(super) fn json_string(value: &str) -> String {
     serde_json::to_string(value).unwrap_or_else(|_| "\"<unserializable>\"".to_string())
 }
 
-/// Stake the durable write-ahead rebuild-required marker (issue #1089) before
-/// the first Base/ledger mutation of an ingest-family command. If the process
-/// is killed at any later point — including an external CLI timeout during the
-/// post-commit index rebuild — the vault carries a first-class record of the
-/// partial commit and its remediation instead of a silently stale manifest.
-/// The marker is cleared by the rebuild itself after the new manifest is
-/// durably published.
-pub(super) fn stake_rebuild_required_marker(
-    vault_dir: &std::path::Path,
-    source: &str,
-    detail: String,
-    session_id: Option<&str>,
-    batch_path: Option<&std::path::Path>,
-) -> CliResult<()> {
-    // A pre-existing marker means an earlier run's staleness record is still
-    // unresolved; it must survive verbatim. The vault is already flagged, and
-    // the rebuild this run triggers pins the latest durable seq, covering both
-    // commits — so preserving is strictly safer than superseding.
-    if let Some(existing) = calyx_search::read_rebuild_required_marker(vault_dir)? {
-        ingest_runtime_log(format_args!(
-            "phase=derived_rebuild_marker_preserved previous_source={} previous_written_at_unix_ms={} previous_required_base_seq={} previous_session_id={} previous_process_id={}",
-            existing.source,
-            existing.written_at_unix_ms,
-            existing
-                .required_base_seq
-                .map(|seq| seq.to_string())
-                .unwrap_or_else(|| "in-flight".to_string()),
-            existing.session_id.as_deref().unwrap_or("<none>"),
-            existing.process_id
-        ));
-        return Ok(());
-    }
-    let mut marker = calyx_search::RebuildRequiredMarker::new(source, detail)?;
-    marker.session_id = session_id.map(str::to_string);
-    marker.batch_path = batch_path.map(|path| path.display().to_string());
-    let path = calyx_search::write_rebuild_required_marker(vault_dir, &marker)?;
-    ingest_runtime_log(format_args!(
-        "phase=derived_rebuild_marker_written source={source} marker_path={} required_base_seq=in-flight session_id={}",
-        path.display(),
-        marker.session_id.as_deref().unwrap_or("<none>")
-    ));
-    Ok(())
-}
-
-/// Record the exact durable seq the committed rows reached, so the marker
-/// names the precise base seq a completing rebuild must cover. A marker owned
-/// by another process is left untouched — its own record stands, and the
-/// rebuild pins the latest durable seq, which covers this commit too. Fails
-/// closed if the marker staked at ingest start has vanished — that would mean
-/// external interference with the vault's crash-recovery state mid-run.
-pub(super) fn record_rebuild_required_marker_seq(
-    vault_dir: &std::path::Path,
-    required_base_seq: u64,
-) -> CliResult<()> {
-    let Some(mut marker) = calyx_search::read_rebuild_required_marker(vault_dir)? else {
-        return Err(CliError::from(calyx_core::CalyxError {
-            code: "CALYX_SEARCH_REBUILD_MARKER_MISSING",
-            message: format!(
-                "rebuild-required marker staked at ingest start is missing from {} before the post-commit index rebuild; rows are committed but the derived-staleness record was removed externally",
-                calyx_search::rebuild_required_marker_path(vault_dir).display()
-            ),
-            remediation: "do not delete idx/search/rebuild-required.json by hand; run `calyx rebuild-search-index <vault>` to rebuild derived indexes and restore a consistent state",
-        }));
-    };
-    if marker.process_id != std::process::id() {
-        ingest_runtime_log(format_args!(
-            "phase=derived_rebuild_marker_seq_skipped reason=foreign_marker owner_process_id={} required_base_seq={required_base_seq}",
-            marker.process_id
-        ));
-        return Ok(());
-    }
-    marker.required_base_seq = Some(required_base_seq);
-    let path = calyx_search::write_rebuild_required_marker(vault_dir, &marker)?;
-    ingest_runtime_log(format_args!(
-        "phase=derived_rebuild_marker_seq_recorded marker_path={} required_base_seq={required_base_seq}",
-        path.display()
-    ));
-    Ok(())
-}
-
 /// Resolve the runtime microbatch from `CALYX_MEASURE_BATCH` (>=1), else the
 /// conservative default. Operator-tunable so the VRAM/throughput trade-off does
 /// not require a recompile.
@@ -191,16 +113,33 @@ pub(crate) fn run(command: Subcommand) -> CliResult {
 fn ingest_command(args: IngestArgs) -> CliResult {
     if let Some(batch_path) = args.batch.as_deref() {
         let validation = validate_batch_file(batch_path)?;
+        // Capture one immutable content identity before any authoritative work, so
+        // every later phase can prove it consumed the exact bytes that were validated
+        // (issue #1923). Row count alone was the old — decorative — cross-phase tie.
+        let identity = BatchSnapshotIdentity::capture(batch_path, validation.row_count)?;
         let resolved = resolve_cli_vault(&args.vault)?;
+        let preflight_state = load_vault_panel_state(&resolved.path)?;
+        let applicable_specs =
+            structured_preflight::preflight_batch_lenses(batch_path, &preflight_state, &identity)?;
         let gpu_route = resolve_ingest_gpu_route(
             &resolved.path,
             args.resident_addr,
             args.allow_cold_gpu_workers,
         )?;
+        // Route-aware GPU admission (#1936): decide the lease AFTER the route
+        // is resolved. No GPU spec → no lease (the #1925 CPU path); resident
+        // route → validate the resident's live lease WITHOUT minting a second
+        // reservation; local route → the caller must hold a live lease.
+        crate::gpu_commands::admit_batch_gpu(
+            "calyx ingest --batch",
+            &applicable_specs,
+            gpu_route.resident_addr,
+        )?;
         let mut session = BatchIngestSession::start(
             &resolved,
             batch_path,
             &validation,
+            &identity,
             args.session_id.as_deref(),
         )?;
         ingest_runtime_log(format_args!(
@@ -240,7 +179,7 @@ fn ingest_command(args: IngestArgs) -> CliResult {
                 &resolved,
                 batch_path,
                 args.output,
-                validation.row_count,
+                &identity,
                 gpu_route,
                 Some(&mut emit_summary),
                 Some(&mut session),
@@ -250,7 +189,7 @@ fn ingest_command(args: IngestArgs) -> CliResult {
                 &resolved,
                 batch_path,
                 args.output,
-                validation.row_count,
+                &identity,
                 gpu_route,
                 None,
                 Some(&mut session),
@@ -328,14 +267,14 @@ fn anchor_command(args: AnchorArgs) -> CliResult {
         observed_at: now_ms(),
         confidence: args.confidence.unwrap_or(1.0),
     };
-    stake_rebuild_required_marker(
+    let mut rebuild_intent = rebuild_intent::SearchRebuildCommitIntent::new(
         &resolved.path,
         "anchor_command",
         format!("anchor append of kind {} on cx {cx_id}", args.kind),
         None,
         None,
-    )?;
-    let ledger_seq = append_anchor_ledger(&vault, cx_id, &kind, anchor)?;
+    );
+    let ledger_seq = append_anchor_ledger(&vault, cx_id, &kind, anchor, &mut rebuild_intent)?;
     vault.flush()?;
     rebuild_persistent_indexes(&resolved.path, &vault)?;
     print_json(&AnchorReport {
@@ -349,7 +288,9 @@ fn measure_command(args: MeasureArgs) -> CliResult {
     let resolved = resolve_cli_vault(&args.vault)?;
     let vault = open_vault(&resolved)?;
     let state = load_vault_panel_state(&resolved.path)?;
-    let cx = measure_constellation(&vault, &state, text_input(args.text), now_ms())?;
+    let input =
+        structured_preflight::measure_input(args.text, args.record_schema, args.record.as_deref())?;
+    let cx = measure_constellation(&vault, &state, input, now_ms())?;
     print_json(&cx)
 }
 
@@ -386,7 +327,7 @@ fn ingest_text_rows_with_resident(
         .map(|(text, metadata)| {
             super::parse::validate_text(&text)?;
             Ok(PreparedInput {
-                input: retention::retained_text_input(&resolved.path, &text)?,
+                input: retention::prepared_text_input(&text),
                 metadata,
             })
         })
@@ -404,6 +345,7 @@ struct PreparedReport {
     new: bool,
     existed_before: bool,
     input_ref: InputRef,
+    retained_bytes: Vec<u8>,
 }
 
 fn ingest_prepared_inputs(
@@ -430,15 +372,16 @@ fn ingest_prepared_inputs(
     let mut prepared = Vec::with_capacity(inputs.len());
     let mut first_new = BTreeSet::new();
     for prepared_input in inputs {
+        let PreparedInput { input, metadata } = prepared_input;
         let mut cx = measure_constellation_with_runtime_limit(
             &vault,
             &state,
-            &prepared_input.input,
+            &input,
             now_ms(),
             None,
             gpu_route,
         )?;
-        cx.metadata = prepared_input.metadata;
+        cx.metadata = metadata;
         ensure_content_panel_floor(&cx, &state)?;
         let existed_before = base_exists(&vault, cx.cx_id)?;
         if existed_before {
@@ -446,16 +389,17 @@ fn ingest_prepared_inputs(
         }
         let new = !existed_before && first_new.insert(cx.cx_id);
         if new {
-            staged.push(cx.clone());
+            staged.push((cx.clone(), input.bytes.clone()));
         }
         prepared.push(PreparedReport {
             cx_id: cx.cx_id,
             new,
             existed_before,
             input_ref: cx.input_ref,
+            retained_bytes: input.bytes,
         });
     }
-    stake_rebuild_required_marker(
+    let mut rebuild_intent = rebuild_intent::SearchRebuildCommitIntent::new(
         &resolved.path,
         "text_ingest",
         format!(
@@ -465,17 +409,26 @@ fn ingest_prepared_inputs(
         ),
         None,
         None,
-    )?;
+    );
     for row in prepared.iter().filter(|row| row.existed_before) {
-        retention::apply_existing_input_pointer(&vault, row.cx_id, &row.input_ref)?;
+        retention::apply_existing_input_pointer(
+            &vault,
+            row.cx_id,
+            &row.input_ref,
+            &row.retained_bytes,
+            &mut rebuild_intent,
+        )?;
     }
     match staged.len() {
         0 => {}
         1 => {
-            vault.put(staged.pop().expect("one staged constellation"))?;
+            vault.put_batch_with_retained_inputs_and_commit_intent(
+                [staged.pop().expect("one staged constellation")],
+                &mut rebuild_intent,
+            )?;
         }
         _ => {
-            vault.put_batch(staged)?;
+            vault.put_batch_with_retained_inputs_and_commit_intent(staged, &mut rebuild_intent)?;
         }
     }
     vault.flush()?;
@@ -504,13 +457,19 @@ fn ingest_prepared_inputs(
     Ok(reports)
 }
 
+pub(in crate::cmd::ingest) mod batch_identity;
 mod batch_physical;
 mod batch_rebuild;
 mod batch_stream;
 mod batch_support;
+pub(in crate::cmd::ingest) mod compaction;
 mod media;
+mod rebuild_intent;
 mod replay;
+mod replay_identity;
 mod retention;
+mod structured_preflight;
+pub(in crate::cmd::ingest) mod wal_prune;
 
 #[cfg(test)]
 pub(super) use batch_stream::{

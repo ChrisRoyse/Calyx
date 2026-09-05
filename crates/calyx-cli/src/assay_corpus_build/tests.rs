@@ -2,8 +2,8 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use calyx_core::{Modality, QuantPolicy};
-use calyx_registry::LensForgeManifest;
+use calyx_core::{Lens, Modality, QuantPolicy, SlotShape, SlotVector, StructuredRecord};
+use calyx_registry::{AlgorithmicLens, LensForgeManifest, StructuredBinding};
 use serde_json::Value;
 
 use super::data;
@@ -432,6 +432,8 @@ fn write_manifest_for_modality(
         recall_delta: calyx_registry::spec::default_recall_delta(),
         max_batch: None,
         max_tokens: None,
+        representation: None,
+        special_tokens: None,
         batch_policy: None,
     };
     let path = root.join(file_name);
@@ -447,4 +449,284 @@ fn temp_root(name: &str) -> PathBuf {
     let root = std::env::temp_dir().join(format!("{name}-{}-{nanos}", std::process::id()));
     fs::create_dir_all(&root).unwrap();
     root
+}
+
+// ---------------------------------------------------------------------------
+// #1914 / #1913: structured lens wiring on the assay corpus-build path.
+//
+// Acceptance bar: a structured lens measured through the ASSAY path must produce
+// byte-identical slot vectors to the same lens through the INGEST path on the
+// same record. These fixtures build real courtlistener-opinion-v1-shaped records
+// with known values (synthetic known-outcome inputs; the measurement machinery is
+// the real registry runtime, never mocked).
+// ---------------------------------------------------------------------------
+
+const COURTLISTENER_SCHEMA: &str = "courtlistener-opinion-v1";
+
+fn numeric_citation_binding() -> StructuredBinding {
+    // Roster lane 5: /citation_count Log1pSigned -> Dense(1).
+    let json = serde_json::json!({
+        "schema_id": COURTLISTENER_SCHEMA,
+        "selector": {"kind": "field", "path": "/citation_count"},
+        "source_type": "integer",
+        "encoder": {"kind": "numeric", "scaling": {"kind": "log1p_signed"}}
+    });
+    StructuredBinding::from_json_bytes(&serde_json::to_vec(&json).unwrap()).unwrap()
+}
+
+fn one_hot_status_binding() -> StructuredBinding {
+    // Roster lane 4: /precedential_status OneHot(frozen vocab) -> Dense(2).
+    let json = serde_json::json!({
+        "schema_id": COURTLISTENER_SCHEMA,
+        "selector": {"kind": "field", "path": "/precedential_status"},
+        "source_type": "string",
+        "encoder": {"kind": "one_hot", "categories": ["Published", "Unpublished"]}
+    });
+    StructuredBinding::from_json_bytes(&serde_json::to_vec(&json).unwrap()).unwrap()
+}
+
+fn shape_dim(shape: SlotShape) -> u32 {
+    match shape {
+        SlotShape::Dense(dim) | SlotShape::Sparse(dim) => dim,
+        SlotShape::Multi { token_dim } => token_dim,
+    }
+}
+
+/// Writes a structured algorithmic lens manifest bound to `binding`, mirroring the
+/// manifest a `calyx lens add --runtime algorithmic --modality structured` freeze
+/// would persist (runtime kind carries the frozen binding).
+fn write_structured_manifest(
+    root: &Path,
+    file_name: &str,
+    name: &str,
+    binding: &StructuredBinding,
+) -> PathBuf {
+    let kind = binding.runtime_kind().unwrap();
+    write_manifest_for_modality(
+        root,
+        file_name,
+        name,
+        &format!("algorithmic:{kind}"),
+        shape_dim(binding.shape()),
+        Modality::Structured,
+    )
+}
+
+fn courtlistener_record_json(idx: usize) -> Value {
+    // Known values: citation_count spans zero and larger counts so Log1pSigned is
+    // exercised across its range; precedential_status alternates over the frozen
+    // OneHot vocabulary.
+    serde_json::json!({
+        "citation_count": (idx as i64) * 3,
+        "precedential_status": if idx.is_multiple_of(2) { "Published" } else { "Unpublished" },
+        "court_id": "scotus",
+        "docket_number": format!("No. {idx}")
+    })
+}
+
+/// Writes a real courtlistener-opinion-v1 row set with `record_schema`+`record`.
+/// `schema_override` lets a test inject a schema id that disagrees with the frozen
+/// binding to prove the schema-mismatch failure is closed; `with_record=false`
+/// omits the typed record entirely to prove the missing-record failure is closed.
+fn write_courtlistener_rows(
+    path: &Path,
+    rows: usize,
+    with_record: bool,
+    schema_override: Option<&str>,
+) {
+    let mut lines = String::new();
+    for idx in 0..rows {
+        let mut row = serde_json::json!({
+            "id": format!("cl-op-{idx}"),
+            "split": "train",
+            "text": format!("real opinion body {idx}: the court holds and remands with enough lexical content"),
+            "label": idx % 2,
+        });
+        if with_record {
+            let object = row.as_object_mut().unwrap();
+            object.insert(
+                "record_schema".to_string(),
+                Value::String(schema_override.unwrap_or(COURTLISTENER_SCHEMA).to_string()),
+            );
+            object.insert("record".to_string(), courtlistener_record_json(idx));
+        }
+        lines.push_str(&serde_json::to_string(&row).unwrap());
+        lines.push('\n');
+    }
+    fs::write(path, lines).unwrap();
+}
+
+/// Measures `records` through the INGEST input-preparation shape, verbatim mirror
+/// of `cmd::ingest::command::retention::prepared_hybrid_text_input`
+/// (`prepare_text_input(text).with_structured(record)`), using the same frozen
+/// algorithmic runtime the registry materializes from the lens spec. Returns the
+/// dense slot data per row.
+fn ingest_path_dense_vectors(
+    binding: &StructuredBinding,
+    records: &[StructuredRecord],
+) -> Vec<Vec<f32>> {
+    let kind = binding.runtime_kind().unwrap();
+    let lens = AlgorithmicLens::from_runtime_kind(
+        "ingest-ref",
+        Modality::Structured,
+        &kind,
+        binding.shape(),
+    )
+    .unwrap();
+    records
+        .iter()
+        .map(|record| {
+            let input = calyx_aster::retained_input::prepare_text_input("ingest opinion body")
+                .with_structured(record.clone());
+            match lens.measure(&input).unwrap() {
+                SlotVector::Dense { data, .. } => data,
+                other => panic!("structured dense lens produced non-dense slot: {other:?}"),
+            }
+        })
+        .collect()
+}
+
+#[test]
+fn structured_lens_assay_path_matches_ingest_path_byte_for_byte() {
+    let root = temp_root("assay-corpus-structured-identity");
+    let rows = root.join("rows.jsonl");
+    let out_dir = root.join("out");
+    let n = 60;
+    write_courtlistener_rows(&rows, n, true, None);
+
+    let citation_binding = numeric_citation_binding();
+    let status_binding = one_hot_status_binding();
+    let citation_manifest = write_structured_manifest(
+        &root,
+        "citation.json",
+        "citation-count-v1",
+        &citation_binding,
+    );
+    let status_manifest = write_structured_manifest(
+        &root,
+        "status.json",
+        "precedential-status-v1",
+        &status_binding,
+    );
+
+    let request = CorpusBuildRequest {
+        rows_jsonl: rows.clone(),
+        out_dir: out_dir.clone(),
+        dataset: "courtlistener-structured".to_string(),
+        target_class: 0,
+        manifests: vec![citation_manifest, status_manifest],
+        limit_per_class: None,
+        batch_size: 7,
+        cost_override_json: None,
+        embedding_model_id: Some("calyx-structured-courtlistener".to_string()),
+        worker_report: None,
+        lens_parallelism: 1,
+        worker_gpu_mem_limit_mib: None,
+    };
+
+    // ASSAY path: full load_rows + measure_requested_lenses pipeline.
+    let loaded = data::load_rows(&request).unwrap();
+    assert_eq!(loaded.rows.len(), n);
+    assert!(
+        loaded.rows.iter().all(|row| row.structured.is_some()),
+        "every courtlistener row must carry its canonical typed record on the assay path"
+    );
+    let measured = lens::measure_requested_lenses(&request, &loaded).unwrap();
+
+    // INGEST reference: the same records measured through the ingest input shape.
+    let records: Vec<StructuredRecord> = (0..n)
+        .map(|idx| {
+            StructuredRecord::from_json_value(COURTLISTENER_SCHEMA, &courtlistener_record_json(idx))
+                .unwrap()
+        })
+        .collect();
+
+    for (binding, lens_name) in [
+        (&citation_binding, "citation-count-v1"),
+        (&status_binding, "precedential-status-v1"),
+    ] {
+        let assay = measured
+            .iter()
+            .find(|lens| lens.name == lens_name)
+            .unwrap_or_else(|| panic!("assay measured lens {lens_name}"));
+        let ingest = ingest_path_dense_vectors(binding, &records);
+        assert_eq!(assay.vectors.len(), ingest.len());
+        for (idx, (assay_vec, ingest_vec)) in assay.vectors.iter().zip(&ingest).enumerate() {
+            let assay_bits: Vec<u32> = assay_vec.iter().map(|value| value.to_bits()).collect();
+            let ingest_bits: Vec<u32> = ingest_vec.iter().map(|value| value.to_bits()).collect();
+            assert_eq!(
+                assay_bits, ingest_bits,
+                "lens {lens_name} row {idx}: assay slot vector must be byte-identical to the ingest slot vector"
+            );
+        }
+    }
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn structured_lens_assay_missing_record_fails_closed() {
+    let root = temp_root("assay-corpus-structured-missing");
+    let rows = root.join("rows.jsonl");
+    // Rows carry NO typed record, but a structured lens is requested: the assay
+    // path must fail closed with the stable missing-field code, never Absent.
+    write_courtlistener_rows(&rows, 60, false, None);
+    let binding = numeric_citation_binding();
+    let manifest = write_structured_manifest(&root, "citation.json", "citation-count-v1", &binding);
+    let request = CorpusBuildRequest {
+        rows_jsonl: rows,
+        out_dir: root.join("out"),
+        dataset: "courtlistener-missing-record".to_string(),
+        target_class: 0,
+        manifests: vec![manifest],
+        limit_per_class: None,
+        batch_size: 8,
+        cost_override_json: None,
+        embedding_model_id: None,
+        worker_report: None,
+        lens_parallelism: 1,
+        worker_gpu_mem_limit_mib: None,
+    };
+
+    let loaded = data::load_rows(&request).unwrap();
+    let error = lens::measure_requested_lenses(&request, &loaded).unwrap_err();
+    assert!(
+        error.contains(calyx_core::CALYX_STRUCTURED_FIELD_MISSING),
+        "expected CALYX_STRUCTURED_FIELD_MISSING, got: {error}"
+    );
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn structured_lens_assay_schema_mismatch_fails_closed() {
+    let root = temp_root("assay-corpus-structured-schema");
+    let rows = root.join("rows.jsonl");
+    // Records declare a schema id that disagrees with the frozen binding schema.
+    write_courtlistener_rows(&rows, 60, true, Some("wrong-opinion-schema-v9"));
+    let binding = numeric_citation_binding();
+    let manifest = write_structured_manifest(&root, "citation.json", "citation-count-v1", &binding);
+    let request = CorpusBuildRequest {
+        rows_jsonl: rows,
+        out_dir: root.join("out"),
+        dataset: "courtlistener-schema-mismatch".to_string(),
+        target_class: 0,
+        manifests: vec![manifest],
+        limit_per_class: None,
+        batch_size: 8,
+        cost_override_json: None,
+        embedding_model_id: None,
+        worker_report: None,
+        lens_parallelism: 1,
+        worker_gpu_mem_limit_mib: None,
+    };
+
+    // load_rows accepts the record (schema id is caller-declared); measurement is
+    // where the frozen binding rejects the mismatched schema, failing closed.
+    let loaded = data::load_rows(&request).unwrap();
+    let error = lens::measure_requested_lenses(&request, &loaded).unwrap_err();
+    assert!(
+        error.contains(calyx_core::CALYX_STRUCTURED_SCHEMA_MISMATCH),
+        "expected CALYX_STRUCTURED_SCHEMA_MISMATCH, got: {error}"
+    );
+    let _ = fs::remove_dir_all(root);
 }

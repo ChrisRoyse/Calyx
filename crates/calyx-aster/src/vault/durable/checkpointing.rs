@@ -11,13 +11,12 @@
 //! batch before the single manifest advance.
 
 use super::super::encode::WriteRow;
-use super::{DurableVault, storage_error};
+use super::DurableVault;
 use crate::cf::ColumnFamily;
 use crate::security::value_crypto::seal_value;
 use crate::sst::write_sst;
 use calyx_core::{CalyxError, Result};
 use std::collections::BTreeMap;
-use std::fs;
 
 impl DurableVault {
     pub(in crate::vault) fn checkpoint_batch(&self, seq: u64, rows: &[WriteRow]) -> Result<()> {
@@ -68,6 +67,31 @@ impl DurableVault {
         Ok(())
     }
 
+    /// Stages one recovered WAL-tail batch during streaming recovery (issue
+    /// #1992). Recovery streams the tail in strictly ascending seq, so this
+    /// appends without the O(n) duplicate scan `stage_recovered_wal_batches`
+    /// does; a batch whose seq is not strictly greater than the last staged seq
+    /// fails closed rather than corrupting checkpoint order.
+    pub(in crate::vault) fn stage_recovered_wal_batch(
+        &self,
+        seq: u64,
+        rows: Vec<WriteRow>,
+    ) -> Result<()> {
+        let mut pending = self
+            .pending_checkpoint
+            .lock()
+            .map_err(|_| CalyxError::disk_pressure("checkpoint staging lock poisoned"))?;
+        if let Some((last, _)) = pending.last()
+            && *last >= seq
+        {
+            return Err(CalyxError::aster_corrupt_shard(format!(
+                "streaming recovery staged seq {seq} out of ascending order after {last}"
+            )));
+        }
+        pending.push((seq, rows));
+        Ok(())
+    }
+
     pub(super) fn write_rows(&self, seq: u64, rows: &[WriteRow]) -> Result<()> {
         let mut by_cf = Vec::<(ColumnFamily, Vec<(usize, &WriteRow)>)>::new();
         for (index, row) in rows.iter().enumerate() {
@@ -82,7 +106,7 @@ impl DurableVault {
             let rows = latest_rows_by_key(rows);
             let first_index = rows.first().map_or(0, |(index, _)| *index);
             let dir = self.cf_dir(cf);
-            fs::create_dir_all(&dir).map_err(|error| storage_error("create CF dir", error))?;
+            crate::private_fs::create_private_dir_all(&dir)?;
             let path = dir.join(format!("{seq:020}-{first_index:04}.sst"));
             match &self.value_crypto {
                 Some(context) => {

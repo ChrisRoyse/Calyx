@@ -124,6 +124,7 @@ enum SlotRowShape {
     Multi,
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(super) fn collect_or_build_slot_from_cf<F>(
     vault_dir: &Path,
     root: &Path,
@@ -131,6 +132,7 @@ pub(super) fn collect_or_build_slot_from_cf<F>(
     snapshot: Snapshot,
     plan: &SlotBuildPlan,
     page_rows: usize,
+    build_policy: super::rebuild_plan::DiskAnnBuildPolicy,
     progress: Option<&SharedRebuildProgress<'_, F>>,
 ) -> CliResult<ScannedSlotRows>
 where
@@ -192,10 +194,12 @@ where
                             vault_dir,
                             root,
                             snapshot.seq(),
+                            build_policy.backend,
                         )?
                     }
                     EncodedSlotVectorShape::Dense { .. }
                     | EncodedSlotVectorShape::Sparse { .. }
+                    | EncodedSlotVectorShape::SegmentedMulti { .. }
                     | EncodedSlotVectorShape::Absent => push_slot_vector(
                         plan,
                         cx_id,
@@ -210,6 +214,7 @@ where
                         vault_dir,
                         root,
                         snapshot.seq(),
+                        build_policy.backend,
                     )?,
                 };
                 if let Some(flushed) = flushed {
@@ -274,6 +279,7 @@ fn push_slot_vector(
     vault_dir: &Path,
     root: &Path,
     base_seq: u64,
+    build_backend: calyx_sextant::index::DiskAnnBuildBackend,
 ) -> CliResult<Option<multi::SegmentFlush>> {
     vector.validate_schema().map_err(|err| {
         stale(format!(
@@ -327,13 +333,52 @@ fn push_slot_vector(
             }
             if multi_writer.is_none() {
                 *multi_writer = Some(multi::StreamingSegmentsWriter::new(
-                    vault_dir, root, plan.slot, token_dim, base_seq,
+                    vault_dir,
+                    root,
+                    plan.slot,
+                    token_dim,
+                    base_seq,
+                    build_backend,
                 ));
             }
             multi_writer
                 .as_mut()
                 .expect("multi writer initialized")
                 .push(cx_id, tokens)
+        }
+        SlotVector::SegmentedMulti {
+            token_dim,
+            segments,
+            ..
+        } => {
+            require_shape(shape, SlotRowShape::Multi, plan.slot, cx_id)?;
+            match *multi_token_dim {
+                Some(expected_dim) if expected_dim != token_dim => {
+                    return Err(stale(format!(
+                        "slot {} has mixed multi token dims: {expected_dim} and {token_dim}",
+                        plan.slot
+                    )));
+                }
+                None => *multi_token_dim = Some(token_dim),
+                _ => {}
+            }
+            if multi_writer.is_none() {
+                *multi_writer = Some(multi::StreamingSegmentsWriter::new(
+                    vault_dir,
+                    root,
+                    plan.slot,
+                    token_dim,
+                    base_seq,
+                    build_backend,
+                ));
+            }
+            multi_writer
+                .as_mut()
+                .expect("multi writer initialized")
+                .push(
+                    cx_id,
+                    segments.into_iter().map(|segment| segment.data).collect(),
+                )
         }
         SlotVector::Absent { .. } => Ok(None),
     }
@@ -352,6 +397,7 @@ fn push_encoded_multi(
     vault_dir: &Path,
     root: &Path,
     base_seq: u64,
+    build_backend: calyx_sextant::index::DiskAnnBuildBackend,
 ) -> CliResult<Option<multi::SegmentFlush>> {
     require_shape(shape, SlotRowShape::Multi, plan.slot, cx_id)?;
     match *multi_token_dim {
@@ -366,7 +412,12 @@ fn push_encoded_multi(
     }
     if multi_writer.is_none() {
         *multi_writer = Some(multi::StreamingSegmentsWriter::new(
-            vault_dir, root, plan.slot, token_dim, base_seq,
+            vault_dir,
+            root,
+            plan.slot,
+            token_dim,
+            base_seq,
+            build_backend,
         ));
     }
     multi_writer

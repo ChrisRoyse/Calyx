@@ -72,7 +72,7 @@ impl VersionedCfStore {
             .collect())
     }
 
-    pub(super) fn overlay_table_rows(
+    pub(in crate::mvcc::store) fn overlay_table_rows(
         &self,
         snapshot: Snapshot,
         cf: ColumnFamily,

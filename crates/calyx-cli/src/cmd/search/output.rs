@@ -1,8 +1,11 @@
+use std::collections::BTreeMap;
+
 use calyx_search::SearchRerankReport;
 use calyx_sextant::{Hit, HitRerankEvidence};
 use serde::Serialize;
 
 use super::roster::SlotRosterOut;
+use crate::error::{CliError, CliResult};
 
 /// `--explain` response envelope: the vault-level serving roster (which slots
 /// contributed via the resident, which were measured locally, and which are
@@ -36,7 +39,7 @@ pub(super) struct GroundedKernelAnswerOut {
     pub fusion: &'static str,
     pub rrf_k: u32,
     pub nearest_score: f32,
-    pub nearest_lanes: Vec<calyx_lodestar::PanelFusionLane>,
+    pub nearest_lanes: Vec<calyx_lodestar::TypedPanelFusionLane>,
     pub admission_threshold: f32,
     pub anchor_kernel_node_id: String,
     pub hops: Vec<GroundedKernelAnswerHopOut>,
@@ -71,7 +74,7 @@ pub(super) struct GroundedKernelRefusalOut {
     pub reason: &'static str,
     pub nearest_cx_id: String,
     pub nearest_score: f32,
-    pub nearest_lanes: Vec<calyx_lodestar::PanelFusionLane>,
+    pub nearest_lanes: Vec<calyx_lodestar::TypedPanelFusionLane>,
     pub admission_threshold: f32,
     pub kernel_id: String,
     pub kernel_manifest_sha256: String,
@@ -89,7 +92,9 @@ pub(super) struct GroundedKernelScopeRefusalOut {
     pub detected_scope: String,
     pub allowed_court_system: String,
     pub allowed_state: String,
-    pub allowed_county: String,
+    pub allowed_counties: Vec<String>,
+    pub allowed_appellate_districts: Vec<String>,
+    pub includes_statewide_scope: bool,
     pub kernel_id: String,
     pub kernel_manifest_sha256: String,
 }
@@ -101,7 +106,7 @@ pub(super) struct GroundedKernelSourceRefusalOut {
     pub reason: &'static str,
     pub nearest_cx_id: String,
     pub nearest_score: f32,
-    pub nearest_lanes: Vec<calyx_lodestar::PanelFusionLane>,
+    pub nearest_lanes: Vec<calyx_lodestar::TypedPanelFusionLane>,
     pub admission_threshold: f32,
     pub kernel_id: String,
     pub kernel_manifest_sha256: String,
@@ -124,6 +129,8 @@ pub(super) struct SearchHitOut {
     guard: Option<GuardOut>,
     #[serde(skip_serializing_if = "Option::is_none")]
     provenance: Option<ProvenanceOut>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    metadata: Option<BTreeMap<String, String>>,
     freshness: FreshnessOut,
 }
 
@@ -179,9 +186,24 @@ pub(super) fn render_hits(
     explain: bool,
     provenance: bool,
     guard_tau: Option<f32>,
-) -> Vec<SearchHitOut> {
-    hits.iter()
-        .map(|hit| SearchHitOut {
+    metadata: Option<&[BTreeMap<String, String>]>,
+) -> CliResult<Vec<SearchHitOut>> {
+    if let Some(rows) = metadata
+        && rows.len() != hits.len()
+    {
+        return Err(CliError::runtime(format!(
+            "search hit metadata cardinality {} differs from hit cardinality {}",
+            rows.len(),
+            hits.len()
+        )));
+    }
+    let metadata = metadata
+        .map(|rows| rows.iter().map(Some).collect::<Vec<_>>())
+        .unwrap_or_else(|| std::iter::repeat_n(None, hits.len()).collect());
+    Ok(hits
+        .iter()
+        .zip(metadata)
+        .map(|(hit, metadata)| SearchHitOut {
             rank: hit.rank,
             cx_id: hit.cx_id.to_string(),
             score: hit.score,
@@ -228,6 +250,7 @@ pub(super) fn render_hits(
                 ledger_seq: hit.provenance.seq,
                 chain_hash: hex32(&hit.provenance.hash),
             }),
+            metadata: metadata.cloned(),
             freshness: FreshnessOut {
                 built_at_seq: hit.freshness.built_at_seq,
                 base_seq: hit.freshness.base_seq,
@@ -235,7 +258,7 @@ pub(super) fn render_hits(
                 policy: hit.freshness.policy.clone(),
             },
         })
-        .collect()
+        .collect())
 }
 
 fn hex32(bytes: &[u8; 32]) -> String {

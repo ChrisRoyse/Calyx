@@ -2,7 +2,9 @@ use std::collections::BTreeMap;
 
 use calyx_aster::mvcc::{Freshness, Snapshot};
 use calyx_aster::vault::AsterVault;
-use calyx_core::{Constellation, CxId, SlotVector};
+use calyx_core::{
+    Constellation, CxId, SlotId, SlotSimilarityEvidence, SlotVector, slot_similarity,
+};
 use calyx_sextant::{FreshnessTag, Hit};
 
 #[cfg(test)]
@@ -91,12 +93,18 @@ pub(super) fn apply_in_region_guard(
     hits: Vec<Hit>,
     docs: &BTreeMap<CxId, Constellation>,
     query_vectors: &[(calyx_core::SlotId, SlotVector)],
-) -> Vec<Hit> {
-    hits.into_iter()
-        .filter(|hit| {
-            guard_cosine(hit, docs, query_vectors).is_some_and(|value| value >= GUARD_TAU)
-        })
-        .collect()
+) -> CliResult<Vec<Hit>> {
+    let mut kept = Vec::new();
+    for hit in hits {
+        let evidence = guard_slot_evidence(&hit, docs, query_vectors)?;
+        if evidence
+            .iter()
+            .all(|(_, similarity)| similarity.score >= GUARD_TAU)
+        {
+            kept.push(hit);
+        }
+    }
+    Ok(kept)
 }
 
 pub(super) fn vault_base_count_at(vault: &AsterVault, snapshot: Snapshot) -> CliResult<usize> {
@@ -110,6 +118,7 @@ pub(super) fn renumber_and_truncate(hits: &mut Vec<Hit>, k: usize) {
     }
 }
 
+#[cfg(test)]
 pub(super) fn cosine(left: &[f32], right: &[f32]) -> Option<f32> {
     if left.len() != right.len() || left.is_empty() {
         return None;
@@ -123,22 +132,39 @@ pub(super) fn cosine(left: &[f32], right: &[f32]) -> Option<f32> {
     (l2 > 0.0 && r2 > 0.0).then(|| dot / (l2.sqrt() * r2.sqrt()))
 }
 
-pub(super) fn guard_cosine(
+pub(super) fn guard_slot_evidence(
     hit: &Hit,
     docs: &BTreeMap<CxId, Constellation>,
     query_vectors: &[(calyx_core::SlotId, SlotVector)],
-) -> Option<f32> {
-    let cx = docs.get(&hit.cx_id)?;
-    hit.per_lens
-        .iter()
-        .filter_map(|item| {
-            let query = query_vectors
-                .iter()
-                .find(|(slot, _)| *slot == item.slot)?
-                .1
-                .as_dense()?;
-            let doc = cx.slots.get(&item.slot)?.as_dense()?;
-            cosine(query, doc)
-        })
-        .max_by(f32::total_cmp)
+) -> CliResult<Vec<(SlotId, SlotSimilarityEvidence)>> {
+    let cx = docs.get(&hit.cx_id).ok_or_else(|| {
+        calyx_core::CalyxError::guard_provisional(format!(
+            "operator guard cannot hydrate constellation {}",
+            hit.cx_id
+        ))
+    })?;
+    if query_vectors.is_empty() {
+        return Err(calyx_core::CalyxError::guard_provisional(
+            "operator guard requires at least one measured typed query slot",
+        )
+        .into());
+    }
+    let mut seen = std::collections::BTreeSet::new();
+    let mut evidence = Vec::with_capacity(query_vectors.len());
+    for (slot, query) in query_vectors {
+        if !seen.insert(*slot) {
+            return Err(calyx_core::CalyxError::guard_provisional(format!(
+                "operator guard query contains duplicate slot {slot}"
+            ))
+            .into());
+        }
+        let stored = cx.slots.get(slot).ok_or_else(|| {
+            calyx_core::CalyxError::guard_provisional(format!(
+                "operator guard constellation {} is missing required slot {slot}",
+                hit.cx_id
+            ))
+        })?;
+        evidence.push((*slot, slot_similarity(query, stored)?));
+    }
+    Ok(evidence)
 }

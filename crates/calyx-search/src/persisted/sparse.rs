@@ -174,6 +174,56 @@ pub(super) fn search(
     Ok(ranked(top_k(score(&index, entries, candidates)?, k)))
 }
 
+/// Forced GPU sparse (BM25) candidate search (#1963). Requires the CUDA BM25
+/// kernel regardless of the `CALYX_SEARCH_SPARSE_CUDA_MIN_DOCS` floor and fails
+/// closed if the CUDA path yields no result (disabled via env or no compiled
+/// CUDA surface) rather than falling back to the CPU postings scan.
+#[cfg(feature = "cuda")]
+pub(super) fn search_gpu_forced(
+    vault_dir: &Path,
+    entry: &SearchIndexEntry,
+    manifest_base_seq: u64,
+    slot: SlotId,
+    query: &SlotVector,
+    k: usize,
+) -> CliResult<Vec<IndexSearchHit>> {
+    if k == 0 {
+        return Ok(Vec::new());
+    }
+    let SlotVector::Sparse {
+        dim: query_dim,
+        entries,
+    } = query
+    else {
+        return Err(stale(format!(
+            "persistent sparse GPU candidate search slot {slot} received non-sparse query"
+        )));
+    };
+    query.validate_schema().map_err(|err| {
+        stale(format!(
+            "persistent sparse GPU candidate search slot {slot} received invalid query: {}",
+            err.message
+        ))
+    })?;
+    validate_sparse_weights(entries, "query")?;
+    let index = pinned_index(vault_dir, entry, manifest_base_seq, slot)?;
+    if index.dim != *query_dim {
+        return Err(stale(format!(
+            "persistent sparse slot {slot} index dim {} != query dim {query_dim}; reingest/backfill the vault",
+            index.dim
+        )));
+    }
+    if entries.is_empty() {
+        return Ok(Vec::new());
+    }
+    match cuda::score_cuda_topk(vault_dir, entry, slot, &index, entries, k, None)? {
+        Some(scored) => Ok(ranked(scored)),
+        None => Err(stale(format!(
+            "persistent sparse GPU candidate search slot {slot} requested but the CUDA BM25 path returned no result (CALYX_SEARCH_SPARSE_CUDA disabled or no compiled CUDA surface); enable it and rebuild with --features cuda"
+        ))),
+    }
+}
+
 fn cuda_min_docs() -> usize {
     env::var(CUDA_MIN_DOCS_ENV)
         .ok()

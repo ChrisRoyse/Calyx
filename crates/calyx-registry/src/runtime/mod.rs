@@ -9,3 +9,4 @@ pub mod onnx;
 pub mod qwen3;
 pub mod static_lookup;
 pub mod tei_http;
+pub mod tei_segmented;

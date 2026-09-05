@@ -1,6 +1,8 @@
 use super::*;
 use crate::drift::{CALYX_LENS_RUNTIME_DRIFT, DriftDecision, PROCESS_RUNTIME_GOLDEN_TOLERANCE};
-use crate::lens::process_runtime_requires_golden;
+use crate::lens::{
+    ensure_input_modality, process_runtime_golden_vector, process_runtime_requires_golden,
+};
 use crate::runtime::onnx;
 use crate::runtime_limit::runtime_uses_scoped_batch_limit;
 
@@ -61,7 +63,7 @@ pub fn measure_registry_snapshot_lens_batch_with_stats(
     runtime_batch_limit: Option<usize>,
 ) -> Result<(Vec<SlotVector>, RegistrySnapshotMeasureStats)> {
     let total_start = Instant::now();
-    verify_registry_snapshot_inputs(snapshot, inputs)?;
+    verify_registry_snapshot_contract(snapshot)?;
     let load_start = Instant::now();
     let runtime = load_runtime_lens(snapshot)?;
     let runtime_load_ms = load_start.elapsed().as_millis();
@@ -89,18 +91,12 @@ pub(super) fn verify_registry_snapshot_contract(snapshot: &RegistryLensSnapshot)
 
 fn verify_registry_snapshot_inputs(
     snapshot: &RegistryLensSnapshot,
+    runtime: &dyn Lens,
     inputs: &[Input],
 ) -> Result<()> {
     verify_registry_snapshot_contract(snapshot)?;
     for input in inputs {
-        if input.modality != snapshot.contract.modality() {
-            return Err(CalyxError::lens_dim_mismatch(format!(
-                "lens {} accepts {:?}, got {:?}",
-                snapshot.lens_id,
-                snapshot.contract.modality(),
-                input.modality
-            )));
-        }
+        ensure_input_modality(runtime, input)?;
     }
     Ok(())
 }
@@ -113,7 +109,7 @@ fn measure_loaded_snapshot_lens_batch_with_stats(
     runtime_load_ms: u128,
 ) -> Result<(Vec<SlotVector>, RegistrySnapshotMeasureStats)> {
     let total_start = Instant::now();
-    verify_registry_snapshot_inputs(snapshot, inputs)?;
+    verify_registry_snapshot_inputs(snapshot, runtime, inputs)?;
     let scoped_runtime_limit = runtime_uses_scoped_batch_limit(snapshot.spec.as_ref());
     let effective_chunk_size = if scoped_runtime_limit && !inputs.is_empty() {
         inputs.len()
@@ -273,9 +269,9 @@ fn verify_runtime_golden(
                 snapshot.lens_id, error.code, error.message
             ))
         })?;
-    let observed = observed.as_dense().ok_or_else(|| {
+    let observed = process_runtime_golden_vector(&observed).ok_or_else(|| {
         runtime_drift_error(format!(
-            "runtime golden probe for lens {} did not return dense output",
+            "runtime golden probe for lens {} did not return dense output or exactly one native segmented vector",
             snapshot.lens_id
         ))
     })?;

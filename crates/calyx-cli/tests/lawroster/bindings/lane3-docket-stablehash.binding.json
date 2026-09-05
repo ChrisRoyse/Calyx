@@ -1,0 +1,12 @@
+{
+  "schema_id": "courtlistener-opinion-v1",
+  "selector": {
+    "kind": "field",
+    "path": "/docket_number"
+  },
+  "source_type": "string",
+  "encoder": {
+    "kind": "stable_hash",
+    "dim": 1024
+  }
+}

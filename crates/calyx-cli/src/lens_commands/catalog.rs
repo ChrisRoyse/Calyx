@@ -320,7 +320,8 @@ fn estimate_lens_cost(spec: &LensSpec) -> CliResult<LensCost> {
     match &spec.runtime {
         LensRuntime::Algorithmic { .. }
         | LensRuntime::ExternalCmd { .. }
-        | LensRuntime::TeiHttp { .. } => Ok(LensCost::zero()),
+        | LensRuntime::TeiHttp { .. }
+        | LensRuntime::TeiHttpSegmented { .. } => Ok(LensCost::zero()),
         LensRuntime::MultimodalAdapter { files, .. } => {
             let bytes = files_size(files)?;
             let lens = MultimodalAdapterLens::from_lens_spec(spec)?;

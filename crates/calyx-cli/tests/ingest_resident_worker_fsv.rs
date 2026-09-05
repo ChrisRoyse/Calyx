@@ -23,7 +23,13 @@ fn gpu_placed_persisted_lens_uses_resident_binary_worker_and_persists_cfs() {
     let vault_path = root.join("vaults").join(vault_id.to_string());
     println!("resident_worker_fsv_root={}", root.display());
     println!("resident_worker_fsv_vault={}", vault_path.display());
-    let salt = b"resident-worker-fsv-salt".to_vec();
+    // The spawned binary resolves this vault by path and fails closed at the
+    // identity gate (#1794) unless the vault carries the immutable
+    // VAULT_IDENTITY.json that `create-vault` publishes. Salt the vault with the
+    // same CLI-canonical namespace so the identity binding and the reopened
+    // physical namespace agree.
+    let name = "resident-worker-vault";
+    let salt = format!("calyx-cli-vault:{vault_id}:{name}").into_bytes();
     let (panel, registry) = gpu_algorithmic_panel();
     AsterVault::new_durable(
         &vault_path,
@@ -37,6 +43,7 @@ fn gpu_placed_persisted_lens_uses_resident_binary_worker_and_persists_cfs() {
     .expect("create durable resident-worker FSV vault");
     persist_vault_panel_state(&vault_path, &panel, &registry)
         .expect("persist registry snapshot for resident-worker FSV");
+    bind_vault_identity(&vault_path, vault_id, name);
 
     let before = cf_state(&vault_path, vault_id, salt.clone());
     println!(
@@ -197,6 +204,26 @@ fn gpu_algorithmic_panel() -> (Panel, Registry) {
         guard_ref: None,
     };
     (panel, registry)
+}
+
+/// Publishes the immutable VAULT_IDENTITY.json that binds the vault's
+/// content-derived Cx namespace, exactly as `calyx create-vault` does. Without
+/// it, the spawned binary refuses (CALYX_VAULT_IDENTITY_MISSING) to open a vault
+/// referenced by path that is bound by neither this file nor an active
+/// CALYX_HOME index entry (#1794). The cx_namespace is the same
+/// `calyx-cli-vault:{vault_id}:{name}` string the vault was salted with, so
+/// identity validation passes and the CLI reopens the exact same namespace.
+fn bind_vault_identity(vault_path: &Path, vault_id: VaultId, name: &str) {
+    let identity = serde_json::json!({
+        "magic": "calyx.vault_identity",
+        "version": 1,
+        "vault_id": vault_id.to_string(),
+        "canonical_name": name,
+        "cx_namespace": format!("calyx-cli-vault:{vault_id}:{name}"),
+    });
+    let mut bytes = serde_json::to_vec_pretty(&identity).expect("serialize vault identity");
+    bytes.push(b'\n');
+    fs::write(vault_path.join("VAULT_IDENTITY.json"), bytes).expect("write vault identity");
 }
 
 fn cf_state(vault_path: &Path, vault_id: VaultId, salt: Vec<u8>) -> Value {

@@ -1,8 +1,11 @@
 //! Persisted Base CF page index used by bounded readback commands.
 //!
 //! The index is not a cache fallback. Bounded readers either verify this
-//! physical source of truth against the current ledger head and referenced SST
-//! or WAL bytes, or they fail closed with a `CALYX_BASE_PAGE_INDEX_*` error.
+//! physical source of truth against the current Base-source freshness digest
+//! (the ordered Base SST identity set plus the Base WAL-row tail, issue #1861)
+//! and the referenced SST or WAL bytes, or they fail closed with a
+//! `CALYX_BASE_PAGE_INDEX_*` error. Unrelated Answer/Guard/Assay ledger
+//! advancement does not stale the index; any real Base mutation does.
 
 #[cfg(test)]
 mod tests;
@@ -18,6 +21,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use calyx_core::{CalyxError, Result};
+use sha2::{Digest, Sha256};
 
 use crate::cf::ColumnFamily;
 use crate::ledger_head::read_head_anchor;
@@ -41,7 +45,14 @@ pub use types::{
 };
 #[cfg(test)]
 use types::{CORRUPT_CODE, MISSING_CODE, STALE_CODE};
-use types::{GENERATION_INDEX_VERSION, INDEX_MAGIC, INDEX_VERSION, LEGACY_INDEX_VERSION};
+use types::{
+    GENERATION_INDEX_VERSION, INDEX_MAGIC, INDEX_VERSION, LEGACY_INDEX_VERSION, PRIOR_INDEX_VERSION,
+};
+
+/// Domain-separation tag mixed into the Base-source freshness digest. Bump the
+/// trailing version whenever the digest input layout changes so a digest built
+/// by an older layout can never collide with a new one.
+const BASE_SOURCE_DIGEST_DOMAIN: &[u8] = b"calyx.base_source_digest.v1\0";
 
 static GENERATION_NONCE: AtomicU64 = AtomicU64::new(0);
 
@@ -55,6 +66,8 @@ struct IndexedValue {
 struct BuildSnapshot {
     ledger_head_height: u64,
     ledger_head_tip_hash_hex: String,
+    base_source_digest_hex: String,
+    base_durable_seq: u64,
     base_sst_files: usize,
     wal_records: usize,
 }
@@ -125,6 +138,18 @@ pub fn build_base_page_index(
             if row.cf != ColumnFamily::Base {
                 continue;
             }
+            // The page index records a physical byte offset into a single WAL
+            // record. A fragmented (CXW2 chain) record has no contiguous payload
+            // region, so a stable physical row offset cannot exist; fail closed
+            // rather than record an offset the point reader would misinterpret.
+            if record.fragmented {
+                return Err(corrupt(format!(
+                    "WAL commit seq {} carrying Base rows was fragmented across a CXW2 chain; \
+                     the Base page index requires single-record Base commits — reduce the Base \
+                     commit batch below the WAL fragment cap",
+                    record.seq
+                )));
+            }
             let tombstoned = is_tombstone_value(row.value);
             let encoded_offset = u64::try_from(row.encoded_offset).map_err(|_| {
                 corrupt("encoded WAL write-row offset exceeds u64 during Base index build")
@@ -156,6 +181,20 @@ pub fn build_base_page_index(
         current_rows: rows.len(),
     })?;
 
+    // Freeze the exact Base-source freshness key the readers will recompute.
+    // Computed under the same durable-commit lock as the fold above, so the
+    // digest describes the identical Base state that was just indexed and a
+    // fresh index can never read back as stale (issue #1861).
+    let (base_source_digest_hex, base_durable_seq, digest_sst_files) =
+        compute_base_source_digest(vault)?;
+    if digest_sst_files != sst_files.len() {
+        return Err(corrupt(format!(
+            "Base SST set changed during index build: folded {} files but freshness digest saw {}",
+            sst_files.len(),
+            digest_sst_files
+        )));
+    }
+
     let manifest = write_index(
         vault,
         page_size,
@@ -163,12 +202,75 @@ pub fn build_base_page_index(
         BuildSnapshot {
             ledger_head_height,
             ledger_head_tip_hash_hex,
+            base_source_digest_hex,
+            base_durable_seq,
             base_sst_files: sst_files.len(),
             wal_records,
         },
         progress,
     )?;
     Ok(manifest)
+}
+
+/// Recomputes the content-derived Base-source freshness key (issue #1861).
+///
+/// The digest is a pure function of the current Base column-family bytes: the
+/// ordered Base SST identity set (relative path, canonical order key, and file
+/// length) plus the Base WAL rows that trail the durable floor. It is
+/// deliberately **not** a function of the global ledger head, so unrelated
+/// Answer/Guard/Assay appends leave it unchanged, while any real Base
+/// put/tombstone/compaction (which either mutates the SST set or the Base WAL
+/// tail) changes it.
+///
+/// Callers must already hold the vault's durable-commit lock so the SST listing
+/// and WAL tail describe one consistent snapshot. Returns
+/// `(digest_hex, durable_seq, base_sst_files)`.
+fn compute_base_source_digest(vault: &Path) -> Result<(String, u64, usize)> {
+    let sst_files = list_base_sst_files(vault)?;
+    let mut hasher = Sha256::new();
+    hasher.update(BASE_SOURCE_DIGEST_DOMAIN);
+    hasher.update((sst_files.len() as u64).to_le_bytes());
+    for file in &sst_files {
+        let order = sst_order_key(file)?.ok_or_else(|| {
+            corrupt(format!(
+                "Base SST {} has no canonical order key",
+                file.display()
+            ))
+        })?;
+        let relative = relative_path(vault, file);
+        let len = fs::metadata(file)
+            .map_err(|error| {
+                CalyxError::disk_pressure(format!(
+                    "stat Base SST {} for freshness digest: {error}",
+                    file.display()
+                ))
+            })?
+            .len();
+        hasher.update((relative.len() as u64).to_le_bytes());
+        hasher.update(relative.as_bytes());
+        hasher.update([order.epoch, order.class_rank]);
+        hasher.update(order.seq.to_le_bytes());
+        hasher.update((order.index as u64).to_le_bytes());
+        hasher.update(len.to_le_bytes());
+    }
+    let durable_seq = ManifestStore::open(vault).load_current()?.durable_seq;
+    let mut base_wal_rows: u64 = 0;
+    stream_records_after(vault.join("wal"), durable_seq, |record| {
+        for row in decode_write_batch_refs(&record.payload)? {
+            if row.cf != ColumnFamily::Base {
+                continue;
+            }
+            base_wal_rows += 1;
+            let tombstoned = is_tombstone_value(row.value);
+            hasher.update((row.key.len() as u64).to_le_bytes());
+            hasher.update(row.key);
+            hasher.update(Sha256::digest(row.value));
+            hasher.update([u8::from(tombstoned)]);
+        }
+        Ok(())
+    })?;
+    hasher.update(base_wal_rows.to_le_bytes());
+    Ok((hex_bytes(&hasher.finalize()), durable_seq, sst_files.len()))
 }
 
 pub fn read_base_page_index_manifest(vault: &Path) -> Result<BasePageIndexManifest> {
@@ -181,7 +283,7 @@ pub fn read_indexed_base_rows(vault: &Path, limit: usize) -> Result<BTreeMap<Vec
     }
     let _guard = crate::file_lock::FileLockGuard::acquire(&durable_commit_lock_path(vault))?;
     let manifest = read_manifest_file(&manifest_path(vault))?;
-    validate_current_head(vault, &manifest)?;
+    validate_base_source_unchanged(vault, &manifest)?;
     validate_current_read_format(&manifest)?;
     let mut rows = BTreeMap::new();
     for page_ref in &manifest.pages {
@@ -235,7 +337,7 @@ where
 {
     let _guard = crate::file_lock::FileLockGuard::acquire(&durable_commit_lock_path(vault))?;
     let manifest = read_manifest_file(&manifest_path(vault))?;
-    validate_current_head(vault, &manifest)?;
+    validate_base_source_unchanged(vault, &manifest)?;
     validate_current_read_format(&manifest)?;
     let unique_keys = keys.iter().collect::<std::collections::BTreeSet<_>>();
     let mut stats = SelectedBaseRowsVisit {
@@ -283,7 +385,7 @@ where
 {
     let _guard = crate::file_lock::FileLockGuard::acquire(&durable_commit_lock_path(vault))?;
     let manifest = read_manifest_file(&manifest_path(vault))?;
-    validate_current_head(vault, &manifest)?;
+    validate_base_source_unchanged(vault, &manifest)?;
     validate_current_read_format(&manifest)?;
     let mut live_rows = 0usize;
     for page_ref in &manifest.pages {
@@ -298,48 +400,6 @@ where
         live_rows += row_count;
     }
     Ok(live_rows)
-}
-
-pub fn advance_base_page_index_head_if_base_unchanged(vault: &Path) -> Result<bool> {
-    let path = manifest_path(vault);
-    if !path.exists() {
-        return Ok(false);
-    }
-    let _guard = crate::file_lock::FileLockGuard::acquire(&durable_commit_lock_path(vault))?;
-    let mut manifest = read_manifest_file(&path)?;
-    if manifest.version != INDEX_VERSION {
-        return Err(stale(format!(
-            "Base page index version {} cannot advance to a new ledger head; rebuild current version {INDEX_VERSION} first",
-            manifest.version
-        )));
-    }
-    let current_base_sst_files = list_base_sst_files(vault)?.len();
-    if current_base_sst_files != manifest.base_sst_files {
-        return Err(stale(format!(
-            "Base page index covers {} Base SST files but current vault has {}; refusing to advance index head without rebuild",
-            manifest.base_sst_files, current_base_sst_files
-        )));
-    }
-    let (height, tip_hash_hex) = current_head(vault)?;
-    if height == manifest.ledger_head_height && tip_hash_hex == manifest.ledger_head_tip_hash_hex {
-        return Ok(false);
-    }
-    if height < manifest.ledger_head_height {
-        return Err(corrupt(format!(
-            "Base page index head would regress from {} to {height}",
-            manifest.ledger_head_height
-        )));
-    }
-    manifest.ledger_head_height = height;
-    manifest.ledger_head_tip_hash_hex = tip_hash_hex;
-    write_json_file_atomic(&path, &manifest)?;
-    let published = read_manifest_file(&path)?;
-    if published != manifest {
-        return Err(corrupt(
-            "Base page index head advance commit point did not read back byte-equivalent state",
-        ));
-    }
-    Ok(true)
 }
 
 fn write_index(
@@ -370,21 +430,11 @@ fn write_index_with_hook(
     );
     let index_root = vault.join(BASE_PAGE_INDEX_DIR);
     let generations_root = index_root.join(BASE_PAGE_INDEX_GENERATIONS_DIR);
-    fs::create_dir_all(&generations_root).map_err(|error| {
-        CalyxError::disk_pressure(format!(
-            "create Base page index generations directory {}: {error}",
-            generations_root.display()
-        ))
-    })?;
+    crate::private_fs::create_private_dir_all(&generations_root)?;
     sync_parent(&index_root)?;
     sync_parent(&generations_root)?;
     let staging = generations_root.join(format!(".{generation}.tmp"));
-    fs::create_dir(&staging).map_err(|error| {
-        CalyxError::disk_pressure(format!(
-            "create-new Base page index generation staging directory {}: {error}",
-            staging.display()
-        ))
-    })?;
+    crate::private_fs::create_private_dir_all(&staging)?;
     let published_prefix = format!("{BASE_PAGE_INDEX_GENERATIONS_DIR}/{generation}");
     let mut pages = Vec::new();
     let mut chunk = Vec::with_capacity(page_size);
@@ -430,6 +480,8 @@ fn write_index_with_hook(
         magic: INDEX_MAGIC.to_string(),
         version: INDEX_VERSION,
         generation: Some(generation.clone()),
+        base_source_digest_hex: snapshot.base_source_digest_hex,
+        base_durable_seq: snapshot.base_durable_seq,
         ledger_head_height: snapshot.ledger_head_height,
         ledger_head_tip_hash_hex: snapshot.ledger_head_tip_hash_hex,
         page_size,
@@ -584,10 +636,20 @@ fn validate_manifest(manifest: &BasePageIndexManifest) -> Result<()> {
                 }
             }
         }
-        GENERATION_INDEX_VERSION | INDEX_VERSION => validate_generation_manifest(manifest)?,
+        GENERATION_INDEX_VERSION | PRIOR_INDEX_VERSION | INDEX_VERSION => {
+            validate_generation_manifest(manifest)?;
+        }
         other => {
             return Err(corrupt(format!(
-                "Base page index version {other} is not supported (legacy={LEGACY_INDEX_VERSION}, generation={GENERATION_INDEX_VERSION}, current={INDEX_VERSION})",
+                "Base page index version {other} is not supported (legacy={LEGACY_INDEX_VERSION}, generation={GENERATION_INDEX_VERSION}, prior={PRIOR_INDEX_VERSION}, current={INDEX_VERSION})",
+            )));
+        }
+    }
+    if manifest.version == INDEX_VERSION {
+        let digest = &manifest.base_source_digest_hex;
+        if digest.len() != 64 || !digest.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+            return Err(corrupt(format!(
+                "Base page index manifest has invalid Base source digest {digest:?} (expected 64 hex chars)"
             )));
         }
     }
@@ -756,12 +818,25 @@ fn prune_obsolete_generations(index_root: &Path, current_generation: &str) -> Re
     Ok(())
 }
 
-fn validate_current_head(vault: &Path, manifest: &BasePageIndexManifest) -> Result<()> {
-    let (height, tip_hash_hex) = current_head(vault)?;
-    if height != manifest.ledger_head_height || tip_hash_hex != manifest.ledger_head_tip_hash_hex {
+/// Fails closed when the current Base column-family bytes no longer match the
+/// Base-source digest frozen into the manifest (issue #1861).
+///
+/// Freshness is bound to Base content, not the global ledger head: an
+/// Answer/Guard/Assay-only append leaves the recomputed digest identical and
+/// the index is accepted without a rebuild, while any real Base
+/// put/tombstone/compaction or SST corruption changes the digest and this
+/// returns `CALYX_BASE_PAGE_INDEX_STALE`.
+fn validate_base_source_unchanged(vault: &Path, manifest: &BasePageIndexManifest) -> Result<()> {
+    let (digest_hex, durable_seq, base_sst_files) = compute_base_source_digest(vault)?;
+    if digest_hex != manifest.base_source_digest_hex {
         return Err(stale(format!(
-            "Base page index was built at ledger head {}:{} but current head is {}:{}",
-            manifest.ledger_head_height, manifest.ledger_head_tip_hash_hex, height, tip_hash_hex
+            "Base page index was built over Base source digest {} (durable_seq {}, {} SST files) but current Base source digest is {} (durable_seq {}, {} SST files); the Base column family changed since the index was built",
+            manifest.base_source_digest_hex,
+            manifest.base_durable_seq,
+            manifest.base_sst_files,
+            digest_hex,
+            durable_seq,
+            base_sst_files
         )));
     }
     Ok(())

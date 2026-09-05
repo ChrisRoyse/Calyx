@@ -1,3 +1,4 @@
+use super::preflight::{build_loaded_warm_template_panel, warm_preflight_loaded};
 use super::resident_vram::vault_resident_vram_preflight;
 use super::*;
 use crate::path_identity::vault_template_source;
@@ -67,10 +68,37 @@ pub(in crate::panel_commands) fn load_resident_warm_state(
     if let Some(log) = &progress_log {
         log.append(&run_progress_record(&template, "resident_run_start"))?;
     }
-    require_gpu_content_lenses(&options.home, &template, progress_log.as_ref())?;
-    let preflight = warm_preflight(
-        &options.home,
+    // Load and validate the immutable source exactly once. Selection must be
+    // resolved against that full identity before any runtime is prepared.
+    let store = template_store::TemplateStore::open(&options.home);
+    let saved_template = store.load(&template)?;
+    saved_template.validate()?;
+    validate_template_slot_capacity(&template, &saved_template)?;
+    let template_id = template_store::id_for_loaded(&saved_template)?;
+    let mut selected_panel = saved_template.to_target_panel(now_ms());
+    let slot_scope = normalized_slot_scope(&template, options.slots)?;
+    apply_resident_slot_scope(
         &template,
+        &mut selected_panel,
+        &slot_scope,
+        options.modality,
+    )?;
+    apply_resident_modality_scope(&mut selected_panel, options.modality);
+    let selected_slots = selected_content_slots(&template, &selected_panel)?;
+    require_gpu_content_panel(&template, &selected_panel, progress_log.as_ref())?;
+    if let Some(log) = &progress_log
+        && (!slot_scope.is_empty()
+            || options.modality.is_some()
+            || selected_slots.len() != saved_template.lenses.len())
+    {
+        let mut record = run_progress_record(&template, "resident_slot_scope_selected");
+        record.lens_count = Some(selected_slots.len());
+        log.append(&record)?;
+    }
+    let preflight = warm_preflight_loaded(
+        &template,
+        &saved_template,
+        Some(&selected_slots),
         options.max_resident_vram_mib,
         options.resident_overhead_multiplier_milli,
         progress_log.as_ref(),
@@ -80,14 +108,18 @@ pub(in crate::panel_commands) fn load_resident_warm_state(
         .unwrap_or_else(|| default_load_parallelism(preflight.lens_count));
     let load_limit = WarmLoadLimit::new(options.max_load_secs);
     let load_started = Instant::now();
-    let build = build_warm_template_panel(
-        &options.home,
+    let mut build = build_loaded_warm_template_panel(
+        saved_template,
+        template_id,
+        Some(&selected_slots),
         &template,
         now_ms(),
         &shared_progress_log,
         &load_limit,
         load_parallelism,
     )?;
+    apply_resident_slot_scope(&template, &mut build.panel, &slot_scope, options.modality)?;
+    apply_resident_modality_scope(&mut build.panel, options.modality);
     let load_ms = load_started.elapsed().as_millis();
     let probe_started = Instant::now();
     let probes = probe_panel(&build, progress_log.as_ref(), &template)?;
@@ -99,7 +131,7 @@ pub(in crate::panel_commands) fn load_resident_warm_state(
     Ok(ResidentWarmState {
         source_of_truth: source_of_truth(&options.home, &build.template_id),
         template_source: format!("saved:{}:{}", build.template_name, build.template_id),
-        slot_scope: Vec::new(),
+        slot_scope,
         build,
         home: options.home,
         template_selector: template,
@@ -138,13 +170,8 @@ fn load_vault_resident_warm_state(
     let state = load_vault_panel_state(&vault)?;
     let mut panel = state.panel;
     apply_resident_slot_scope(&selector, &mut panel, &slot_scope, options.modality)?;
-    if let Some(modality) = options.modality {
-        panel.slots.retain(|slot| {
-            slot.state != SlotState::Active
-                || slot.modality == modality
-                || slot.slot_key.key().starts_with("E")
-        });
-    }
+    apply_resident_modality_scope(&mut panel, options.modality);
+    selected_content_slots(&selector, &panel)?;
     if let Some(log) = &progress_log
         && !slot_scope.is_empty()
     {
@@ -169,13 +196,6 @@ fn load_vault_resident_warm_state(
             .and_then(|name| name.to_str())
             .unwrap_or("vault")
             .to_string(),
-        content_lens_count: panel
-            .slots
-            .iter()
-            .filter(|slot| {
-                slot.state == SlotState::Active && !slot.retrieval_only && !slot.excluded_from_dedup
-            })
-            .count(),
         panel,
         registry: state.registry,
         a37_gate_eligible: false,
@@ -302,7 +322,7 @@ fn apply_resident_slot_scope(
         return Err(CliError::from(CalyxError {
             code: RESIDENT_CPU_LENS_REFUSED,
             message: format!(
-                "resident vault {selector} refuses {} selected CPU/non-GPU content lenses: {}",
+                "resident source {selector} refuses {} selected CPU/non-GPU content lenses: {}",
                 scoped_lenses.len(),
                 scoped_lenses.join(", ")
             ),
@@ -316,9 +336,61 @@ fn apply_resident_slot_scope(
 fn resident_slot_scope_error(selector: &str, detail: String) -> CliError {
     CliError::from(CalyxError {
         code: "CALYX_PANEL_RESIDENT_SLOT_SCOPE_INVALID",
-        message: format!("resident vault {selector} has invalid slot scope: {detail}"),
-        remediation: "pass --slot only for active GPU content slots present in the vault panel",
+        message: format!("resident source {selector} has invalid slot scope: {detail}"),
+        remediation: "pass --slot only for active GPU content slots present in the selected source panel",
     })
+}
+
+fn apply_resident_modality_scope(panel: &mut Panel, modality: Option<Modality>) {
+    let Some(modality) = modality else {
+        return;
+    };
+    panel
+        .slots
+        .retain(|slot| !is_active_content_slot(slot) || slot.modality == modality);
+}
+
+fn selected_content_slots(selector: &str, panel: &Panel) -> CliResult<BTreeSet<SlotId>> {
+    let selected = panel
+        .slots
+        .iter()
+        .filter(|slot| is_active_content_slot(slot))
+        .map(|slot| slot.slot_id)
+        .collect::<BTreeSet<_>>();
+    if selected.is_empty() {
+        return Err(resident_slot_scope_error(
+            selector,
+            "selection contains no active content lens".to_string(),
+        ));
+    }
+    Ok(selected)
+}
+
+fn validate_template_slot_capacity(
+    selector: &str,
+    template: &template_store::SavedPanelTemplate,
+) -> CliResult {
+    let total_slots = template
+        .lenses
+        .len()
+        .checked_add(template.time_controls.len())
+        .ok_or_else(|| {
+            resident_slot_scope_error(selector, "source slot count overflowed usize".to_string())
+        })?;
+    let max_slots = usize::from(u16::MAX) + 1;
+    if total_slots > max_slots {
+        return Err(resident_slot_scope_error(
+            selector,
+            format!(
+                "source contains {total_slots} slots, exceeding the SlotId capacity of {max_slots}"
+            ),
+        ));
+    }
+    Ok(())
+}
+
+fn is_active_content_slot(slot: &Slot) -> bool {
+    slot.state == SlotState::Active && !slot.retrieval_only && !slot.excluded_from_dedup
 }
 
 /// Exclude active CPU/non-GPU content slots from the resident's warm roster
@@ -389,22 +461,22 @@ fn exclude_cpu_content_slots(
     Ok(excluded)
 }
 
-fn require_gpu_content_lenses(
-    home: &Path,
+fn require_gpu_content_panel(
     selector: &str,
+    panel: &Panel,
     progress_log: Option<&WarmProgressLog>,
 ) -> CliResult {
-    let store = template_store::TemplateStore::open(home);
-    let template = store.load(selector)?;
-    template.validate()?;
-    let cpu_lenses = template
-        .lenses
+    let cpu_lenses = panel
+        .slots
         .iter()
-        .filter(|lens| lens.counts_toward_a35 && lens.placement != Placement::Gpu)
-        .map(|lens| {
+        .filter(|slot| is_active_content_slot(slot) && slot.resource.placement != Placement::Gpu)
+        .map(|slot| {
             format!(
-                "{}:{}:{:?}:{}",
-                lens.slot_key, lens.lens_id, lens.placement, lens.manifest
+                "slot={} key={} lens={} placement={:?}",
+                slot.slot_id.get(),
+                slot.slot_key.key(),
+                slot.lens_id,
+                slot.resource.placement
             )
         })
         .collect::<Vec<_>>();
@@ -418,7 +490,13 @@ fn require_gpu_content_lenses(
     );
     if let Some(log) = progress_log {
         let mut record = run_progress_record(selector, "resident_gpu_placement_error");
-        record.lens_count = Some(template.lenses.len());
+        record.lens_count = Some(
+            panel
+                .slots
+                .iter()
+                .filter(|slot| is_active_content_slot(slot))
+                .count(),
+        );
         record.error_code = Some(RESIDENT_CPU_LENS_REFUSED.to_string());
         record.error_message = Some(message.clone());
         record.remediation = Some(

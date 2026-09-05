@@ -195,6 +195,42 @@ pub(super) fn diagnostics() -> CagraServingDiagnostics {
     }
 }
 
+pub(super) fn configure(max_bytes: u64, max_entries: usize) -> Result<()> {
+    if max_bytes == 0 || max_entries == 0 {
+        return Err(exhausted(format!(
+            "CAGRA cache configuration requires non-zero bytes and entries; received bytes={max_bytes} entries={max_entries}"
+        )));
+    }
+    let mut guard = cache()
+        .lock()
+        .map_err(|_| unavailable("CAGRA cache lock poisoned"))?;
+    while guard.resident_bytes > max_bytes || guard.entries.len() > max_entries {
+        let victim = guard.lru.iter().find_map(|(_, key)| {
+            guard
+                .entries
+                .get(key)
+                .is_some_and(evictable)
+                .then(|| key.clone())
+        });
+        let Some(victim) = victim else {
+            return Err(exhausted(format!(
+                "CAGRA cache cannot reconfigure to bytes={max_bytes} entries={max_entries}: resident={} entries={}; active entries are still in use",
+                guard.resident_bytes,
+                guard.entries.len()
+            )));
+        };
+        if let Some(entry) = take_entry(&mut guard, &victim) {
+            guard.resident_bytes = guard.resident_bytes.saturating_sub(entry_bytes(&entry));
+            guard.evictions += 1;
+            drop(entry);
+            PartitionAsset::reclaim_unused()?;
+        }
+    }
+    guard.max_bytes = max_bytes;
+    guard.max_entries = max_entries;
+    Ok(())
+}
+
 fn acquire(
     key: Key,
     reserved: u64,
@@ -464,13 +500,56 @@ fn notify(signal: &Signal) {
     }
 }
 
+/// Cache budget to use when the operator has not set [`CACHE_MIB_ENV`].
+///
+/// The old default was a flat 8 GiB, which is not a budget at all -- it is
+/// larger than the free memory on a shared card, so the cache believed it had
+/// room and kept pinning partitions until cuVS raised a bare
+/// `out_of_memory` (#2058: 3/3 query failures at 2,963 MiB free, 3/3 successes
+/// at the same free memory once the budget was bounded to 1,536 MiB).
+///
+/// Size against what the device actually has free instead. Half of free memory
+/// leaves room for the driver context, the query workspace, and any co-tenant
+/// that grows while we are serving. Undershooting is cheap -- the cache evicts
+/// and reloads, costing latency -- whereas overshooting is a hard query
+/// failure, so the asymmetry is deliberate.
+fn default_cache_bytes() -> u64 {
+    const FLOOR_MIB: u64 = 512;
+    const CEILING_MIB: u64 = 8 * 1024;
+    let mib = match calyx_forge::vram::host_reservation::device_free_mib(0) {
+        Ok(free_mib) => (free_mib / 2).clamp(FLOOR_MIB, CEILING_MIB),
+        // NVML is unreadable, so the honest budget is the smallest one that can
+        // still serve. Never widen to the ceiling here: an unknown device is
+        // precisely the case where a large budget cannot be justified.
+        Err(error) => {
+            eprintln!(
+                "CALYX_SEXTANT_CAGRA_CACHE phase=device_free_unreadable floor_mib={FLOOR_MIB} detail={}",
+                error
+            );
+            FLOOR_MIB
+        }
+    };
+    mib.saturating_mul(1024 * 1024)
+}
+
 fn cache() -> &'static Mutex<Cache> {
     CACHE.get_or_init(|| {
+        // env_u64 already rejects zero and unparsable values, so a sentinel of 0
+        // means "no usable override" and the device-derived budget applies.
+        let override_mib = env_u64(CACHE_MIB_ENV, 0);
+        let (max_bytes, source) = if override_mib > 0 {
+            (override_mib.saturating_mul(1024 * 1024), CACHE_MIB_ENV)
+        } else {
+            (default_cache_bytes(), "device_free_half")
+        };
+        eprintln!(
+            "CALYX_SEXTANT_CAGRA_CACHE phase=configured max_bytes={max_bytes} source={source}"
+        );
         Mutex::new(Cache {
             entries: HashMap::new(),
             generations: HashMap::new(),
             lru: BTreeSet::new(),
-            max_bytes: env_u64(CACHE_MIB_ENV, 8 * 1024).saturating_mul(1024 * 1024),
+            max_bytes,
             max_entries: env_usize(CACHE_ENTRIES_ENV, 32_768).max(1),
             resident_bytes: 0,
             tick: 0,

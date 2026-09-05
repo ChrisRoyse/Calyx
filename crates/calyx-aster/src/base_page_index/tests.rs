@@ -63,8 +63,66 @@ fn missing_index_fails_closed_for_bounded_read() {
 }
 
 #[test]
-fn stale_ledger_head_fails_closed() {
-    let root = temp_root("stale-head");
+fn ledger_head_advance_alone_keeps_index_fresh() {
+    // Issue #1861: an Answer/Guard/Assay-only ledger append advances the global
+    // ledger head and writes non-Base WAL rows, but does not change any Base
+    // constellation byte. The byte-identical Base index must stay fresh -- no
+    // false CALYX_BASE_PAGE_INDEX_STALE, no forced rebuild.
+    let root = temp_root("ledger-head-advance-fresh");
+    let base = root.join("cf").join(ColumnFamily::Base.name());
+    fs::create_dir_all(&base).unwrap();
+    write_sst(
+        base.join("00000000000000000001.sst"),
+        [(b"a".as_slice(), b"value".as_slice())],
+    )
+    .unwrap();
+    let manifest = build_base_page_index(&root, 4, |_| Ok(())).unwrap();
+
+    // Simulate the exact bug scenario: a non-Base ledger/guard append lands in
+    // the WAL and the global ledger head advances.
+    let mut wal = Wal::open(root.join("wal"), WalOptions::default()).unwrap();
+    wal.append(
+        &encode_write_batch(&[
+            WriteRow {
+                cf: ColumnFamily::Ledger,
+                key: b"answer-seq".to_vec(),
+                value: b"answer-entry".to_vec(),
+            },
+            WriteRow {
+                cf: ColumnFamily::Guard,
+                key: b"guard-key".to_vec(),
+                value: b"guard-profile".to_vec(),
+            },
+        ])
+        .unwrap(),
+    )
+    .unwrap();
+    drop(wal);
+    fs::create_dir_all(root.join("ledger_head")).unwrap();
+    let anchor = LedgerHeadAnchor::new(77_401, [9_u8; 32]).unwrap();
+    fs::write(
+        root.join("ledger_head").join("current.json"),
+        serde_json::to_vec(&anchor).unwrap(),
+    )
+    .unwrap();
+
+    // The read is accepted fresh; the on-disk manifest digest is unchanged.
+    let rows = read_indexed_base_rows(&root, 1).unwrap();
+    assert_eq!(rows.get(b"a".as_slice()).unwrap(), b"value");
+    let after = read_base_page_index_manifest(&root).unwrap();
+    assert_eq!(
+        after.base_source_digest_hex,
+        manifest.base_source_digest_hex
+    );
+    assert_eq!(after.version, INDEX_VERSION);
+    cleanup(root);
+}
+
+#[test]
+fn base_put_after_build_stales_index() {
+    // A real Base put (a new Base SST) must change the freshness digest and
+    // force a rebuild via CALYX_BASE_PAGE_INDEX_STALE.
+    let root = temp_root("base-put-stale");
     let base = root.join("cf").join(ColumnFamily::Base.name());
     fs::create_dir_all(&base).unwrap();
     write_sst(
@@ -73,18 +131,81 @@ fn stale_ledger_head_fails_closed() {
     )
     .unwrap();
     build_base_page_index(&root, 4, |_| Ok(())).unwrap();
-    fs::create_dir_all(root.join("ledger_head")).unwrap();
-    let anchor = LedgerHeadAnchor::new(1, [1_u8; 32]).unwrap();
-    fs::write(
-        root.join("ledger_head").join("current.json"),
-        serde_json::to_vec(&anchor).unwrap(),
+    write_sst(
+        base.join("00000000000000000002.sst"),
+        [(b"b".as_slice(), b"new-base".as_slice())],
     )
     .unwrap();
 
     let error = read_indexed_base_rows(&root, 1).unwrap_err();
 
     assert_eq!(error.code, STALE_CODE);
-    assert!(error.message.contains("current head"));
+    assert!(error.message.contains("Base source digest"));
+    assert!(error.message.contains("Base column family changed"));
+    cleanup(root);
+}
+
+#[test]
+fn base_wal_tombstone_after_build_stales_index() {
+    // A Base put+tombstone that lands in the WAL tail (no flush, durable_seq
+    // unchanged) still changes the Base-source digest and must stale the index.
+    let root = temp_root("base-wal-tombstone-stale");
+    let base = root.join("cf").join(ColumnFamily::Base.name());
+    fs::create_dir_all(&base).unwrap();
+    write_sst(
+        base.join("00000000000000000001.sst"),
+        [(b"a".as_slice(), b"value".as_slice())],
+    )
+    .unwrap();
+    build_base_page_index(&root, 4, |_| Ok(())).unwrap();
+
+    let tombstone = crate::mvcc::tombstone_value();
+    let mut wal = Wal::open(root.join("wal"), WalOptions::default()).unwrap();
+    wal.append(
+        &encode_write_batch(&[WriteRow {
+            cf: ColumnFamily::Base,
+            key: b"a".to_vec(),
+            value: tombstone,
+        }])
+        .unwrap(),
+    )
+    .unwrap();
+    drop(wal);
+
+    let error = read_indexed_base_rows(&root, 1).unwrap_err();
+
+    assert_eq!(error.code, STALE_CODE);
+    assert!(error.message.contains("Base source digest"));
+    cleanup(root);
+}
+
+#[test]
+fn prior_version_manifest_fails_stale_until_rebuilt() {
+    // A v3 (pre-digest) manifest is structurally valid but must be rejected as
+    // stale by the version gate so it is rebuilt into the digest contract.
+    let root = temp_root("prior-version-stale");
+    let base = root.join("cf").join(ColumnFamily::Base.name());
+    fs::create_dir_all(&base).unwrap();
+    write_sst(
+        base.join("00000000000000000001.sst"),
+        [(b"a".as_slice(), b"value".as_slice())],
+    )
+    .unwrap();
+    let mut manifest = build_base_page_index(&root, 4, |_| Ok(())).unwrap();
+    // Downgrade the committed manifest to the prior on-disk version.
+    manifest.version = PRIOR_INDEX_VERSION;
+    manifest.base_source_digest_hex = String::new();
+    manifest.base_durable_seq = 0;
+    fs::write(
+        root.join(BASE_PAGE_INDEX_DIR)
+            .join(BASE_PAGE_INDEX_MANIFEST),
+        serde_json::to_vec(&manifest).unwrap(),
+    )
+    .unwrap();
+
+    let error = read_indexed_base_rows(&root, 1).unwrap_err();
+
+    assert_eq!(error.code, STALE_CODE);
     cleanup(root);
 }
 
@@ -387,65 +508,6 @@ fn row_page_visitor_stops_after_first_verified_page() {
 }
 
 #[test]
-fn advancing_index_head_preserves_pages_when_base_files_unchanged() {
-    let root = temp_root("advance-head");
-    let base = root.join("cf").join(ColumnFamily::Base.name());
-    fs::create_dir_all(&base).unwrap();
-    write_sst(
-        base.join("00000000000000000001.sst"),
-        [(b"a".as_slice(), b"value".as_slice())],
-    )
-    .unwrap();
-    build_base_page_index(&root, 4, |_| Ok(())).unwrap();
-    fs::create_dir_all(root.join("ledger_head")).unwrap();
-    let anchor = LedgerHeadAnchor::new(7, [7_u8; 32]).unwrap();
-    fs::write(
-        root.join("ledger_head").join("current.json"),
-        serde_json::to_vec(&anchor).unwrap(),
-    )
-    .unwrap();
-
-    assert!(advance_base_page_index_head_if_base_unchanged(&root).unwrap());
-    let manifest = read_base_page_index_manifest(&root).unwrap();
-
-    assert_eq!(manifest.ledger_head_height, 7);
-    assert_eq!(manifest.base_sst_files, 1);
-    assert_eq!(read_indexed_base_rows(&root, 1).unwrap().len(), 1);
-    cleanup(root);
-}
-
-#[test]
-fn advancing_index_head_refuses_base_file_count_drift() {
-    let root = temp_root("advance-head-drift");
-    let base = root.join("cf").join(ColumnFamily::Base.name());
-    fs::create_dir_all(&base).unwrap();
-    write_sst(
-        base.join("00000000000000000001.sst"),
-        [(b"a".as_slice(), b"value".as_slice())],
-    )
-    .unwrap();
-    build_base_page_index(&root, 4, |_| Ok(())).unwrap();
-    write_sst(
-        base.join("00000000000000000002.sst"),
-        [(b"b".as_slice(), b"new".as_slice())],
-    )
-    .unwrap();
-    fs::create_dir_all(root.join("ledger_head")).unwrap();
-    let anchor = LedgerHeadAnchor::new(8, [8_u8; 32]).unwrap();
-    fs::write(
-        root.join("ledger_head").join("current.json"),
-        serde_json::to_vec(&anchor).unwrap(),
-    )
-    .unwrap();
-
-    let error = advance_base_page_index_head_if_base_unchanged(&root).unwrap_err();
-
-    assert_eq!(error.code, STALE_CODE);
-    assert!(error.message.contains("current vault has 2"));
-    cleanup(root);
-}
-
-#[test]
 fn interruption_after_page_write_keeps_previous_commit_point_readable() {
     let (root, rows, snapshot, previous) = publication_fixture("interrupt-page");
     let error = write_index_with_hook(
@@ -466,10 +528,14 @@ fn interruption_after_page_write_keeps_previous_commit_point_readable() {
     .unwrap_err();
 
     assert_eq!(error.code, "CALYX_DISK_PRESSURE");
+    // Crash safety: the previous commit-point manifest bytes survive intact.
     assert_eq!(read_base_page_index_manifest(&root).unwrap(), previous);
+    // The fixture wrote a new Base SST (the interrupted generation's source), so
+    // under the digest freshness contract (issue #1861) the surviving prior
+    // index is correctly detected stale rather than serving a partial mix.
     assert_eq!(
-        read_indexed_base_rows(&root, 1).unwrap()[b"a".as_slice()],
-        b"old"
+        read_indexed_base_rows(&root, 1).unwrap_err().code,
+        STALE_CODE
     );
     cleanup(root);
 }
@@ -500,10 +566,13 @@ fn interruption_before_commit_point_keeps_previous_generation_readable() {
         .unwrap_err();
 
         assert_eq!(error.code, "CALYX_DISK_PRESSURE");
+        // Crash safety: the previous commit-point manifest bytes survive intact.
         assert_eq!(read_base_page_index_manifest(&root).unwrap(), previous);
+        // The interrupted generation's new Base SST correctly stales the
+        // surviving prior index under the digest freshness contract.
         assert_eq!(
-            read_indexed_base_rows(&root, 1).unwrap()[b"a".as_slice()],
-            b"old"
+            read_indexed_base_rows(&root, 1).unwrap_err().code,
+            STALE_CODE
         );
         cleanup(root);
     }
@@ -580,13 +649,171 @@ fn publication_fixture(
             },
         },
     )]);
+    let (base_source_digest_hex, base_durable_seq, base_sst_files) =
+        compute_base_source_digest(&root).unwrap();
     let snapshot = BuildSnapshot {
         ledger_head_height: 0,
         ledger_head_tip_hash_hex: hex_bytes(&[0_u8; 32]),
-        base_sst_files: 2,
+        base_source_digest_hex,
+        base_durable_seq,
+        base_sst_files,
         wal_records: 0,
     };
     (root, rows, snapshot, previous)
+}
+
+/// Full-state verification harness for issue #1861. Runs only when
+/// `CALYX_ISSUE1861_FSV_DIR` is set, writing every artifact to that directory so
+/// the on-disk manifest bytes and page files can be read back independently
+/// from the shell. Exercises the real consumer function `read_indexed_base_rows`
+/// (the same call weave coverage scan and vault-health make) against real vault
+/// bytes: real Base SSTs, a real WAL, and a real persisted index.
+#[test]
+fn issue1861_full_state_verification() {
+    let Ok(dir) = std::env::var("CALYX_ISSUE1861_FSV_DIR") else {
+        return;
+    };
+    let evidence_root = PathBuf::from(dir);
+    fs::create_dir_all(&evidence_root).unwrap();
+
+    let build_vault = |name: &str| -> PathBuf {
+        let root = evidence_root.join(name);
+        fs::remove_dir_all(&root).ok();
+        let panel_path = root.join("panel").join("panel.json");
+        fs::create_dir_all(panel_path.parent().unwrap()).unwrap();
+        let panel_bytes = b"{}";
+        fs::write(&panel_path, panel_bytes).unwrap();
+        let panel_ref = ImmutableRef::from_bytes("panel/panel.json", panel_bytes).unwrap();
+        let manifest = VaultManifest::new(1, 0, panel_ref, Vec::new()).unwrap();
+        ManifestStore::open(&root).write_current(&manifest).unwrap();
+        let base = root.join("cf").join(ColumnFamily::Base.name());
+        fs::create_dir_all(&base).unwrap();
+        write_sst(
+            base.join("00000000000000000001.sst"),
+            [
+                (b"cx-0001".as_slice(), b"base-value-0001".as_slice()),
+                (b"cx-0002".as_slice(), b"base-value-0002".as_slice()),
+            ],
+        )
+        .unwrap();
+        root
+    };
+    let manifest_digest = |root: &PathBuf| -> String {
+        read_base_page_index_manifest(root)
+            .unwrap()
+            .base_source_digest_hex
+    };
+
+    // Scenario (a): Answer/Guard-only ledger append must NOT stale the index.
+    let a = build_vault("scenario_a_answer_only");
+    let built = build_base_page_index(&a, 1024, |_| Ok(())).unwrap();
+    println!(
+        "[a] BEFORE: built index digest={} live_entries={} base_sst_files={} durable_seq={}",
+        built.base_source_digest_hex,
+        built.live_entries,
+        built.base_sst_files,
+        built.base_durable_seq
+    );
+    let before_rows = read_indexed_base_rows(&a, 10).unwrap();
+    println!(
+        "[a] BEFORE: read_indexed_base_rows accepted fresh, {} live rows",
+        before_rows.len()
+    );
+    let mut wal = Wal::open(a.join("wal"), WalOptions::default()).unwrap();
+    wal.append(
+        &encode_write_batch(&[
+            WriteRow {
+                cf: ColumnFamily::Ledger,
+                key: b"answer-77401".to_vec(),
+                value: b"answer-entry-body".to_vec(),
+            },
+            WriteRow {
+                cf: ColumnFamily::Guard,
+                key: b"guard-profile".to_vec(),
+                value: b"calibration".to_vec(),
+            },
+        ])
+        .unwrap(),
+    )
+    .unwrap();
+    drop(wal);
+    fs::create_dir_all(a.join("ledger_head")).unwrap();
+    fs::write(
+        a.join("ledger_head").join("current.json"),
+        serde_json::to_vec(&LedgerHeadAnchor::new(77_401, [9_u8; 32]).unwrap()).unwrap(),
+    )
+    .unwrap();
+    let after_rows = read_indexed_base_rows(&a, 10).unwrap();
+    println!(
+        "[a] AFTER answer-only append + head->77401: read_indexed_base_rows STILL accepted fresh, {} live rows; on-disk digest={} (unchanged={})",
+        after_rows.len(),
+        manifest_digest(&a),
+        manifest_digest(&a) == built.base_source_digest_hex
+    );
+    assert_eq!(before_rows, after_rows);
+    assert_eq!(manifest_digest(&a), built.base_source_digest_hex);
+
+    // Scenario (b): real Base mutation (put via new SST, then WAL tombstone) must stale.
+    let b = build_vault("scenario_b_base_mutation");
+    let built_b = build_base_page_index(&b, 1024, |_| Ok(())).unwrap();
+    println!("[b] BEFORE: digest={}", built_b.base_source_digest_hex);
+    let base_b = b.join("cf").join(ColumnFamily::Base.name());
+    write_sst(
+        base_b.join("00000000000000000002.sst"),
+        [(b"cx-0003".as_slice(), b"new-base-row".as_slice())],
+    )
+    .unwrap();
+    let put_err = read_indexed_base_rows(&b, 10).unwrap_err();
+    println!(
+        "[b] AFTER Base put (new SST): code={} message={}",
+        put_err.code, put_err.message
+    );
+    assert_eq!(put_err.code, STALE_CODE);
+    // Rebuild over the put, then tombstone via WAL and prove stale again.
+    let rebuilt_b = build_base_page_index(&b, 1024, |_| Ok(())).unwrap();
+    println!(
+        "[b] rebuilt over put: digest={}",
+        rebuilt_b.base_source_digest_hex
+    );
+    let mut wal_b = Wal::open(b.join("wal"), WalOptions::default()).unwrap();
+    wal_b
+        .append(
+            &encode_write_batch(&[WriteRow {
+                cf: ColumnFamily::Base,
+                key: b"cx-0001".to_vec(),
+                value: crate::mvcc::tombstone_value(),
+            }])
+            .unwrap(),
+        )
+        .unwrap();
+    drop(wal_b);
+    let tomb_err = read_indexed_base_rows(&b, 10).unwrap_err();
+    println!(
+        "[b] AFTER Base tombstone (WAL): code={} message={}",
+        tomb_err.code, tomb_err.message
+    );
+    assert_eq!(tomb_err.code, STALE_CODE);
+
+    // Scenario (c): one-byte corruption of a page must fail closed CORRUPT.
+    let c = build_vault("scenario_c_corruption");
+    let built_c = build_base_page_index(&c, 1024, |_| Ok(())).unwrap();
+    let page_path = c.join(BASE_PAGE_INDEX_DIR).join(&built_c.pages[0].path);
+    let mut page_bytes = fs::read(&page_path).unwrap();
+    let flip_at = page_bytes.len() / 2;
+    println!(
+        "[c] BEFORE: page {} byte[{}]={:#04x}",
+        built_c.pages[0].path, flip_at, page_bytes[flip_at]
+    );
+    page_bytes[flip_at] ^= 0x01;
+    fs::write(&page_path, &page_bytes).unwrap();
+    let corrupt_err = read_indexed_base_rows(&c, 10).unwrap_err();
+    println!(
+        "[c] AFTER 1-byte flip: code={} message={}",
+        corrupt_err.code, corrupt_err.message
+    );
+    assert_eq!(corrupt_err.code, CORRUPT_CODE);
+
+    println!("[fsv] evidence_root={}", evidence_root.display());
 }
 
 fn temp_root(name: &str) -> PathBuf {

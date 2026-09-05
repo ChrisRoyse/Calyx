@@ -5,6 +5,11 @@ use serde::{Deserialize, Serialize};
 
 use crate::{Bgem3Engine, LensRuntime};
 
+mod runtime_policy;
+
+pub use runtime_policy::runtime_default_placement;
+use runtime_policy::{RuntimePlacementPolicy, runtime_placement_policy};
+
 pub const CALYX_VRAM_BUDGET_EXCEEDED: &str = "CALYX_VRAM_BUDGET_EXCEEDED";
 pub const CALYX_RAM_BUDGET_EXCEEDED: &str = "CALYX_RAM_BUDGET_EXCEEDED";
 pub const CALYX_BGE_M3_CPU_GRAPH_GPU_PLACEMENT: &str = "CALYX_BGE_M3_CPU_GRAPH_GPU_PLACEMENT";
@@ -49,6 +54,7 @@ pub fn choose_placement(
     cost: LensCost,
     budget: PlacementBudget,
 ) -> Result<PlacementPlan, CalyxError> {
+    let policy = runtime_placement_policy(runtime);
     if matches!(
         runtime,
         LensRuntime::FastembedBgem3 {
@@ -75,7 +81,7 @@ pub fn choose_placement(
         ));
     }
 
-    if algorithmic_cuda_capable(runtime) && budget.vram_soft_cap_bytes > 0 {
+    if policy == RuntimePlacementPolicy::Dynamic && budget.vram_soft_cap_bytes > 0 {
         return Ok(plan(
             cost,
             Placement::Gpu,
@@ -88,7 +94,7 @@ pub fn choose_placement(
         return Ok(plan(cost, Placement::Cpu, budget, "zero-cost lens admits"));
     }
 
-    if runtime_prefers_cpu(runtime) {
+    if policy == RuntimePlacementPolicy::CpuOnly {
         ensure_cpu_budget(cost, budget)?;
         return Ok(plan(cost, Placement::Cpu, budget, "CPU-native runtime"));
     }
@@ -123,38 +129,6 @@ fn plan(
         available_vram_bytes: budget.available_vram_bytes(),
         available_ram_bytes: budget.available_ram_bytes(),
     }
-}
-
-fn runtime_prefers_cpu(runtime: &LensRuntime) -> bool {
-    match runtime {
-        LensRuntime::Algorithmic { .. } => !algorithmic_cuda_capable(runtime),
-        LensRuntime::MultimodalAdapter { .. }
-        | LensRuntime::StaticLookup { .. }
-        | LensRuntime::ExternalCmd { .. } => true,
-        _ => false,
-    }
-}
-
-fn algorithmic_cuda_capable(runtime: &LensRuntime) -> bool {
-    let LensRuntime::Algorithmic { kind } = runtime else {
-        return false;
-    };
-    matches!(
-        kind.as_str(),
-        "byte"
-            | "byte-features"
-            | "byte_features"
-            | "sparse"
-            | "sparse-keywords"
-            | "sparse_keywords"
-            | "token-hash"
-            | "token_hash"
-            | "multi-hash"
-            | "multi_hash"
-    ) || kind.starts_with("sparse-keywords:")
-        || kind.starts_with("sparse_keywords:")
-        || kind.starts_with("token-hash:")
-        || kind.starts_with("token_hash:")
 }
 
 fn ensure_cpu_budget(cost: LensCost, budget: PlacementBudget) -> Result<(), CalyxError> {

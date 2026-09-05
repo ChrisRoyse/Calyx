@@ -258,17 +258,57 @@ pub(super) fn reproduce_report(
     if let Some(payload) = latest_reproduce_payload(entries, answer_id)? {
         return reproduce_from_payload(&payload);
     }
-    if entries.iter().any(|entry| {
-        entry.kind == EntryKind::Answer
-            && matches!(&entry.subject, SubjectId::Query(id) if id == answer_id)
-    }) {
-        return Err(CalyxError::reproduce_nondeterministic(format!(
-            "answer_id {} has no reproduce_v1 ledger row",
-            hex(answer_id)
-        ))
-        .into());
-    }
-    Err(CalyxError::vault_access_denied(format!("answer_id {} not found", hex(answer_id))).into())
+    // Fail closed: an answer subject with no recorded reproduce evidence has no
+    // reproducibility to replay. This is an evidence-sufficiency failure, not an
+    // access-control decision (CALYX_VAULT_ACCESS_DENIED) — never synthesize an
+    // answer. Distinguish absent (zero rows) from an incomplete/aborted lifecycle.
+    Err(reproduce_insufficient_error(entries, answer_id).into())
+}
+
+/// Classifies why an answer subject has no reproducible evidence and builds the
+/// stable `CALYX_REPRODUCE_INSUFFICIENT` error with a message that distinguishes
+/// absent / completed-but-unrecorded / incomplete-lifecycle subjects. The message
+/// text must stay byte-identical to the calyx-cli reproduce_report envelope.
+fn reproduce_insufficient_error(entries: &[LedgerEntry], answer_id: &[u8]) -> CalyxError {
+    let subject_rows: Vec<&LedgerEntry> = entries
+        .iter()
+        .filter(|entry| matches!(&entry.subject, SubjectId::Query(id) if id == answer_id))
+        .collect();
+    let hex = hex(answer_id);
+    let message = if subject_rows.is_empty() {
+        format!("answer_id {hex} is absent (no ledger rows)")
+    } else if subject_rows
+        .iter()
+        .any(|entry| is_completed_answer_row(entry))
+    {
+        format!(
+            "answer_id {hex} has a completed answer but no recorded reproduce evidence; run reproduce --record"
+        )
+    } else {
+        format!(
+            "answer_id {hex} lifecycle is incomplete or aborted ({} rows, no completion)",
+            subject_rows.len()
+        )
+    };
+    CalyxError::reproduce_insufficient(message)
+}
+
+/// True when the entry is a completed kernel answer (not a hop/frontier row).
+fn is_completed_answer_row(entry: &LedgerEntry) -> bool {
+    entry.kind == EntryKind::Answer
+        && serde_json::from_slice::<Value>(&entry.payload)
+            .ok()
+            .as_ref()
+            .and_then(|payload| payload.get("type").and_then(Value::as_str))
+            .is_some_and(|ty| {
+                matches!(
+                    ty,
+                    "kernel_answer_v2"
+                        | "kernel_answer_v3"
+                        | "kernel_answer_v4"
+                        | "kernel_citation_answer_v1"
+                )
+            })
 }
 
 fn answer_trace_out(

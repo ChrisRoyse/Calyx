@@ -1,9 +1,24 @@
-use calyx_core::{CalyxError, Input, Lens, LensId, Result, SlotShape, SlotVector, SparseEntry};
+use calyx_core::{
+    CALYX_STRUCTURED_FIELD_MISSING, CalyxError, Input, Lens, LensId, Result, SlotShape, SlotVector,
+    SparseEntry,
+};
 
 /// Verifies that an input matches a lens' declared modality.
 pub fn ensure_input_modality(lens: &dyn Lens, input: &Input) -> Result<()> {
-    if input.modality == lens.modality() {
+    if lens.accepts_input(input) {
         return Ok(());
+    }
+
+    if lens.requires_structured_record() {
+        return Err(CalyxError {
+            code: CALYX_STRUCTURED_FIELD_MISSING,
+            message: format!(
+                "structured lens {} received {:?} input without a canonical typed record",
+                lens.id(),
+                input.modality
+            ),
+            remediation: "attach the required canonical structured record and retry",
+        });
     }
 
     Err(CalyxError::lens_dim_mismatch(format!(
@@ -29,6 +44,16 @@ pub fn ensure_vector_shape(lens_id: LensId, shape: SlotShape, vector: &SlotVecto
             },
             SlotVector::Multi { token_dim, tokens },
         ) => ensure_multi_shape(lens_id, expected, *token_dim, tokens),
+        (
+            SlotShape::Multi {
+                token_dim: expected,
+            },
+            SlotVector::SegmentedMulti {
+                token_dim,
+                segments,
+                ..
+            },
+        ) => ensure_segmented_multi_shape(lens_id, expected, *token_dim, segments),
         (_, SlotVector::Absent { reason }) => Err(CalyxError::lens_dim_mismatch(format!(
             "lens {lens_id} returned absent vector {reason:?}"
         ))),
@@ -95,6 +120,34 @@ fn ensure_multi_shape(
             )));
         }
         ensure_finite(lens_id, token)?;
+    }
+    Ok(())
+}
+
+fn ensure_segmented_multi_shape(
+    lens_id: LensId,
+    expected: u32,
+    actual: u32,
+    segments: &[calyx_core::SegmentVector],
+) -> Result<()> {
+    if actual != expected {
+        return Err(CalyxError::lens_dim_mismatch(format!(
+            "lens {lens_id} segment dim {actual} != expected {expected}"
+        )));
+    }
+    if segments.is_empty() {
+        return Err(CalyxError::lens_dim_mismatch(format!(
+            "lens {lens_id} emitted no long-input segments"
+        )));
+    }
+    for segment in segments {
+        if segment.data.len() != expected as usize {
+            return Err(CalyxError::lens_dim_mismatch(format!(
+                "lens {lens_id} segment length {} != expected {expected}",
+                segment.data.len()
+            )));
+        }
+        ensure_finite(lens_id, &segment.data)?;
     }
     Ok(())
 }

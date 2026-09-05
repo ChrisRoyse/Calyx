@@ -1,9 +1,14 @@
-use calyx_core::{CalyxError, CxId, Slot, SlotVector};
+use calyx_core::{CalyxError, CxId, Slot, SlotVector, slot_similarity};
 
 use super::contextual_assay_error;
-use crate::error::CliResult;
+use crate::error::{CliError, CliResult};
 
 const SPARSE_HASH_DIM: usize = 2_048;
+/// Deterministic, label-blind landmark budget for the native ordered-block
+/// (Multi/SegmentedMulti) categorical estimator. Each block is represented by
+/// its late-interaction MaxSim profile against these landmark blocks — never by
+/// a pooled/mean surrogate of its own token or segment vectors.
+const BLOCK_LANDMARK_TARGET: usize = 24;
 
 pub(super) fn assay_vector(
     slot: &Slot,
@@ -33,18 +38,26 @@ pub(super) fn assay_vector(
                 format!("sparse_signed_blake3_hash_dim_{dim}_to_{SPARSE_HASH_DIM}_l2"),
             )
         }
-        SlotVector::Multi { token_dim, tokens } => {
-            let mut pooled = vec![0.0f32; *token_dim as usize];
-            for token in tokens {
-                for (sum, value) in pooled.iter_mut().zip(token) {
-                    *sum += *value;
-                }
-            }
-            let divisor = tokens.len() as f32;
-            for value in &mut pooled {
-                *value /= divisor;
-            }
-            (pooled, format!("multi_mean_pool_token_dim_{token_dim}_l2"))
+        SlotVector::Multi { token_dim, .. } => {
+            return Err(CalyxError::assay_degenerate_input(format!(
+                "categorical bits refuses typed Multi{{token_dim:{token_dim}}} for active slot {} ({}) on cx {cx_id}; pooling token vectors would change late-interaction meaning, so use a native ordered-block estimator",
+                slot.slot_id,
+                slot.slot_key.key(),
+            ))
+            .into());
+        }
+        SlotVector::SegmentedMulti {
+            token_dim,
+            segments,
+            ..
+        } => {
+            return Err(CalyxError::assay_degenerate_input(format!(
+                "categorical bits refuses typed SegmentedMulti{{token_dim:{token_dim},segments:{}}} for active slot {} ({}) on cx {cx_id}; pooling document segments would erase source-bound meaning, so use a native ordered-block estimator",
+                segments.len(),
+                slot.slot_id,
+                slot.slot_key.key(),
+            ))
+            .into());
         }
         SlotVector::Absent { reason } => {
             return Err(CalyxError::assay_degenerate_input(format!(
@@ -57,6 +70,104 @@ pub(super) fn assay_vector(
     };
     normalize_nonzero(&mut vector, slot, cx_id)?;
     Ok((vector, representation))
+}
+
+/// Native ordered-block categorical estimator (#1892).
+///
+/// Represents every `Multi`/`SegmentedMulti` slot in the sample by its
+/// late-interaction MaxSim profile against a deterministic, label-blind set of
+/// landmark blocks drawn from the same sample. Each coordinate is a genuine
+/// block-to-block MaxSim computed by [`slot_similarity`], which retains every
+/// token/segment block and its source offsets — no token or segment vector is
+/// ever mean/max pooled or concatenated into a substitute vector. The resulting
+/// fixed-width, L2-normalized coordinates feed the same KSG continuous-discrete
+/// estimator the dense lanes use, so the ordered block participates in the joint
+/// panel natively rather than being collapsed or refused.
+pub(super) fn assay_block_features(
+    slot: &Slot,
+    rows: &[(CxId, &SlotVector)],
+) -> CliResult<(Vec<Vec<f32>>, String)> {
+    let (shape, token_dim) = block_shape(slot, rows)?;
+    let sample_len = rows.len();
+    let landmark_count = BLOCK_LANDMARK_TARGET.min(sample_len);
+    if landmark_count == 0 {
+        return Err(CalyxError::assay_insufficient_samples(format!(
+            "native ordered-block estimator for active slot {} ({}) has no sampled blocks",
+            slot.slot_id,
+            slot.slot_key.key()
+        ))
+        .into());
+    }
+    // Deterministic, label-blind landmark stride over the cx_id-ordered sample.
+    let landmarks = (0..landmark_count)
+        .map(|index| index * sample_len / landmark_count)
+        .collect::<Vec<_>>();
+    let mut features = Vec::with_capacity(sample_len);
+    for &(cx_id, stored) in rows {
+        let mut profile = Vec::with_capacity(landmark_count);
+        for &landmark in &landmarks {
+            let evidence = slot_similarity(stored, rows[landmark].1).map_err(|error| {
+                contextual_assay_error(
+                    error,
+                    format!(
+                        "native ordered-block MaxSim failed for active slot {} ({}) on cx {cx_id} against landmark row {landmark}",
+                        slot.slot_id,
+                        slot.slot_key.key()
+                    ),
+                )
+            })?;
+            profile.push(evidence.score);
+        }
+        normalize_nonzero(&mut profile, slot, cx_id)?;
+        features.push(profile);
+    }
+    let representation = format!(
+        "{shape}_maxsim_late_interaction_landmark_{landmark_count}_tokendim_{token_dim}_l2"
+    );
+    Ok((features, representation))
+}
+
+/// Confirms the whole sample carries one native block shape at one token
+/// dimension. A mixed or non-block sample is a degenerate categorical input.
+fn block_shape(slot: &Slot, rows: &[(CxId, &SlotVector)]) -> CliResult<(&'static str, u32)> {
+    let first = rows.first().ok_or_else(|| {
+        CliError::from(CalyxError::assay_insufficient_samples(format!(
+            "native ordered-block estimator for active slot {} ({}) has no sampled rows",
+            slot.slot_id,
+            slot.slot_key.key()
+        )))
+    })?;
+    let (shape, token_dim) = match first.1 {
+        SlotVector::Multi { token_dim, .. } => ("multi", *token_dim),
+        SlotVector::SegmentedMulti { token_dim, .. } => ("segmented_multi", *token_dim),
+        other => {
+            return Err(CalyxError::assay_degenerate_input(format!(
+                "native ordered-block estimator for active slot {} ({}) requires Multi/SegmentedMulti blocks; cx {} stores {other:?}",
+                slot.slot_id,
+                slot.slot_key.key(),
+                first.0
+            ))
+            .into());
+        }
+    };
+    for &(cx_id, stored) in rows {
+        let matches = match (shape, stored) {
+            ("multi", SlotVector::Multi { token_dim: dim, .. })
+            | ("segmented_multi", SlotVector::SegmentedMulti { token_dim: dim, .. }) => {
+                *dim == token_dim
+            }
+            _ => false,
+        };
+        if !matches {
+            return Err(CalyxError::assay_degenerate_input(format!(
+                "native ordered-block estimator for active slot {} ({}) requires one {shape}{{token_dim:{token_dim}}} shape across the sample; cx {cx_id} differs",
+                slot.slot_id,
+                slot.slot_key.key()
+            ))
+            .into());
+        }
+    }
+    Ok((shape, token_dim))
 }
 
 fn sparse_hash(slot: u16, index: u32) -> (usize, f32) {

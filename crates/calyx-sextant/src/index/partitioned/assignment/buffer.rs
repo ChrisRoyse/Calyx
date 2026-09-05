@@ -70,23 +70,24 @@ impl<'a> AssignmentBuffer<'a> {
             }
             let path = self.root.join(assignment_ids_rel(self.sink, region as u32));
             if let Some(parent) = path.parent() {
-                std::fs::create_dir_all(parent).map_err(|error| {
-                    sextant_error(
-                        CALYX_INDEX_IO,
-                        format!("mkdir {}: {error}", parent.display()),
-                    )
-                })?;
+                calyx_aster::private_fs::create_private_dir_all(parent)?;
             }
-            let file = OpenOptions::new()
-                .create(true)
-                .append(true)
-                .open(&path)
-                .map_err(|error| {
-                    sextant_error(
-                        CALYX_INDEX_IO,
-                        format!("open ids {} for append: {error}", path.display()),
-                    )
-                })?;
+            // Owner-only (0600) at creation, preserving the append accumulator
+            // across flushes (#1989). `.mode()` only bites on the create, so
+            // the readback proof runs once, on the flush that creates the file.
+            let existed = path.exists();
+            let mut options = OpenOptions::new();
+            options.create(true).append(true);
+            calyx_aster::private_fs::harden_open_options(&mut options);
+            let file = options.open(&path).map_err(|error| {
+                sextant_error(
+                    CALYX_INDEX_IO,
+                    format!("open ids {} for append: {error}", path.display()),
+                )
+            })?;
+            if !existed {
+                calyx_aster::private_fs::enforce_private_file_mode(&file, &path)?;
+            }
             let mut writer = BufWriter::new(file);
             for row in rows.iter() {
                 writer.write_all(&row.to_le_bytes()).map_err(|error| {

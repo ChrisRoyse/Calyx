@@ -35,7 +35,7 @@ impl CapabilitySignalKind {
 pub fn signal_kind_from_spec(spec: &LensSpec) -> CapabilitySignalKind {
     match &spec.runtime {
         LensRuntime::Algorithmic { .. } => CapabilitySignalKind::DeterministicContentFeature,
-        LensRuntime::TeiHttp { endpoint } => {
+        LensRuntime::TeiHttp { endpoint } | LensRuntime::TeiHttpSegmented { endpoint, .. } => {
             learned_if(has_hash_provenance(spec) && !endpoint.trim().is_empty())
         }
         LensRuntime::CandleLocal {

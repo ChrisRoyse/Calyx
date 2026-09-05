@@ -208,8 +208,15 @@ fn anneal_status_contains_required_fields_from_proposal_row() {
 
 #[test]
 fn reproduce_missing_answer_and_mismatch_fail_closed() {
+    // Absent subject (zero ledger rows) -> reproduce-discipline insufficiency,
+    // NOT an access-control denial (issue #1865).
     let missing = reproduce_report(&[], b"missing").unwrap_err();
-    assert_eq!(missing.code(), "CALYX_VAULT_ACCESS_DENIED");
+    assert_eq!(missing.code(), "CALYX_REPRODUCE_INSUFFICIENT");
+    assert!(
+        missing.message().contains("is absent (no ledger rows)"),
+        "absent message: {}",
+        missing.message()
+    );
 
     let answer_id = b"answer-1".to_vec();
     let entry = LedgerEntry::new(
@@ -232,6 +239,71 @@ fn reproduce_missing_answer_and_mismatch_fail_closed() {
 
     assert!(!report.bit_parity);
     assert_ne!(report.original_hash, report.reproduced_hash);
+}
+
+fn answer_row(answer_id: &[u8], seq: u64, payload: Value) -> LedgerEntry {
+    LedgerEntry::new(
+        seq,
+        [0; 32],
+        EntryKind::Answer,
+        SubjectId::Query(answer_id.to_vec()),
+        serde_json::to_vec(&payload).unwrap(),
+        ActorId::Service("unit".to_string()),
+        1,
+    )
+}
+
+#[test]
+fn reproduce_completed_answer_without_reproduce_row_is_insufficient() {
+    // A completed kernel answer with no recorded reproduce evidence must map to
+    // the reproduce discipline (not CALYX_REPRODUCE_NONDETERMINISTIC, which claims
+    // a missing determinism seed that is not the actual condition).
+    let answer_id = b"answer-complete".to_vec();
+    let completion = answer_row(
+        &answer_id,
+        0,
+        json!({"type": "kernel_answer_v2", "answer_id": hex_bytes(&answer_id), "complete": true}),
+    );
+
+    let err = reproduce_report(&[completion], &answer_id).unwrap_err();
+
+    assert_eq!(err.code(), "CALYX_REPRODUCE_INSUFFICIENT");
+    assert!(
+        err.message()
+            .contains("has a completed answer but no recorded reproduce evidence"),
+        "completed message: {}",
+        err.message()
+    );
+}
+
+#[test]
+fn reproduce_incomplete_lifecycle_is_insufficient() {
+    // Hop rows exist for the subject but no completion and no reproduce row: an
+    // aborted/incomplete lifecycle. Must report the row count and stay fail-closed.
+    let answer_id = b"answer-partial".to_vec();
+    let hops: Vec<LedgerEntry> = (0..3_u64)
+        .map(|hop_index| {
+            answer_row(
+                &answer_id,
+                hop_index,
+                json!({
+                    "type": "kernel_answer_hop_v1",
+                    "answer_id": hex_bytes(&answer_id),
+                    "hop_index": hop_index,
+                }),
+            )
+        })
+        .collect();
+
+    let err = reproduce_report(&hops, &answer_id).unwrap_err();
+
+    assert_eq!(err.code(), "CALYX_REPRODUCE_INSUFFICIENT");
+    assert!(
+        err.message()
+            .contains("lifecycle is incomplete or aborted (3 rows, no completion)"),
+        "incomplete message: {}",
+        err.message()
+    );
 }
 
 fn test_vault(name: &str) -> (std::path::PathBuf, ResolvedVault, AsterVault) {

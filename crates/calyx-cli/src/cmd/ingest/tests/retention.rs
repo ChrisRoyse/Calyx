@@ -198,8 +198,10 @@ fn batch_pointer_preflight_skips_exact_rows_and_locks_only_pointerless_rows() {
     let state = load_vault_panel_state(&resolved.path).unwrap();
     let exact_before = vault.get(exact_id, vault.snapshot()).unwrap();
 
+    let identity = BatchSnapshotIdentity::capture(&batch, 3).unwrap();
     let preflight =
-        preflight_batch_existing_identity(&vault, &state, &resolved.path, &batch, 3).unwrap();
+        preflight_batch_existing_identity(&vault, &state, &resolved.path, &batch, &identity)
+            .unwrap();
     let stats = backfill_batch_existing_input_pointers(&vault, &preflight).unwrap();
 
     assert_eq!(stats.distinct_existing, 2);

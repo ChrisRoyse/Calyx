@@ -1,9 +1,11 @@
 use std::collections::BTreeMap;
 
 use calyx_aster::cf::{ColumnFamily, XTermKind, xterm_key};
+use calyx_aster::plain_graph::GraphCollectionLifecycle;
 use calyx_aster::vault::AsterVault;
 use calyx_core::{CalyxError, Constellation, CxId, VaultStore};
 use calyx_ledger::{ActorId, EntryKind, RedactionPolicy, SubjectId};
+use calyx_lodestar::PANEL_ASTER_ASSOC_COLLECTION;
 use calyx_loom::agreement_graph::XtermRow;
 use calyx_loom::{
     CrossTermKey, CrossTermKind, CrossTermValue, SignalProvenanceTag, agreement_scalar,
@@ -18,6 +20,7 @@ pub(super) fn materialize_agreement_xterms(
 ) -> ToolResult<usize> {
     let mut rows = Vec::new();
     let snapshot = vault.snapshot();
+    let lifecycle = GraphCollectionLifecycle::new(vault)?;
     for cx in docs.values() {
         let dense_slots = cx
             .slots
@@ -29,11 +32,23 @@ pub(super) fn materialize_agreement_xterms(
                 let (a, av) = dense_slots[left];
                 let (b, bv) = dense_slots[right];
                 let key = xterm_key(cx.cx_id, a, b, XTermKind::Agreement);
+                let stored_key = lifecycle.resolve_weave_xterm_key(
+                    snapshot,
+                    PANEL_ASTER_ASSOC_COLLECTION,
+                    &key,
+                )?;
                 if vault
-                    .read_cf_at(snapshot, ColumnFamily::XTerm, &key)?
+                    .read_cf_at(snapshot, ColumnFamily::XTerm, &stored_key)?
                     .is_some()
                 {
                     continue;
+                }
+                if stored_key != key {
+                    return Err(CalyxError::aster_corrupt_shard(format!(
+                        "accepted weave generation is missing XTerm cx={} slots=({}, {}) kind=agreement",
+                        cx.cx_id, a, b
+                    ))
+                    .into());
                 }
                 let row = XtermRow {
                     key: CrossTermKey {
