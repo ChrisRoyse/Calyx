@@ -11,6 +11,8 @@
 > Records are inert. A row, a document, a value — on its own it carries almost no intelligence. **The complete web of associations among the atoms is the raw material of intelligence.** Everything else in this handbook — bits, sufficiency, the kernel, the guard, the oracle, self‑optimization — is a way of *measuring, distilling, and composing* that ground‑up association structure. The kernel is its compressed generator; the bits are its grounded weights; the guard, oracle, and answers are built *from* it.
 >
 > **Therefore, never shortcut it.** If you skip the decomposition to atoms, or leave base associations uncomputed, the intelligence you extract is partial, biased, and ungrounded — you will have measured a shadow of the system, not the system. The discipline is always the same: **atoms → all base associations → differentiate → kernel → compose.** Decompose everything; compute every association from the ground up; only then does Calyx have the full information it needs to derive maximum grounded intelligence.
+>
+> **The no-collapse law is absolute. A kernel member is a constellation, never a vector.** Every graph, kernel index, guard, Answer, ledger record, reproduce path, and estimator transport MUST preserve the complete contracted slot map with each lens output typed, separate, and addressable. The declared shape is part of that contract: `Multi` remains token-level `Multi` and uses native late-interaction/MaxSim semantics; mean/max pooling it into one dense vector is not preservation. Joint estimators consume an ordered set of explicit lens blocks and may traverse those blocks in one calculation, but MUST NOT concatenate them into a substitute record. Conditioning is fitted per lens block on training data only, and its block roster, dimensions, fold identities, and scales are persisted as provenance. Missing or mismatched block boundaries fail closed. A scalar association or rank-fusion score is permitted only as a derived value whose per-slot evidence remains present; it never replaces the constellation. Selecting one preferred lens, serializing one vector per kernel member, pooling a typed multi-vector slot, flattening/concatenating the panel, or recording only the fused score is a foundational system failure and MUST fail closed.
 
 **How to read this.** §1–§4 are the model. §5 is the core decision (embed vs. encode) and the single most important section for structured data. §6 is the extraction *method*. §7 is the subsystem‑by‑subsystem deep reference with the math. §8–§9 are interfaces and recipes. §10 shows the same mechanics across many domains. §11 is tuning/ops. §12–§14 are doctrine, a formulas/constants/errors reference, and a glossary.
 
@@ -33,7 +35,7 @@
 
 **Three trust principles, enforced in code:**
 - **Grounding is mandatory.** Claims are measured against *anchored real outcomes*. Anything not grounded is tagged **provisional**, never "trusted."
-- **No‑flatten.** Slots stay typed and separate end‑to‑end. The guard scores each slot independently; you never average a panel into one number to make a decision.
+- **No‑flatten / no‑collapse.** Slots stay typed and separate end‑to‑end, including their declared `Dense` / `Sparse` / `Multi` shape through graph, index, truth, kernel, Answer, ledger, and reproduction. A `Multi` slot is never pooled into one dense vector; a path without native MaxSim support fails closed. The guard scores each slot independently. Derived association/fusion scores retain every slot's contribution and never become a substitute record.
 - **Fail closed.** Unknown lens, shape mismatch, uncalibrated guard, missing data, non‑finite value ⇒ a **structured error** (`{code, message, remediation}`), never a silent wrong answer.
 
 **The living‑system map** (each life‑like property maps to a concrete engine): perception = lenses · memory = the store · cognition = associations + search · differentiation = the bits engine · homeostasis = the self‑optimizer · foresight = the oracle · immune boundary = the guard. Calyx claims *operational* intelligence and life‑like behavior — never consciousness.
@@ -75,7 +77,7 @@
 
 **Cross‑term.** A derived association between two slots (agreement / delta / interaction / concat). Between records, associations become **edges** in a nearest‑neighbor graph. The cross‑term is the atom of "counting."
 
-**Kernel.** The minimal generating core of a corpus — the small set of records (a feedback‑vertex‑set, on the order of ~1%) from which the rest of the corpus's intelligence can be reconstructed. It doubles as an index and an answer path, and can be computed at **any scope**.
+**Kernel.** The minimal generating core of a corpus — the small set of **complete constellations** (a feedback‑vertex‑set, on the order of ~1%) from which the rest of the corpus's intelligence can be reconstructed. Every kernel member retains the full contracted panel as a typed slot map; a one-vector kernel is invalid. The kernel doubles as an index and an answer path, and can be computed at **any scope**.
 
 **Guard.** The per‑slot, fail‑closed, conformally‑calibrated gate that decides whether a query/output is inside the trusted region — per slot, never averaged.
 
@@ -374,12 +376,12 @@ The pattern is invariant: **structured fields → deterministic encoders + bits;
 - **Grounding mandatory** — measure against anchored outcomes; ungrounded ⇒ *provisional*. Gates use a real **diverse** panel; a single embedder or synthetic check is diagnostic only.
 - **Embed what is latent, encode what is explicit** (§5). Never embed an already‑meaningful value. Dual‑encode text labels on structured records.
 - **Differentiation contract** — a bit floor and a correlation ceiling govern admission. **Never sell derived `C(N,2)` signal past the data‑processing‑inequality ceiling.**
-- **Kernel at any scope** · **guard wherever generation touches the store** · **fail closed** (a structured error, never a silent fallback/mock) · **measured compression**.
+- **Kernel at any scope, always made of complete constellations** (never one vector or one preferred lens) · **guard wherever generation touches the store** · **fail closed** (a structured error, never a silent fallback/mock) · **measured compression**.
 - **The backbone rule** — *plug‑in lenses is THE key*: a new lens is one call, its value one number, the kernel one call at any scope. Reject anything that makes this harder.
 - **Single source of truth** — structured data lives in Calyx and nowhere else; extend Calyx rather than adding a side store.
 - **Provenance always** · **one change at a time** · **verify against the bytes** (no green‑checkmark stand‑ins).
 
-**Anti‑patterns (refuse):** flattening the panel · embedding an already‑explicit value · selling associations past the ceiling · labeling ungrounded output "trusted" · mutating a frozen lens · making lens plug‑in harder · bolting on a separate search/graph/vector DB · a side store as a source of truth · a harness standing in for real verification.
+**Anti‑patterns (refuse):** flattening the panel · pooling a typed `Multi` slot into one vector · embedding an already‑explicit value · selling associations past the ceiling · labeling ungrounded output "trusted" · mutating a frozen lens · making lens plug‑in harder · bolting on a separate search/graph/vector DB · a side store as a source of truth · a harness standing in for real verification.
 
 ---
 
